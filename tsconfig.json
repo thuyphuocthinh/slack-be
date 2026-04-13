@@ -27,6 +27,12 @@
       ],
       "@slack/common/*": [
         "libs/common/src/*"
+      ],
+      "@slack/database": [
+        "libs/database/src"
+      ],
+      "@slack/database/*": [
+        "libs/database/src/*"
       ]
     }
   }

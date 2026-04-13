@@ -81,7 +81,8 @@
       "<rootDir>/libs/"
     ],
     "moduleNameMapper": {
-      "^@slack/common(|/.*)$": "<rootDir>/libs/common/src/$1"
+      "^@slack/common(|/.*)$": "<rootDir>/libs/common/src/$1",
+      "^@slack/database(|/.*)$": "<rootDir>/libs/database/src/$1"
     }
   }
 }
