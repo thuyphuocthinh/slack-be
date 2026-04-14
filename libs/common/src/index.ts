@@ -3,3 +3,5 @@ export * from './common.service';
 
 export * from './types/response.type';
 export * from './types/microservice-error.interface';
+
+export * from './utils/checkType.util';
