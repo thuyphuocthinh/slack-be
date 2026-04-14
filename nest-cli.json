@@ -46,6 +46,15 @@
         "tsConfigPath": "libs/database/tsconfig.lib.json"
       }
     },
+    "notification": {
+      "type": "application",
+      "root": "apps/notification",
+      "entryFile": "main",
+      "sourceRoot": "apps/notification/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/notification/tsconfig.app.json"
+      }
+    },
     "slack-be": {
       "type": "application",
       "root": "apps/slack-be",
