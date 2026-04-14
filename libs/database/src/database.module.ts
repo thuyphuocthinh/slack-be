@@ -22,7 +22,10 @@ import { getDataSourceOptions } from './database.config';
     }),
     TypeOrmModule.forRoot({
       ...getDataSourceOptions(),
-      migrationsRun: true,
+      autoLoadEntities: true,
+      entities: [],
+      migrations: [],
+      migrationsRun: false,
     }),
   ],
   providers: [DatabaseService, DatabaseHealthService],
