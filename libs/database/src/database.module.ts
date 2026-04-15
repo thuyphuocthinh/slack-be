@@ -7,6 +7,7 @@ import * as Joi from 'joi';
 import { getDataSourceOptions } from './database.config';
 
 @Module({
+  // tam thoi mot db nen database module chiu trach nhiem config services
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
@@ -18,6 +19,15 @@ import { getDataSourceOptions } from './database.config';
         DB_PASS: Joi.string().required(),
         DB_NAME: Joi.string().optional(),
         GATEWAY_PORT: Joi.number().default(3000),
+        MAIL_HOST: Joi.string().required(),
+        MAIL_PORT: Joi.number().required(),
+        MAIL_USER: Joi.string().required(),
+        MAIL_PASSWORD: Joi.string().required(),
+        MAIL_FROM: Joi.string().required(),
+        JWT_SECRET: Joi.string().required(),
+        GOOGLE_CLIENT_ID: Joi.string().required(),
+        GOOGLE_CLIENT_SECRET: Joi.string().required(),
+        GOOGLE_CALLBACK_URL: Joi.string().required(),
       }),
     }),
     TypeOrmModule.forRoot({
