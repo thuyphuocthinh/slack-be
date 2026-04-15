@@ -6,7 +6,7 @@ export class ApiGatewayController {
   constructor(private readonly apiGatewayService: ApiGatewayService) {}
 
   @Get()
-  getHello(): string {
+  getHello(): { fullName: string } {
     return this.apiGatewayService.getHello();
   }
 }
