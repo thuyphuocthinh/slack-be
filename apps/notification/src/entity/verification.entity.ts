@@ -19,23 +19,23 @@ export class VerificationEntity {
 
   @Index('idx_verification_user')
   @Column({ name: 'user_id', type: 'uuid' })
-  user_id: string;
+  userId: string;
 
   @Column({ type: 'varchar', length: 255 })
   code: string;
 
-  @Column({ type: 'boolean', default: false })
-  is_used: boolean;
+  @Column({ type: 'boolean', default: false, name: 'is_used' })
+  isUsed: boolean;
 
   @Column({ type: 'enum', enum: VerificationAction })
   action: VerificationAction;
 
-  @Column({ type: 'timestamp' })
-  expires_at: Date;
+  @Column({ type: 'timestamp', name: 'expires_at' })
+  expiresAt: Date;
 
-  @CreateDateColumn({ type: 'timestamp' })
-  created_at: Date;
+  @CreateDateColumn({ type: 'timestamp', name: 'created_at' })
+  createdAt: Date;
 
-  @UpdateDateColumn({ type: 'timestamp' })
-  updated_at: Date;
+  @UpdateDateColumn({ type: 'timestamp', name: 'updated_at' })
+  updatedAt: Date;
 }
