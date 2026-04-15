@@ -26,6 +26,7 @@
     "start:channel": "nest start channel --watch",
     "start:message": "nest start message --watch",
     "start:notification": "nest start notification --watch",
+    "start:all": "concurrently -n GATEWAY,AUTH,USER,NOTIFICATION -c blue,green,pink,yellow \"pnpm run start:gateway\" \"pnpm run start:auth\" \"pnpm run start:user\" \"pnpm run start:notification\"",
     "typeorm": "typeorm-ts-node-commonjs",
     "migration:generate": "pnpm typeorm migration:generate -d ./data-source.ts",
     "migration:run": "pnpm typeorm migration:run -d ./data-source.ts",
@@ -38,20 +39,32 @@
     ]
   },
   "dependencies": {
+    "@nestjs-modules/mailer": "^2.3.4",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",
+    "@nestjs/jwt": "^11.0.2",
     "@nestjs/microservices": "^11.1.19",
+    "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/typeorm": "^11.0.1",
+    "bcrypt": "^6.0.0",
+    "camelcase-keys": "^10.0.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "dotenv": "^17.4.2",
+    "handlebars": "^4.7.9",
     "joi": "^18.1.2",
+    "lodash": "^4.18.1",
+    "nodemailer": "^8.0.5",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
+    "passport-jwt": "^4.0.1",
     "pg": "^8.20.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "typeorm": "^0.3.28"
+    "typeorm": "^0.3.28",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -63,6 +76,7 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^22.10.7",
     "@types/supertest": "^6.0.2",
+    "concurrently": "^9.2.1",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",
@@ -102,6 +116,7 @@
     ],
     "moduleNameMapper": {
       "^@slack/common(|/.*)$": "<rootDir>/libs/common/src/$1",
+      "^@slack/constants(|/.*)$": "<rootDir>/libs/constants/src/$1",
       "^@slack/database(|/.*)$": "<rootDir>/libs/database/src/$1"
     }
   }

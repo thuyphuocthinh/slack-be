@@ -1,20 +1,19 @@
 import { NestFactory } from '@nestjs/core';
-import { NotificationModule } from './notification.module';
+import { UserModule } from './user.module';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
-import { ValidationPipe } from '@nestjs/common';
 import { AllRpcExceptionFilter } from '@slack/common';
-import { PORT_TCP } from '@slack/constants';
-import * as dns from 'dns';
 
-dns.setDefaultResultOrder('ipv4first');
+import { ValidationPipe } from '@nestjs/common';
+import { PORT_TCP } from '@slack/constants';
 
 async function bootstrap() {
   const app = await NestFactory.createMicroservice<MicroserviceOptions>(
-    NotificationModule,
+    UserModule,
     {
       transport: Transport.TCP,
       options: {
-        port: PORT_TCP.NOTIFICATION_TCP_PORT,
+        host: 'localhost',
+        port: PORT_TCP.USER_TCP_PORT,
       },
     },
   );
@@ -24,10 +23,9 @@ async function bootstrap() {
     new ValidationPipe({
       transform: true,
       whitelist: true,
-      forbidNonWhitelisted: false,
+      forbidNonWhitelisted: false, // Allow extra properties for microservice flexibility
     }),
   );
-
   await app.listen();
 }
 bootstrap();

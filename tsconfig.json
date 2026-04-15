@@ -28,6 +28,12 @@
       "@slack/common/*": [
         "libs/common/src/*"
       ],
+      "@slack/constants": [
+        "libs/constants/src"
+      ],
+      "@slack/constants/*": [
+        "libs/constants/src/*"
+      ],
       "@slack/database": [
         "libs/database/src"
       ],
