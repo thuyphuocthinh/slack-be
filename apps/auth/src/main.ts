@@ -1,9 +1,10 @@
 import { NestFactory } from '@nestjs/core';
 import { AuthModule } from './auth.module';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
-import { AllRpcExceptionFilter, PORT_TCP } from '@slack/common';
+import { PORT_TCP } from '@slack/constants';
 import * as dotenv from 'dotenv';
 import { ValidationPipe } from '@nestjs/common';
+import { AllRpcExceptionFilter } from '@slack/common';
 
 async function bootstrap() {
   dotenv.config();
