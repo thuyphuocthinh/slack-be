@@ -21,6 +21,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let status: number = HttpStatus.INTERNAL_SERVER_ERROR;
     let message: string | string[] = 'Internal server error';
     let error: string = 'UnknownError';
+    let code: string | undefined = undefined;
 
     // Log the raw exception for debugging
     this.logger.error(
@@ -44,6 +45,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         const responseObj = exceptionResponse as IMicroserviceError;
         message = responseObj.message || exception.message;
         error = responseObj.error || exception.constructor.name;
+        code = responseObj.code;
       } else {
         message = exception.message;
         error = exception.constructor.name;
@@ -66,9 +68,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
         status = HttpStatus.INTERNAL_SERVER_ERROR;
       }
 
-      // Extract message
+      // Extract message and code
       message = errorObj.message || errorObj.error || 'Internal server error';
       error = errorObj.error || 'MicroserviceError';
+      code = errorObj.code;
 
       // Logging will be handled by the unified logger below
     } else {
@@ -90,6 +93,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const errorResponse: IBaseResponse<null> = {
       status: 'Error',
       statusCode: status,
+      ...(code && { code }),
       message: Array.isArray(message) ? message.join(', ') : message,
       data: null,
       metadata: {

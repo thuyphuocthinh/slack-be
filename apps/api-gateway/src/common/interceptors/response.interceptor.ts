@@ -4,7 +4,7 @@ import {
   Injectable,
   NestInterceptor,
 } from '@nestjs/common';
-import { IBaseResponse } from '@slack/common';
+import { IBaseResponse, toSnakeCase } from '@slack/common';
 import { Request, Response } from 'express';
 import { map, Observable } from 'rxjs';
 
@@ -27,7 +27,7 @@ export class ResponseInterceptor<T> implements NestInterceptor<
         statusCode: statusCode,
         status: 'Success',
         message: 'Request Success',
-        data: data,
+        data: toSnakeCase(data),
         metadata: {
           timestamp: new Date().toISOString(),
           method: request.method,

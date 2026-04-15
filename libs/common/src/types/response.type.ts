@@ -1,6 +1,7 @@
 export interface IBaseResponse<T> {
   status: 'Success' | 'Error';
   statusCode: number;
+  code?: string;
   data: T;
   message: string;
   metadata: {

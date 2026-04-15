@@ -4,5 +4,6 @@ export interface IMicroserviceError {
   message?: string | string[];
   name?: string;
   error?: string;
+  code?: string;
   response?: IMicroserviceError;
 }

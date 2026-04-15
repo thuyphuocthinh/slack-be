@@ -44,6 +44,8 @@ export class AllRpcExceptionFilter extends BaseRpcExceptionFilter {
       const response = exception.getResponse();
 
       let message = exception.message;
+      let code: string | undefined;
+
       if (typeof response === 'string') {
         message = response;
       } else if (isObject(response)) {
@@ -52,11 +54,15 @@ export class AllRpcExceptionFilter extends BaseRpcExceptionFilter {
         } else if (typeof response.message === 'string') {
           message = response.message;
         }
+        if (typeof response.code === 'string') {
+          code = response.code;
+        }
       }
 
       const rpcException = new RpcException({
         statusCode: status,
         message: message,
+        ...(code && { code }),
         error: getErrorName(status),
         timestamp: new Date().toISOString(),
       });

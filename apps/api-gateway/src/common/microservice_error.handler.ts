@@ -20,7 +20,7 @@ export class MicroserviceErrorHandler {
     operation: string,
     serviceName: string = 'Microservice',
   ): never {
-    this.logger.error(`${serviceName} ${operation} failed:`, error);
+    this.logger.error(`${serviceName} ${operation} failed:`, JSON.stringify(error));
 
     // Handle RpcException from microservice
     const rpcError = this.isObject(error)
@@ -31,10 +31,16 @@ export class MicroserviceErrorHandler {
     const statusCode = this.extractStatusCode(rpcError);
     const message = this.extractErrorMessage(rpcError, operation);
 
+    const responsePayload = {
+      message,
+      code: rpcError.code,
+      error: rpcError.error || rpcError.name,
+    };
+
     this.logger.debug(
       `Throwing HttpException with status: ${statusCode}, message: ${message}`,
     );
-    throw new HttpException(message, statusCode);
+    throw new HttpException(responsePayload, statusCode);
   }
 
   /**
