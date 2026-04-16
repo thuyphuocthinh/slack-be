@@ -9,19 +9,33 @@ export class EmailService {
 
   constructor(private readonly mailerService: MailerService) {}
 
-  async sendVerificationEmail(email: string, code: string): Promise<void> {
+  private async sendEmail(
+    to: string,
+    subject: string,
+    template: string,
+    context: Record<string, string>,
+  ): Promise<void> {
     try {
       await this.mailerService.sendMail({
-        to: email,
-        subject: 'Verify your email',
-        template: 'verification',
-        context: {
-          code,
-        },
+        to,
+        subject,
+        template,
+        context,
       });
       this.logger.log(
-        `Sent verification email to email: ${email}, code: ${code}`,
+        `Sent email to email: ${to}, subject: ${subject}, template: ${template}`,
       );
+    } catch (error) {
+      this.logger.error('Failed to send email', error);
+      throw new RpcException(NOTIFICATION_ERROR.SEND_EMAIL_FAILED);
+    }
+  }
+
+  async sendVerificationEmail(email: string, code: string): Promise<void> {
+    try {
+      await this.sendEmail(email, 'Verify your email', 'verification', {
+        code,
+      });
     } catch (error) {
       this.logger.error('Failed to send verification email', error);
       throw new RpcException(NOTIFICATION_ERROR.SEND_VERIFICATION_EMAIL_FAILED);
@@ -30,18 +44,10 @@ export class EmailService {
 
   async sendResetPasswordEmail(email: string, code: string): Promise<void> {
     try {
-      await this.mailerService.sendMail({
-        to: email,
-        subject: 'Reset your password',
-        template: 'reset_password',
-        context: {
-          code,
-          email,
-        },
+      await this.sendEmail(email, 'Reset your password', 'reset_password', {
+        code,
+        email,
       });
-      this.logger.log(
-        `Sent reset password email to email: ${email}, code: ${code}`,
-      );
     } catch (error) {
       this.logger.error('Failed to send reset password email', error);
       throw new RpcException(

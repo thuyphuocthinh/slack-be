@@ -1,4 +1,8 @@
 export const NOTIFICATION_ERROR = {
+  SEND_EMAIL_FAILED: {
+    code: 'ERR.NOTI.0100',
+    message: 'FAILED TO SEND EMAIL',
+  },
   SEND_VERIFICATION_EMAIL_FAILED: {
     code: 'ERR.NOTI.0101',
     message: 'FAILED TO SEND VERIFICATION EMAIL',
