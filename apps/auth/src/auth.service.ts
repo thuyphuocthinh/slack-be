@@ -419,11 +419,10 @@ export class AuthService {
       throw new RpcException(AUTH_ERROR.ACCOUNT_VERIFICATION_CODE_EXPIRED);
     }
     // 2. find user
-    const user = await this.userClient.send(
-      USER_MESSAGE_PATTERNS.GET_USER_BY_ID,
-      {
+    const user = await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, {
         id: verification.userId,
-      },
+      }),
     );
     if (!user) {
       throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_FOUND);
