@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
@@ -12,6 +13,9 @@ export enum ProviderType {
 }
 
 @Entity('auth')
+@Index('IDX_AUTH_PROVIDER', ['providerType', 'providerId'], { unique: true })
+@Index('IDX_AUTH_USER_ID', ['userId'])
+@Index('IDX_AUTH_USER_PROVIDER', ['userId', 'providerType'])
 export class AuthEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

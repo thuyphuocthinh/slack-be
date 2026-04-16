@@ -13,6 +13,14 @@ export enum VerificationAction {
 }
 
 @Entity('verifications')
+@Index('IDX_VERIFICATION_VERIFY', [
+  'userId',
+  'code',
+  'action',
+  'isUsed',
+  'expiresAt',
+])
+@Index('IDX_VERIFICATION_USER_ACTION', ['userId', 'action'])
 export class VerificationEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

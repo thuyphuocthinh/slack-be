@@ -2,11 +2,15 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 
 @Entity('sessions')
+@Index('IDX_SESSION_REFRESH_TOKEN', ['refreshToken'], { unique: true })
+@Index('IDX_SESSION_REFRESH_TOKEN_REVOKED', ['refreshToken', 'isRevoked'])
+@Index('IDX_SESSION_USER_ID_REVOKED', ['userId', 'isRevoked'])
 export class SessionEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
