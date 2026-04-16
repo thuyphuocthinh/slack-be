@@ -5,20 +5,32 @@ import { AuthModule } from './auth/auth.module';
 import { CamelCaseMiddleware } from './common/middlewares/camelCase.middleware';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './common/guards/jwt_auth.guard';
+import { JwtModule } from '@nestjs/jwt';
+import { CachedModule } from '@slack/cached';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
-  imports: [AuthModule],
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+    AuthModule,
+    JwtModule.register({
+      secret: process.env.JWT_SECRET || 'fallback_secret',
+    }),
+    CachedModule,
+  ],
   controllers: [ApiGatewayController],
-  providers: [ApiGatewayService, {
-    provide: APP_GUARD,
-    useClass: JwtAuthGuard,
-  }],
+  providers: [
+    ApiGatewayService,
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+  ],
 })
-
 export class ApiGatewayModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer
-      .apply(CamelCaseMiddleware)
-      .forRoutes('*');
+    consumer.apply(CamelCaseMiddleware).forRoutes('*');
   }
 }

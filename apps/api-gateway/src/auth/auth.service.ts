@@ -2,7 +2,13 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { AUTH_MESSAGE_PATTERNS, NAME_SERVICE_TCP } from '@slack/constants';
 import { firstValueFrom } from 'rxjs';
-import { LoginDto, RegisterDto, VerifyEmailDto, RefreshTokenDto, VerifyResetPasswordDto } from './dto';
+import {
+  LoginDto,
+  RegisterDto,
+  VerifyEmailDto,
+  RefreshTokenDto,
+  VerifyResetPasswordDto,
+} from './dto';
 import { MicroserviceErrorHandler } from '../common/microservice_error.handler';
 import { IRequestMetadata } from '@slack/common';
 
@@ -11,7 +17,7 @@ export class AuthService {
   constructor(
     @Inject(NAME_SERVICE_TCP.AUTH_SERVICE)
     private readonly authClient: ClientProxy,
-  ) { }
+  ) {}
 
   async register(data: RegisterDto): Promise<string> {
     return MicroserviceErrorHandler.handleAsyncCall(
@@ -80,7 +86,7 @@ export class AuthService {
     );
   }
 
-  async logout(data: { refreshToken: string }) {
+  async logout(data: { accessToken: string; refreshToken: string }) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -145,4 +151,3 @@ export class AuthService {
     );
   }
 }
-
