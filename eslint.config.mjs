@@ -31,7 +31,7 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'off',
 
       // giữ nhẹ thôi
-      '@typescript-eslint/no-floating-promises': 'warn',
+      '@typescript-eslint/no-floating-promises': 'off',
 
       // tắt hết mấy cái "unsafe"
       '@typescript-eslint/no-unsafe-assignment': 'off',
