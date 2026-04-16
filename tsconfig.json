@@ -22,6 +22,12 @@
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false,
     "paths": {
+      "@slack/cached": [
+        "libs/cached/src"
+      ],
+      "@slack/cached/*": [
+        "libs/cached/src/*"
+      ],
       "@slack/common": [
         "libs/common/src"
       ],

@@ -25,6 +25,7 @@ import { v7 } from 'uuid';
 import { firstValueFrom } from 'rxjs';
 import { ITokenResponse } from './types/auth.response';
 import { IRequestMetadata } from '@slack/common';
+import { AuthCacheService } from '@slack/cached';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -41,6 +42,7 @@ export class AuthService {
     @Inject(NAME_SERVICE_TCP.NOTIFICATION_SERVICE)
     private readonly notificationClient: ClientProxy,
     private readonly jwtService: JwtService,
+    private readonly authCacheService: AuthCacheService,
   ) { }
 
   async register(request: RegisterDto): Promise<string> {
@@ -143,8 +145,10 @@ export class AuthService {
   }
 
   private async generateTokens(userId: string, email: string): Promise<ITokenResponse> {
-    const accessToken = await this.jwtService.signAsync({ sub: userId, email }, { expiresIn: '15m' });
-    const refreshToken = await this.jwtService.signAsync({ sub: userId, email }, { expiresIn: '7d' });
+    const tokenVersion = await this.authCacheService.getUserTokenVersion(userId);
+    const accessToken = await this.jwtService.signAsync({ sub: userId, email, tokenVersion }, { expiresIn: '15m' });
+    const refreshToken = await this.jwtService.signAsync({ sub: userId, email, tokenVersion }, { expiresIn: '7d' });
+    await this.authCacheService.blacklistToken(accessToken, 15 * 60);
     return { accessToken, refreshToken, type: 'Bearer' };
   }
 
@@ -329,7 +333,6 @@ export class AuthService {
     }
     session.isRevoked = true;
     await this.sessionRepository.save(session);
-    // handle redis with later
     return 'Logout successfully.';
   }
 
@@ -349,7 +352,7 @@ export class AuthService {
       session.isRevoked = true;
     });
     await this.sessionRepository.save(sessions);
-    // handle redis with later
+    await this.authCacheService.bumpUserTokenVersion(userId);
     return 'Logout all successfully.';
   }
 

@@ -27,4 +27,12 @@ export const AUTH_ERROR = {
     code: 'ERR.AUTH.0107',
     message: 'ACCOUNT NOT VERIFIED',
   },
+  UNAUTHORIZED: {
+    code: 'ERR.AUTH.0108',
+    message: 'UNAUTHORIZED TO ACCESS THIS RESOURCE',
+  },
+  FORBIDDEN: {
+    code: 'ERR.AUTH.0109',
+    message: 'FORBIDDEN',
+  },
 };

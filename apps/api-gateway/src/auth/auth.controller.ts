@@ -1,21 +1,25 @@
-import { Body, Controller, Get, Post, Query, Ip, Headers, Res, Req } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Ip, Headers, Res, Req, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto, RegisterDto, VerifyEmailDto, RefreshTokenDto } from './dto';
+import { Public } from '@slack/common';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) { }
 
+  @Public()
   @Post('register')
   register(@Body() data: RegisterDto) {
     return this.authService.register(data);
   }
 
+  @Public()
   @Get('verify-email')
   verifyEmail(@Query() data: VerifyEmailDto) {
     return this.authService.verifyEmail(data);
   }
 
+  @Public()
   @Post('login')
   login(
     @Body() data: LoginDto,
@@ -44,11 +48,13 @@ export class AuthController {
     return this.authService.logoutAll(data);
   }
 
+  @Public()
   @Get("google")
   async googleLogin() {
     // passport tự redirect → không cần code gì ở đây
   }
 
+  @Public()
   @Get("google/callback")
   async googleCallback(
     @Req() req: any,

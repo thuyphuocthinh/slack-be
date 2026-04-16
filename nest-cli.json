@@ -28,6 +28,15 @@
         "tsConfigPath": "apps/auth/tsconfig.app.json"
       }
     },
+    "cached": {
+      "type": "library",
+      "root": "libs/cached",
+      "entryFile": "index",
+      "sourceRoot": "libs/cached/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/cached/tsconfig.lib.json"
+      }
+    },
     "common": {
       "type": "library",
       "root": "libs/common",

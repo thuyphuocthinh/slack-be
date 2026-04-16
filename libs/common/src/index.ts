@@ -7,3 +7,6 @@ export * from './utils/rpc-exception.util';
 export * from './utils/toSnakeCase.util';
 export * from './filters/rpc-exception.filter';
 export * from './types/metadata.interface';
+export * from './utils/security.util';
+export * from './custom_decorators/public.decorator';
+export * from './custom_decorators/role.decorator';

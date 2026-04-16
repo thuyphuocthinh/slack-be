@@ -1,5 +1,5 @@
 export interface IBaseResponse<T> {
-  status: 'Success' | 'Error';
+  status: 'Success' | 'Failure';
   statusCode: number;
   code?: string;
   data: T;

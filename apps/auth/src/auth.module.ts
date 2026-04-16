@@ -10,11 +10,13 @@ import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { VerificationEntity } from './entity/verification.entity';
 import { JwtModule } from '@nestjs/jwt';
 import { GoogleStrategy } from './strategy/google.strategy';
+import { CachedModule } from '@slack/cached';
 
 @Module({
   imports: [
     DatabaseModule,
     TypeOrmModule.forFeature([AuthEntity, SessionEntity, VerificationEntity]),
+    CachedModule,
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET || 'fallback_secret',
