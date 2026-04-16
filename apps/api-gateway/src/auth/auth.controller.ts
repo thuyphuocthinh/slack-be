@@ -9,7 +9,13 @@ import {
   Res,
   Req,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBody,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import {
   LoginDto,
@@ -64,6 +70,7 @@ export class AuthController {
   @Post('refresh')
   @ApiOperation({ summary: 'Refresh access token' })
   @ApiResponse({ status: 200, description: 'Tokens successfully refreshed' })
+  @ApiBearerAuth()
   refresh(
     @Body() data: RefreshTokenDto,
     @Ip() ipAddress: string,
@@ -79,6 +86,7 @@ export class AuthController {
   @Post('logout')
   @ApiOperation({ summary: 'Logout user' })
   @ApiResponse({ status: 200, description: 'User successfully logged out' })
+  @ApiBearerAuth()
   @ApiBody({
     schema: {
       type: 'object',
@@ -98,6 +106,7 @@ export class AuthController {
     status: 200,
     description: 'User successfully logged out from all devices',
   })
+  @ApiBearerAuth()
   @ApiBody({
     schema: { type: 'object', properties: { userId: { type: 'string' } } },
   })

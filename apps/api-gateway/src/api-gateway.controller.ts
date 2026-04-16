@@ -1,5 +1,10 @@
 import { Controller, Get } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { ApiGatewayService } from './api-gateway.service';
 import { Public } from '@slack/common';
 
@@ -24,6 +29,7 @@ export class ApiGatewayController {
   }
 
   @Get('protected')
+  @ApiBearerAuth()
   @ApiOperation({
     summary: 'Check protected route',
     description:

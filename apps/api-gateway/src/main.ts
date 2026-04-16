@@ -23,12 +23,13 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new ResponseInterceptor());
   app.enableCors();
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api/v1/');
 
   const config = new DocumentBuilder()
     .setTitle('Slack API')
     .setDescription('API docs')
     .setVersion('1.0')
+    .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
