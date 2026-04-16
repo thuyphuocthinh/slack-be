@@ -1,4 +1,6 @@
 import { NestFactory } from '@nestjs/core';
+import { WinstonModule } from 'nest-winston';
+import { getLoggerConfig } from '@slack/common';
 import { NotificationModule } from './notification.module';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { ValidationPipe } from '@nestjs/common';
@@ -16,6 +18,7 @@ async function bootstrap() {
       options: {
         port: PORT_TCP.NOTIFICATION_TCP_PORT,
       },
+      logger: WinstonModule.createLogger(getLoggerConfig('NOTIFICATION')),
     },
   );
 

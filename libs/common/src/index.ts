@@ -10,3 +10,4 @@ export * from './types/metadata.interface';
 export * from './utils/security.util';
 export * from './custom_decorators/public.decorator';
 export * from './custom_decorators/role.decorator';
+export * from './logger/logger.config';

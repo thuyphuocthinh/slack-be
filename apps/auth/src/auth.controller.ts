@@ -2,12 +2,19 @@ import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { AuthService } from './auth.service';
 import { AUTH_MESSAGE_PATTERNS } from '@slack/constants';
-import { LoginDto, RegisterDto, VerifyEmailDto, RefreshTokenDto, VerifyResetPasswordDto, ResetPasswordDto } from './dto';
+import {
+  LoginDto,
+  RegisterDto,
+  VerifyEmailDto,
+  RefreshTokenDto,
+  VerifyResetPasswordDto,
+  ResetPasswordDto,
+} from './dto';
 import { IRequestMetadata } from '@slack/common';
 
 @Controller()
 export class AuthController {
-  constructor(private readonly authService: AuthService) { }
+  constructor(private readonly authService: AuthService) {}
 
   @MessagePattern(AUTH_MESSAGE_PATTERNS.REGISTER)
   register(@Payload() data: RegisterDto) {
@@ -25,20 +32,29 @@ export class AuthController {
   }
 
   @MessagePattern(AUTH_MESSAGE_PATTERNS.REFRESH)
-  refresh(@Payload() payload: { data: RefreshTokenDto; metadata?: IRequestMetadata }) {
+  refresh(
+    @Payload() payload: { data: RefreshTokenDto; metadata?: IRequestMetadata },
+  ) {
     return this.authService.refresh(payload.data, payload.metadata);
   }
 
   @MessagePattern(AUTH_MESSAGE_PATTERNS.LOGIN_GOOGLE)
-  loginGoogle(@Payload() payload: { data: { email: string }; metadata?: IRequestMetadata }) {
+  loginGoogle(
+    @Payload()
+    payload: {
+      data: { email: string };
+      metadata?: IRequestMetadata;
+    },
+  ) {
     return this.authService.loginGoogle(payload.data, payload.metadata);
   }
 
   @MessagePattern(AUTH_MESSAGE_PATTERNS.LOGOUT)
-  logout(@Payload() payload: { data: { refreshToken: string } }) {
+  logout(
+    @Payload() payload: { data: { accessToken: string; refreshToken: string } },
+  ) {
     return this.authService.logout(payload.data);
   }
-
 
   @MessagePattern(AUTH_MESSAGE_PATTERNS.LOGOUT_ALL)
   logoutAll(@Payload() payload: { data: { userId: string } }) {
@@ -60,4 +76,3 @@ export class AuthController {
     return this.authService.resetPassword(payload.data);
   }
 }
-

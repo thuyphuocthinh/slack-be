@@ -1,14 +1,17 @@
-import {
-  Inject,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { MoreThan, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { AuthEntity, ProviderType } from './entity/auth.entity';
 import { SessionEntity } from './entity/session.entity';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LoginDto, RegisterDto, VerifyEmailDto, RefreshTokenDto, ResetPasswordDto, VerifyResetPasswordDto } from './dto';
+import {
+  LoginDto,
+  RegisterDto,
+  VerifyEmailDto,
+  RefreshTokenDto,
+  ResetPasswordDto,
+  VerifyResetPasswordDto,
+} from './dto';
 import * as bcrypt from 'bcrypt';
 import {
   AUTH_ERROR,
@@ -24,7 +27,7 @@ import {
 import { v7 } from 'uuid';
 import { firstValueFrom } from 'rxjs';
 import { ITokenResponse } from './types/auth.response';
-import { IRequestMetadata } from '@slack/common';
+import { hashToken, IRequestMetadata } from '@slack/common';
 import { AuthCacheService } from '@slack/cached';
 @Injectable()
 export class AuthService {
@@ -43,7 +46,7 @@ export class AuthService {
     private readonly notificationClient: ClientProxy,
     private readonly jwtService: JwtService,
     private readonly authCacheService: AuthCacheService,
-  ) { }
+  ) {}
 
   async register(request: RegisterDto): Promise<string> {
     const { email, password } = request;
@@ -107,7 +110,7 @@ export class AuthService {
       where: {
         code,
         action: VerificationAction.VERIFY_EMAIL,
-        isUsed: false
+        isUsed: false,
       },
     });
 
@@ -144,17 +147,44 @@ export class AuthService {
     return 'Email successfully verified.';
   }
 
-  private async generateTokens(userId: string, email: string): Promise<ITokenResponse> {
-    const tokenVersion = await this.authCacheService.getUserTokenVersion(userId);
-    const accessToken = await this.jwtService.signAsync({ sub: userId, email, tokenVersion }, { expiresIn: '15m' });
-    const refreshToken = await this.jwtService.signAsync({ sub: userId, email, tokenVersion }, { expiresIn: '7d' });
-    await this.authCacheService.blacklistToken(accessToken, 15 * 60);
+  private async generateTokens(
+    userId: string,
+    email: string,
+  ): Promise<ITokenResponse> {
+    const tokenVersion =
+      await this.authCacheService.getUserTokenVersion(userId);
+    const accessToken = await this.jwtService.signAsync(
+      { sub: userId, email, tokenVersion },
+      { expiresIn: '15m' },
+    );
+    const refreshToken = await this.jwtService.signAsync(
+      { sub: userId, email, tokenVersion },
+      { expiresIn: '7d' },
+    );
     return { accessToken, refreshToken, type: 'Bearer' };
+  }
+
+  private async createSession(
+    userId: string,
+    refreshToken: string,
+    metadata?: IRequestMetadata,
+  ) {
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+    const session = this.sessionRepository.create({
+      userId,
+      refreshToken: hashToken(refreshToken),
+      expiresAt: expiresAt,
+      ipAddress: metadata?.ipAddress,
+      userAgent: metadata?.userAgent,
+      device: metadata?.device,
+    });
+    await this.sessionRepository.save(session);
   }
 
   async login(
     request: LoginDto,
-    metadata?: IRequestMetadata
+    metadata?: IRequestMetadata,
   ): Promise<ITokenResponse> {
     const { email, password } = request;
 
@@ -188,24 +218,15 @@ export class AuthService {
     }
 
     // 4. generate access token + refresh token
-    const { accessToken, refreshToken } = await this.generateTokens(auth.userId, email);
+    const { accessToken, refreshToken } = await this.generateTokens(
+      auth.userId,
+      email,
+    );
 
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
+    // 5. create session
+    await this.createSession(auth.userId, refreshToken, metadata);
 
-    // 4. create session
-    const session = this.sessionRepository.create({
-      userId: auth.userId,
-      refreshToken,
-      expiresAt: expiresAt,
-      ipAddress: metadata?.ipAddress,
-      userAgent: metadata?.userAgent,
-      device: metadata?.device,
-    });
-
-    await this.sessionRepository.save(session);
-
-    // 5. return tokens
+    // 6. return tokens
     return {
       accessToken,
       refreshToken,
@@ -215,7 +236,7 @@ export class AuthService {
 
   async refresh(
     request: RefreshTokenDto,
-    metadata?: IRequestMetadata
+    metadata?: IRequestMetadata,
   ): Promise<ITokenResponse> {
     const { refreshToken } = request;
 
@@ -229,7 +250,7 @@ export class AuthService {
     // 2. verify token exists in db and hasn't been revoked
     const session = await this.sessionRepository.findOne({
       where: {
-        refreshToken,
+        refreshToken: hashToken(refreshToken),
         isRevoked: false,
       },
     });
@@ -251,21 +272,11 @@ export class AuthService {
     await this.sessionRepository.save(session);
 
     // 5. generate new pair
-    const { accessToken: newAccessToken, refreshToken: newRefreshToken } = await this.generateTokens(session.userId, email);
-
-    const newExpiresAt = new Date();
-    newExpiresAt.setDate(newExpiresAt.getDate() + 7);
+    const { accessToken: newAccessToken, refreshToken: newRefreshToken } =
+      await this.generateTokens(session.userId, email);
 
     // 6. create new session
-    const newSession = this.sessionRepository.create({
-      userId: session.userId,
-      refreshToken: newRefreshToken,
-      expiresAt: newExpiresAt,
-      ipAddress: metadata?.ipAddress,
-      userAgent: metadata?.userAgent,
-      device: metadata?.device,
-    });
-    await this.sessionRepository.save(newSession);
+    await this.createSession(session.userId, newRefreshToken, metadata);
 
     // 7. return
     return {
@@ -276,7 +287,10 @@ export class AuthService {
   }
 
   // login google - fix later
-  async loginGoogle(request: { email: string }, metadata?: IRequestMetadata): Promise<ITokenResponse> {
+  async loginGoogle(
+    request: { email: string },
+    metadata?: IRequestMetadata,
+  ): Promise<ITokenResponse> {
     const { email } = request;
     let auth = await this.authRepository.findOne({
       where: {
@@ -300,18 +314,12 @@ export class AuthService {
 
       auth = await this.authRepository.save(newAuth);
     }
-    const { accessToken, refreshToken } = await this.generateTokens(auth.userId, email);
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
-    const session = this.sessionRepository.create({
-      userId: auth.userId,
-      refreshToken,
-      expiresAt: expiresAt,
-      ipAddress: metadata?.ipAddress,
-      userAgent: metadata?.userAgent,
-      device: metadata?.device,
-    });
-    await this.sessionRepository.save(session);
+    const { accessToken, refreshToken } = await this.generateTokens(
+      auth.userId,
+      email,
+    );
+    // 5. create session
+    await this.createSession(auth.userId, refreshToken, metadata);
     return {
       accessToken,
       refreshToken,
@@ -320,12 +328,16 @@ export class AuthService {
   }
 
   // logout
-  async logout(request: { refreshToken: string }): Promise<string> {
-    const { refreshToken } = request;
+  async logout(request: {
+    accessToken: string;
+    refreshToken: string;
+  }): Promise<string> {
+    const { accessToken, refreshToken } = request;
     const session = await this.sessionRepository.findOne({
       where: {
-        refreshToken,
+        refreshToken: hashToken(refreshToken),
         isRevoked: false,
+        expiresAt: MoreThan(new Date()),
       },
     });
     if (!session) {
@@ -333,6 +345,7 @@ export class AuthService {
     }
     session.isRevoked = true;
     await this.sessionRepository.save(session);
+    await this.authCacheService.blacklistToken(accessToken, 7 * 24 * 60 * 60);
     return 'Logout successfully.';
   }
 
@@ -392,21 +405,10 @@ export class AuthService {
 
   // verify reset password
   async verifyResetPassword(request: VerifyResetPasswordDto): Promise<string> {
-    const { email, code } = request;
-    // 1. find auth by email
-    const auth = await this.authRepository.findOne({
-      where: {
-        providerId: email,
-        providerType: ProviderType.LOCAL,
-      },
-    });
-    if (!auth) {
-      throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_FOUND);
-    }
-    // 2. find verification
+    const { code } = request;
+    // 1. find verification
     const verification = await this.verificationRepository.findOne({
       where: {
-        userId: auth.userId,
         code,
         action: VerificationAction.RESET_PASSWORD,
         isUsed: false,
@@ -416,6 +418,19 @@ export class AuthService {
     if (!verification) {
       throw new RpcException(AUTH_ERROR.ACCOUNT_VERIFICATION_CODE_EXPIRED);
     }
+    // 2. find user
+    const user = await this.userClient.send(
+      USER_MESSAGE_PATTERNS.GET_USER_BY_ID,
+      {
+        id: verification.userId,
+      },
+    );
+    if (!user) {
+      throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_FOUND);
+    }
+    // 3. update verification
+    verification.isUsed = true;
+    await this.verificationRepository.save(verification);
     return 'Verify reset password successfully.';
   }
 

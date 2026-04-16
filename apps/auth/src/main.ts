@@ -1,4 +1,6 @@
 import { NestFactory } from '@nestjs/core';
+import { WinstonModule } from 'nest-winston';
+import { getLoggerConfig } from '@slack/common';
 import { AuthModule } from './auth.module';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { PORT_TCP } from '@slack/constants';
@@ -16,6 +18,7 @@ async function bootstrap() {
         host: 'localhost',
         port: PORT_TCP.AUTH_TCP_PORT,
       },
+      logger: WinstonModule.createLogger(getLoggerConfig('AUTH')),
     },
   );
   app.useGlobalFilters(new AllRpcExceptionFilter());

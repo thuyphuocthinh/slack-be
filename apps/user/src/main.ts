@@ -1,4 +1,6 @@
 import { NestFactory } from '@nestjs/core';
+import { WinstonModule } from 'nest-winston';
+import { getLoggerConfig } from '@slack/common';
 import { UserModule } from './user.module';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { AllRpcExceptionFilter } from '@slack/common';
@@ -15,6 +17,7 @@ async function bootstrap() {
         host: 'localhost',
         port: PORT_TCP.USER_TCP_PORT,
       },
+      logger: WinstonModule.createLogger(getLoggerConfig('USER')),
     },
   );
 

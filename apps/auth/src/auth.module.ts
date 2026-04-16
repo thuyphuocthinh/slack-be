@@ -18,7 +18,6 @@ import { CachedModule } from '@slack/cached';
     TypeOrmModule.forFeature([AuthEntity, SessionEntity, VerificationEntity]),
     CachedModule,
     JwtModule.register({
-      global: true,
       secret: process.env.JWT_SECRET || 'fallback_secret',
     }),
     ClientsModule.register([
@@ -43,4 +42,4 @@ import { CachedModule } from '@slack/cached';
   controllers: [AuthController],
   providers: [AuthService, GoogleStrategy],
 })
-export class AuthModule { }
+export class AuthModule {}

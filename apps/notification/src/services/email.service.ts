@@ -46,7 +46,6 @@ export class EmailService {
     try {
       await this.sendEmail(email, 'Reset your password', 'reset_password', {
         code,
-        email,
       });
     } catch (error) {
       this.logger.error('Failed to send reset password email', error);
