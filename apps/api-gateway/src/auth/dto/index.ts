@@ -4,3 +4,4 @@ export * from './verify-email.dto';
 export * from './refresh.dto';
 export * from './verify-reset-password.dto';
 export * from './reset-password.dto';
+export * from './two_fa.dto';

@@ -6,6 +6,7 @@ export interface IUserResponse {
   systemRole: string;
   firstName?: string;
   lastName?: string;
+  avatarUrl?: string;
   createdAt: Date;
   status: UserStatus;
 }

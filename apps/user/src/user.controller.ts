@@ -1,12 +1,28 @@
 import { Controller } from '@nestjs/common';
-import { UserService } from './user.service';
-import { CreateUserDto, UpdateUserStatusDto } from './dto';
+import { UserService } from './services/user.service';
+import {
+  ChangeAvatarDto,
+  CreateUserDto,
+  UpdateUserDto,
+  UpdateUserStatusDto,
+} from './dto';
 import { MessagePattern } from '@nestjs/microservices';
 import { USER_MESSAGE_PATTERNS } from '@slack/constants';
+import { TWO_FA_MESSAGE_PATTERNS } from '@slack/constants/tcp/message_pattern/two_fa_pattern.constant';
+import { TwoFactorService } from './services/two_fa.service';
+import {
+  ToggleTwoFactorDto,
+  GenerateSecretDto,
+  VerifyOTPDto,
+} from './dto/two-fa.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Controller()
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly twoFactorService: TwoFactorService,
+  ) {}
 
   @MessagePattern(USER_MESSAGE_PATTERNS.CREATE_USER)
   async createUser(data: CreateUserDto) {
@@ -21,5 +37,40 @@ export class UserController {
   @MessagePattern(USER_MESSAGE_PATTERNS.GET_USER_BY_ID)
   async getUserById(data: { id: string }) {
     return await this.userService.getUserById(data.id);
+  }
+
+  @MessagePattern(TWO_FA_MESSAGE_PATTERNS.GENERATE_SECRET)
+  async generateSecret(data: GenerateSecretDto) {
+    return await this.twoFactorService.generateSecret(data.userId);
+  }
+
+  @MessagePattern(TWO_FA_MESSAGE_PATTERNS.VERIFY_OTP)
+  async verifyOTP(data: VerifyOTPDto) {
+    return await this.twoFactorService.verifyOTP(data.userId, data.otp);
+  }
+
+  @MessagePattern(USER_MESSAGE_PATTERNS.IS_USER_ENABLE_TWO_FACTOR)
+  async isUserEnableTwoFactor(data: { userId: string }) {
+    return await this.userService.isEnableTwoFactor(data.userId);
+  }
+
+  @MessagePattern(TWO_FA_MESSAGE_PATTERNS.TOGGLE_TWO_FACTOR)
+  async toggleTwoFactor(data: ToggleTwoFactorDto) {
+    await this.twoFactorService.toggleTwoFactor(data.userId);
+  }
+
+  @MessagePattern(USER_MESSAGE_PATTERNS.CHANGE_AVATAR)
+  async changeAvatar(data: ChangeAvatarDto) {
+    return await this.userService.changeAvatar(data.userId, data.avatarUrl);
+  }
+
+  @MessagePattern(USER_MESSAGE_PATTERNS.UPDATE_INFO)
+  async updateInfo(data: UpdateUserDto) {
+    return await this.userService.updateInfo(data.userId, data);
+  }
+
+  @MessagePattern(USER_MESSAGE_PATTERNS.CHANGE_PASSWORD)
+  async changePassword(data: ChangePasswordDto) {
+    return await this.userService.changePassword(data.userId, data);
   }
 }

@@ -9,4 +9,7 @@ export const AUTH_MESSAGE_PATTERNS = {
   RESET_PASSWORD: 'auth.reset_password',
   LOGOUT: 'auth.logout',
   LOGOUT_ALL: 'auth.logout_all',
+  VERIFY_PASSWORD_FOR_UPDATE: 'auth.verify_password_for_update',
+  CHANGE_PASSWORD: 'auth.change_password',
+  VERIFY_OTP_FROM_AUTHENTICATOR: 'auth.verify_otp_from_authenticator',
 } as const;
