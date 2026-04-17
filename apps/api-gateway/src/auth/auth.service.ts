@@ -8,6 +8,7 @@ import {
   VerifyEmailDto,
   RefreshTokenDto,
   VerifyResetPasswordDto,
+  VerifyOtpFromAuthenticatorDto,
 } from './dto';
 import { MicroserviceErrorHandler } from '../common/microservice_error.handler';
 import { IRequestMetadata } from '@slack/common';
@@ -17,7 +18,7 @@ export class AuthService {
   constructor(
     @Inject(NAME_SERVICE_TCP.AUTH_SERVICE)
     private readonly authClient: ClientProxy,
-  ) {}
+  ) { }
 
   async register(data: RegisterDto): Promise<string> {
     return MicroserviceErrorHandler.handleAsyncCall(
@@ -147,6 +148,20 @@ export class AuthService {
           }),
         ),
       'resetPassword',
+      'AuthService',
+    );
+  }
+
+  async verifyOtpFromAuthenticator(data: VerifyOtpFromAuthenticatorDto, metadata: IRequestMetadata) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.authClient.send(AUTH_MESSAGE_PATTERNS.VERIFY_OTP_FROM_AUTHENTICATOR, {
+            data,
+            metadata,
+          }),
+        ),
+      'verifyOtpFromAuthenticator',
       'AuthService',
     );
   }

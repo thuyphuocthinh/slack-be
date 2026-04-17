@@ -24,13 +24,14 @@ import {
   RefreshTokenDto,
   VerifyResetPasswordDto,
   ResetPasswordDto,
+  VerifyOtpFromAuthenticatorDto,
 } from './dto';
 import { Public } from '@slack/common';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @Public()
   @Post('register')
@@ -186,5 +187,21 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Password successfully reset' })
   resetPassword(@Body() data: ResetPasswordDto) {
     return this.authService.resetPassword(data);
+  }
+
+  @Public()
+  @Post('verify-otp-from-authenticator')
+  @ApiOperation({ summary: 'Verify OTP from authenticator' })
+  @ApiResponse({ status: 200, description: 'OTP verified successfully' })
+  verifyOtpFromAuthenticator(
+    @Body() data: VerifyOtpFromAuthenticatorDto,
+    @Ip() ipAddress: string,
+    @Headers('user-agent') userAgent: string,
+  ) {
+    return this.authService.verifyOtpFromAuthenticator(data, {
+      ipAddress,
+      userAgent,
+      device: userAgent,
+    });
   }
 }

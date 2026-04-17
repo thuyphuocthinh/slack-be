@@ -14,7 +14,7 @@ import { IRequestMetadata } from '@slack/common';
 
 @Controller()
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @MessagePattern(AUTH_MESSAGE_PATTERNS.REGISTER)
   register(@Payload() data: RegisterDto) {
@@ -74,5 +74,20 @@ export class AuthController {
   @MessagePattern(AUTH_MESSAGE_PATTERNS.RESET_PASSWORD)
   resetPassword(@Payload() payload: { data: ResetPasswordDto }) {
     return this.authService.resetPassword(payload.data);
+  }
+
+  @MessagePattern(AUTH_MESSAGE_PATTERNS.VERIFY_OTP_FROM_AUTHENTICATOR)
+  verifyOtpFromAuthenticator(@Payload() payload: { data: { userId: string; otp: string }; metadata?: IRequestMetadata }) {
+    return this.authService.verifyOtpFromAuthenticator(payload.data.userId, payload.data.otp, payload.metadata);
+  }
+
+  @MessagePattern(AUTH_MESSAGE_PATTERNS.VERIFY_PASSWORD_FOR_UPDATE)
+  verifyPassword(@Payload() payload: { data: LoginDto }) {
+    return this.authService.verifyPassword(payload.data);
+  }
+
+  @MessagePattern(AUTH_MESSAGE_PATTERNS.CHANGE_PASSWORD)
+  changePassword(@Payload() payload: { data: LoginDto }) {
+    return this.authService.changePassword(payload.data);
   }
 }

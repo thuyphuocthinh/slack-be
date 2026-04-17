@@ -17,6 +17,7 @@ import {
   AUTH_ERROR,
   NAME_SERVICE_TCP,
   NOTIFICATION_MESSAGE_PATTERNS,
+  TWO_FA_MESSAGE_PATTERNS,
   USER_MESSAGE_PATTERNS,
 } from '@slack/constants';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
@@ -26,7 +27,7 @@ import {
 } from './entity/verification.entity';
 import { v7 } from 'uuid';
 import { firstValueFrom } from 'rxjs';
-import { ITokenResponse } from './types/auth.response';
+import { ITokenResponse, ITwoFactorResponse } from './types/auth.response';
 import { hashToken, IRequestMetadata } from '@slack/common';
 import { AuthCacheService } from '@slack/cached';
 @Injectable()
@@ -46,7 +47,7 @@ export class AuthService {
     private readonly notificationClient: ClientProxy,
     private readonly jwtService: JwtService,
     private readonly authCacheService: AuthCacheService,
-  ) {}
+  ) { }
 
   async register(request: RegisterDto): Promise<string> {
     const { email, password } = request;
@@ -155,7 +156,7 @@ export class AuthService {
       await this.authCacheService.getUserTokenVersion(userId);
     const accessToken = await this.jwtService.signAsync(
       { sub: userId, email, tokenVersion },
-      { expiresIn: '15m' },
+      { expiresIn: '5m' },
     );
     const refreshToken = await this.jwtService.signAsync(
       { sub: userId, email, tokenVersion },
@@ -182,10 +183,48 @@ export class AuthService {
     await this.sessionRepository.save(session);
   }
 
+  private async generateTempToken(userId: string, email: string): Promise<string> {
+    const tempToken = await this.jwtService.signAsync(
+      { sub: userId, email, state: '2FA_OTP_IS_BEING_VERIFIED' },
+      { expiresIn: '5m' },
+    );
+    return tempToken;
+  }
+
+  async verifyOtpFromAuthenticator(
+    tempToken: string,
+    otp: string,
+    metadata?: IRequestMetadata,
+  ): Promise<ITokenResponse> {
+    const { userId } = await this.jwtService.verifyAsync(tempToken);
+    await firstValueFrom(
+      this.userClient.send(TWO_FA_MESSAGE_PATTERNS.VERIFY_OTP, {
+        userId,
+        otp,
+      }),
+    );
+
+    const user = await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, {
+        id: userId,
+      }),
+    );
+
+    if (!user) {
+      throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_FOUND);
+    }
+
+    const { accessToken, refreshToken } = await this.generateTokens(user.id, user.email);
+
+    await this.createSession(user.id, refreshToken, metadata);
+
+    return { accessToken, refreshToken, type: 'Bearer' };
+  }
+
   async login(
     request: LoginDto,
     metadata?: IRequestMetadata,
-  ): Promise<ITokenResponse> {
+  ): Promise<ITokenResponse | ITwoFactorResponse> {
     const { email, password } = request;
 
     // 1. find auth by email
@@ -217,7 +256,21 @@ export class AuthService {
       throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_VERIFIED);
     }
 
-    // 4. generate access token + refresh token
+    // 4. check two factor
+    const isEnableTwoFactor = await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.IS_USER_ENABLE_TWO_FACTOR, {
+        userId: auth.userId,
+      }),
+    );
+
+    if (isEnableTwoFactor) {
+      return {
+        isEnableTwoFactor: true,
+        tempToken: await this.generateTempToken(auth.userId, email),
+      }
+    }
+
+    // 5. generate access token + refresh token
     const { accessToken, refreshToken } = await this.generateTokens(
       auth.userId,
       email,
@@ -468,5 +521,38 @@ export class AuthService {
     verification.isUsed = true;
     await this.verificationRepository.save(verification);
     return 'Reset password successfully.';
+  }
+
+  // verify password
+  async verifyPassword(request: { email: string; password: string }): Promise<boolean> {
+    const { email, password } = request;
+    const auth = await this.authRepository.findOne({
+      where: {
+        providerId: email,
+        providerType: ProviderType.LOCAL,
+      },
+    });
+    if (!auth) {
+      throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_FOUND);
+    }
+    const isMatch = await bcrypt.compare(password, auth.password);
+    return isMatch;
+  }
+
+  // change password
+  async changePassword(request: { email: string; password: string }): Promise<void> {
+    const { email, password } = request;
+    const auth = await this.authRepository.findOne({
+      where: {
+        providerId: email,
+        providerType: ProviderType.LOCAL,
+      },
+    });
+    if (!auth) {
+      throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_FOUND);
+    }
+    const hashedPassword = await bcrypt.hash(password, 10);
+    auth.password = hashedPassword;
+    await this.authRepository.save(auth);
   }
 }

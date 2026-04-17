@@ -8,6 +8,8 @@ import { JwtAuthGuard } from './common/guards/jwt_auth.guard';
 import { JwtModule } from '@nestjs/jwt';
 import { CachedModule } from '@slack/cached';
 import { ConfigModule } from '@nestjs/config';
+import { UserModule } from './user/user.module';
+import { ResourceModule } from './resource/resource.module';
 
 @Module({
   imports: [
@@ -15,6 +17,8 @@ import { ConfigModule } from '@nestjs/config';
       isGlobal: true,
     }),
     AuthModule,
+    UserModule,
+    ResourceModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'fallback_secret',
     }),

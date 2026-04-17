@@ -3,7 +3,7 @@ import {
   utilities as nestWinstonModuleUtilities,
 } from 'nest-winston';
 import * as winston from 'winston';
-import LokiTransport from 'winston-loki';
+// import LokiTransport from 'winston-loki';
 
 export const getLoggerConfig = (appName: string): WinstonModuleOptions => {
   return {
@@ -20,17 +20,17 @@ export const getLoggerConfig = (appName: string): WinstonModuleOptions => {
           }),
         ),
       }),
-      new LokiTransport({
-        host: 'http://localhost:3100', // Update to your Loki server URL if deployed
-        labels: { application: appName },
-        json: true,
-        format: winston.format.combine(
-          winston.format.timestamp(),
-          winston.format.json(),
-        ),
-        replaceTimestamp: true,
-        onConnectionError: (err) => console.error(err),
-      }),
+      // new LokiTransport({
+      //   host: 'http://localhost:3100', // Update to your Loki server URL if deployed
+      //   labels: { application: appName },
+      //   json: true,
+      //   format: winston.format.combine(
+      //     winston.format.timestamp(),
+      //     winston.format.json(),
+      //   ),
+      //   replaceTimestamp: true,
+      //   onConnectionError: (err) => console.error(err),
+      // }),
     ],
   };
 };

@@ -15,6 +15,7 @@ import {
   NAME_SERVICE_TCP,
   USER_MESSAGE_PATTERNS,
   NOTIFICATION_MESSAGE_PATTERNS,
+  TWO_FA_MESSAGE_PATTERNS,
 } from '@slack/constants';
 import { Repository } from 'typeorm';
 import { of, throwError } from 'rxjs';
@@ -208,7 +209,16 @@ describe('AuthService', () => {
     it('should login successfully', async () => {
       (authRepository.findOne as jest.Mock).mockResolvedValue(auth);
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
-      userClient.send.mockReturnValue(of({ status: 'active' }));
+      userClient.send.mockImplementation((pattern: string) => {
+        if (pattern === USER_MESSAGE_PATTERNS.GET_USER_BY_ID) {
+          return of({ id: 'user-id', email: 'test@example.com', status: 'active' });
+        }
+        if (pattern === USER_MESSAGE_PATTERNS.IS_USER_ENABLE_TWO_FACTOR) {
+          return of(false);
+        }
+        return of(null);
+      });
+
       (authCacheService.getUserTokenVersion as jest.Mock).mockResolvedValue(1);
       (jwtService.signAsync as jest.Mock).mockResolvedValue('token');
       (sessionRepository.create as jest.Mock).mockReturnValue({});
@@ -222,6 +232,33 @@ describe('AuthService', () => {
       });
     });
 
+    it('should return tempToken when 2FA is enabled', async () => {
+      (authRepository.findOne as jest.Mock).mockResolvedValue(auth);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      userClient.send.mockImplementation((pattern: string) => {
+        if (pattern === USER_MESSAGE_PATTERNS.GET_USER_BY_ID) {
+          return of({ id: 'user-id', email: 'test@example.com', status: 'active' });
+        }
+        if (pattern === USER_MESSAGE_PATTERNS.IS_USER_ENABLE_TWO_FACTOR) {
+          return of(true);
+        }
+        return of(null);
+      });
+
+      (jwtService.signAsync as jest.Mock).mockResolvedValue('temp-token');
+
+      const result = await service.login(loginDto);
+
+      expect(result).toEqual({
+        isEnableTwoFactor: true,
+        tempToken: 'temp-token',
+      });
+      expect(jwtService.signAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ state: '2FA_OTP_IS_BEING_VERIFIED' }),
+        expect.any(Object),
+      );
+    });
+
     it('should throw error if auth not found', async () => {
       (authRepository.findOne as jest.Mock).mockResolvedValue(null);
 
@@ -233,6 +270,62 @@ describe('AuthService', () => {
       (bcrypt.compare as jest.Mock).mockResolvedValue(false);
 
       await expect(service.login(loginDto)).rejects.toThrow(RpcException);
+    });
+  });
+
+  describe('verifyOtpFromAuthenticator', () => {
+    const tempToken = 'temp-token';
+    const otp = '123456';
+    const userId = 'user-id';
+
+    it('should verify OTP and return tokens successfully', async () => {
+      (jwtService.verifyAsync as jest.Mock).mockResolvedValue({ userId });
+      userClient.send.mockImplementation((pattern: string) => {
+        if (pattern === TWO_FA_MESSAGE_PATTERNS.VERIFY_OTP) {
+          return of(true);
+        }
+        if (pattern === USER_MESSAGE_PATTERNS.GET_USER_BY_ID) {
+          return of({
+            id: userId,
+            email: 'test@example.com',
+            status: 'active',
+          });
+        }
+        return of(null);
+      });
+
+      (authCacheService.getUserTokenVersion as jest.Mock).mockResolvedValue(1);
+      (jwtService.signAsync as jest.Mock).mockResolvedValue('new-token');
+      (sessionRepository.create as jest.Mock).mockReturnValue({});
+
+      const result = await service.verifyOtpFromAuthenticator(tempToken, otp);
+
+      expect(result).toEqual({
+        accessToken: 'new-token',
+        refreshToken: 'new-token',
+        type: 'Bearer',
+      });
+      expect(userClient.send).toHaveBeenCalledWith(
+        TWO_FA_MESSAGE_PATTERNS.VERIFY_OTP,
+        { userId, otp },
+      );
+    });
+
+    it('should throw error if user not found after OTP verification', async () => {
+      (jwtService.verifyAsync as jest.Mock).mockResolvedValue({ userId });
+      userClient.send.mockImplementation((pattern: string) => {
+        if (pattern === TWO_FA_MESSAGE_PATTERNS.VERIFY_OTP) {
+          return of(true);
+        }
+        if (pattern === USER_MESSAGE_PATTERNS.GET_USER_BY_ID) {
+          return of(null);
+        }
+        return of(null);
+      });
+
+      await expect(
+        service.verifyOtpFromAuthenticator(tempToken, otp),
+      ).rejects.toThrow(RpcException);
     });
   });
 
