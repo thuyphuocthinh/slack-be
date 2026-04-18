@@ -96,6 +96,15 @@
       "compilerOptions": {
         "tsConfigPath": "apps/user/tsconfig.app.json"
       }
+    },
+    "workspace": {
+      "type": "application",
+      "root": "apps/workspace",
+      "entryFile": "main",
+      "sourceRoot": "apps/workspace/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/workspace/tsconfig.app.json"
+      }
     }
   }
 }
