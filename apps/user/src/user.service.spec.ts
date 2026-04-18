@@ -1,12 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UserService } from './services/user.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { UserEntity, UserStatus, SystemRole } from './entity/user.entity';
+import { UserEntity, UserStatus } from './entity/user.entity';
 import { Repository } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
 import { USER_ERROR } from '@slack/constants/errors/user.error';
 import { TwoFactorEntity } from './entity/two_factor.entity';
-import { NAME_SERVICE_TCP } from '@slack/constants';
+import { NAME_SERVICE_TCP, SystemRoleEnum } from '@slack/constants';
 import { of } from 'rxjs';
 
 describe('UserService', () => {
@@ -95,7 +95,7 @@ describe('UserService', () => {
         firstName: 'John',
         lastName: 'Doe',
         createdAt: new Date(),
-        systemRole: SystemRole.USER,
+        systemRole: SystemRoleEnum.USER,
       };
       (repository.create as jest.Mock).mockReturnValue(fullUser);
       (repository.save as jest.Mock).mockResolvedValue(fullUser);
@@ -179,7 +179,7 @@ describe('UserService', () => {
         email: 'test@example.com',
         avatarUrl: 'url',
         createdAt,
-        systemRole: SystemRole.USER,
+        systemRole: SystemRoleEnum.USER,
         status: UserStatus.ACTIVE,
       };
       (repository.findOneBy as jest.Mock).mockResolvedValue(user);
@@ -193,7 +193,7 @@ describe('UserService', () => {
         email: 'test@example.com',
         avatarUrl: 'url',
         createdAt,
-        systemRole: SystemRole.USER,
+        systemRole: SystemRoleEnum.USER,
         status: UserStatus.ACTIVE,
       });
     });

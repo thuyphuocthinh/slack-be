@@ -20,7 +20,10 @@ export class MicroserviceErrorHandler {
     operation: string,
     serviceName: string = 'Microservice',
   ): never {
-    this.logger.error(`${serviceName} ${operation} failed:`, JSON.stringify(error));
+    this.logger.error(
+      `${serviceName} ${operation} failed:`,
+      JSON.stringify(error),
+    );
 
     // Handle RpcException from microservice
     const rpcError = this.isObject(error)

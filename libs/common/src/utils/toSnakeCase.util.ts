@@ -1,4 +1,4 @@
-import { mapKeys, mapValues, isObject } from 'lodash';
+import { mapKeys, mapValues } from 'lodash';
 
 export function toSnakeCase(obj: any): any {
   if (Array.isArray(obj)) {

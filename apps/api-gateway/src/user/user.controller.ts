@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { UserService } from './user.service';
 import {
   ChangeAvatarDto,
@@ -8,10 +8,18 @@ import {
 } from './dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ToggleTwoFactorDto, VerifyOTPDto } from './dto/two-fa.dto';
-import { ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { CurrentUser, type JwtUser } from '@slack/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { CurrentUser, SystemRoles, type JwtUser } from '@slack/common';
+import { SystemRoleEnum } from '@slack/constants';
 
 @Controller('users')
+@ApiTags('users')
+@ApiBearerAuth()
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
@@ -34,15 +42,16 @@ export class UserController {
 
   @ApiOperation({ summary: 'Change user status' })
   @ApiResponse({ status: 200, description: 'User status changed successfully' })
-  @Patch('me/change-status')
+  @Patch(':userId/change-status')
+  @SystemRoles(SystemRoleEnum.ADMIN)
   async changeStatus(
     @Body() data: UpdateUserStatusDto,
-    @CurrentUser() user: JwtUser,
+    @Param('userId') userId: string,
   ) {
-    return await this.userService.changeStatus(user.sub, data);
+    return await this.userService.changeStatus(userId, data);
   }
 
-  @ApiOperation({ summary: 'Get user by id' })
+  @ApiOperation({ summary: 'Get profile' })
   @ApiResponse({ status: 200, description: 'User info retrieved successfully' })
   @Get('me')
   async getUserById(@CurrentUser() user: JwtUser) {

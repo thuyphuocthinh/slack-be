@@ -1,5 +1,4 @@
 import { UserStatus } from '../entity/user.entity';
-
 export interface ICreateUserRequest {
   email: string;
 }

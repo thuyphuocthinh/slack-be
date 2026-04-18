@@ -47,7 +47,7 @@ export class AuthService {
     private readonly notificationClient: ClientProxy,
     private readonly jwtService: JwtService,
     private readonly authCacheService: AuthCacheService,
-  ) { }
+  ) {}
 
   async register(request: RegisterDto): Promise<string> {
     const { email, password } = request;
@@ -183,7 +183,10 @@ export class AuthService {
     await this.sessionRepository.save(session);
   }
 
-  private async generateTempToken(userId: string, email: string): Promise<string> {
+  private async generateTempToken(
+    userId: string,
+    email: string,
+  ): Promise<string> {
     const tempToken = await this.jwtService.signAsync(
       { sub: userId, email, state: '2FA_OTP_IS_BEING_VERIFIED' },
       { expiresIn: '5m' },
@@ -214,7 +217,10 @@ export class AuthService {
       throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_FOUND);
     }
 
-    const { accessToken, refreshToken } = await this.generateTokens(user.id, user.email);
+    const { accessToken, refreshToken } = await this.generateTokens(
+      user.id,
+      user.email,
+    );
 
     await this.createSession(user.id, refreshToken, metadata);
 
@@ -267,7 +273,7 @@ export class AuthService {
       return {
         isEnableTwoFactor: true,
         tempToken: await this.generateTempToken(auth.userId, email),
-      }
+      };
     }
 
     // 5. generate access token + refresh token
@@ -524,7 +530,10 @@ export class AuthService {
   }
 
   // verify password
-  async verifyPassword(request: { email: string; password: string }): Promise<boolean> {
+  async verifyPassword(request: {
+    email: string;
+    password: string;
+  }): Promise<boolean> {
     const { email, password } = request;
     const auth = await this.authRepository.findOne({
       where: {
@@ -540,7 +549,10 @@ export class AuthService {
   }
 
   // change password
-  async changePassword(request: { email: string; password: string }): Promise<void> {
+  async changePassword(request: {
+    email: string;
+    password: string;
+  }): Promise<void> {
     const { email, password } = request;
     const auth = await this.authRepository.findOne({
       where: {

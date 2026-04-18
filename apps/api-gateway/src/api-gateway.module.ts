@@ -10,6 +10,7 @@ import { CachedModule } from '@slack/cached';
 import { ConfigModule } from '@nestjs/config';
 import { UserModule } from './user/user.module';
 import { ResourceModule } from './resource/resource.module';
+import { WorkspaceModule } from './workspace/workspace.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { ResourceModule } from './resource/resource.module';
     AuthModule,
     UserModule,
     ResourceModule,
+    WorkspaceModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'fallback_secret',
     }),

@@ -211,7 +211,11 @@ describe('AuthService', () => {
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
       userClient.send.mockImplementation((pattern: string) => {
         if (pattern === USER_MESSAGE_PATTERNS.GET_USER_BY_ID) {
-          return of({ id: 'user-id', email: 'test@example.com', status: 'active' });
+          return of({
+            id: 'user-id',
+            email: 'test@example.com',
+            status: 'active',
+          });
         }
         if (pattern === USER_MESSAGE_PATTERNS.IS_USER_ENABLE_TWO_FACTOR) {
           return of(false);
@@ -237,7 +241,11 @@ describe('AuthService', () => {
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
       userClient.send.mockImplementation((pattern: string) => {
         if (pattern === USER_MESSAGE_PATTERNS.GET_USER_BY_ID) {
-          return of({ id: 'user-id', email: 'test@example.com', status: 'active' });
+          return of({
+            id: 'user-id',
+            email: 'test@example.com',
+            status: 'active',
+          });
         }
         if (pattern === USER_MESSAGE_PATTERNS.IS_USER_ENABLE_TWO_FACTOR) {
           return of(true);

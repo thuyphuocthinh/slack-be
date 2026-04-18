@@ -1,3 +1,4 @@
+import { SystemRoleEnum } from '@slack/constants';
 import {
   Column,
   CreateDateColumn,
@@ -11,11 +12,6 @@ export enum UserStatus {
   ACTIVE = 'active',
   INACTIVE = 'inactive',
   PENDING = 'pending',
-}
-
-export enum SystemRole {
-  ADMIN = 'admin',
-  USER = 'user',
 }
 
 @Entity('users')
@@ -47,10 +43,10 @@ export class UserEntity {
   @Column({
     name: 'system_role',
     type: 'enum',
-    enum: SystemRole,
-    default: SystemRole.USER,
+    enum: SystemRoleEnum,
+    default: SystemRoleEnum.USER,
   })
-  systemRole: SystemRole;
+  systemRole: SystemRoleEnum;
 
   @CreateDateColumn({ type: 'timestamp', name: 'created_at' })
   createdAt: Date;

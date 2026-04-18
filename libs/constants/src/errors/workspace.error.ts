@@ -1,0 +1,54 @@
+export const WORKSPACE_ERROR = {
+  WORKSPACE_NOT_FOUND: {
+    code: 'ERR.WORKSPACE.0201',
+    message: 'WORKSPACE NOT FOUND',
+  },
+  ALREADY_MEMBER: {
+    code: 'ERR.WORKSPACE.0202',
+    message: 'USER IS ALREADY A MEMBER OF THIS WORKSPACE',
+  },
+  NOT_ALLOWED: {
+    code: 'ERR.WORKSPACE.0203',
+    message: 'NOT ALLOWED TO PERFORM THIS ACTION',
+  },
+  CANNOT_REMOVE_OWNER: {
+    code: 'ERR.WORKSPACE.0204',
+    message: 'CANNOT REMOVE THE OWNER OF THE WORKSPACE',
+  },
+  INVALID_OR_EXPIRED_TOKEN: {
+    code: 'ERR.WORKSPACE.0205',
+    message: 'INVALID OR EXPIRED INVITATION TOKEN',
+  },
+  SLUG_ALREADY_TAKEN: {
+    code: 'ERR.WORKSPACE.0206',
+    message: 'WORKSPACE SLUG IS ALREADY TAKEN',
+  },
+  MEMBER_NOT_FOUND: {
+    code: 'ERR.WORKSPACE.0207',
+    message: 'MEMBER NOT FOUND IN THIS WORKSPACE',
+  },
+  INVITE_NOT_FOUND: {
+    code: 'ERR.WORKSPACE.0208',
+    message: 'INVITATION NOT FOUND',
+  },
+  LINK_NOT_FOUND: {
+    code: 'ERR.WORKSPACE.0209',
+    message: 'LINK NOT FOUND',
+  },
+  LINK_EXPIRED: {
+    code: 'ERR.WORKSPACE.0210',
+    message: 'LINK EXPIRED',
+  },
+  LINK_MAX_USAGE: {
+    code: 'ERR.WORKSPACE.0211',
+    message: 'LINK MAX USAGE',
+  },
+  LINK_ALREADY_USED: {
+    code: 'ERR.WORKSPACE.0212',
+    message: 'LINK ALREADY USED',
+  },
+  LINK_INVALID: {
+    code: 'ERR.WORKSPACE.0213',
+    message: 'LINK INVALID',
+  },
+};

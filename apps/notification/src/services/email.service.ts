@@ -9,7 +9,7 @@ export class EmailService {
 
   constructor(private readonly mailerService: MailerService) {}
 
-  private async sendEmail(
+  async sendEmail(
     to: string,
     subject: string,
     template: string,

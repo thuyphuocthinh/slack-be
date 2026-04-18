@@ -1,18 +1,14 @@
 import { Controller, Logger } from '@nestjs/common';
-import { NotificationService } from './services/notification.service';
 import { MessagePattern } from '@nestjs/microservices';
 import { EmailService } from './services/email.service';
 import { NOTIFICATION_MESSAGE_PATTERNS } from '@slack/constants';
-import { EmailVerificationDto } from './dto';
+import { EmailVerificationDto, SendMailDto } from './dto';
 
 @Controller()
 export class NotificationController {
   private readonly logger = new Logger(NotificationController.name);
 
-  constructor(
-    private readonly notificationService: NotificationService,
-    private readonly emailService: EmailService,
-  ) {}
+  constructor(private readonly emailService: EmailService) {}
 
   @MessagePattern(NOTIFICATION_MESSAGE_PATTERNS.SEND_VERIFICATION_EMAIL)
   async sendVerificationEmail(data: EmailVerificationDto) {
@@ -24,5 +20,16 @@ export class NotificationController {
   async sendResetPasswordEmail(data: EmailVerificationDto) {
     this.logger.log('Send reset password email', data);
     await this.emailService.sendResetPasswordEmail(data.email, data.code);
+  }
+
+  @MessagePattern(NOTIFICATION_MESSAGE_PATTERNS.SEND_MAIL)
+  async sendMail(data: SendMailDto) {
+    this.logger.log('Send mail', data);
+    await this.emailService.sendEmail(
+      data.to,
+      data.subject,
+      data.template,
+      data.context,
+    );
   }
 }

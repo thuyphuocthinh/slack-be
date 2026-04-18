@@ -2,10 +2,17 @@ export * from './constants.module';
 export * from './constants.service';
 
 export * from './errors/auth.error';
+export * from './errors/user.error';
+export * from './errors/notification.error';
+export * from './errors/two_factor.error';
+export * from './errors/workspace.error';
 export * from './tcp/tcp.constant';
 export * from './tcp/message_pattern/notification_msg_pattern.constant';
 export * from './tcp/message_pattern/auth_msg_pattern.constant';
 export * from './tcp/message_pattern/user_msg_pattern.constant';
 export * from './tcp/message_pattern/two_fa_pattern.constant';
+export * from './tcp/message_pattern/workspace_msg_pattern.constant';
 
 export * from './regex.constant';
+
+export * from './types/roles.enum';

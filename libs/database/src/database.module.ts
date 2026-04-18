@@ -44,4 +44,4 @@ import { getDataSourceOptions } from './database.config';
   providers: [DatabaseService, DatabaseHealthService],
   exports: [DatabaseService, DatabaseHealthService],
 })
-export class DatabaseModule { }
+export class DatabaseModule {}
