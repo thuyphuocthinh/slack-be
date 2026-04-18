@@ -6,7 +6,12 @@ import {
   USER_MESSAGE_PATTERNS,
 } from '@slack/constants';
 import { firstValueFrom } from 'rxjs';
-import { ChangeAvatarDto, UpdateUserDto, UpdateUserStatusDto } from './dto';
+import {
+  ChangeAvatarDto,
+  UpdateUserDto,
+  UpdateUserSettingsDto,
+  UpdateUserStatusDto,
+} from './dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ToggleTwoFactorDto, VerifyOTPDto } from './dto/two-fa.dto';
 
@@ -81,6 +86,23 @@ export class UserService {
       this.userClient.send(TWO_FA_MESSAGE_PATTERNS.VERIFY_OTP, {
         ...data,
         userId: id,
+      }),
+    );
+  }
+
+  async getUserPreference(id: string) {
+    return await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_PREFERENCE, {
+        userId: id,
+      }),
+    );
+  }
+
+  async updateUserPreference(id: string, data: UpdateUserSettingsDto) {
+    return await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.UPDATE_USER_PREFERENCE, {
+        userId: id,
+        preference: data,
       }),
     );
   }

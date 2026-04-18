@@ -4,6 +4,7 @@ import {
   ChangeAvatarDto,
   CreateUserDto,
   UpdateUserDto,
+  UpdateUserSettingsDto,
   UpdateUserStatusDto,
 } from './dto';
 import { MessagePattern } from '@nestjs/microservices';
@@ -16,12 +17,14 @@ import {
   VerifyOTPDto,
 } from './dto/two-fa.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { UserPreferenceService } from './services/user_preference.service';
 
 @Controller()
 export class UserController {
   constructor(
     private readonly userService: UserService,
     private readonly twoFactorService: TwoFactorService,
+    private readonly userPreferenceService: UserPreferenceService,
   ) {}
 
   @MessagePattern(USER_MESSAGE_PATTERNS.CREATE_USER)
@@ -72,5 +75,21 @@ export class UserController {
   @MessagePattern(USER_MESSAGE_PATTERNS.CHANGE_PASSWORD)
   async changePassword(data: ChangePasswordDto) {
     return await this.userService.changePassword(data.userId, data);
+  }
+
+  @MessagePattern(USER_MESSAGE_PATTERNS.GET_USER_PREFERENCE)
+  async getUserPreference(data: { userId: string }) {
+    return await this.userPreferenceService.getUserPreference(data.userId);
+  }
+
+  @MessagePattern(USER_MESSAGE_PATTERNS.UPDATE_USER_PREFERENCE)
+  async updateUserPreference(data: {
+    userId: string;
+    preference: UpdateUserSettingsDto;
+  }) {
+    return await this.userPreferenceService.updateUserPreference(
+      data.userId,
+      data.preference,
+    );
   }
 }

@@ -6,6 +6,7 @@ export * from './types/jwtUser.interface';
 export * from './utils/checkType.util';
 export * from './utils/rpc-exception.util';
 export * from './utils/toSnakeCase.util';
+export * from './utils/object.util';
 export * from './filters/rpc-exception.filter';
 export * from './types/metadata.interface';
 export * from './utils/security.util';

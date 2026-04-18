@@ -1,6 +1,11 @@
 import { Body, Controller, Get, Patch, Post } from '@nestjs/common';
 import { UserService } from './user.service';
-import { ChangeAvatarDto, UpdateUserDto, UpdateUserStatusDto } from './dto';
+import {
+  ChangeAvatarDto,
+  UpdateUserDto,
+  UpdateUserSettingsDto,
+  UpdateUserStatusDto,
+} from './dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ToggleTwoFactorDto, VerifyOTPDto } from './dto/two-fa.dto';
 import { ApiOperation, ApiResponse } from '@nestjs/swagger';
@@ -91,5 +96,28 @@ export class UserController {
     @CurrentUser() user: JwtUser,
   ) {
     return await this.userService.verifyTwoFactor(user.sub, data);
+  }
+
+  @ApiOperation({ summary: 'Get user preference' })
+  @ApiResponse({
+    status: 200,
+    description: 'User preference retrieved successfully',
+  })
+  @Get('me/preference')
+  async getUserPreference(@CurrentUser() user: JwtUser) {
+    return await this.userService.getUserPreference(user.sub);
+  }
+
+  @ApiOperation({ summary: 'Update user preference' })
+  @ApiResponse({
+    status: 200,
+    description: 'User preference updated successfully',
+  })
+  @Patch('me/preference')
+  async updateUserPreference(
+    @Body() data: UpdateUserSettingsDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.userService.updateUserPreference(user.sub, data);
   }
 }

@@ -8,6 +8,7 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP } from '@slack/constants';
 import { TwoFactorEntity } from './entity/two_factor.entity';
 import { TwoFactorService } from './services/two_fa.service';
+import { UserPreferenceService } from './services/user_preference.service';
 
 @Module({
   imports: [
@@ -25,6 +26,6 @@ import { TwoFactorService } from './services/two_fa.service';
     ]),
   ],
   controllers: [UserController],
-  providers: [UserService, TwoFactorService],
+  providers: [UserService, TwoFactorService, UserPreferenceService],
 })
 export class UserModule {}
