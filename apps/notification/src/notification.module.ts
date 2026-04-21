@@ -1,14 +1,14 @@
 import { Module } from '@nestjs/common';
 import { NotificationController } from './notification.controller';
-import { NotificationService } from './services/notification.service';
+import { NotificationService } from './services/impl/notification.service';
 import { DatabaseModule } from '@slack/database';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { ConfigService } from '@nestjs/config';
 import { HandlebarsAdapter } from '@nestjs-modules/mailer/adapters/handlebars.adapter';
 import { join } from 'path';
 import { I_MAIL_SERVICE } from './services/mail.interface';
-import { SendgridService } from './services/sendgrid.service';
-import { NodemailerService } from './services/nodemailer.service';
+import { SendgridService } from './services/impl/sendgrid.service';
+import { NodemailerService } from './services/impl/nodemailer.service';
 
 @Module({
   imports: [

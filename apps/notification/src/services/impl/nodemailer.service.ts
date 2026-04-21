@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { MailerService } from '@nestjs-modules/mailer';
 import { RpcException } from '@nestjs/microservices';
 import { NOTIFICATION_ERROR } from '@slack/constants/errors/notification.error';
-import { IMailService } from './mail.interface';
+import { IMailService } from '../mail.interface';
 
 @Injectable()
 export class NodemailerService implements IMailService {

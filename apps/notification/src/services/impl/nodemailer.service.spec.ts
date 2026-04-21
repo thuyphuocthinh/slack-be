@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NodemailerService } from './nodemailer.service';
+import { NodemailerService } from '../nodemailer.service';
 import { MailerService } from '@nestjs-modules/mailer';
 import { RpcException } from '@nestjs/microservices';
 import { NOTIFICATION_ERROR } from '@slack/constants/errors/notification.error';
