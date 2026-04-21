@@ -1,11 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { EmailService } from './email.service';
+import { NodemailerService } from './nodemailer.service';
 import { MailerService } from '@nestjs-modules/mailer';
 import { RpcException } from '@nestjs/microservices';
 import { NOTIFICATION_ERROR } from '@slack/constants/errors/notification.error';
 
-describe('EmailService', () => {
-  let service: EmailService;
+describe('NodemailerService', () => {
+  let service: NodemailerService;
   let mailerService: MailerService;
 
   const mockMailerService = () => ({
@@ -15,7 +15,7 @@ describe('EmailService', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        EmailService,
+        NodemailerService,
         {
           provide: MailerService,
           useFactory: mockMailerService,
@@ -23,7 +23,7 @@ describe('EmailService', () => {
       ],
     }).compile();
 
-    service = module.get<EmailService>(EmailService);
+    service = module.get<NodemailerService>(NodemailerService);
     mailerService = module.get<MailerService>(MailerService);
   });
 

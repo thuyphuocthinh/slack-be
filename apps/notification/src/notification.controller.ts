@@ -1,14 +1,17 @@
 import { Controller, Logger } from '@nestjs/common';
 import { MessagePattern } from '@nestjs/microservices';
-import { EmailService } from './services/email.service';
+import { I_MAIL_SERVICE, type IMailService } from './services/mail.interface';
 import { NOTIFICATION_MESSAGE_PATTERNS } from '@slack/constants';
+import { Inject } from '@nestjs/common';
 import { EmailVerificationDto, SendMailDto } from './dto';
 
 @Controller()
 export class NotificationController {
   private readonly logger = new Logger(NotificationController.name);
 
-  constructor(private readonly emailService: EmailService) {}
+  constructor(
+    @Inject(I_MAIL_SERVICE) private readonly emailService: IMailService,
+  ) {}
 
   @MessagePattern(NOTIFICATION_MESSAGE_PATTERNS.SEND_VERIFICATION_EMAIL)
   async sendVerificationEmail(data: EmailVerificationDto) {

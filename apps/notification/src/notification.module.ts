@@ -6,7 +6,10 @@ import { MailerModule } from '@nestjs-modules/mailer';
 import { ConfigService } from '@nestjs/config';
 import { HandlebarsAdapter } from '@nestjs-modules/mailer/adapters/handlebars.adapter';
 import { join } from 'path';
-import { EmailService } from './services/email.service';
+import { I_MAIL_SERVICE } from './services/mail.interface';
+import { SendgridService } from './services/sendgrid.service';
+import { NodemailerService } from './services/nodemailer.service';
+
 @Module({
   imports: [
     DatabaseModule,
@@ -41,6 +44,14 @@ import { EmailService } from './services/email.service';
     }),
   ],
   controllers: [NotificationController],
-  providers: [NotificationService, EmailService],
+  providers: [
+    NotificationService,
+    NodemailerService,
+    SendgridService,
+    {
+      provide: I_MAIL_SERVICE,
+      useClass: NodemailerService,
+    },
+  ],
 })
 export class NotificationModule {}
