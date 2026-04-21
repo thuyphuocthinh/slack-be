@@ -51,4 +51,12 @@ export const WORKSPACE_ERROR = {
     code: 'ERR.WORKSPACE.0213',
     message: 'LINK INVALID',
   },
+  NOT_MEMBER: {
+    code: 'ERR.WORKSPACE.0214',
+    message: 'NOT MEMBER OF THIS WORKSPACE',
+  },
+  FAILED_TO_CREATE_WORKSPACE: {
+    code: 'ERR.WORKSPACE.0215',
+    message: 'FAILED TO CREATE WORKSPACE',
+  },
 };

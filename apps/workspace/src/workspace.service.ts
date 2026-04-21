@@ -13,8 +13,10 @@ import {
   WorkspaceLinkStatus,
 } from './types/workspace.enum';
 import {
+  DATABASE_ERROR,
   NAME_SERVICE_TCP,
   NOTIFICATION_MESSAGE_PATTERNS,
+  USER_MESSAGE_PATTERNS,
   WORKSPACE_ERROR,
 } from '@slack/constants';
 import {
@@ -33,6 +35,7 @@ import {
   JoinLinkRequestDto,
   DisableLinkRequestDto,
   DeleteLinkRequestDto,
+  UpdateWorkspaceRequestDto,
 } from './dto/workspace-request.dto';
 import {
   WorkspaceResponseDto,
@@ -46,6 +49,9 @@ import {
   WorkspaceInviteDto,
 } from './dto/workspace.dto';
 import { v7 } from 'uuid';
+import { CACHE, CachedService, TTL } from '@slack/cached';
+import { generateSlug } from '@slack/common';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class WorkspaceService {
@@ -62,7 +68,10 @@ export class WorkspaceService {
     private readonly linkRepository: Repository<WorkspaceLinkEntity>,
     @Inject(NAME_SERVICE_TCP.NOTIFICATION_SERVICE)
     private readonly notificationClient: ClientProxy,
+    @Inject(NAME_SERVICE_TCP.USER_SERVICE)
+    private readonly userClient: ClientProxy,
     private readonly dataSource: DataSource,
+    private readonly cachedService: CachedService,
   ) {}
 
   private mapWorkspaceToDto(workspace: WorkspaceEntity): WorkspaceDto {
@@ -119,30 +128,100 @@ export class WorkspaceService {
   async createWorkspace(
     dto: CreateWorkspaceRequestDto,
   ): Promise<WorkspaceResponseDto> {
-    const slug = await this.generateSlug(dto.name);
+    for (let i = 0; i < 3; i++) {
+      const slug = generateSlug(dto.name);
 
-    const savedWorkspace = await this.dataSource.transaction(
-      async (manager) => {
-        const workspace = manager.create(WorkspaceEntity, {
-          name: dto.name,
-          description: dto.description,
-          slug,
+      try {
+        const savedWorkspace = await this.dataSource.transaction(
+          async (manager) => {
+            const workspace = manager.create(WorkspaceEntity, {
+              name: dto.name,
+              description: dto.description,
+              slug,
+            });
+            const ws = await manager.save(workspace);
+
+            const member = manager.create(WorkspaceMemberEntity, {
+              workspaceId: ws.id,
+              userId: dto.ownerUserId,
+              role: WorkspaceRoleEnum.OWNER,
+              status: MembershipStatus.ACTIVE,
+            });
+            await manager.save(member);
+
+            return ws;
+          },
+        );
+
+        await this.cachedService.del(
+          CACHE.USER_WORKSPACE.KEYS.LIST(dto.ownerUserId),
+        );
+
+        return this.mapWorkspaceToDto(savedWorkspace);
+      } catch (err) {
+        if (err.code === '23505') continue; // duplicate slug → retry
+        throw err;
+      }
+    }
+
+    throw new RpcException({
+      statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+      ...WORKSPACE_ERROR.FAILED_TO_CREATE_WORKSPACE,
+    });
+  }
+
+  // update workspace
+  async updateWorkspace(
+    dto: UpdateWorkspaceRequestDto,
+  ): Promise<WorkspaceResponseDto> {
+    await this.checkPermission(dto.workspaceId, dto.updatedBy, [
+      WorkspaceRoleEnum.OWNER,
+      WorkspaceRoleEnum.ADMIN,
+    ]);
+
+    const workspace = await this.workspaceRepository.findOne({
+      where: { id: dto.workspaceId, deletedAt: IsNull() },
+    });
+    if (!workspace) {
+      throw new RpcException({
+        statusCode: HttpStatus.NOT_FOUND,
+        ...WORKSPACE_ERROR.WORKSPACE_NOT_FOUND,
+      });
+    }
+    if (dto.name) {
+      workspace.name = dto.name;
+    }
+    if (dto.description) {
+      workspace.description = dto.description;
+    }
+
+    const updatedWorkspace = await this.workspaceRepository.save(workspace);
+
+    await this.cachedService.del(CACHE.WORKSPACE.KEYS.DETAIL(dto.workspaceId));
+
+    return this.mapWorkspaceToDto(updatedWorkspace);
+  }
+
+  // detail workspace
+  async getDetailWorkspace(
+    userId: string,
+    workspaceId: string,
+  ): Promise<WorkspaceDto> {
+    // check permission
+    await this.isMemberOfWorkspace(workspaceId, userId);
+    return this.cachedService.getOrSetDetail(
+      CACHE.WORKSPACE.KEYS.DETAIL(workspaceId),
+      TTL.LONG,
+      async () => {
+        const workspace = await this.workspaceRepository.findOne({
+          where: { id: workspaceId, deletedAt: IsNull() },
         });
-        const ws = await manager.save(workspace);
-
-        const member = manager.create(WorkspaceMemberEntity, {
-          workspaceId: ws.id,
-          userId: dto.ownerUserId,
-          role: WorkspaceRoleEnum.OWNER,
-          status: MembershipStatus.ACTIVE,
-        });
-        await manager.save(member);
-
-        return ws;
+        if (!workspace) {
+          throw new RpcException(WORKSPACE_ERROR.WORKSPACE_NOT_FOUND);
+        }
+        return this.mapWorkspaceToDto(workspace);
       },
     );
-
-    return this.mapWorkspaceToDto(savedWorkspace);
   }
 
   // invite member
@@ -180,12 +259,16 @@ export class WorkspaceService {
 
     const savedInvite = await this.inviteRepository.save(invite);
 
+    const workspace = await this.workspaceRepository.findOne({
+      where: { id: dto.workspaceId, deletedAt: IsNull() },
+    });
+
     this.notificationClient.emit(NOTIFICATION_MESSAGE_PATTERNS.SEND_MAIL, {
       to: dto.email,
       subject: 'Invite to workspace',
       template: 'workspace_invitation',
       context: {
-        workspaceName: savedInvite.workspaceId,
+        workspaceName: workspace?.name,
         token,
       },
     });
@@ -231,6 +314,8 @@ export class WorkspaceService {
 
     this.logger.log('Add member', JSON.stringify({ member }));
 
+    this.cachedService.del(CACHE.USER_WORKSPACE.KEYS.LIST(dto.userId));
+
     return this.mapMemberToDto(member);
   }
 
@@ -269,6 +354,8 @@ export class WorkspaceService {
 
     this.logger.log('Remove member', JSON.stringify({ targetMember }));
 
+    this.cachedService.del(CACHE.USER_WORKSPACE.KEYS.LIST(dto.targetUserId));
+
     return 'Member removed successfully';
   }
 
@@ -303,6 +390,8 @@ export class WorkspaceService {
 
     this.logger.log('Join workspace', JSON.stringify({ savedMember }));
 
+    this.cachedService.del(CACHE.USER_WORKSPACE.KEYS.LIST(dto.userId));
+
     return this.mapMemberToDto(savedMember);
   }
 
@@ -335,6 +424,8 @@ export class WorkspaceService {
     await this.memberRepository.save(member);
 
     this.logger.log('Leave workspace', JSON.stringify({ member }));
+
+    this.cachedService.del(CACHE.USER_WORKSPACE.KEYS.LIST(dto.userId));
 
     return 'Left workspace successfully';
   }
@@ -450,7 +541,19 @@ export class WorkspaceService {
     workspace.deletedAt = new Date();
     await this.workspaceRepository.save(workspace);
 
+    // cần invalidate tất cả member của workspace
+    const members = await this.memberRepository.find({
+      where: { workspaceId: workspace.id },
+    });
+
+    for (const m of members) {
+      await this.cachedService.del(CACHE.USER_WORKSPACE.KEYS.LIST(m.userId));
+    }
+
     this.logger.log('Delete workspace', JSON.stringify(workspace));
+
+    // delete cached
+    this.cachedService.del(CACHE.WORKSPACE.KEYS.DETAIL(workspace.id));
 
     return 'Workspace deleted successfully';
   }
@@ -481,12 +584,16 @@ export class WorkspaceService {
 
     const updatedInvite = await this.inviteRepository.save(invite);
 
+    const workspace = await this.workspaceRepository.findOne({
+      where: { id: invite.workspaceId, deletedAt: IsNull() },
+    });
+
     this.notificationClient.emit(NOTIFICATION_MESSAGE_PATTERNS.SEND_MAIL, {
       to: invite.email,
       subject: 'Invite to workspace',
       template: 'workspace_invitation',
       context: {
-        workspaceName: updatedInvite.workspaceId,
+        workspaceName: workspace?.name,
         token: updatedInvite.tokenHash,
       },
     });
@@ -540,6 +647,20 @@ export class WorkspaceService {
     this.logger.log('Generate link', link);
 
     return this.mapLinkToDto(link);
+  }
+
+  async getLinks(
+    userId: string,
+    workspaceId: string,
+  ): Promise<WorkspaceLinkResponseDto[]> {
+    await this.checkPermission(workspaceId, userId, [
+      WorkspaceRoleEnum.OWNER,
+      WorkspaceRoleEnum.ADMIN,
+    ]);
+    const links = await this.linkRepository.find({
+      where: { workspaceId },
+    });
+    return links.map((link) => this.mapLinkToDto(link));
   }
 
   // join link
@@ -598,6 +719,8 @@ export class WorkspaceService {
 
     this.logger.log('Join link', newMember);
 
+    this.cachedService.del(CACHE.USER_WORKSPACE.KEYS.LIST(dto.userId));
+
     return this.mapMemberToDto(newMember);
   }
 
@@ -652,20 +775,102 @@ export class WorkspaceService {
     return 'Link deleted successfully';
   }
 
-  // get list workspace of user
+  // get list workspace of user (paginations?)
   async getListWorkspaceOfUser(userId: string): Promise<WorkspaceDto[]> {
+    const key = CACHE.USER_WORKSPACE.KEYS.LIST(userId);
+
+    const cached = await this.cachedService.get(key);
+    if (cached) return cached as WorkspaceDto[];
+
     const members = await this.memberRepository.find({
       where: { userId, status: MembershipStatus.ACTIVE },
     });
-    const workspaceIds = members.map((member) => member.workspaceId);
+
+    const workspaceIds = members.map((m) => m.workspaceId);
+
+    if (workspaceIds.length === 0) return [];
+
     const workspaces = await this.workspaceRepository.find({
       where: { id: In(workspaceIds), deletedAt: IsNull() },
     });
 
-    return workspaces.map((workspace) => this.mapWorkspaceToDto(workspace));
+    const res = workspaces.map((w) => this.mapWorkspaceToDto(w));
+
+    await this.cachedService.set(key, res, TTL.LONG);
+
+    return res;
+  }
+
+  // get list members of a workspace (pagination?)
+  async getListMembersOfWorkspace(
+    workspaceId: string,
+    userId: string,
+  ): Promise<WorkspaceMemberResponseDto[]> {
+    await this.isMemberOfWorkspace(workspaceId, userId);
+    return this.cachedService.getOrSetDetail(
+      CACHE.WORKSPACE.KEYS.MEMBERS(workspaceId),
+      TTL.LONG,
+      async () => {
+        const members = await this.memberRepository.find({
+          where: { workspaceId, status: MembershipStatus.ACTIVE },
+        });
+
+        const userIds = [...new Set(members.map((m) => m.userId))];
+
+        const users = await firstValueFrom(
+          this.userClient.send(USER_MESSAGE_PATTERNS.GET_BATCH_USER_BY_IDS, {
+            ids: userIds,
+          }),
+        );
+
+        const userMap = new Map(users.map((u) => [u.id, u]));
+
+        return members.map((member) => ({
+          ...this.mapMemberToDto(member),
+          user: userMap.get(member.userId) ?? null,
+        }));
+      },
+    );
   }
 
   // Helpers
+  private async isMemberOfWorkspace(
+    workspaceId: string,
+    userId: string,
+  ): Promise<boolean> {
+    const key = CACHE.WORKSPACE.KEYS.IS_MEMBER(workspaceId, userId);
+    try {
+      const member = await this.cachedService.getOrSetDetail(
+        key,
+        TTL.SHORT,
+        async () => {
+          return this.memberRepository.findOne({
+            where: {
+              workspaceId,
+              userId,
+              status: MembershipStatus.ACTIVE,
+            },
+          });
+        },
+      );
+
+      if (!member) {
+        throw new RpcException({
+          statusCode: HttpStatus.FORBIDDEN,
+          ...WORKSPACE_ERROR.NOT_MEMBER,
+        });
+      }
+    } catch (error) {
+      this.logger.error('Error checking member of workspace', error);
+      throw new RpcException({
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        ...DATABASE_ERROR.NOT_FOUND,
+      });
+    }
+
+    return true;
+  }
+
   private async checkPermission(
     workspaceId: string,
     userId: string,
@@ -681,26 +886,5 @@ export class WorkspaceService {
         ...WORKSPACE_ERROR.NOT_ALLOWED,
       });
     }
-  }
-
-  private async generateSlug(name: string): Promise<string> {
-    const baseSlug = name
-      .toLowerCase()
-      .replace(/[^\w\s-]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .trim();
-
-    let slug = baseSlug;
-    let count = 0;
-    while (true) {
-      const existing = await this.workspaceRepository.findOne({
-        where: { slug, deletedAt: IsNull() },
-      });
-      if (!existing) break;
-      count++;
-      slug = `${baseSlug}-${count}`;
-    }
-    return slug;
   }
 }

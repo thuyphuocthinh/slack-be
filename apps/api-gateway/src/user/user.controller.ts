@@ -18,7 +18,7 @@ import { CurrentUser, SystemRoles, type JwtUser } from '@slack/common';
 import { SystemRoleEnum } from '@slack/constants';
 
 @Controller('users')
-@ApiTags('users')
+@ApiTags('Users')
 @ApiBearerAuth()
 export class UserController {
   constructor(private readonly userService: UserService) {}

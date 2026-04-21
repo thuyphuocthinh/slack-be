@@ -92,4 +92,9 @@ export class UserController {
       data.preference,
     );
   }
+
+  @MessagePattern(USER_MESSAGE_PATTERNS.GET_BATCH_USER_BY_IDS)
+  async getBatchUserByIds(data: { ids: string[] }) {
+    return await this.userService.getBatchUserByIds(data.ids);
+  }
 }

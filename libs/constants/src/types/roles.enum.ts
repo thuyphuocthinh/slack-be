@@ -1,10 +1,10 @@
 export enum SystemRoleEnum {
-  ADMIN = 'Admin',
-  USER = 'User',
+  ADMIN = 'admin',
+  USER = 'user',
 }
 
 export enum WorkspaceRoleEnum {
-  OWNER = 'Owner',
-  ADMIN = 'Admin',
-  MEMBER = 'Member',
+  OWNER = 'owner',
+  ADMIN = 'admin',
+  MEMBER = 'member',
 }

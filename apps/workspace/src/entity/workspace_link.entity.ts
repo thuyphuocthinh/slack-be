@@ -23,6 +23,7 @@ export class WorkspaceLinkEntity {
   @Column({
     type: 'enum',
     enum: WorkspaceLinkType,
+    default: WorkspaceLinkType.PUBLIC_INVITE,
   })
   type: WorkspaceLinkType;
 

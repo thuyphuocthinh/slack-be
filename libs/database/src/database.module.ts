@@ -31,6 +31,7 @@ import { getDataSourceOptions } from './database.config';
         CLOUDINARY_CLOUD_NAME: Joi.string().required(),
         CLOUDINARY_API_KEY: Joi.string().required(),
         CLOUDINARY_API_SECRET: Joi.string().required(),
+        SENDGRID_API_KEY: Joi.string().required(),
       }),
     }),
     TypeOrmModule.forRoot({

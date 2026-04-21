@@ -36,14 +36,19 @@ export const CACHE = {
   USER: {
     _VER: 'v1',
     KEYS: {
-      LIST: (listVersion, limit, page, hashFilters): string => {
+      LIST: (
+        listVersion: number,
+        limit: number,
+        page: number,
+        hashFilters?: string,
+      ): string => {
         let key = `${GLOBAL_PREFIX}:${GLOBAL_VER}:users:${CACHE.USER._VER}:list_v${listVersion}:limit_${limit}_page_${page}`;
         if (hashFilters) {
           key = key + `_hash_${hashFilters}`;
         }
         return key;
       },
-      DETAIL: (id): string =>
+      DETAIL: (id: string): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:users:${CACHE.USER._VER}:detail:id_${id}`,
     },
     TRACKERS: {
@@ -53,6 +58,48 @@ export const CACHE = {
       ROOT: (): string[] => [`${GLOBAL_PREFIX}:user`],
       DETAIL: (id: string): string[] => [`${GLOBAL_PREFIX}:user`, id],
       LIST: (): string[] => [`${GLOBAL_PREFIX}:user-list`],
+    },
+  },
+  WORKSPACE: {
+    _VER: 'v1',
+    KEYS: {
+      LIST: (
+        listVersion: number,
+        limit: number,
+        page: number,
+        hashFilters?: string,
+      ): string => {
+        let key = `${GLOBAL_PREFIX}:${GLOBAL_VER}:workspaces:${CACHE.WORKSPACE._VER}:list_v${listVersion}:limit_${limit}_page_${page}`;
+        if (hashFilters) {
+          key = key + `_hash_${hashFilters}`;
+        }
+        return key;
+      },
+      DETAIL: (id: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:workspaces:${CACHE.WORKSPACE._VER}:detail:id_${id}`,
+      MEMBERS: (workspaceId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:workspaces:${CACHE.WORKSPACE._VER}:members:id_${workspaceId}`,
+      IS_MEMBER: (workspaceId: string, userId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:workspace:${workspaceId}:member:${userId}`,
+    },
+    TRACKERS: {
+      LIST_VERSION: `${GLOBAL_PREFIX}:trackers:workspaces:list_version`,
+    },
+    TAGS: {
+      ROOT: (): string[] => [`${GLOBAL_PREFIX}:workspace`],
+      DETAIL: (id: string): string[] => [`${GLOBAL_PREFIX}:workspace`, id],
+      LIST: (): string[] => [`${GLOBAL_PREFIX}:workspace-list`],
+    },
+  },
+  USER_WORKSPACE: {
+    _VER: 'v1',
+    KEYS: {
+      LIST: (userId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:user-workspaces:v1:user_${userId}`,
+    },
+    TAGS: {
+      ROOT: () => [`${GLOBAL_PREFIX}:user-workspaces`],
+      USER: (userId: string) => [`${GLOBAL_PREFIX}:user-workspaces`, userId],
     },
   },
 };

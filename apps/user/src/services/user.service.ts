@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UserEntity, UserStatus } from '../entity/user.entity';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { CreateUserDto, UpdateUserDto } from '../dto';
 import { type IUserResponse } from '../types/user.response';
 import { USER_ERROR } from '@slack/constants/errors/user.error';
@@ -10,6 +10,7 @@ import { ChangePasswordDto } from '../dto/change-password.dto';
 import { AUTH_MESSAGE_PATTERNS, NAME_SERVICE_TCP } from '@slack/constants';
 import { firstValueFrom } from 'rxjs';
 import { TwoFactorEntity } from '../entity/two_factor.entity';
+import { CACHE, CachedService, TTL } from '@slack/cached';
 @Injectable()
 export class UserService {
   private readonly logger = new Logger(UserService.name);
@@ -21,6 +22,7 @@ export class UserService {
     private readonly twoFactorRepository: Repository<TwoFactorEntity>,
     @Inject(NAME_SERVICE_TCP.AUTH_SERVICE)
     private readonly authClient: ClientProxy,
+    private readonly cachedService: CachedService,
   ) {}
 
   private mapUserToResponse(user: UserEntity): IUserResponse {
@@ -40,6 +42,11 @@ export class UserService {
     const user = this.userRepository.create(data);
     this.logger.log(`Creating user with email: ${data.email}`);
     const userSaved = await this.userRepository.save(user);
+    this.cachedService.getOrSetDetail(
+      CACHE.USER.KEYS.DETAIL(userSaved.id),
+      TTL.MEDIUM,
+      () => this.userRepository.findOneBy({ id: userSaved.id }),
+    );
     return this.mapUserToResponse(userSaved);
   }
 
@@ -54,7 +61,11 @@ export class UserService {
   }
 
   async getUserById(id: string): Promise<IUserResponse> {
-    const user = await this.userRepository.findOneBy({ id });
+    const user = await this.cachedService.getOrSetDetail(
+      CACHE.USER.KEYS.DETAIL(id),
+      TTL.MEDIUM,
+      () => this.userRepository.findOneBy({ id }),
+    );
     if (!user) {
       throw new RpcException(USER_ERROR.USER_NOT_FOUND);
     }
@@ -78,6 +89,7 @@ export class UserService {
     user.avatarUrl = avatarUrl;
     await this.userRepository.save(user);
     this.logger.log(`Change avatar of user id ${id}`);
+    this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(id));
     return this.mapUserToResponse(user);
   }
 
@@ -95,6 +107,7 @@ export class UserService {
     }
     await this.userRepository.save(user);
     this.logger.log(`Update info of user id ${id}`);
+    this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(id));
     return this.mapUserToResponse(user);
   }
 
@@ -136,5 +149,12 @@ export class UserService {
   async isEnableTwoFactor(id: string): Promise<boolean> {
     const twoFactor = await this.twoFactorRepository.findOneBy({ userId: id });
     return twoFactor?.enabled || false;
+  }
+
+  async getBatchUserByIds(ids: string[]): Promise<IUserResponse[]> {
+    const users = await this.userRepository.find({
+      where: { id: In(ids) },
+    });
+    return users.map(this.mapUserToResponse);
   }
 }

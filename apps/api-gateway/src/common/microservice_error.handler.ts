@@ -85,9 +85,12 @@ export class MicroserviceErrorHandler {
     }
 
     // Priority 4: Parse error message for common patterns
-    const rawMessage = Array.isArray(error.message)
-      ? error.message.join(', ')
-      : error.message || '';
+    const messageSource = error.message || error.response?.message || '';
+    const rawMessage = Array.isArray(messageSource)
+      ? messageSource.join(', ')
+      : typeof messageSource === 'object'
+        ? JSON.stringify(messageSource)
+        : String(messageSource);
     const errorMessage = rawMessage.toLowerCase();
 
     if (

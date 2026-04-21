@@ -7,11 +7,17 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
+    "build:gateway": "nest build api-gateway",
+    "build:auth": "nest build auth",
+    "build:user": "nest build user",
+    "build:workspace": "nest build workspace",
+    "build:notification": "nest build notification",
+    "build:all": "pnpm build:gateway && pnpm build:auth && pnpm build:user && pnpm build:workspace && pnpm build:notification",
     "format": "prettier --write \"apps/**/*.ts\" \"libs/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/apps/slack-be/main",
+    "start:prod": "node dist/apps/api-gateway/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "test:watch": "jest --watch",
@@ -28,7 +34,7 @@
     "start:nodeB": "cross-env NODE_OPTIONS='--max-old-space-size=4096' concurrently -n WORKSPACE,NOTIFICATION -c yellow,cyan \"pnpm run start:workspace\" \"pnpm run start:notification\"",
     "start:all": "cross-env NODE_OPTIONS='--max-old-space-size=4096' concurrently -n GATEWAY,AUTH,USER,WORKSPACE,NOTIFICATION -c blue,green,pink,yellow,cyan,magenta,red \"pnpm run start:gateway\" \"pnpm run start:auth\" \"pnpm run start:user\" \"pnpm run start:workspace\" \"pnpm run start:notification\"",
     "type-check": "tsc --noEmit",
-    "typeorm": "typeorm-ts-node-commonjs",
+    "typeorm": "node -r ts-node/register -r tsconfig-paths/register ./node_modules/typeorm/cli.js",
     "migration:generate": "pnpm typeorm migration:generate -d ./data-source.ts",
     "migration:run": "pnpm typeorm migration:run -d ./data-source.ts",
     "migration:revert": "pnpm typeorm migration:revert -d ./data-source.ts"
@@ -36,8 +42,7 @@
   "lint-staged": {
     "*.ts": [
       "eslint --fix",
-      "prettier --write",
-      "jest --findRelatedTests --passWithNoTests"
+      "prettier --write"
     ]
   },
   "dependencies": {
@@ -51,6 +56,7 @@
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/swagger": "^11.3.0",
     "@nestjs/typeorm": "^11.0.1",
+    "@sendgrid/mail": "^8.1.6",
     "bcrypt": "^6.0.0",
     "camelcase-keys": "^10.0.2",
     "class-transformer": "^0.5.1",
@@ -61,6 +67,7 @@
     "ioredis": "^5.10.1",
     "joi": "^18.1.2",
     "lodash": "^4.18.1",
+    "nanoid": "^5.1.9",
     "nest-winston": "^1.10.2",
     "nodemailer": "^8.0.5",
     "passport": "^0.7.0",

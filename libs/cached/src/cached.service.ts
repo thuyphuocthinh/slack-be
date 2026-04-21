@@ -116,4 +116,11 @@ export class CachedService {
   async invalidateList(trackerKey: string) {
     await this.bumpVersion(trackerKey);
   }
+
+  // write through
+  async writeThrough<T>(key: string, ttl: TtlValue, fetcher: () => Promise<T>) {
+    const data = await fetcher();
+    await this.set(key, data, ttl);
+    return data;
+  }
 }

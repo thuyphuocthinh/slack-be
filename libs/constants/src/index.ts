@@ -6,6 +6,8 @@ export * from './errors/user.error';
 export * from './errors/notification.error';
 export * from './errors/two_factor.error';
 export * from './errors/workspace.error';
+export * from './errors/database.error';
+
 export * from './tcp/tcp.constant';
 export * from './tcp/message_pattern/notification_msg_pattern.constant';
 export * from './tcp/message_pattern/auth_msg_pattern.constant';

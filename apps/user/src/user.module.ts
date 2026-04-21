@@ -10,11 +10,13 @@ import { TwoFactorEntity } from './entity/two_factor.entity';
 import { TwoFactorService } from './services/two_fa.service';
 import { UserPreferenceService } from './services/user_preference.service';
 import { UserSettingEntity } from './entity/user_preference.entity';
+import { CachedModule } from '@slack/cached';
 
 @Module({
   imports: [
     DatabaseModule,
     TypeOrmModule.forFeature([UserEntity, TwoFactorEntity, UserSettingEntity]),
+    CachedModule,
     ClientsModule.register([
       {
         name: NAME_SERVICE_TCP.AUTH_SERVICE,

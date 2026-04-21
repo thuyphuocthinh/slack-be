@@ -6,6 +6,12 @@ export class CreateWorkspaceRequestDto {
   ownerUserId: string;
 }
 
+export class UpdateWorkspaceRequestDto {
+  workspaceId: string;
+  name?: string;
+  description?: string;
+  updatedBy: string;
+}
 export class InviteMemberRequestDto {
   workspaceId: string;
   email: string;

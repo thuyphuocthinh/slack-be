@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Logger,
   Param,
   Patch,
   Post,
@@ -22,6 +23,7 @@ import {
   ChangeRoleApiDto,
   TransferOwnershipApiDto,
   CreateLinkApiDto,
+  UpdateWorkspaceApiDto,
 } from './dto/workspace-api.dto';
 import { CurrentUser, type JwtUser } from '@slack/common';
 
@@ -29,6 +31,7 @@ import { CurrentUser, type JwtUser } from '@slack/common';
 @Controller('workspaces')
 @ApiBearerAuth()
 export class WorkspaceController {
+  private readonly logger = new Logger(WorkspaceController.name);
   constructor(private readonly workspaceService: WorkspaceService) {}
 
   @Post()
@@ -41,6 +44,21 @@ export class WorkspaceController {
     return await this.workspaceService.createWorkspace({
       ...data,
       ownerUserId: user.sub,
+    });
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update a workspace' })
+  @ApiResponse({ status: 200, description: 'Workspace updated successfully' })
+  async updateWorkspace(
+    @Param('id') id: string,
+    @Body() data: UpdateWorkspaceApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.workspaceService.updateWorkspace({
+      workspaceId: id,
+      ...data,
+      updatedBy: user.sub,
     });
   }
 
@@ -57,8 +75,15 @@ export class WorkspaceController {
   @Get(':id')
   @ApiOperation({ summary: 'Get a workspace by ID' })
   @ApiResponse({ status: 200, description: 'Workspace retrieved successfully' })
-  async getWorkspace(@Param('id') id: string) {
-    return await this.workspaceService.getWorkspace(id);
+  async getWorkspace(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return await this.workspaceService.getWorkspace(id, user.sub);
+  }
+
+  @Get(':id/members')
+  @ApiOperation({ summary: 'Get all members of a workspace' })
+  @ApiResponse({ status: 200, description: 'Members retrieved successfully' })
+  async getMembers(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return await this.workspaceService.getMembers(id, user.sub);
   }
 
   @Delete(':id')
@@ -221,8 +246,8 @@ export class WorkspaceController {
   @Get(':id/links')
   @ApiOperation({ summary: 'Get all public invite links for a workspace' })
   @ApiResponse({ status: 200, description: 'Links retrieved successfully' })
-  async getLinks(@Param('id') id: string) {
-    return await this.workspaceService.getLinks(id);
+  async getLinks(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return await this.workspaceService.getLinks(user.sub, id);
   }
 
   @Delete(':id/links/:linkId')

@@ -7,5 +7,6 @@ export const USER_MESSAGE_PATTERNS = {
   UPDATE_INFO: 'user.update_info',
   CHANGE_PASSWORD: 'user.change_password',
   GET_USER_PREFERENCE: 'user.get_preference',
+  GET_BATCH_USER_BY_IDS: 'user.get_batch_by_ids',
   UPDATE_USER_PREFERENCE: 'user.update_preference',
 } as const;

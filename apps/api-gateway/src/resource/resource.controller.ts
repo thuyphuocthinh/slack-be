@@ -16,7 +16,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
-@ApiTags('resources')
+@ApiTags('Resources')
 @ApiBearerAuth()
 @Controller('resources')
 export class ResourceController {

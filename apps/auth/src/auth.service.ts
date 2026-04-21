@@ -156,7 +156,7 @@ export class AuthService {
       await this.authCacheService.getUserTokenVersion(userId);
     const accessToken = await this.jwtService.signAsync(
       { sub: userId, email, tokenVersion },
-      { expiresIn: '5m' },
+      { expiresIn: '15m' },
     );
     const refreshToken = await this.jwtService.signAsync(
       { sub: userId, email, tokenVersion },

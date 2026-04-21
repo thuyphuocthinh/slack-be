@@ -8,17 +8,38 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  MaxLength,
 } from 'class-validator';
 
 export class CreateWorkspaceApiDto {
   @ApiProperty({ example: 'My Workspace' })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(100, { message: 'Workspace name must be at most 100 characters' })
   name: string;
 
   @ApiPropertyOptional({ example: 'A brief description of the workspace' })
   @IsString()
   @IsOptional()
+  @MaxLength(255, {
+    message: 'Workspace description must be at most 255 characters',
+  })
+  description?: string;
+}
+
+export class UpdateWorkspaceApiDto {
+  @ApiPropertyOptional({ example: 'My Workspace' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100, { message: 'Workspace name must be at most 100 characters' })
+  name?: string;
+
+  @ApiPropertyOptional({ example: 'A brief description of the workspace' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255, {
+    message: 'Workspace description must be at most 500 characters',
+  })
   description?: string;
 }
 

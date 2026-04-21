@@ -8,7 +8,10 @@ export function toSnakeCase(obj: any): any {
   if (obj !== null && typeof obj === 'object') {
     return mapKeys(
       mapValues(obj, (value) => toSnakeCase(value)),
-      (_, key) => key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`),
+      (_, key) => {
+        if (typeof key !== 'string') return key;
+        return key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+      },
     );
   }
 

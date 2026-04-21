@@ -17,6 +17,7 @@ import {
   GenerateLinkRequestDto,
   DisableLinkRequestDto,
   DeleteLinkRequestDto,
+  UpdateWorkspaceRequestDto,
 } from './dto/workspace-request.dto';
 
 @Controller()
@@ -26,6 +27,27 @@ export class WorkspaceController {
   @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.CREATE_WORKSPACE)
   createWorkspace(@Payload() dto: CreateWorkspaceRequestDto) {
     return this.workspaceService.createWorkspace(dto);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.UPDATE_WORKSPACE)
+  updateWorkspace(@Payload() dto: UpdateWorkspaceRequestDto) {
+    return this.workspaceService.updateWorkspace(dto);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.GET_WORKSPACE)
+  getWorkspace(@Payload() dto: { workspaceId: string; userId: string }) {
+    return this.workspaceService.getDetailWorkspace(
+      dto.userId,
+      dto.workspaceId,
+    );
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.GET_MEMBERS)
+  getMembers(@Payload() dto: { workspaceId: string; userId: string }) {
+    return this.workspaceService.getListMembersOfWorkspace(
+      dto.workspaceId,
+      dto.userId,
+    );
   }
 
   @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.INVITE_MEMBER)
@@ -96,5 +118,10 @@ export class WorkspaceController {
   @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.DELETE_LINK)
   deleteLink(@Payload() dto: DeleteLinkRequestDto) {
     return this.workspaceService.deleteLink(dto);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.GET_LINKS)
+  getLinks(@Payload() dto: { workspaceId: string; userId: string }) {
+    return this.workspaceService.getLinks(dto.userId, dto.workspaceId);
   }
 }

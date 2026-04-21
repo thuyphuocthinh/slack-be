@@ -25,8 +25,8 @@ async function bootstrap() {
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,
-      whitelist: true,
-      forbidNonWhitelisted: false, // Allow extra properties for microservice flexibility
+      whitelist: false,
+      forbidNonWhitelisted: false,
     }),
   );
   await app.listen();

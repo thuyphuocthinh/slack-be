@@ -9,10 +9,12 @@ import { WorkspaceLinkEntity } from './entity/workspace_link.entity';
 import { DatabaseModule } from '@slack/database';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
+import { CachedModule } from '@slack/cached';
 
 @Module({
   imports: [
     DatabaseModule,
+    CachedModule,
     TypeOrmModule.forFeature([
       WorkspaceEntity,
       WorkspaceMemberEntity,
@@ -26,6 +28,14 @@ import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
         options: {
           host: 'localhost',
           port: PORT_TCP.NOTIFICATION_TCP_PORT,
+        },
+      },
+      {
+        name: NAME_SERVICE_TCP.USER_SERVICE,
+        transport: Transport.TCP,
+        options: {
+          host: 'localhost',
+          port: PORT_TCP.USER_TCP_PORT,
         },
       },
     ]),

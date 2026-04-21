@@ -18,6 +18,7 @@ import {
   GenerateLinkRequestDto,
   DisableLinkRequestDto,
   DeleteLinkRequestDto,
+  UpdateWorkspaceRequestDto,
 } from './dto/workspace-request.dto';
 
 @Injectable()
@@ -55,14 +56,14 @@ export class WorkspaceService {
     );
   }
 
-  async getWorkspace(workspaceId: string) {
+  async getWorkspace(workspaceId: string, userId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.workspaceClient.send(
-            WORKSPACE_MESSAGE_PATTERNS.GET_WORKSPACE,
+          this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.GET_WORKSPACE, {
             workspaceId,
-          ),
+            userId,
+          }),
         ),
       'getWorkspace',
       'WorkspaceService',
@@ -234,14 +235,14 @@ export class WorkspaceService {
     );
   }
 
-  async getLinks(workspaceId: string) {
+  async getLinks(userId: string, workspaceId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.workspaceClient.send(
-            WORKSPACE_MESSAGE_PATTERNS.GET_LINKS,
+          this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.GET_LINKS, {
             workspaceId,
-          ),
+            userId,
+          }),
         ),
       'getLinks',
       'WorkspaceService',
@@ -258,6 +259,34 @@ export class WorkspaceService {
           ),
         ),
       'deleteLink',
+      'WorkspaceService',
+    );
+  }
+
+  async getMembers(workspaceId: string, userId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.GET_MEMBERS, {
+            workspaceId,
+            userId,
+          }),
+        ),
+      'getMembers',
+      'WorkspaceService',
+    );
+  }
+
+  async updateWorkspace(data: UpdateWorkspaceRequestDto) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.workspaceClient.send(
+            WORKSPACE_MESSAGE_PATTERNS.UPDATE_WORKSPACE,
+            data,
+          ),
+        ),
+      'updateWorkspace',
       'WorkspaceService',
     );
   }

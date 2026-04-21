@@ -1,14 +1,14 @@
 {
   "$schema": "https://json.schemastore.org/nest-cli",
   "collection": "@nestjs/schematics",
-  "sourceRoot": "apps/slack-be/src",
+  "sourceRoot": "apps/api-gateway/src",
   "compilerOptions": {
     "deleteOutDir": true,
     "webpack": true,
-    "tsConfigPath": "apps/slack-be/tsconfig.app.json"
+    "tsConfigPath": "tsconfig.json"
   },
   "monorepo": true,
-  "root": "apps/slack-be",
+  "root": "apps/api-gateway",
   "projects": {
     "api-gateway": {
       "type": "application",
@@ -77,15 +77,6 @@
             "watchAssets": true
           }
         ]
-      }
-    },
-    "slack-be": {
-      "type": "application",
-      "root": "apps/slack-be",
-      "entryFile": "main",
-      "sourceRoot": "apps/slack-be/src",
-      "compilerOptions": {
-        "tsConfigPath": "apps/slack-be/tsconfig.app.json"
       }
     },
     "user": {
