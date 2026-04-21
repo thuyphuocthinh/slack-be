@@ -9,4 +9,5 @@ export interface IUserResponse {
   avatarUrl?: string;
   createdAt: Date;
   status: UserStatus;
+  isTwoFactorEnabled: boolean;
 }

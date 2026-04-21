@@ -10,6 +10,10 @@ export class CachedService {
     private readonly redis: Redis,
   ) {}
 
+  async exists(key: string): Promise<boolean> {
+    return (await this.redis.exists(key)) === 1;
+  }
+
   // Utils
 
   private withJitter(ttl: number, percent = 0.1): number {
@@ -115,6 +119,26 @@ export class CachedService {
 
   async invalidateList(trackerKey: string) {
     await this.bumpVersion(trackerKey);
+  }
+
+  // set data type
+  async setSet(key: string, value: string, ttl: TtlValue): Promise<void> {
+    const finalTtl = this.withJitter(ttl);
+    await this.redis.sadd(key, value);
+    await this.redis.expire(key, finalTtl);
+  }
+
+  async getSet(key: string): Promise<string[] | null> {
+    const data = await this.redis.smembers(key);
+    return data;
+  }
+
+  async removeFromSet(key: string, value: string): Promise<void> {
+    await this.redis.srem(key, value);
+  }
+
+  async isMemberOfSet(key: string, member: string): Promise<boolean> {
+    return (await this.redis.sismember(key, member)) === 1;
   }
 
   // write through

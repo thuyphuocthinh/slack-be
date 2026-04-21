@@ -233,6 +233,13 @@ export class WorkspaceService {
       WorkspaceRoleEnum.ADMIN,
     ]);
 
+    // check user exist
+    await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_EMAIL, {
+        email: dto.email,
+      }),
+    );
+
     const existingMember = await this.memberRepository.findOne({
       where: {
         workspaceId: dto.workspaceId,
@@ -284,6 +291,15 @@ export class WorkspaceService {
       WorkspaceRoleEnum.OWNER,
       WorkspaceRoleEnum.ADMIN,
     ]);
+
+    // check user exist
+    // in slack, they allow to invite or add non-existing members, these members still receive messages via gmail, and they are expired in 31days
+    // but we will not support this feature in this version, so we need to check user exist
+    await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, {
+        id: dto.userId,
+      }),
+    );
 
     const existingMember = await this.memberRepository.findOne({
       where: { workspaceId: dto.workspaceId, userId: dto.userId },
@@ -776,6 +792,7 @@ export class WorkspaceService {
   }
 
   // get list workspace of user (paginations?)
+  // no need to pagination, because user can't have too many workspaces
   async getListWorkspaceOfUser(userId: string): Promise<WorkspaceDto[]> {
     const key = CACHE.USER_WORKSPACE.KEYS.LIST(userId);
 
@@ -802,6 +819,7 @@ export class WorkspaceService {
   }
 
   // get list members of a workspace (pagination?)
+  // no need to pagination, because a workspace can't have too many members
   async getListMembersOfWorkspace(
     workspaceId: string,
     userId: string,

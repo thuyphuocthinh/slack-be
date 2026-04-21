@@ -97,4 +97,9 @@ export class UserController {
   async getBatchUserByIds(data: { ids: string[] }) {
     return await this.userService.getBatchUserByIds(data.ids);
   }
+
+  @MessagePattern(USER_MESSAGE_PATTERNS.GET_USER_BY_EMAIL)
+  async getUserByEmail(data: { email: string }) {
+    return await this.userService.getUserByEmail(data.email);
+  }
 }

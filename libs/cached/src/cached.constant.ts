@@ -50,6 +50,8 @@ export const CACHE = {
       },
       DETAIL: (id: string): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:users:${CACHE.USER._VER}:detail:id_${id}`,
+      TWO_FACTOR: (id: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:users:${CACHE.USER._VER}:two_factor:id_${id}`,
     },
     TRACKERS: {
       LIST_VERSION: `${GLOBAL_PREFIX}:trackers:users:list_version`,

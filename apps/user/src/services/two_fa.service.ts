@@ -6,6 +6,7 @@ import * as speakeasy from 'speakeasy';
 import { RpcException } from '@nestjs/microservices';
 import { TWO_FACTOR_ERROR } from '@slack/constants/errors/two_factor.error';
 import { Logger } from '@nestjs/common';
+import { CACHE, CachedService, TTL } from '@slack/cached';
 
 @Injectable()
 export class TwoFactorService {
@@ -14,6 +15,7 @@ export class TwoFactorService {
   constructor(
     @InjectRepository(TwoFactorEntity)
     private readonly twoFactorRepository: Repository<TwoFactorEntity>,
+    private readonly cachedService: CachedService,
   ) {}
 
   async generateSecret(userId: string): Promise<string> {
@@ -62,6 +64,7 @@ export class TwoFactorService {
     this.twoFactorRepository.update(twoFactor.id, {
       enabled: true,
     });
+    this.cachedService.set(CACHE.USER.KEYS.TWO_FACTOR(userId), true, TTL.LONG);
     this.logger.log(`User ${userId} enabled two factor`);
     return verified;
   }
@@ -71,8 +74,27 @@ export class TwoFactorService {
     if (!twoFactor) {
       throw new RpcException(TWO_FACTOR_ERROR.TWO_FACTOR_NOT_FOUND);
     }
+
     twoFactor.enabled = !twoFactor.enabled;
     await this.twoFactorRepository.save(twoFactor);
+
+    const key = CACHE.USER.KEYS.TWO_FACTOR(userId);
+
+    if (twoFactor.enabled) {
+      await this.cachedService.set(key, true, TTL.LONG);
+    } else {
+      await this.cachedService.del(key);
+    }
+
     this.logger.log(`User ${userId} toggled two factor`);
+  }
+
+  async isEnableTwoFactor(id: string): Promise<boolean> {
+    const twoFactor = await this.cachedService.getOrSetDetail(
+      CACHE.USER.KEYS.TWO_FACTOR(id),
+      TTL.LONG,
+      () => this.twoFactorRepository.findOneBy({ userId: id }),
+    );
+    return twoFactor?.enabled || false;
   }
 }

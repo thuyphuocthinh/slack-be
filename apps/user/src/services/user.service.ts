@@ -9,8 +9,8 @@ import { ClientProxy, RpcException } from '@nestjs/microservices';
 import { ChangePasswordDto } from '../dto/change-password.dto';
 import { AUTH_MESSAGE_PATTERNS, NAME_SERVICE_TCP } from '@slack/constants';
 import { firstValueFrom } from 'rxjs';
-import { TwoFactorEntity } from '../entity/two_factor.entity';
 import { CACHE, CachedService, TTL } from '@slack/cached';
+import { TwoFactorService } from './two_fa.service';
 @Injectable()
 export class UserService {
   private readonly logger = new Logger(UserService.name);
@@ -18,14 +18,13 @@ export class UserService {
   constructor(
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
-    @InjectRepository(TwoFactorEntity)
-    private readonly twoFactorRepository: Repository<TwoFactorEntity>,
     @Inject(NAME_SERVICE_TCP.AUTH_SERVICE)
     private readonly authClient: ClientProxy,
     private readonly cachedService: CachedService,
+    private readonly twoFactorService: TwoFactorService,
   ) {}
 
-  private mapUserToResponse(user: UserEntity): IUserResponse {
+  private async mapUserToResponse(user: UserEntity): Promise<IUserResponse> {
     return {
       id: user.id,
       firstName: user.firstName,
@@ -35,6 +34,7 @@ export class UserService {
       createdAt: user.createdAt,
       systemRole: user.systemRole,
       status: user.status,
+      isTwoFactorEnabled: await this.isEnableTwoFactor(user.id),
     };
   }
 
@@ -42,11 +42,6 @@ export class UserService {
     const user = this.userRepository.create(data);
     this.logger.log(`Creating user with email: ${data.email}`);
     const userSaved = await this.userRepository.save(user);
-    this.cachedService.getOrSetDetail(
-      CACHE.USER.KEYS.DETAIL(userSaved.id),
-      TTL.MEDIUM,
-      () => this.userRepository.findOneBy({ id: userSaved.id }),
-    );
     return this.mapUserToResponse(userSaved);
   }
 
@@ -147,14 +142,13 @@ export class UserService {
   }
 
   async isEnableTwoFactor(id: string): Promise<boolean> {
-    const twoFactor = await this.twoFactorRepository.findOneBy({ userId: id });
-    return twoFactor?.enabled || false;
+    return this.twoFactorService.isEnableTwoFactor(id);
   }
 
   async getBatchUserByIds(ids: string[]): Promise<IUserResponse[]> {
     const users = await this.userRepository.find({
       where: { id: In(ids) },
     });
-    return users.map(this.mapUserToResponse);
+    return Promise.all(users.map((user) => this.mapUserToResponse(user)));
   }
 }
