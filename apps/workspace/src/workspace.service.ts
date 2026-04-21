@@ -194,6 +194,9 @@ export class WorkspaceService {
     if (dto.description) {
       workspace.description = dto.description;
     }
+    if (dto.logo) {
+      workspace.logo = dto.logo;
+    }
 
     const updatedWorkspace = await this.workspaceRepository.save(workspace);
 

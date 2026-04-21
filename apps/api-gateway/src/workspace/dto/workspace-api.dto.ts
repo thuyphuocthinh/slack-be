@@ -41,6 +41,14 @@ export class UpdateWorkspaceApiDto {
     message: 'Workspace description must be at most 500 characters',
   })
   description?: string;
+
+  @ApiPropertyOptional({ example: 'https://example.com/logo.png' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(512, {
+    message: 'Workspace logo must be at most 512 characters',
+  })
+  logo?: string;
 }
 
 export class InviteMemberApiDto {

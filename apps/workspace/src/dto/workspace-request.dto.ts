@@ -10,6 +10,7 @@ export class UpdateWorkspaceRequestDto {
   workspaceId: string;
   name?: string;
   description?: string;
+  logo?: string;
   updatedBy: string;
 }
 export class InviteMemberRequestDto {
