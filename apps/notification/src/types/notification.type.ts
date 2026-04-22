@@ -18,3 +18,9 @@ export enum NotificationType {
   // system
   WORKSPACE_INVITED = 'WORKSPACE_INVITED',
 }
+
+export enum NotificationStatus {
+  UNREAD = 'unread',
+  READ = 'read',
+  ARCHIVED = 'archived',
+}

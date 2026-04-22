@@ -1,4 +1,7 @@
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { Notification } from './entity/notification.entity';
+import { AuditLog } from './entity/audit.entity';
 import { NotificationController } from './notification.controller';
 import { NotificationService } from './services/impl/notification.service';
 import { DatabaseModule } from '@slack/database';
@@ -9,10 +12,23 @@ import { join } from 'path';
 import { I_MAIL_SERVICE } from './services/mail.interface';
 import { SendgridService } from './services/impl/sendgrid.service';
 import { NodemailerService } from './services/impl/nodemailer.service';
+import { ClientsModule, Transport } from '@nestjs/microservices';
+import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 
 @Module({
   imports: [
     DatabaseModule,
+    TypeOrmModule.forFeature([Notification, AuditLog]),
+    ClientsModule.register([
+      {
+        name: NAME_SERVICE_TCP.USER_SERVICE,
+        transport: Transport.TCP,
+        options: {
+          host: 'localhost',
+          port: PORT_TCP.USER_TCP_PORT,
+        },
+      },
+    ]),
     MailerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {

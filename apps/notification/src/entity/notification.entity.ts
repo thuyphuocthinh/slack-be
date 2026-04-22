@@ -1,5 +1,8 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
-import { NotificationType } from '../types/notification.type';
+import {
+  NotificationType,
+  NotificationStatus,
+} from '../types/notification.type';
 
 @Entity('notifications')
 export class Notification {
@@ -18,8 +21,12 @@ export class Notification {
   @Column({ type: 'enum', enum: NotificationType })
   type: NotificationType;
 
-  @Column({ name: 'is_read', default: false })
-  isRead: boolean;
+  @Column({
+    type: 'enum',
+    enum: NotificationStatus,
+    default: NotificationStatus.UNREAD,
+  })
+  status: NotificationStatus;
 
   @Column({ name: 'object_id' })
   objectId: string;
@@ -42,7 +49,7 @@ export class Notification {
  * Business action xảy ra
     ↓
     1. Update DB (state)
-    2. Publish domain event  🔥
+    2. Publish domain event
     3. Ghi audit log         (side effect)
     4. Gửi notification      (side effect)
     5. Emit socket           (side effect)
