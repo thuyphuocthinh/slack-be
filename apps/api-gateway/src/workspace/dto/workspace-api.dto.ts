@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { WorkspaceRoleEnum } from '@slack/constants';
 import {
+  IsArray,
   IsEmail,
   IsEnum,
   IsNotEmpty,
@@ -67,6 +68,17 @@ export class AddMemberDirectApiDto {
   @IsUUID()
   @IsNotEmpty()
   userId: string;
+
+  @ApiProperty({ enum: WorkspaceRoleEnum, example: WorkspaceRoleEnum.MEMBER })
+  @IsEnum(WorkspaceRoleEnum)
+  role: WorkspaceRoleEnum;
+}
+
+export class AddBatchMembersApiDto {
+  @ApiProperty({ example: ['user-uuid-1', 'user-uuid-2'] })
+  @IsArray()
+  @IsUUID()
+  userIds: string[];
 
   @ApiProperty({ enum: WorkspaceRoleEnum, example: WorkspaceRoleEnum.MEMBER })
   @IsEnum(WorkspaceRoleEnum)

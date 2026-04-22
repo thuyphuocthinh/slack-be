@@ -17,7 +17,6 @@ export class WorkspaceDto {
 }
 
 export class WorkspaceMemberDto {
-  id: string;
   workspaceId: string;
   userId: string;
   role: WorkspaceRoleEnum;

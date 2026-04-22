@@ -59,7 +59,7 @@ export class UserService {
     const user = await this.cachedService.getOrSetDetail(
       CACHE.USER.KEYS.DETAIL(id),
       TTL.MEDIUM,
-      () => this.userRepository.findOneBy({ id }),
+      () => this.userRepository.findOneBy({ id, status: UserStatus.ACTIVE }),
     );
     if (!user) {
       throw new RpcException(USER_ERROR.USER_NOT_FOUND);
@@ -68,7 +68,10 @@ export class UserService {
   }
 
   async getUserByEmail(email: string): Promise<IUserResponse> {
-    const user = await this.userRepository.findOneBy({ email });
+    const user = await this.userRepository.findOneBy({
+      email,
+      status: UserStatus.ACTIVE,
+    });
     if (!user) {
       throw new RpcException(USER_ERROR.USER_NOT_FOUND);
     }

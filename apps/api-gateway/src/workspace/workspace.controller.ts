@@ -24,6 +24,7 @@ import {
   TransferOwnershipApiDto,
   CreateLinkApiDto,
   UpdateWorkspaceApiDto,
+  AddBatchMembersApiDto,
 } from './dto/workspace-api.dto';
 import { CurrentUser, type JwtUser } from '@slack/common';
 
@@ -142,11 +143,27 @@ export class WorkspaceController {
     });
   }
 
-  @Delete(':workspaceId/members/:userId')
+  @Post(':id/add-members')
+  @ApiOperation({ summary: 'Add multiple members to a workspace' })
+  @ApiResponse({ status: 201, description: 'Members added successfully' })
+  async addBatchMembers(
+    @Param('id') id: string,
+    @Body() data: AddBatchMembersApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.workspaceService.addBatchMembers({
+      workspaceId: id,
+      userIds: data.userIds,
+      role: data.role,
+      adminUserId: user.sub,
+    });
+  }
+
+  @Delete(':id/members/:userId')
   @ApiOperation({ summary: 'Remove a member from a workspace' })
   @ApiResponse({ status: 200, description: 'Member removed successfully' })
   async removeMember(
-    @Param('workspaceId') workspaceId: string,
+    @Param('id') workspaceId: string,
     @Param('userId') userId: string,
     @CurrentUser() user: JwtUser,
   ) {

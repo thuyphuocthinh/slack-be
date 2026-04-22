@@ -17,7 +17,7 @@ export const AUTH_ERROR = {
   },
   INVALID_CREDENTIALS: {
     code: 'ERR.AUTH.0105',
-    message: 'INVALID EMAIL OR PASSWORD',
+    message: 'WRONG CREDENTIALS',
   },
   INVALID_REFRESH_TOKEN: {
     code: 'ERR.AUTH.0106',

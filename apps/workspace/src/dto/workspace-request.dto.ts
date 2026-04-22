@@ -27,6 +27,13 @@ export class AddMemberRequestDto {
   adminUserId: string;
 }
 
+export class AddBatchMembersRequestDto {
+  workspaceId: string;
+  userIds: string[];
+  role: WorkspaceRoleEnum;
+  adminUserId: string;
+}
+
 export class RemoveMemberRequestDto {
   workspaceId: string;
   targetUserId: string;

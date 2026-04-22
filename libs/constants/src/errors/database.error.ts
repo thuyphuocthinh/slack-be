@@ -9,6 +9,6 @@ export const DATABASE_ERROR = {
   },
   NOT_FOUND: {
     code: 'ERR.DATABASE.0103',
-    message: 'NOT FOUND',
+    message: 'DATA NOT FOUND',
   },
 };

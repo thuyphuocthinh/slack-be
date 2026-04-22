@@ -19,6 +19,7 @@ import {
   DisableLinkRequestDto,
   DeleteLinkRequestDto,
   UpdateWorkspaceRequestDto,
+  AddBatchMembersRequestDto,
 } from './dto/workspace-request.dto';
 
 @Injectable()
@@ -122,6 +123,20 @@ export class WorkspaceService {
           ),
         ),
       'addMemberDirect',
+      'WorkspaceService',
+    );
+  }
+
+  async addBatchMembers(data: AddBatchMembersRequestDto) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.workspaceClient.send(
+            WORKSPACE_MESSAGE_PATTERNS.ADD_BATCH_MEMBERS,
+            data,
+          ),
+        ),
+      'addBatchMembers',
       'WorkspaceService',
     );
   }

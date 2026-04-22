@@ -10,6 +10,10 @@ import { DatabaseModule } from '@slack/database';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { CachedModule } from '@slack/cached';
+import { WorkspaceCommonService } from './services/workspace-common.service';
+import { WorkspaceMemberService } from './services/workspace-member.service';
+import { WorkspaceInviteService } from './services/workspace-invite.service';
+import { WorkspaceLinkService } from './services/workspace-link.service';
 
 @Module({
   imports: [
@@ -41,6 +45,12 @@ import { CachedModule } from '@slack/cached';
     ]),
   ],
   controllers: [WorkspaceController],
-  providers: [WorkspaceService],
+  providers: [
+    WorkspaceService,
+    WorkspaceCommonService,
+    WorkspaceMemberService,
+    WorkspaceInviteService,
+    WorkspaceLinkService,
+  ],
 })
 export class WorkspaceModule {}
