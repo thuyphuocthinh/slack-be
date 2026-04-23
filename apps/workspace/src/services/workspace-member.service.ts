@@ -374,4 +374,20 @@ export class WorkspaceMemberService {
       return this.commonService.mapMemberWithUserToDto(member, user);
     });
   }
+
+  async getMemberByUserId(
+    workspaceId: string,
+    userId: string,
+  ): Promise<WorkspaceMemberEntity> {
+    const member = await this.memberRepository.findOne({
+      where: { workspaceId, userId, status: MembershipStatus.ACTIVE },
+    });
+    if (!member) {
+      throw new RpcException({
+        statusCode: HttpStatus.NOT_FOUND,
+        ...WORKSPACE_ERROR.MEMBER_NOT_FOUND,
+      });
+    }
+    return member;
+  }
 }

@@ -1,0 +1,50 @@
+export const TASK_ERROR = {
+  BOARD_NOT_FOUND: {
+    code: 'ERR.TASK.0101',
+    message: 'BOARD NOT FOUND',
+  },
+  GROUP_NOT_FOUND: {
+    code: 'ERR.TASK.0102',
+    message: 'GROUP NOT FOUND',
+  },
+  TASK_NOT_FOUND: {
+    code: 'ERR.TASK.0103',
+    message: 'TASK NOT FOUND',
+  },
+  LABEL_NOT_FOUND: {
+    code: 'ERR.TASK.0104',
+    message: 'LABEL NOT FOUND',
+  },
+  CHECKLIST_NOT_FOUND: {
+    code: 'ERR.TASK.0105',
+    message: 'CHECKLIST NOT FOUND',
+  },
+  CHECKLIST_ITEM_NOT_FOUND: {
+    code: 'ERR.TASK.0106',
+    message: 'CHECKLIST ITEM NOT FOUND',
+  },
+  NOT_MEMBER_OF_WORKSPACE: {
+    code: 'ERR.TASK.0107',
+    message: 'NOT A MEMBER OF THIS WORKSPACE',
+  },
+  ONLY_ADMIN_CAN_DELETE_BOARD: {
+    code: 'ERR.TASK.0108',
+    message: 'ONLY WORKSPACE ADMINS CAN DELETE THIS BOARD',
+  },
+  MEMBER_ALREADY_IN_BOARD: {
+    code: 'ERR.TASK.0109',
+    message: 'MEMBER ALREADY IN THIS BOARD',
+  },
+  MEMBER_NOT_IN_BOARD: {
+    code: 'ERR.TASK.0110',
+    message: 'MEMBER NOT IN THIS BOARD',
+  },
+  MEMBER_ALREADY_ASSIGNED_TO_TASK: {
+    code: 'ERR.TASK.0111',
+    message: 'MEMBER ALREADY ASSIGNED TO THIS TASK',
+  },
+  MEMBER_NOT_ASSIGNED_TO_TASK: {
+    code: 'ERR.TASK.0112',
+    message: 'MEMBER NOT ASSIGNED TO THIS TASK',
+  },
+};

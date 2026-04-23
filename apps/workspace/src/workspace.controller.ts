@@ -23,6 +23,7 @@ import {
   UpdateWorkspaceRequestDto,
   AddBatchMembersRequestDto,
 } from './dto/workspace-request.dto';
+import { WorkspaceRoleEnum } from './types/workspace.enum';
 
 @Controller()
 export class WorkspaceController {
@@ -137,5 +138,22 @@ export class WorkspaceController {
   @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.ADD_BATCH_MEMBERS)
   addBatchMembers(@Payload() dto: AddBatchMembersRequestDto) {
     return this.memberService.addBatchMembers(dto);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.CHECK_PERMISSION)
+  checkPermission(
+    @Payload()
+    dto: {
+      workspaceId: string;
+      userId: string;
+      allowedRoles: WorkspaceRoleEnum[];
+    },
+  ) {
+    return this.workspaceService.checkPermission(dto);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.GET_MEMBER)
+  getMember(@Payload() dto: { workspaceId: string; userId: string }) {
+    return this.memberService.getMemberByUserId(dto.workspaceId, dto.userId);
   }
 }

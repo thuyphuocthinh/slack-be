@@ -20,4 +20,6 @@ export const WORKSPACE_MESSAGE_PATTERNS = {
   DELETE_LINK: 'workspace.delete_link',
   DISABLE_LINK: 'workspace.disable_link',
   ADD_BATCH_MEMBERS: 'workspace.add_batch_members',
+  CHECK_PERMISSION: 'workspace.check_permission',
+  GET_MEMBER: 'workspace.get_member',
 } as const;

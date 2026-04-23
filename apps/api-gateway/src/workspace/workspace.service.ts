@@ -305,4 +305,40 @@ export class WorkspaceService {
       'WorkspaceService',
     );
   }
+
+  async checkPermission(
+    workspaceId: string,
+    userId: string,
+    allowedRoles: string[],
+  ) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.workspaceClient.send(
+            WORKSPACE_MESSAGE_PATTERNS.CHECK_PERMISSION,
+            {
+              workspaceId,
+              userId,
+              allowedRoles,
+            },
+          ),
+        ),
+      'checkPermission',
+      'WorkspaceService',
+    );
+  }
+
+  async getMember(workspaceId: string, userId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.GET_MEMBER, {
+            workspaceId,
+            userId,
+          }),
+        ),
+      'getMember',
+      'WorkspaceService',
+    );
+  }
 }

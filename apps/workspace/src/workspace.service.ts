@@ -181,7 +181,18 @@ export class WorkspaceService {
     const res = workspaces.map((w) => this.commonService.mapWorkspaceToDto(w));
 
     await this.cachedService.set(key, res, TTL.LONG);
-
     return res;
+  }
+
+  async checkPermission(dto: {
+    workspaceId: string;
+    userId: string;
+    allowedRoles: WorkspaceRoleEnum[];
+  }) {
+    return await this.commonService.checkPermission(
+      dto.workspaceId,
+      dto.userId,
+      dto.allowedRoles,
+    );
   }
 }
