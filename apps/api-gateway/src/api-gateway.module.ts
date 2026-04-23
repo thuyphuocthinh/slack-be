@@ -11,6 +11,7 @@ import { ConfigModule } from '@nestjs/config';
 import { UserModule } from './user/user.module';
 import { ResourceModule } from './resource/resource.module';
 import { WorkspaceModule } from './workspace/workspace.module';
+import { NotificationModule } from './notification/notification.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { WorkspaceModule } from './workspace/workspace.module';
     UserModule,
     ResourceModule,
     WorkspaceModule,
+    NotificationModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'fallback_secret',
     }),

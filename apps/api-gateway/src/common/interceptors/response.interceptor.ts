@@ -4,36 +4,50 @@ import {
   Injectable,
   NestInterceptor,
 } from '@nestjs/common';
-import { IBaseResponse, toSnakeCase } from '@slack/common';
+import { IBaseResponse, IOffsetResponse, toSnakeCase } from '@slack/common';
 import { Request, Response } from 'express';
 import { map, Observable } from 'rxjs';
 
 @Injectable()
 export class ResponseInterceptor<T> implements NestInterceptor<
   T,
-  IBaseResponse<T>
+  IBaseResponse<T> | IOffsetResponse<T>
 > {
   intercept(
     context: ExecutionContext,
     next: CallHandler,
-  ): Observable<IBaseResponse<T>> {
+  ): Observable<IBaseResponse<T> | IOffsetResponse<T>> {
     const ctx = context.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
     const statusCode = response.statusCode;
 
     return next.handle().pipe(
-      map((data: T) => ({
-        statusCode: statusCode,
-        status: 'Success',
-        message: 'Request Success',
-        data: toSnakeCase(data),
-        metadata: {
-          timestamp: new Date().toISOString(),
-          method: request.method,
-          path: request.url,
-        },
-      })),
+      map((data: any) => {
+        const commonResponse = {
+          statusCode: statusCode,
+          status: 'Success' as const,
+          message: 'Request Success',
+          metadata: {
+            timestamp: new Date().toISOString(),
+            method: request.method,
+            path: request.url,
+          },
+        };
+
+        if (data && data.data && data.paging) {
+          return {
+            ...commonResponse,
+            data: toSnakeCase(data.data),
+            paging: toSnakeCase(data.paging),
+          };
+        }
+
+        return {
+          ...commonResponse,
+          data: toSnakeCase(data),
+        };
+      }),
     );
   }
 }

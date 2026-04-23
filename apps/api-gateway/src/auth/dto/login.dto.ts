@@ -10,7 +10,7 @@ import {
 
 export class LoginDto {
   @ApiProperty({
-    example: 'user@example.com',
+    example: 'thuyphuocthinhtpt+5@gmail.com',
     description: 'User email address',
   })
   @IsEmail({}, { message: 'Invalid email format' })
@@ -18,7 +18,7 @@ export class LoginDto {
   email: string;
 
   @ApiProperty({
-    example: 'Password123!',
+    example: '123456Aa',
     description:
       'User password, must contain at least 1 uppercase, 1 lowercase letter and be at least 8 characters long',
   })

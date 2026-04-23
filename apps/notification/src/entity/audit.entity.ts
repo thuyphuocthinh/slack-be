@@ -24,7 +24,7 @@ export class AuditLog {
   @Index()
   targetId: string;
 
-  @Column({ name: 'entity_type' })
+  @Column({ name: 'entity_type', type: 'enum', enum: AuditEntityType })
   @Index()
   entityType: AuditEntityType;
 

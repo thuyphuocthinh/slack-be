@@ -4,6 +4,7 @@ import { Notification } from './entity/notification.entity';
 import { AuditLog } from './entity/audit.entity';
 import { NotificationController } from './notification.controller';
 import { NotificationService } from './services/impl/notification.service';
+import { AuditService } from './services/impl/audit.service';
 import { DatabaseModule } from '@slack/database';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { ConfigService } from '@nestjs/config';
@@ -62,6 +63,7 @@ import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
   controllers: [NotificationController],
   providers: [
     NotificationService,
+    AuditService,
     NodemailerService,
     SendgridService,
     {

@@ -3,7 +3,8 @@ import { WinstonModule } from 'nest-winston';
 import { getLoggerConfig } from '@slack/common';
 import { ApiGatewayModule } from './api-gateway.module';
 import * as dotenv from 'dotenv';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, BadRequestException } from '@nestjs/common';
+import { VALIDATION_ERROR } from '@slack/constants';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -18,6 +19,15 @@ async function bootstrap() {
       whitelist: true,
       transform: true,
       forbidNonWhitelisted: true,
+      exceptionFactory: (errors) => {
+        const message = errors
+          .map((error) => Object.values(error.constraints || {}).join(', '))
+          .join('; ');
+        return new BadRequestException({
+          ...VALIDATION_ERROR.BAD_REQUEST,
+          message: `${VALIDATION_ERROR.BAD_REQUEST.message}: ${message}`,
+        });
+      },
     }),
   );
   app.useGlobalFilters(new HttpExceptionFilter());
