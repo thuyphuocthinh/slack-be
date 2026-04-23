@@ -21,8 +21,9 @@ import {
   WorkspaceMemberResponseDto,
 } from '../dto/workspace-response.dto';
 import { v7 } from 'uuid';
-import { CACHE, CachedService } from '@slack/cached';
+import { CACHE, CachedService, TTL } from '@slack/cached';
 import { WorkspaceCommonService } from './workspace-common.service';
+import { buildTTL } from '@slack/common';
 
 @Injectable()
 export class WorkspaceLinkService {
@@ -49,12 +50,13 @@ export class WorkspaceLinkService {
     const link = await this.linkRepository.save({
       workspaceId: dto.workspaceId,
       tokenHash: v7(),
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      expiresAt: new Date(Date.now() + buildTTL('DAY', 7)),
       status: WorkspaceLinkStatus.ACTIVE,
       maxUsage: dto.maxUsage,
     });
 
     this.logger.log('Generate link', link);
+    this.cachedService.del(CACHE.WORKSPACE.KEYS.LINKS(dto.workspaceId));
 
     return this.commonService.mapLinkToDto(link);
   }
@@ -67,70 +69,79 @@ export class WorkspaceLinkService {
       WorkspaceRoleEnum.OWNER,
       WorkspaceRoleEnum.ADMIN,
     ]);
-    const links = await this.linkRepository.find({
-      where: { workspaceId },
-    });
-    return links.map((link) => this.commonService.mapLinkToDto(link));
+    return this.cachedService.getOrSetDetail(
+      CACHE.WORKSPACE.KEYS.LINKS(workspaceId),
+      TTL.MEDIUM,
+      async () => {
+        const links = await this.linkRepository.find({
+          where: { workspaceId },
+        });
+        return links.map((link) => this.commonService.mapLinkToDto(link));
+      },
+    );
   }
 
   async joinLink(dto: JoinLinkRequestDto): Promise<WorkspaceMemberResponseDto> {
-    const link = await this.linkRepository.findOne({
-      where: { tokenHash: dto.token },
-    });
-
-    if (!link) {
-      throw new RpcException({
-        statusCode: HttpStatus.NOT_FOUND,
-        ...WORKSPACE_ERROR.LINK_NOT_FOUND,
+    const savedMember = await this.dataSource.transaction(async (manager) => {
+      const link = await manager.findOne(WorkspaceLinkEntity, {
+        where: { tokenHash: dto.token },
+        lock: { mode: 'pessimistic_write' },
       });
-    }
 
-    if (
-      link.status === WorkspaceLinkStatus.EXPIRED ||
-      link.expiresAt < new Date()
-    ) {
-      throw new RpcException({
-        statusCode: HttpStatus.BAD_REQUEST,
-        ...WORKSPACE_ERROR.LINK_EXPIRED,
+      if (!link) {
+        throw new RpcException({
+          statusCode: HttpStatus.NOT_FOUND,
+          ...WORKSPACE_ERROR.LINK_NOT_FOUND,
+        });
+      }
+
+      if (
+        link.status === WorkspaceLinkStatus.EXPIRED ||
+        link.expiresAt < new Date()
+      ) {
+        throw new RpcException({
+          statusCode: HttpStatus.BAD_REQUEST,
+          ...WORKSPACE_ERROR.LINK_EXPIRED,
+        });
+      }
+
+      if (link.usedCount >= link.maxUsage) {
+        throw new RpcException({
+          statusCode: HttpStatus.BAD_REQUEST,
+          ...WORKSPACE_ERROR.LINK_MAX_USAGE,
+        });
+      }
+
+      const existingMember = await manager.findOne(WorkspaceMemberEntity, {
+        where: { workspaceId: link.workspaceId, userId: dto.userId },
       });
-    }
 
-    if (link.usedCount >= link.maxUsage) {
-      throw new RpcException({
-        statusCode: HttpStatus.BAD_REQUEST,
-        ...WORKSPACE_ERROR.LINK_MAX_USAGE,
+      if (existingMember) {
+        throw new RpcException({
+          statusCode: HttpStatus.CONFLICT,
+          ...WORKSPACE_ERROR.ALREADY_MEMBER,
+        });
+      }
+
+      const member = manager.create(WorkspaceMemberEntity, {
+        workspaceId: link.workspaceId,
+        userId: dto.userId,
+        role: WorkspaceRoleEnum.MEMBER,
+        status: MembershipStatus.ACTIVE,
       });
-    }
 
-    const member = await this.memberRepository.findOne({
-      where: { workspaceId: link.workspaceId, userId: dto.userId },
-    });
-
-    if (member) {
-      throw new RpcException({
-        statusCode: HttpStatus.CONFLICT,
-        ...WORKSPACE_ERROR.ALREADY_MEMBER,
-      });
-    }
-
-    const newMember = this.memberRepository.create({
-      workspaceId: link.workspaceId,
-      userId: dto.userId,
-      role: WorkspaceRoleEnum.MEMBER,
-      status: MembershipStatus.ACTIVE,
-    });
-
-    await this.dataSource.transaction(async (manager) => {
-      await manager.save(newMember);
+      const saved = await manager.save(member);
       link.usedCount++;
       await manager.save(link);
+
+      return saved;
     });
 
-    this.logger.log('Join link', newMember);
+    this.logger.log('Join link', savedMember);
 
     this.cachedService.del(CACHE.USER_WORKSPACE.KEYS.LIST(dto.userId));
 
-    return this.commonService.mapMemberToDto(newMember);
+    return this.commonService.mapMemberToDto(savedMember);
   }
 
   async disableLink(dto: DisableLinkRequestDto): Promise<string> {
@@ -153,6 +164,7 @@ export class WorkspaceLinkService {
     link.status = WorkspaceLinkStatus.EXPIRED;
     await this.linkRepository.save(link);
 
+    this.cachedService.del(CACHE.WORKSPACE.KEYS.LINKS(dto.workspaceId));
     this.logger.log('Disable link', link);
 
     return 'Link disabled successfully';
@@ -177,6 +189,7 @@ export class WorkspaceLinkService {
 
     await this.linkRepository.remove(link);
 
+    this.cachedService.del(CACHE.WORKSPACE.KEYS.LINKS(dto.workspaceId));
     this.logger.log('Delete link', link);
 
     return 'Link deleted successfully';

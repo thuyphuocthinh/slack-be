@@ -51,44 +51,47 @@ export class WorkspaceMemberService {
       }),
     );
 
-    const existingMember = await this.memberRepository.findOne({
-      where: { workspaceId: dto.workspaceId, userId: dto.userId },
+    const member = await this.dataSource.transaction(async (manager) => {
+      const existingMember = await manager.findOne(WorkspaceMemberEntity, {
+        where: { workspaceId: dto.workspaceId, userId: dto.userId },
+      });
+
+      if (existingMember && existingMember.status === MembershipStatus.ACTIVE) {
+        throw new RpcException({
+          statusCode: HttpStatus.CONFLICT,
+          ...WORKSPACE_ERROR.ALREADY_MEMBER,
+        });
+      }
+
+      if (existingMember) {
+        existingMember.status = MembershipStatus.ACTIVE;
+        existingMember.role = dto.role;
+        existingMember.joinedAt = new Date();
+        return await manager.save(existingMember);
+      } else {
+        const newMember = manager.create(WorkspaceMemberEntity, {
+          workspaceId: dto.workspaceId,
+          userId: dto.userId,
+          role: dto.role,
+          status: MembershipStatus.ACTIVE,
+        });
+        return await manager.save(newMember);
+      }
     });
-
-    if (existingMember && existingMember.status === MembershipStatus.ACTIVE) {
-      throw new RpcException({
-        statusCode: HttpStatus.CONFLICT,
-        ...WORKSPACE_ERROR.ALREADY_MEMBER,
-      });
-    }
-
-    let member: WorkspaceMemberEntity;
-    if (existingMember) {
-      existingMember.status = MembershipStatus.ACTIVE;
-      existingMember.role = dto.role;
-      existingMember.joinedAt = new Date();
-      member = await this.memberRepository.save(existingMember);
-    } else {
-      member = this.memberRepository.create({
-        workspaceId: dto.workspaceId,
-        userId: dto.userId,
-        role: dto.role,
-        status: MembershipStatus.ACTIVE,
-      });
-      member = await this.memberRepository.save(member);
-    }
 
     this.logger.log('Add member', JSON.stringify({ member }));
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+    this.cachedService.del(CACHE.USER_WORKSPACE.KEYS.LIST(dto.userId));
 
     return this.commonService.mapMemberToDto(member);
   }
 
   async removeMember(dto: RemoveMemberRequestDto): Promise<string> {
-    await this.commonService.checkPermission(dto.workspaceId, dto.adminUserId, [
-      WorkspaceRoleEnum.OWNER,
-      WorkspaceRoleEnum.ADMIN,
-    ]);
+    const adminMember = await this.commonService.checkPermission(
+      dto.workspaceId,
+      dto.adminUserId,
+      [WorkspaceRoleEnum.OWNER, WorkspaceRoleEnum.ADMIN],
+    );
 
     const targetMember = await this.memberRepository.findOne({
       where: {
@@ -112,12 +115,24 @@ export class WorkspaceMemberService {
       });
     }
 
+    // Role Hierarchy Check: ADMIN cannot remove another ADMIN
+    if (
+      adminMember.role === WorkspaceRoleEnum.ADMIN &&
+      targetMember.role === WorkspaceRoleEnum.ADMIN
+    ) {
+      throw new RpcException({
+        statusCode: HttpStatus.FORBIDDEN,
+        ...WORKSPACE_ERROR.NOT_ALLOWED,
+      });
+    }
+
     targetMember.status = MembershipStatus.REMOVED;
     targetMember.removedAt = new Date();
     await this.memberRepository.save(targetMember);
 
     this.logger.log('Remove member', JSON.stringify({ targetMember }));
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+    this.cachedService.del(CACHE.USER_WORKSPACE.KEYS.LIST(dto.targetUserId));
 
     return 'Member removed successfully';
   }
@@ -151,6 +166,7 @@ export class WorkspaceMemberService {
 
     this.logger.log('Leave workspace', JSON.stringify({ member }));
     this.cachedService.del(CACHE.USER_WORKSPACE.KEYS.LIST(dto.userId));
+    this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
 
     return 'Left workspace successfully';
   }
@@ -158,10 +174,11 @@ export class WorkspaceMemberService {
   async changeRole(
     dto: ChangeRoleRequestDto,
   ): Promise<WorkspaceMemberResponseDto> {
-    await this.commonService.checkPermission(dto.workspaceId, dto.adminUserId, [
-      WorkspaceRoleEnum.OWNER,
-      WorkspaceRoleEnum.ADMIN,
-    ]);
+    const adminMember = await this.commonService.checkPermission(
+      dto.workspaceId,
+      dto.adminUserId,
+      [WorkspaceRoleEnum.OWNER, WorkspaceRoleEnum.ADMIN],
+    );
 
     const targetMember = await this.memberRepository.findOne({
       where: {
@@ -182,6 +199,17 @@ export class WorkspaceMemberService {
       throw new RpcException({
         statusCode: HttpStatus.FORBIDDEN,
         ...WORKSPACE_ERROR.CANNOT_REMOVE_OWNER,
+      });
+    }
+
+    // Role Hierarchy Check: ADMIN cannot change another ADMIN
+    if (
+      adminMember.role === WorkspaceRoleEnum.ADMIN &&
+      targetMember.role === WorkspaceRoleEnum.ADMIN
+    ) {
+      throw new RpcException({
+        statusCode: HttpStatus.FORBIDDEN,
+        ...WORKSPACE_ERROR.NOT_ALLOWED,
       });
     }
 
@@ -270,15 +298,7 @@ export class WorkspaceMemberService {
 
         return members.map((member) => {
           const user = userMap.get(member.userId) as UserType;
-
-          return {
-            ...this.commonService.mapMemberToDto(member),
-            firstName: user?.firstName ?? null,
-            lastName: user?.lastName ?? null,
-            email: user?.email ?? null,
-            avatarUrl: user?.avatarUrl ?? null,
-            systemRole: user?.systemRole ?? null,
-          };
+          return this.commonService.mapMemberWithUserToDto(member, user);
         });
       },
     );
@@ -287,6 +307,13 @@ export class WorkspaceMemberService {
   async addBatchMembers(
     dto: AddBatchMembersRequestDto,
   ): Promise<WorkspaceMemberResponseDto[]> {
+    if (dto.userIds.length > 20) {
+      throw new RpcException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        ...WORKSPACE_ERROR.BATCH_SIZE_EXCEEDS_LIMIT,
+      });
+    }
+
     await this.commonService.checkPermission(dto.workspaceId, dto.adminUserId, [
       WorkspaceRoleEnum.OWNER,
       WorkspaceRoleEnum.ADMIN,
@@ -300,18 +327,18 @@ export class WorkspaceMemberService {
 
     const userMap = new Map(users.map((u) => [u.id, u]));
 
-    const existingMembers = await this.memberRepository.find({
-      where: {
-        workspaceId: dto.workspaceId,
-        userId: In(dto.userIds),
-      },
-    });
-
-    const existingMap = new Map(existingMembers.map((m) => [m.userId, m]));
-
     let savedMembers: WorkspaceMemberEntity[] = [];
 
     await this.dataSource.transaction(async (manager) => {
+      const existingMembers = await manager.find(WorkspaceMemberEntity, {
+        where: {
+          workspaceId: dto.workspaceId,
+          userId: In(dto.userIds),
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      const existingMap = new Map(existingMembers.map((m) => [m.userId, m]));
       const toSave: WorkspaceMemberEntity[] = [];
 
       for (const userId of dto.userIds) {
@@ -344,15 +371,7 @@ export class WorkspaceMemberService {
 
     return savedMembers.map((member) => {
       const user = userMap.get(member.userId);
-
-      return {
-        ...this.commonService.mapMemberToDto(member),
-        firstName: user?.firstName ?? null,
-        lastName: user?.lastName ?? null,
-        email: user?.email ?? null,
-        avatarUrl: user?.avatarUrl ?? null,
-        systemRole: user?.systemRole ?? null,
-      };
+      return this.commonService.mapMemberWithUserToDto(member, user);
     });
   }
 }

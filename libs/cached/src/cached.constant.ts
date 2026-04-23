@@ -81,6 +81,8 @@ export const CACHE = {
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:workspaces:${CACHE.WORKSPACE._VER}:detail:id_${id}`,
       MEMBERS: (workspaceId: string): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:workspaces:${CACHE.WORKSPACE._VER}:members:id_${workspaceId}`,
+      LINKS: (workspaceId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:workspaces:${CACHE.WORKSPACE._VER}:links:id_${workspaceId}`,
       IS_MEMBER: (workspaceId: string, userId: string): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:workspace:${workspaceId}:member:${userId}`,
     },

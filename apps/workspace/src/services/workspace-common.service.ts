@@ -7,7 +7,7 @@ import { WorkspaceEntity } from '../entity/workspace.entity';
 import { WorkspaceInviteEntity } from '../entity/workspace_invite.entity';
 import { WorkspaceLinkEntity } from '../entity/workspace_link.entity';
 import { WorkspaceRoleEnum, MembershipStatus } from '../types/workspace.enum';
-import { DATABASE_ERROR, WORKSPACE_ERROR } from '@slack/constants';
+import { WORKSPACE_ERROR } from '@slack/constants';
 import {
   WorkspaceDto,
   WorkspaceMemberDto,
@@ -15,6 +15,7 @@ import {
 } from '../dto/workspace.dto';
 import { WorkspaceLinkResponseDto } from '../dto/workspace-response.dto';
 import { CACHE, CachedService, TTL } from '@slack/cached';
+import { UserType } from '../types/user.type';
 
 @Injectable()
 export class WorkspaceCommonService {
@@ -51,6 +52,20 @@ export class WorkspaceCommonService {
     };
   }
 
+  mapMemberWithUserToDto(
+    member: WorkspaceMemberEntity,
+    user?: UserType,
+  ): WorkspaceMemberDto {
+    return {
+      ...this.mapMemberToDto(member),
+      firstName: user?.firstName ?? null,
+      lastName: user?.lastName ?? null,
+      email: user?.email ?? null,
+      avatarUrl: user?.avatarUrl ?? null,
+      systemRole: user?.systemRole ?? null,
+    };
+  }
+
   mapInviteToDto(invite: WorkspaceInviteEntity): WorkspaceInviteDto {
     return {
       id: invite.id,
@@ -81,6 +96,8 @@ export class WorkspaceCommonService {
     workspaceId: string,
     userId: string,
   ): Promise<boolean> {
+    await this.findWorkspaceById(workspaceId);
+
     const key = CACHE.WORKSPACE.KEYS.IS_MEMBER(workspaceId, userId);
     try {
       const member = await this.cachedService.getOrSetDetail(
@@ -106,10 +123,7 @@ export class WorkspaceCommonService {
     } catch (error) {
       if (error instanceof RpcException) throw error;
       this.logger.error('Error checking member of workspace', error);
-      throw new RpcException({
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        ...DATABASE_ERROR.NOT_FOUND,
-      });
+      throw error;
     }
 
     return true;
@@ -119,11 +133,20 @@ export class WorkspaceCommonService {
     workspaceId: string,
     userId: string,
     allowedRoles: WorkspaceRoleEnum[],
-  ) {
+  ): Promise<WorkspaceMemberEntity> {
+    await this.findWorkspaceById(workspaceId);
+
     try {
-      const member = await this.memberRepository.findOne({
-        where: { workspaceId, userId, status: MembershipStatus.ACTIVE },
-      });
+      const key = CACHE.WORKSPACE.KEYS.IS_MEMBER(workspaceId, userId);
+      const member = await this.cachedService.getOrSetDetail(
+        key,
+        TTL.SHORT,
+        async () => {
+          return this.memberRepository.findOne({
+            where: { workspaceId, userId, status: MembershipStatus.ACTIVE },
+          });
+        },
+      );
 
       if (!member || !allowedRoles.includes(member.role)) {
         throw new RpcException({
@@ -131,26 +154,54 @@ export class WorkspaceCommonService {
           ...WORKSPACE_ERROR.NOT_ALLOWED,
         });
       }
+      return member;
     } catch (error) {
       if (error instanceof RpcException) throw error;
       this.logger.error('Error checking member of workspace', error);
-      throw new RpcException({
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        ...DATABASE_ERROR.NOT_FOUND,
-      });
+      throw error;
     }
   }
 
   async findWorkspaceById(workspaceId: string) {
-    const workspace = await this.workspaceRepository.findOne({
-      where: { id: workspaceId, deletedAt: IsNull() },
-    });
-    if (!workspace) {
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(workspaceId)) {
       throw new RpcException({
         statusCode: HttpStatus.NOT_FOUND,
         ...WORKSPACE_ERROR.WORKSPACE_NOT_FOUND,
       });
     }
-    return workspace;
+
+    const key = CACHE.WORKSPACE.KEYS.DETAIL(workspaceId);
+    try {
+      const workspace = await this.cachedService.getOrSetDetail(
+        key,
+        TTL.MEDIUM,
+        async () => {
+          return this.workspaceRepository.findOne({
+            where: { id: workspaceId, deletedAt: IsNull() },
+          });
+        },
+      );
+
+      if (!workspace) {
+        throw new RpcException({
+          statusCode: HttpStatus.NOT_FOUND,
+          ...WORKSPACE_ERROR.WORKSPACE_NOT_FOUND,
+        });
+      }
+      return workspace;
+    } catch (error) {
+      if (error instanceof RpcException) throw error;
+      // Handle potential DB errors like invalid UUID format that might have bypassed the regex
+      if ((error as any).code === '22P02') {
+        throw new RpcException({
+          statusCode: HttpStatus.NOT_FOUND,
+          ...WORKSPACE_ERROR.WORKSPACE_NOT_FOUND,
+        });
+      }
+      this.logger.error('Error finding workspace', error);
+      throw error;
+    }
   }
 }

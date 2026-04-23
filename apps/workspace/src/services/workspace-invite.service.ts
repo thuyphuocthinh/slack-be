@@ -29,6 +29,7 @@ import { v7 } from 'uuid';
 import { CACHE, CachedService } from '@slack/cached';
 import { firstValueFrom } from 'rxjs';
 import { WorkspaceCommonService } from './workspace-common.service';
+import { buildTTL } from '@slack/common';
 
 @Injectable()
 export class WorkspaceInviteService {
@@ -63,45 +64,51 @@ export class WorkspaceInviteService {
       }),
     );
 
-    const existingMember = await this.memberRepository.findOne({
-      where: {
-        workspaceId: dto.workspaceId,
-        userId: user.id,
-        status: MembershipStatus.ACTIVE,
-      },
-    });
-    if (existingMember) {
-      throw new RpcException({
-        statusCode: HttpStatus.CONFLICT,
-        ...WORKSPACE_ERROR.ALREADY_MEMBER,
-      });
-    }
+    const savedInvite = await this.dataSource.transaction(async (manager) => {
+      if (user) {
+        const existingMember = await manager.findOne(WorkspaceMemberEntity, {
+          where: {
+            workspaceId: dto.workspaceId,
+            userId: user.id,
+            status: MembershipStatus.ACTIVE,
+          },
+        });
 
-    const existingInvite = await this.inviteRepository.findOne({
-      where: {
+        if (existingMember) {
+          throw new RpcException({
+            statusCode: HttpStatus.CONFLICT,
+            ...WORKSPACE_ERROR.ALREADY_MEMBER,
+          });
+        }
+      }
+
+      const existingInvite = await manager.findOne(WorkspaceInviteEntity, {
+        where: {
+          workspaceId: dto.workspaceId,
+          email: dto.email,
+          status: InviteStatus.PENDING,
+        },
+      });
+
+      if (existingInvite) {
+        throw new RpcException({
+          statusCode: HttpStatus.CONFLICT,
+          ...WORKSPACE_ERROR.ALREADY_INVITED,
+        });
+      }
+
+      const token = v7();
+      const invite = manager.create(WorkspaceInviteEntity, {
         workspaceId: dto.workspaceId,
         email: dto.email,
-        status: InviteStatus.PENDING,
-      },
-    });
-    if (existingInvite) {
-      throw new RpcException({
-        statusCode: HttpStatus.CONFLICT,
-        ...WORKSPACE_ERROR.ALREADY_INVITED,
+        role: dto.role,
+        invitedBy: dto.invitedBy,
+        tokenHash: token,
+        expiresAt: new Date(Date.now() + buildTTL('DAY', 7)),
       });
-    }
 
-    const token = v7();
-    const invite = this.inviteRepository.create({
-      workspaceId: dto.workspaceId,
-      email: dto.email,
-      role: dto.role,
-      invitedBy: dto.invitedBy,
-      tokenHash: token,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      return await manager.save(invite);
     });
-
-    const savedInvite = await this.inviteRepository.save(invite);
 
     const workspace = await this.commonService.findWorkspaceById(
       dto.workspaceId,
@@ -113,7 +120,7 @@ export class WorkspaceInviteService {
       template: 'workspace_invitation',
       context: {
         workspaceName: workspace?.name,
-        token,
+        token: savedInvite.tokenHash,
       },
     });
     this.logger.log('Invite member', savedInvite);
@@ -123,18 +130,19 @@ export class WorkspaceInviteService {
   async joinWorkspace(
     dto: JoinWorkspaceRequestDto,
   ): Promise<WorkspaceMemberResponseDto> {
-    const invite = await this.inviteRepository.findOne({
-      where: { tokenHash: dto.token, status: InviteStatus.PENDING },
-    });
-
-    if (!invite || invite.expiresAt < new Date()) {
-      throw new RpcException({
-        statusCode: HttpStatus.BAD_REQUEST,
-        ...WORKSPACE_ERROR.INVALID_OR_EXPIRED_TOKEN,
-      });
-    }
-
     const savedMember = await this.dataSource.transaction(async (manager) => {
+      const invite = await manager.findOne(WorkspaceInviteEntity, {
+        where: { tokenHash: dto.token, status: InviteStatus.PENDING },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!invite || invite.expiresAt < new Date()) {
+        throw new RpcException({
+          statusCode: HttpStatus.BAD_REQUEST,
+          ...WORKSPACE_ERROR.INVALID_OR_EXPIRED_TOKEN,
+        });
+      }
+
       invite.status = InviteStatus.ACCEPTED;
       invite.acceptedAt = new Date();
       await manager.save(invite);
@@ -150,6 +158,9 @@ export class WorkspaceInviteService {
 
     this.logger.log('Join workspace', JSON.stringify({ savedMember }));
     this.cachedService.del(CACHE.USER_WORKSPACE.KEYS.LIST(dto.userId));
+    this.cachedService.del(
+      CACHE.WORKSPACE.KEYS.MEMBERS(savedMember.workspaceId),
+    );
 
     return this.commonService.mapMemberToDto(savedMember);
   }
@@ -175,7 +186,7 @@ export class WorkspaceInviteService {
     );
 
     invite.tokenHash = v7();
-    invite.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    invite.expiresAt = new Date(Date.now() + buildTTL('DAY', 7));
     invite.status = InviteStatus.PENDING;
 
     const updatedInvite = await this.inviteRepository.save(invite);

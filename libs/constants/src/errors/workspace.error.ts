@@ -67,4 +67,8 @@ export const WORKSPACE_ERROR = {
     code: 'ERR.WORKSPACE.0217',
     message: 'USER IS ALREADY INVITED TO THIS WORKSPACE',
   },
+  BATCH_SIZE_EXCEEDS_LIMIT: {
+    code: 'ERR.WORKSPACE.0218',
+    message: 'Batch size exceeds limit',
+  },
 };

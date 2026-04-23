@@ -23,6 +23,13 @@ export class WorkspaceMemberDto {
   status: MembershipStatus;
   joinedAt: Date;
   createdAt: Date;
+
+  // User profile fields
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  avatarUrl?: string | null;
+  systemRole?: string | null;
 }
 
 export class WorkspaceInviteDto {
