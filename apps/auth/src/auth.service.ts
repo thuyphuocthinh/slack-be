@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { MoreThan, Repository } from 'typeorm';
+import { DataSource, MoreThan, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { AuthEntity, ProviderType } from './entity/auth.entity';
 import { SessionEntity } from './entity/session.entity';
@@ -47,6 +47,7 @@ export class AuthService {
     private readonly notificationClient: ClientProxy,
     private readonly jwtService: JwtService,
     private readonly authCacheService: AuthCacheService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async register(request: RegisterDto): Promise<string> {
@@ -69,26 +70,26 @@ export class AuthService {
       this.userClient.send(USER_MESSAGE_PATTERNS.CREATE_USER, { email }),
     );
 
-    // 3. create auth
-    const newAuth = this.authRepository.create({
-      providerId: email,
-      providerType: ProviderType.LOCAL,
-      password: hashPassword,
-      userId: newUser.id,
+    // 3. create auth and verification in transaction
+    const verification = await this.dataSource.transaction(async (manager) => {
+      const auth = manager.create(AuthEntity, {
+        providerId: email,
+        providerType: ProviderType.LOCAL,
+        password: hashPassword,
+        userId: newUser.id,
+      });
+      await manager.save(auth);
+
+      const v = manager.create(VerificationEntity, {
+        code: v7(),
+        userId: newUser.id,
+        action: VerificationAction.VERIFY_EMAIL,
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 phút
+      });
+      return await manager.save(v);
     });
 
-    await this.authRepository.save(newAuth);
-    this.logger.log(`Create auth with info ${JSON.stringify(newAuth)}`);
-
-    // 4. generate verification
-    const verification = this.verificationRepository.create({
-      code: v7(),
-      userId: newUser.id,
-      action: VerificationAction.VERIFY_EMAIL,
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 phút
-    });
-
-    await this.verificationRepository.save(verification);
+    this.logger.log(`Register success for email ${email}`);
 
     // 5. send email (fire-and-forget)
     this.notificationClient.emit(
@@ -106,42 +107,45 @@ export class AuthService {
   async verifyEmail(request: VerifyEmailDto): Promise<string> {
     const { code } = request;
 
-    // 1. Find verification by code only
-    const verification = await this.verificationRepository.findOne({
-      where: {
-        code,
-        action: VerificationAction.VERIFY_EMAIL,
-        isUsed: false,
-      },
+    // 1. Transaction to mark verification as used and verify user
+    const userId = await this.dataSource.transaction(async (manager) => {
+      const verification = await manager.findOne(VerificationEntity, {
+        where: {
+          code,
+          action: VerificationAction.VERIFY_EMAIL,
+          isUsed: false,
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!verification) {
+        throw new RpcException(AUTH_ERROR.ACCOUNT_INVALID_VERIFICATION_CODE);
+      }
+
+      if (verification.expiresAt.getTime() < Date.now()) {
+        throw new RpcException(AUTH_ERROR.ACCOUNT_VERIFICATION_CODE_EXPIRED);
+      }
+
+      const auth = await manager.findOne(AuthEntity, {
+        where: {
+          userId: verification.userId,
+          providerType: ProviderType.LOCAL,
+        },
+      });
+
+      if (!auth) {
+        throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_FOUND);
+      }
+
+      verification.isUsed = true;
+      await manager.save(verification);
+
+      return auth.userId;
     });
-
-    if (!verification) {
-      throw new RpcException(AUTH_ERROR.ACCOUNT_INVALID_VERIFICATION_CODE);
-    }
-
-    if (verification.expiresAt.getTime() < Date.now()) {
-      throw new RpcException(AUTH_ERROR.ACCOUNT_VERIFICATION_CODE_EXPIRED);
-    }
-
-    // 2. Find user auth to ensure it exists for this verification
-    const auth = await this.authRepository.findOne({
-      where: {
-        userId: verification.userId,
-        providerType: ProviderType.LOCAL,
-      },
-    });
-
-    if (!auth) {
-      throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_FOUND);
-    }
-
-    // 3. Mark as used
-    verification.isUsed = true;
-    await this.verificationRepository.save(verification);
 
     // 4. Update user status
     this.userClient.emit(USER_MESSAGE_PATTERNS.CHANGE_USER_STATUS, {
-      id: auth.userId,
+      id: userId,
       status: 'active',
     });
 
@@ -306,36 +310,53 @@ export class AuthService {
       throw new RpcException(AUTH_ERROR.INVALID_REFRESH_TOKEN);
     }
 
-    // 2. verify token exists in db and hasn't been revoked
-    const session = await this.sessionRepository.findOne({
-      where: {
-        refreshToken: hashToken(refreshToken),
-        isRevoked: false,
-      },
-    });
+    // 2. Transaction to handle rotation atomicity and race conditions
+    const { newAccessToken, newRefreshToken } =
+      await this.dataSource.transaction(async (manager) => {
+        const session = await manager.findOne(SessionEntity, {
+          where: {
+            refreshToken: hashToken(refreshToken),
+            isRevoked: false,
+          },
+          lock: { mode: 'pessimistic_write' },
+        });
 
-    if (!session || session.expiresAt.getTime() < Date.now()) {
-      throw new RpcException(AUTH_ERROR.INVALID_REFRESH_TOKEN);
-    }
+        if (!session || session.expiresAt.getTime() < Date.now()) {
+          throw new RpcException(AUTH_ERROR.INVALID_REFRESH_TOKEN);
+        }
 
-    // 3. fetch auth entity for sub/email (or decode from token payload)
-    const payload = this.jwtService.decode(refreshToken) as any;
-    const email = payload?.email;
+        const payload = this.jwtService.decode(refreshToken) as any;
+        const email = payload?.email;
 
-    if (!email) {
-      throw new RpcException(AUTH_ERROR.INVALID_REFRESH_TOKEN);
-    }
+        if (!email) {
+          throw new RpcException(AUTH_ERROR.INVALID_REFRESH_TOKEN);
+        }
 
-    // 4. Invalidate old token
-    session.isRevoked = true;
-    await this.sessionRepository.save(session);
+        // Invalidate old token
+        session.isRevoked = true;
+        await manager.save(session);
 
-    // 5. generate new pair
-    const { accessToken: newAccessToken, refreshToken: newRefreshToken } =
-      await this.generateTokens(session.userId, email);
+        // generate new pair
+        const tokens = await this.generateTokens(session.userId, email);
 
-    // 6. create new session
-    await this.createSession(session.userId, newRefreshToken, metadata);
+        // create new session within the same transaction
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 7);
+        const newSession = manager.create(SessionEntity, {
+          userId: session.userId,
+          refreshToken: hashToken(tokens.refreshToken),
+          expiresAt,
+          ipAddress: metadata?.ipAddress,
+          userAgent: metadata?.userAgent,
+          device: metadata?.device,
+        });
+        await manager.save(newSession);
+
+        return {
+          newAccessToken: tokens.accessToken,
+          newRefreshToken: tokens.refreshToken,
+        };
+      });
 
     // 7. return
     return {
@@ -392,18 +413,19 @@ export class AuthService {
     refreshToken: string;
   }): Promise<string> {
     const { accessToken, refreshToken } = request;
-    const session = await this.sessionRepository.findOne({
-      where: {
+    const result = await this.sessionRepository.update(
+      {
         refreshToken: hashToken(refreshToken),
         isRevoked: false,
         expiresAt: MoreThan(new Date()),
       },
-    });
-    if (!session) {
+      { isRevoked: true },
+    );
+
+    if (result.affected === 0) {
       throw new RpcException(AUTH_ERROR.INVALID_REFRESH_TOKEN);
     }
-    session.isRevoked = true;
-    await this.sessionRepository.save(session);
+
     await this.authCacheService.blacklistToken(accessToken, 7 * 24 * 60 * 60);
     return 'Logout successfully.';
   }
@@ -411,19 +433,13 @@ export class AuthService {
   // logout all
   async logoutAll(request: { userId: string }): Promise<string> {
     const { userId } = request;
-    const sessions = await this.sessionRepository.find({
-      where: {
+    await this.sessionRepository.update(
+      {
         userId,
         isRevoked: false,
       },
-    });
-    if (!sessions) {
-      throw new RpcException(AUTH_ERROR.INVALID_REFRESH_TOKEN);
-    }
-    sessions.forEach((session) => {
-      session.isRevoked = true;
-    });
-    await this.sessionRepository.save(sessions);
+      { isRevoked: true },
+    );
     await this.authCacheService.bumpUserTokenVersion(userId);
     return 'Logout all successfully.';
   }
@@ -506,26 +522,32 @@ export class AuthService {
       throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_FOUND);
     }
     // 2. find verification
-    const verification = await this.verificationRepository.findOne({
-      where: {
-        userId: auth.userId,
-        code,
-        action: VerificationAction.RESET_PASSWORD,
-        isUsed: false,
-        expiresAt: MoreThan(new Date()),
-      },
-    });
-    if (!verification) {
-      throw new RpcException(AUTH_ERROR.ACCOUNT_VERIFICATION_CODE_EXPIRED);
-    }
-    // 3. update password
-    const hashedPassword = await bcrypt.hash(password, 10);
-    auth.password = hashedPassword;
-    await this.authRepository.save(auth);
+    await this.dataSource.transaction(async (manager) => {
+      const verification = await manager.findOne(VerificationEntity, {
+        where: {
+          userId: auth.userId,
+          code,
+          action: VerificationAction.RESET_PASSWORD,
+          isUsed: false,
+          expiresAt: MoreThan(new Date()),
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
 
-    // 4. mark verification as used
-    verification.isUsed = true;
-    await this.verificationRepository.save(verification);
+      if (!verification) {
+        throw new RpcException(AUTH_ERROR.ACCOUNT_VERIFICATION_CODE_EXPIRED);
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+      await manager.update(
+        AuthEntity,
+        { id: auth.id },
+        { password: hashedPassword },
+      );
+
+      verification.isUsed = true;
+      await manager.save(verification);
+    });
     return 'Reset password successfully.';
   }
 
@@ -564,7 +586,9 @@ export class AuthService {
       throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_FOUND);
     }
     const hashedPassword = await bcrypt.hash(password, 10);
-    auth.password = hashedPassword;
-    await this.authRepository.save(auth);
+    await this.authRepository.update(
+      { id: auth.id },
+      { password: hashedPassword },
+    );
   }
 }

@@ -46,13 +46,13 @@ export class UserService {
   }
 
   async updateStatus(id: string, status: UserStatus): Promise<void> {
-    const user = await this.userRepository.findOneBy({ id });
-    if (!user) {
+    const result = await this.userRepository.update({ id }, { status });
+
+    if (result.affected === 0) {
       throw new RpcException(USER_ERROR.USER_NOT_FOUND);
     }
-    user.status = status;
+
     this.logger.log(`Change status of user id ${id} to ${status}`);
-    await this.userRepository.save(user);
   }
 
   async getUserById(id: string): Promise<IUserResponse> {
@@ -80,33 +80,38 @@ export class UserService {
 
   // change avatar (viet upload service truoc)
   async changeAvatar(id: string, avatarUrl: string): Promise<IUserResponse> {
-    const user = await this.userRepository.findOneBy({ id });
-    if (!user) {
+    const result = await this.userRepository.update({ id }, { avatarUrl });
+
+    if (result.affected === 0) {
       throw new RpcException(USER_ERROR.USER_NOT_FOUND);
     }
-    user.avatarUrl = avatarUrl;
-    await this.userRepository.save(user);
+
     this.logger.log(`Change avatar of user id ${id}`);
     this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(id));
-    return this.mapUserToResponse(user);
+
+    return this.getUserById(id);
   }
 
   // update info
   async updateInfo(id: string, data: UpdateUserDto): Promise<IUserResponse> {
-    const user = await this.userRepository.findOneBy({ id });
-    if (!user) {
+    const updateData: Partial<UserEntity> = {};
+    if (data.firstName) updateData.firstName = data.firstName;
+    if (data.lastName) updateData.lastName = data.lastName;
+
+    if (Object.keys(updateData).length === 0) {
+      return this.getUserById(id);
+    }
+
+    const result = await this.userRepository.update({ id }, updateData);
+
+    if (result.affected === 0) {
       throw new RpcException(USER_ERROR.USER_NOT_FOUND);
     }
-    if (data.firstName) {
-      user.firstName = data.firstName;
-    }
-    if (data.lastName) {
-      user.lastName = data.lastName;
-    }
-    await this.userRepository.save(user);
+
     this.logger.log(`Update info of user id ${id}`);
     this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(id));
-    return this.mapUserToResponse(user);
+
+    return this.getUserById(id);
   }
 
   // change password
