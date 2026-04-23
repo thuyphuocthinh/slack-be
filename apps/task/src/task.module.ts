@@ -20,6 +20,7 @@ import { NAME_SERVICE_TCP } from '@slack/constants';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ChecklistService } from './services/checklist.service';
 import { TaskCommonService } from './services/task-common.service';
+import { TaskAttachmentEntity } from './entity/task_attachment.entity';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { TaskCommonService } from './services/task-common.service';
       ChecklistItemEntity,
       BoardMemberEntity,
       TaskMemberEntity,
+      TaskAttachmentEntity,
     ]),
     ClientsModule.registerAsync([
       {

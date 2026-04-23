@@ -14,6 +14,7 @@ import {
 import { ChecklistEntity } from './checklist.entity';
 import { TaskGroupEntity } from './task_group.entity';
 import { LabelEntity } from './label.entity';
+import { TaskAttachmentEntity } from './task_attachment.entity';
 
 @Entity('tasks')
 export class TaskEntity {
@@ -46,6 +47,9 @@ export class TaskEntity {
 
   @OneToMany(() => ChecklistEntity, (checklist) => checklist.task)
   checklists: ChecklistEntity[];
+
+  @OneToMany(() => TaskAttachmentEntity, (attachment) => attachment.task)
+  attachments: TaskAttachmentEntity[];
 
   @CreateDateColumn({
     name: 'created_at',

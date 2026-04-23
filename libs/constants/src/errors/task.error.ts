@@ -47,4 +47,8 @@ export const TASK_ERROR = {
     code: 'ERR.TASK.0112',
     message: 'MEMBER NOT ASSIGNED TO THIS TASK',
   },
+  ATTACHMENT_NOT_FOUND: {
+    code: 'ERR.TASK.0113',
+    message: 'ATTACHMENT NOT FOUND',
+  },
 };

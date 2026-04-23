@@ -11,6 +11,7 @@ import { ITaskResponse } from '../type/task.response';
 import { BoardMemberEntity } from '../entity/board_member.entity';
 import { TaskCommonService } from './task-common.service';
 import { TaskGroupEntity } from '../entity/task_group.entity';
+import { TaskAttachmentEntity } from '../entity/task_attachment.entity';
 
 @Injectable()
 export class TaskService {
@@ -251,5 +252,92 @@ export class TaskService {
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
     };
+  }
+
+  // add attachments (title - link), no need to upload => reduce costs and time
+  async addAttachmentToTask(
+    taskId: string,
+    title: string,
+    link: string,
+    requesterId: string,
+  ): Promise<string> {
+    return await this.dataSource.transaction(async (manager) => {
+      const task = await manager.findOne(TaskEntity, {
+        where: { id: taskId },
+        relations: ['group'],
+      });
+      if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
+
+      await this.commonService.checkBoardMembership(
+        task.group.boardId,
+        requesterId,
+      );
+
+      const attachment = manager.create(TaskAttachmentEntity, {
+        taskId,
+        title,
+        link,
+      });
+      await manager.save(attachment);
+      return 'Add attachment to task successfully';
+    });
+  }
+
+  async updateAttachment(
+    taskId: string,
+    attachmentId: string,
+    title: string,
+    link: string,
+    requesterId: string,
+  ): Promise<string> {
+    return await this.dataSource.transaction(async (manager) => {
+      const task = await manager.findOne(TaskEntity, {
+        where: { id: taskId },
+        relations: ['group'],
+      });
+      if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
+
+      await this.commonService.checkBoardMembership(
+        task.group.boardId,
+        requesterId,
+      );
+
+      const attachment = await manager.findOne(TaskAttachmentEntity, {
+        where: { id: attachmentId },
+      });
+      if (!attachment) throw new RpcException(TASK_ERROR.ATTACHMENT_NOT_FOUND);
+
+      attachment.title = title;
+      attachment.link = link;
+      await manager.save(attachment);
+      return 'Update attachment successfully';
+    });
+  }
+
+  async removeAttachment(
+    taskId: string,
+    attachmentId: string,
+    requesterId: string,
+  ): Promise<string> {
+    return await this.dataSource.transaction(async (manager) => {
+      const task = await manager.findOne(TaskEntity, {
+        where: { id: taskId },
+        relations: ['group'],
+      });
+      if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
+
+      await this.commonService.checkBoardMembership(
+        task.group.boardId,
+        requesterId,
+      );
+
+      const attachment = await manager.findOne(TaskAttachmentEntity, {
+        where: { id: attachmentId },
+      });
+      if (!attachment) throw new RpcException(TASK_ERROR.ATTACHMENT_NOT_FOUND);
+
+      await manager.remove(attachment);
+      return 'Remove attachment successfully';
+    });
   }
 }
