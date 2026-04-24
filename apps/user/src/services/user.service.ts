@@ -24,7 +24,10 @@ export class UserService {
     private readonly twoFactorService: TwoFactorService,
   ) {}
 
-  private async mapUserToResponse(user: UserEntity): Promise<IUserResponse> {
+  private async mapUserToResponse(
+    user: UserEntity,
+    isTwoFactorEnabled?: boolean,
+  ): Promise<IUserResponse> {
     return {
       id: user.id,
       firstName: user.firstName,
@@ -34,7 +37,8 @@ export class UserService {
       createdAt: user.createdAt,
       systemRole: user.systemRole,
       status: user.status,
-      isTwoFactorEnabled: await this.isEnableTwoFactor(user.id),
+      isTwoFactorEnabled:
+        isTwoFactorEnabled ?? (await this.isEnableTwoFactor(user.id)),
     };
   }
 
@@ -42,7 +46,8 @@ export class UserService {
     const user = this.userRepository.create(data);
     this.logger.log(`Creating user with email: ${data.email}`);
     const userSaved = await this.userRepository.save(user);
-    return this.mapUserToResponse(userSaved);
+    // For new users, 2FA is always disabled by default
+    return this.mapUserToResponse(userSaved, false);
   }
 
   async updateStatus(id: string, status: UserStatus): Promise<void> {

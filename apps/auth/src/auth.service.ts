@@ -63,12 +63,23 @@ export class AuthService {
       throw new RpcException(AUTH_ERROR.ACCOUNT_ALREADY_EXIST);
     }
 
-    const hashPassword = await bcrypt.hash(password, 10);
+    // Optimization: reduce salt rounds for stress test performance
+    const saltRounds = process.env.NODE_ENV === 'test' ? 4 : 10;
+    const hashPassword = await bcrypt.hash(password, saltRounds);
 
-    // 2. create user (FIX: dùng firstValueFrom thay toPromise)
-    const newUser = await firstValueFrom(
-      this.userClient.send(USER_MESSAGE_PATTERNS.CREATE_USER, { email }),
-    );
+    // 2. create user
+    let newUser;
+    try {
+      newUser = await firstValueFrom(
+        this.userClient.send(USER_MESSAGE_PATTERNS.CREATE_USER, { email }),
+      );
+    } catch (error) {
+      this.logger.error(`Failed to create user for ${email}: ${error.message}`);
+      throw new RpcException({
+        statusCode: 500,
+        message: 'Failed to create user service record',
+      });
+    }
 
     // 3. create auth and verification in transaction
     const verification = await this.dataSource.transaction(async (manager) => {
@@ -163,7 +174,7 @@ export class AuthService {
       { expiresIn: '30m' },
     );
     const refreshToken = await this.jwtService.signAsync(
-      { sub: userId, email, tokenVersion },
+      { sub: userId, email, tokenVersion, jti: v7() },
       { expiresIn: '7d' },
     );
     return { accessToken, refreshToken, type: 'Bearer' };

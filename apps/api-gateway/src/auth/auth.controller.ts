@@ -69,9 +69,9 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @Public()
   @ApiOperation({ summary: 'Refresh access token' })
   @ApiResponse({ status: 200, description: 'Tokens successfully refreshed' })
-  @ApiBearerAuth()
   refresh(
     @Body() data: RefreshTokenDto,
     @Ip() ipAddress: string,
