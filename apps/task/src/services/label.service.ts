@@ -45,7 +45,6 @@ export class LabelService {
       await this.commonService.checkWorkspaceMembership(
         label.workspaceId,
         requesterId,
-        manager,
       );
 
       Object.assign(label, dto);
@@ -62,7 +61,6 @@ export class LabelService {
       await this.commonService.checkWorkspaceMembership(
         label.workspaceId,
         requesterId,
-        manager,
       );
 
       await manager.remove(label);

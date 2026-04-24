@@ -28,7 +28,6 @@ export class BoardService {
       await this.commonService.checkWorkspaceMembership(
         dto.workspaceId,
         requesterId,
-        manager,
       );
       const board = manager.create(TaskBoardEntity, dto);
       const saved = await manager.save(board);
