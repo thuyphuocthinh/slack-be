@@ -9,10 +9,7 @@ export interface IBoardResponse {
 
 export class IBoardMemberResponse {
   id: string;
-  // email: string;
-  // avatar: string;
-  // firstName: string;
-  // lastName: string;
+  memberId: string;
 }
 
 export interface IGroupResponse {
@@ -39,8 +36,17 @@ export interface ITaskResponse {
   dueDate: Date;
   order: number;
   labels: ILabelResponse[];
+  members: ITaskMemberResponse[];
+  attachments: ITaskAttachmentResponse[];
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface ITaskAttachmentResponse {
+  id: string;
+  taskId: string;
+  title: string;
+  link: string;
 }
 
 export interface IChecklistResponse {

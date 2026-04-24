@@ -6,6 +6,7 @@ import { CreateLabelDto, UpdateLabelDto } from '../dto/label.dto';
 import { RpcException } from '@nestjs/microservices';
 import { TASK_ERROR } from '@slack/constants';
 import { ILabelResponse } from '../type/task.response';
+import { TaskCommonService } from './task-common.service';
 
 @Injectable()
 export class LabelService {
@@ -13,9 +14,17 @@ export class LabelService {
     @InjectRepository(LabelEntity)
     private readonly labelRepo: Repository<LabelEntity>,
     private readonly dataSource: DataSource,
+    private readonly commonService: TaskCommonService,
   ) {}
 
-  async createNewLabel(dto: CreateLabelDto): Promise<ILabelResponse> {
+  async createNewLabel(
+    dto: CreateLabelDto,
+    requesterId: string,
+  ): Promise<ILabelResponse> {
+    await this.commonService.checkWorkspaceMembership(
+      dto.workspaceId,
+      requesterId,
+    );
     const label = this.labelRepo.create(dto);
     const saved = await this.labelRepo.save(label);
     return this.mapLabelResponse(saved);
@@ -24,6 +33,7 @@ export class LabelService {
   async updateLabelInfo(
     id: string,
     dto: UpdateLabelDto,
+    requesterId: string,
   ): Promise<ILabelResponse> {
     return await this.dataSource.transaction(async (manager) => {
       const label = await manager.findOne(LabelEntity, {
@@ -32,20 +42,39 @@ export class LabelService {
       });
       if (!label) throw new RpcException(TASK_ERROR.LABEL_NOT_FOUND);
 
+      await this.commonService.checkWorkspaceMembership(
+        label.workspaceId,
+        requesterId,
+        manager,
+      );
+
       Object.assign(label, dto);
       const saved = await manager.save(label);
       return this.mapLabelResponse(saved);
     });
   }
 
-  async deleteLabel(id: string): Promise<string> {
-    const result = await this.labelRepo.delete(id);
-    if (result.affected === 0)
-      throw new RpcException(TASK_ERROR.LABEL_NOT_FOUND);
-    return `Label with ID ${id} has been deleted`;
+  async deleteLabel(id: string, requesterId: string): Promise<string> {
+    return await this.dataSource.transaction(async (manager) => {
+      const label = await manager.findOne(LabelEntity, { where: { id } });
+      if (!label) throw new RpcException(TASK_ERROR.LABEL_NOT_FOUND);
+
+      await this.commonService.checkWorkspaceMembership(
+        label.workspaceId,
+        requesterId,
+        manager,
+      );
+
+      await manager.remove(label);
+      return `Label with ID ${id} has been deleted`;
+    });
   }
 
-  async getLabelsInWorkspace(workspaceId: string): Promise<ILabelResponse[]> {
+  async getLabelsInWorkspace(
+    workspaceId: string,
+    requesterId: string,
+  ): Promise<ILabelResponse[]> {
+    await this.commonService.checkWorkspaceMembership(workspaceId, requesterId);
     const labels = await this.labelRepo.find({ where: { workspaceId } });
     return labels.map((l) => this.mapLabelResponse(l));
   }

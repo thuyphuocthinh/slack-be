@@ -22,7 +22,11 @@ export class GroupService {
     requesterId: string,
   ): Promise<IGroupResponse> {
     return await this.dataSource.transaction(async (manager) => {
-      await this.commonService.checkBoardMembership(dto.boardId, requesterId);
+      await this.commonService.checkBoardMembership(
+        dto.boardId,
+        requesterId,
+        manager,
+      );
 
       const group = manager.create(TaskGroupEntity, dto);
       const saved = await manager.save(group);
@@ -42,7 +46,11 @@ export class GroupService {
       });
       if (!group) throw new RpcException(TASK_ERROR.GROUP_NOT_FOUND);
 
-      await this.commonService.checkBoardMembership(group.boardId, requesterId);
+      await this.commonService.checkBoardMembership(
+        group.boardId,
+        requesterId,
+        manager,
+      );
 
       Object.assign(group, dto);
       const saved = await manager.save(group);
@@ -55,7 +63,11 @@ export class GroupService {
       const group = await manager.findOne(TaskGroupEntity, { where: { id } });
       if (!group) throw new RpcException(TASK_ERROR.GROUP_NOT_FOUND);
 
-      await this.commonService.checkBoardMembership(group.boardId, requesterId);
+      await this.commonService.checkBoardMembership(
+        group.boardId,
+        requesterId,
+        manager,
+      );
 
       await manager.remove(group);
       return `Group with ID ${id} has been deleted`;

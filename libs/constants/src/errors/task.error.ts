@@ -51,4 +51,8 @@ export const TASK_ERROR = {
     code: 'ERR.TASK.0113',
     message: 'ATTACHMENT NOT FOUND',
   },
+  NOT_ENOUGH_PERMISSION: {
+    code: 'ERR.TASK.0114',
+    message: 'LOWER ROLES CAN NOT MANAGE THE SAME OR HIGHER ROLES',
+  },
 };

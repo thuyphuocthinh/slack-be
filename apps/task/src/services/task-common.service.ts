@@ -68,4 +68,20 @@ export class TaskCommonService {
       throw new RpcException(TASK_ERROR.NOT_MEMBER_OF_WORKSPACE);
     }
   }
+
+  async getMemberRole(workspaceId: string, userId: string): Promise<string> {
+    try {
+      const member = await firstValueFrom(
+        this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.GET_MEMBER, {
+          workspaceId,
+          userId,
+        }),
+      );
+      if (!member) throw new Error('Member not found');
+      return member.role;
+    } catch (error) {
+      this.logger.error('Get member role failed', error);
+      throw new RpcException(TASK_ERROR.NOT_MEMBER_OF_WORKSPACE);
+    }
+  }
 }

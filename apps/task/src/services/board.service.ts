@@ -28,6 +28,7 @@ export class BoardService {
       await this.commonService.checkWorkspaceMembership(
         dto.workspaceId,
         requesterId,
+        manager,
       );
       const board = manager.create(TaskBoardEntity, dto);
       const saved = await manager.save(board);
@@ -142,7 +143,27 @@ export class BoardService {
         requesterId,
         manager,
       );
-      // TODO: Check if requester is Admin/Owner if they are removing someone else
+
+      const board = await manager.findOne(TaskBoardEntity, {
+        where: { id: boardId },
+      });
+      if (!board) throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
+
+      const requesterMemberId = await this.commonService.getMemberId(
+        board.workspaceId,
+        requesterId,
+      );
+
+      // If removing someone else, must be Admin/Owner
+      if (requesterMemberId !== memberId) {
+        const role = await this.commonService.getMemberRole(
+          board.workspaceId,
+          requesterId,
+        );
+        if (role !== 'ADMIN' && role !== 'OWNER') {
+          throw new RpcException(TASK_ERROR.NOT_ENOUGH_PERMISSION);
+        }
+      }
 
       const result = await manager.delete(BoardMemberEntity, {
         boardId,
@@ -170,10 +191,7 @@ export class BoardService {
   ): IBoardMemberResponse {
     return {
       id: member.id,
-      // email: member.email,
-      // avatar: member.avatar,
-      // firstName: member.firstName,
-      // lastName: member.lastName,
+      memberId: member.memberId,
     };
   }
 }

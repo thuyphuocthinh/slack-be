@@ -37,7 +37,11 @@ export class TaskService {
         where: { id: dto.groupId },
       });
       if (!group) throw new RpcException(TASK_ERROR.GROUP_NOT_FOUND);
-      await this.commonService.checkBoardMembership(group.boardId, requesterId);
+      await this.commonService.checkBoardMembership(
+        group.boardId,
+        requesterId,
+        manager,
+      );
 
       const task = manager.create(TaskEntity, dto);
       const saved = await manager.save(task);
@@ -55,7 +59,7 @@ export class TaskService {
     return await this.dataSource.transaction(async (manager) => {
       const task = await manager.findOne(TaskEntity, {
         where: { id },
-        relations: ['labels', 'group'],
+        relations: ['labels', 'group', 'members'],
         lock: { mode: 'pessimistic_write' },
       });
 
@@ -64,6 +68,7 @@ export class TaskService {
       await this.commonService.checkBoardMembership(
         task.group.boardId,
         requesterId,
+        manager,
       );
 
       if (labelIds !== undefined) {
@@ -94,6 +99,7 @@ export class TaskService {
       await this.commonService.checkBoardMembership(
         task.group.boardId,
         requesterId,
+        manager,
       );
 
       await manager.remove(task);
@@ -107,7 +113,7 @@ export class TaskService {
   ): Promise<ITaskResponse> {
     const task = await this.taskRepo.findOne({
       where: { id },
-      relations: ['labels', 'group'],
+      relations: ['labels', 'group', 'members'],
     });
     if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
 
@@ -132,7 +138,7 @@ export class TaskService {
     const tasks = await this.taskRepo.find({
       where: { groupId },
       order: { order: 'ASC' },
-      relations: ['labels'],
+      relations: ['labels', 'members'],
     });
     return tasks.map((t) => this.mapTaskResponse(t));
   }
@@ -152,6 +158,7 @@ export class TaskService {
       await this.commonService.checkBoardMembership(
         task.group.boardId,
         requesterId,
+        manager,
       );
 
       const boardMembers = await manager.find(BoardMemberEntity, {
@@ -187,6 +194,7 @@ export class TaskService {
       await this.commonService.checkBoardMembership(
         task.group.boardId,
         requesterId,
+        manager,
       );
 
       const result = await manager.delete(TaskMemberEntity, {
@@ -215,6 +223,7 @@ export class TaskService {
       await this.commonService.checkBoardMembership(
         task.group.boardId,
         requesterId,
+        manager,
       );
 
       const label = await manager.findOne(LabelEntity, {
@@ -248,7 +257,21 @@ export class TaskService {
             color: l.color,
           }))
         : [],
-      // members
+      members: task.members
+        ? task.members.map((m) => ({
+            id: m.id,
+            taskId: m.taskId,
+            memberId: m.memberId,
+          }))
+        : [],
+      attachments: task.attachments
+        ? task.attachments.map((a) => ({
+            id: a.id,
+            taskId: a.taskId,
+            title: a.title,
+            link: a.link,
+          }))
+        : [],
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
     };
@@ -271,6 +294,7 @@ export class TaskService {
       await this.commonService.checkBoardMembership(
         task.group.boardId,
         requesterId,
+        manager,
       );
 
       const attachment = manager.create(TaskAttachmentEntity, {
@@ -300,6 +324,7 @@ export class TaskService {
       await this.commonService.checkBoardMembership(
         task.group.boardId,
         requesterId,
+        manager,
       );
 
       const attachment = await manager.findOne(TaskAttachmentEntity, {
@@ -329,6 +354,7 @@ export class TaskService {
       await this.commonService.checkBoardMembership(
         task.group.boardId,
         requesterId,
+        manager,
       );
 
       const attachment = await manager.findOne(TaskAttachmentEntity, {
