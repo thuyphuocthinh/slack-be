@@ -16,7 +16,6 @@ import * as bcrypt from 'bcrypt';
 import {
   AUTH_ERROR,
   NAME_SERVICE_TCP,
-  NOTIFICATION_MESSAGE_PATTERNS,
   TWO_FA_MESSAGE_PATTERNS,
   USER_MESSAGE_PATTERNS,
 } from '@slack/constants';
@@ -30,6 +29,7 @@ import { firstValueFrom } from 'rxjs';
 import { ITokenResponse, ITwoFactorResponse } from './types/auth.response';
 import { hashToken, IRequestMetadata } from '@slack/common';
 import { AuthCacheService } from '@slack/cached';
+import { EJobName, EQueueName, QueueService } from '@slack/queue';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -48,6 +48,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly authCacheService: AuthCacheService,
     private readonly dataSource: DataSource,
+    private readonly queueService: QueueService,
   ) {}
 
   async register(request: RegisterDto): Promise<string> {
@@ -103,13 +104,23 @@ export class AuthService {
     this.logger.log(`Register success for email ${email}`);
 
     // 5. send email (fire-and-forget)
-    this.notificationClient.emit(
-      NOTIFICATION_MESSAGE_PATTERNS.SEND_VERIFICATION_EMAIL,
-      {
+    // this.notificationClient.emit(
+    //   NOTIFICATION_MESSAGE_PATTERNS.SEND_VERIFICATION_EMAIL,
+    //   {
+    //     email,
+    //     code: verification.code,
+    //   },
+    // );
+    this.queueService
+      .addJob(EQueueName.EMAIL_QUEUE, EJobName.SEND_VERIFICATION_EMAIL, {
         email,
         code: verification.code,
-      },
-    );
+      })
+      .catch((err) => {
+        this.logger.error(
+          `Failed to push verification email job for ${email}: ${err.message}`,
+        );
+      });
 
     // 6. response
     return 'We have sent you a verification email. Please check your inbox to verify your account.';
@@ -479,13 +490,24 @@ export class AuthService {
     await this.verificationRepository.save(verification);
 
     // 3. send email
-    this.notificationClient.emit(
-      NOTIFICATION_MESSAGE_PATTERNS.SEND_RESET_PASSWORD_EMAIL,
-      {
+    // this.notificationClient.emit(
+    //   NOTIFICATION_MESSAGE_PATTERNS.SEND_RESET_PASSWORD_EMAIL,
+    //   {
+    //     email,
+    //     code: verification.code,
+    //   },
+    // );
+    this.queueService
+      .addJob(EQueueName.EMAIL_QUEUE, EJobName.SEND_PASSWORD_RESET_EMAIL, {
         email,
         code: verification.code,
-      },
-    );
+      })
+      .catch((err) => {
+        this.logger.error(
+          `Failed to push password reset email job for ${email}: ${err.message}`,
+        );
+      });
+
     return 'Check your email to verify your email.';
   }
 

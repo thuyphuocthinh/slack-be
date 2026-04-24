@@ -11,12 +11,15 @@ import { VerificationEntity } from './entity/verification.entity';
 import { JwtModule } from '@nestjs/jwt';
 import { GoogleStrategy } from './strategy/google.strategy';
 import { CachedModule } from '@slack/cached';
+import { QueueModule, EQueueName } from '@slack/queue';
 
 @Module({
   imports: [
     DatabaseModule,
+    QueueModule.forRoot(),
+    QueueModule.forFeature([EQueueName.EMAIL_QUEUE]),
+    CachedModule.forRoot(),
     TypeOrmModule.forFeature([AuthEntity, SessionEntity, VerificationEntity]),
-    CachedModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'fallback_secret',
     }),

@@ -15,9 +15,12 @@ import { SendgridService } from './services/impl/sendgrid.service';
 import { NodemailerService } from './services/impl/nodemailer.service';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
+import { QueueModule, EQueueName } from '@slack/queue';
 
 @Module({
   imports: [
+    QueueModule.forRoot(),
+    QueueModule.forFeature([EQueueName.EMAIL_QUEUE]),
     DatabaseModule,
     TypeOrmModule.forFeature([Notification, AuditLog]),
     ClientsModule.register([

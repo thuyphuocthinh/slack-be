@@ -88,6 +88,15 @@
         ]
       }
     },
+    "queue": {
+      "type": "library",
+      "root": "libs/queue",
+      "entryFile": "index",
+      "sourceRoot": "libs/queue/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/queue/tsconfig.lib.json"
+      }
+    },
     "task": {
       "type": "application",
       "root": "apps/task",

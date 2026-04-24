@@ -45,6 +45,12 @@
       ],
       "@slack/database/*": [
         "libs/database/src/*"
+      ],
+      "@slack/queue": [
+        "libs/queue/src"
+      ],
+      "@slack/queue/*": [
+        "libs/queue/src/*"
       ]
     }
   }

@@ -15,8 +15,8 @@ import { CachedModule } from '@slack/cached';
 @Module({
   imports: [
     DatabaseModule,
+    CachedModule.forRoot(),
     TypeOrmModule.forFeature([UserEntity, TwoFactorEntity, UserSettingEntity]),
-    CachedModule,
     ClientsModule.register([
       {
         name: NAME_SERVICE_TCP.AUTH_SERVICE,

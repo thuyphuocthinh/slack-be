@@ -14,11 +14,14 @@ import { WorkspaceCommonService } from './services/workspace-common.service';
 import { WorkspaceMemberService } from './services/workspace-member.service';
 import { WorkspaceInviteService } from './services/workspace-invite.service';
 import { WorkspaceLinkService } from './services/workspace-link.service';
+import { EQueueName, QueueModule } from '@slack/queue';
 
 @Module({
   imports: [
     DatabaseModule,
-    CachedModule,
+    CachedModule.forRoot(),
+    QueueModule.forRoot(),
+    QueueModule.forFeature([EQueueName.EMAIL_QUEUE]),
     TypeOrmModule.forFeature([
       WorkspaceEntity,
       WorkspaceMemberEntity,

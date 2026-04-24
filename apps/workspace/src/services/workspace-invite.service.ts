@@ -11,7 +11,6 @@ import {
 } from '../types/workspace.enum';
 import {
   NAME_SERVICE_TCP,
-  NOTIFICATION_MESSAGE_PATTERNS,
   USER_MESSAGE_PATTERNS,
   WORKSPACE_ERROR,
 } from '@slack/constants';
@@ -30,6 +29,7 @@ import { CACHE, CachedService } from '@slack/cached';
 import { firstValueFrom } from 'rxjs';
 import { WorkspaceCommonService } from './workspace-common.service';
 import { buildTTL } from '@slack/common';
+import { EJobName, EQueueName, QueueService } from '@slack/queue';
 
 @Injectable()
 export class WorkspaceInviteService {
@@ -47,6 +47,7 @@ export class WorkspaceInviteService {
     private readonly dataSource: DataSource,
     private readonly cachedService: CachedService,
     private readonly commonService: WorkspaceCommonService,
+    private readonly queueService: QueueService,
   ) {}
 
   async inviteMember(
@@ -114,15 +115,32 @@ export class WorkspaceInviteService {
       dto.workspaceId,
     );
 
-    this.notificationClient.emit(NOTIFICATION_MESSAGE_PATTERNS.SEND_MAIL, {
-      to: dto.email,
-      subject: 'Invite to workspace',
-      template: 'workspace_invitation',
-      context: {
-        workspaceName: workspace?.name,
-        token: savedInvite.tokenHash,
-      },
-    });
+    // this.notificationClient.emit(NOTIFICATION_MESSAGE_PATTERNS.SEND_MAIL, {
+    //   to: dto.email,
+    //   subject: 'Invite to workspace',
+    //   template: 'workspace_invitation',
+    //   context: {
+    //     workspaceName: workspace?.name,
+    //     token: savedInvite.tokenHash,
+    //   },
+    // });
+
+    this.queueService
+      .addJob(EQueueName.EMAIL_QUEUE, EJobName.SEND_INVITE_EMAIL, {
+        to: dto.email,
+        subject: 'Invite to workspace',
+        template: 'workspace_invitation',
+        context: {
+          workspaceName: workspace?.name,
+          token: savedInvite.tokenHash,
+        },
+      })
+      .catch((err) => {
+        this.logger.error(
+          `Failed to push invite email job for ${dto.email}: ${err.message}`,
+        );
+      });
+
     this.logger.log('Invite member', savedInvite);
     return this.commonService.mapInviteToDto(savedInvite);
   }
@@ -197,15 +215,32 @@ export class WorkspaceInviteService {
       invite.workspaceId,
     );
 
-    this.notificationClient.emit(NOTIFICATION_MESSAGE_PATTERNS.SEND_MAIL, {
-      to: invite.email,
-      subject: 'Invite to workspace',
-      template: 'workspace_invitation',
-      context: {
-        workspaceName: workspace?.name,
-        token: updatedInvite.tokenHash,
-      },
-    });
+    // this.notificationClient.emit(NOTIFICATION_MESSAGE_PATTERNS.SEND_MAIL, {
+    //   to: invite.email,
+    //   subject: 'Invite to workspace',
+    //   template: 'workspace_invitation',
+    //   context: {
+    //     workspaceName: workspace?.name,
+    //     token: updatedInvite.tokenHash,
+    //   },
+    // });
+
+    this.queueService
+      .addJob(EQueueName.EMAIL_QUEUE, EJobName.SEND_INVITE_EMAIL, {
+        to: invite.email,
+        subject: 'Invite to workspace',
+        template: 'workspace_invitation',
+        context: {
+          workspaceName: workspace?.name,
+          token: updatedInvite.tokenHash,
+        },
+      })
+      .catch((err) => {
+        this.logger.error(
+          `Failed to push invite email job for ${invite.email}: ${err.message}`,
+        );
+      });
+
     this.logger.log('Resend invite', updatedInvite);
     return this.commonService.mapInviteToDto(updatedInvite);
   }
