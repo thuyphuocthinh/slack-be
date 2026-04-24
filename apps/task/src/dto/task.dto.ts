@@ -6,7 +6,9 @@ import {
   IsArray,
   IsDateString,
   IsNumber,
+  Min,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateTaskDto {
   @IsUUID()
@@ -60,4 +62,21 @@ export class TaskResponseDto {
   assigneeIds: string[];
   createdAt: Date;
   updatedAt: Date;
+}
+export class QueryTaskDto {
+  @IsUUID()
+  @IsNotEmpty()
+  groupId: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  page?: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  limit?: number = 20;
 }

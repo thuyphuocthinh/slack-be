@@ -8,6 +8,8 @@ import { RpcException } from '@nestjs/microservices';
 import { TASK_ERROR } from '@slack/constants';
 import { IBoardMemberResponse, IBoardResponse } from '../type/task.response';
 import { TaskCommonService } from './task-common.service';
+import { IOffsetResponse } from '@slack/common';
+import { QueryBoardDto } from '../dto/board.dto';
 
 @Injectable()
 export class BoardService {
@@ -25,12 +27,21 @@ export class BoardService {
     requesterId: string,
   ): Promise<IBoardResponse> {
     return await this.dataSource.transaction(async (manager) => {
-      await this.commonService.checkWorkspaceMembership(
+      const memberId = await this.commonService.checkWorkspaceMembership(
         dto.workspaceId,
         requesterId,
       );
+
       const board = manager.create(TaskBoardEntity, dto);
       const saved = await manager.save(board);
+
+      // add creator to board as first member
+      const boardMember = manager.create(BoardMemberEntity, {
+        boardId: saved.id,
+        memberId,
+      });
+      await manager.save(boardMember);
+
       return this.mapBoardResponse(saved);
     });
   }
@@ -67,21 +78,39 @@ export class BoardService {
   }
 
   async getBoardsInWorkspace(
-    workspaceId: string,
+    queryDto: QueryBoardDto,
     requesterUserId: string,
-  ): Promise<IBoardResponse[]> {
+  ): Promise<IOffsetResponse<IBoardResponse[]>> {
+    const { workspaceId, page = 1, limit = 20 } = queryDto;
+    const skip = (page - 1) * limit;
+
     const memberId = await this.commonService.getMemberId(
       workspaceId,
       requesterUserId,
     );
-    const boards = await this.boardRepo
+
+    const query = this.boardRepo
       .createQueryBuilder('board')
       .innerJoin(BoardMemberEntity, 'member', 'member.boardId = board.id')
       .where('board.workspaceId = :workspaceId', { workspaceId })
       .andWhere('member.memberId = :memberId', { memberId })
-      .getMany();
+      .orderBy('board.createdAt', 'DESC')
+      .skip(skip)
+      .take(limit);
 
-    return boards.map((b) => this.mapBoardResponse(b));
+    const [items, total] = await query.getManyAndCount();
+
+    const responseData = items.map((b) => this.mapBoardResponse(b));
+
+    return {
+      data: responseData,
+      paging: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    } as unknown as IOffsetResponse<IBoardResponse[]>;
   }
 
   async getBoardDetails(

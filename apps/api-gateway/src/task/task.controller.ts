@@ -23,6 +23,8 @@ import {
   UpdateLabelApiDto,
   AddMemberToBoardApiDto,
   ToggleTaskLabelApiDto,
+  QueryBoardApiDto,
+  QueryTaskApiDto,
   CreateChecklistApiDto,
   UpdateChecklistApiDto,
   AddChecklistItemApiDto,
@@ -72,10 +74,10 @@ export class TaskController {
   @Get('boards')
   @ApiOperation({ summary: 'Get all boards in a workspace' })
   async getBoards(
-    @Query('workspaceId') workspaceId: string,
+    @Query() queryDto: QueryBoardApiDto,
     @CurrentUser() user: JwtUser,
   ) {
-    return this.taskService.getBoards(workspaceId, user.sub);
+    return this.taskService.getBoards(queryDto, user.sub);
   }
 
   @Get('boards/:id')
@@ -147,77 +149,6 @@ export class TaskController {
     return this.taskService.getGroups(boardId, user.sub);
   }
 
-  // --- TASKS ---
-  @Post()
-  @ApiOperation({ summary: 'Create a new task' })
-  async createTask(
-    @Body() dto: CreateTaskApiDto,
-    @CurrentUser() user: JwtUser,
-  ) {
-    return this.taskService.createTask(dto, user.sub);
-  }
-
-  @Patch(':id')
-  @ApiOperation({ summary: 'Update task details' })
-  async updateTask(
-    @Param('id') id: string,
-    @Body() dto: UpdateTaskApiDto,
-    @CurrentUser() user: JwtUser,
-  ) {
-    return this.taskService.updateTask(id, dto, user.sub);
-  }
-
-  @Delete(':id')
-  @ApiOperation({ summary: 'Remove task' })
-  async deleteTask(@Param('id') id: string, @CurrentUser() user: JwtUser) {
-    return this.taskService.deleteTask(id, user.sub);
-  }
-
-  @Get(':id')
-  @ApiOperation({ summary: 'Get task details' })
-  async getTaskDetails(@Param('id') id: string, @CurrentUser() user: JwtUser) {
-    return this.taskService.getTaskDetails(id, user.sub);
-  }
-
-  @Get()
-  @ApiOperation({ summary: 'Get tasks in a group' })
-  async getTasks(
-    @Query('groupId') groupId: string,
-    @CurrentUser() user: JwtUser,
-  ) {
-    return this.taskService.getTasks(groupId, user.sub);
-  }
-
-  @Post(':id/assign/:memberId')
-  @ApiOperation({ summary: 'Assign member to task' })
-  async assignMemberToTask(
-    @Param('id') taskId: string,
-    @Param('memberId') memberId: string,
-    @CurrentUser() user: JwtUser,
-  ) {
-    return this.taskService.assignMemberToTask(taskId, memberId, user.sub);
-  }
-
-  @Post(':id/unassign/:memberId')
-  @ApiOperation({ summary: 'Unassign member from task' })
-  async unassignMemberFromTask(
-    @Param('id') taskId: string,
-    @Param('memberId') memberId: string,
-    @CurrentUser() user: JwtUser,
-  ) {
-    return this.taskService.unassignMemberFromTask(taskId, memberId, user.sub);
-  }
-
-  @Post(':id/toggle-label')
-  @ApiOperation({ summary: 'Toggle label for task' })
-  async toggleTaskLabel(
-    @Param('id') taskId: string,
-    @Body() dto: ToggleTaskLabelApiDto,
-    @CurrentUser() user: JwtUser,
-  ) {
-    return this.taskService.toggleTaskLabel(taskId, dto.labelId, user.sub);
-  }
-
   // --- LABELS ---
   @Post('labels')
   @ApiOperation({ summary: 'Create a new label' })
@@ -225,29 +156,32 @@ export class TaskController {
     @Body() dto: CreateLabelApiDto,
     @CurrentUser() user: JwtUser,
   ) {
-    await this.workspaceService.checkPermission(dto.workspaceId, user.sub, [
-      WorkspaceRoleEnum.ADMIN,
-      WorkspaceRoleEnum.OWNER,
-    ]);
-    return this.taskService.createLabel(dto);
+    return this.taskService.createLabel(dto, user.sub);
   }
 
   @Patch('labels/:id')
   @ApiOperation({ summary: 'Update label info' })
-  async updateLabel(@Param('id') id: string, @Body() dto: UpdateLabelApiDto) {
-    return this.taskService.updateLabel(id, dto);
+  async updateLabel(
+    @Param('id') id: string,
+    @Body() dto: UpdateLabelApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.taskService.updateLabel(id, dto, user.sub);
   }
 
   @Delete('labels/:id')
   @ApiOperation({ summary: 'Delete label' })
-  async deleteLabel(@Param('id') id: string) {
-    return this.taskService.deleteLabel(id);
+  async deleteLabel(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.taskService.deleteLabel(id, user.sub);
   }
 
   @Get('labels')
-  @ApiOperation({ summary: 'Get labels in a workspace' })
-  async getLabels(@Query('workspaceId') workspaceId: string) {
-    return this.taskService.getLabels(workspaceId);
+  @ApiOperation({ summary: 'Get labels in a board' })
+  async getLabels(
+    @Query('boardId') boardId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.taskService.getLabels(boardId, user.sub);
   }
 
   // --- CHECKLISTS ---
@@ -320,5 +254,76 @@ export class TaskController {
     @CurrentUser() user: JwtUser,
   ) {
     return this.taskService.toggleChecklistItem(id, user.sub);
+  }
+
+  // --- TASKS ---
+  @Post()
+  @ApiOperation({ summary: 'Create a new task' })
+  async createTask(
+    @Body() dto: CreateTaskApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.taskService.createTask(dto, user.sub);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update task details' })
+  async updateTask(
+    @Param('id') id: string,
+    @Body() dto: UpdateTaskApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.taskService.updateTask(id, dto, user.sub);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Remove task' })
+  async deleteTask(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.taskService.deleteTask(id, user.sub);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get task details' })
+  async getTaskDetails(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.taskService.getTaskDetails(id, user.sub);
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'Get tasks in a group' })
+  async getTasks(
+    @Query() queryDto: QueryTaskApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.taskService.getTasks(queryDto, user.sub);
+  }
+
+  @Post(':id/assign/:memberId')
+  @ApiOperation({ summary: 'Assign member to task' })
+  async assignMemberToTask(
+    @Param('id') taskId: string,
+    @Param('memberId') memberId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.taskService.assignMemberToTask(taskId, memberId, user.sub);
+  }
+
+  @Post(':id/unassign/:memberId')
+  @ApiOperation({ summary: 'Unassign member from task' })
+  async unassignMemberFromTask(
+    @Param('id') taskId: string,
+    @Param('memberId') memberId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.taskService.unassignMemberFromTask(taskId, memberId, user.sub);
+  }
+
+  @Post(':id/toggle-label')
+  @ApiOperation({ summary: 'Toggle label for task' })
+  async toggleTaskLabel(
+    @Param('id') taskId: string,
+    @Body() dto: ToggleTaskLabelApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.taskService.toggleTaskLabel(taskId, dto.labelId, user.sub);
   }
 }

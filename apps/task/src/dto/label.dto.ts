@@ -9,7 +9,7 @@ import {
 export class CreateLabelDto {
   @IsUUID()
   @IsNotEmpty()
-  workspaceId: string;
+  boardId: string;
 
   @IsString()
   @IsNotEmpty()
@@ -32,7 +32,7 @@ export class UpdateLabelDto {
 
 export class LabelResponseDto {
   id: string;
-  workspaceId: string;
+  boardId: string;
   name: string;
   color: string;
 }

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { LabelEntity } from '../entity/label.entity';
@@ -10,6 +10,8 @@ import { TaskCommonService } from './task-common.service';
 
 @Injectable()
 export class LabelService {
+  private readonly logger = new Logger(LabelService.name);
+
   constructor(
     @InjectRepository(LabelEntity)
     private readonly labelRepo: Repository<LabelEntity>,
@@ -21,10 +23,7 @@ export class LabelService {
     dto: CreateLabelDto,
     requesterId: string,
   ): Promise<ILabelResponse> {
-    await this.commonService.checkWorkspaceMembership(
-      dto.workspaceId,
-      requesterId,
-    );
+    await this.commonService.checkBoardMembership(dto.boardId, requesterId);
     const label = this.labelRepo.create(dto);
     const saved = await this.labelRepo.save(label);
     return this.mapLabelResponse(saved);
@@ -42,9 +41,10 @@ export class LabelService {
       });
       if (!label) throw new RpcException(TASK_ERROR.LABEL_NOT_FOUND);
 
-      await this.commonService.checkWorkspaceMembership(
-        label.workspaceId,
+      await this.commonService.checkBoardMembership(
+        label.boardId,
         requesterId,
+        manager,
       );
 
       Object.assign(label, dto);
@@ -58,9 +58,10 @@ export class LabelService {
       const label = await manager.findOne(LabelEntity, { where: { id } });
       if (!label) throw new RpcException(TASK_ERROR.LABEL_NOT_FOUND);
 
-      await this.commonService.checkWorkspaceMembership(
-        label.workspaceId,
+      await this.commonService.checkBoardMembership(
+        label.boardId,
         requesterId,
+        manager,
       );
 
       await manager.remove(label);
@@ -68,19 +69,22 @@ export class LabelService {
     });
   }
 
-  async getLabelsInWorkspace(
-    workspaceId: string,
+  async getLabelsInBoard(
+    boardId: string,
     requesterId: string,
   ): Promise<ILabelResponse[]> {
-    await this.commonService.checkWorkspaceMembership(workspaceId, requesterId);
-    const labels = await this.labelRepo.find({ where: { workspaceId } });
+    this.logger.log(
+      `Get labels in board ${boardId} for requesterId ${requesterId}`,
+    );
+    await this.commonService.checkBoardMembership(boardId, requesterId);
+    const labels = await this.labelRepo.find({ where: { boardId } });
     return labels.map((l) => this.mapLabelResponse(l));
   }
 
   private mapLabelResponse(label: LabelEntity): ILabelResponse {
     return {
       id: label.id,
-      workspaceId: label.workspaceId,
+      boardId: label.boardId,
       name: label.name,
       color: label.color,
     };

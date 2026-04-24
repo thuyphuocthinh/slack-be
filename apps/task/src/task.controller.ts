@@ -6,9 +6,9 @@ import { GroupService } from './services/group.service';
 import { LabelService } from './services/label.service';
 import { ChecklistService } from './services/checklist.service';
 import { TASK_MSG_PATTERN } from '@slack/constants';
-import { CreateBoardDto, UpdateBoardDto } from './dto/board.dto';
+import { CreateBoardDto, QueryBoardDto, UpdateBoardDto } from './dto/board.dto';
 import { CreateGroupDto, UpdateGroupDto } from './dto/group.dto';
-import { CreateTaskDto, UpdateTaskDto } from './dto/task.dto';
+import { CreateTaskDto, QueryTaskDto, UpdateTaskDto } from './dto/task.dto';
 import { CreateLabelDto, UpdateLabelDto } from './dto/label.dto';
 import {
   CreateChecklistDto,
@@ -62,9 +62,9 @@ export class TaskController {
   @MessagePattern(TASK_MSG_PATTERN.BOARD.GET_ALL_IN_WORKSPACE)
   async getBoardsInWorkspace(
     @Payload()
-    { workspaceId, requesterId }: { workspaceId: string; requesterId: string },
+    { queryDto, requesterId }: { queryDto: QueryBoardDto; requesterId: string },
   ) {
-    return this.boardService.getBoardsInWorkspace(workspaceId, requesterId);
+    return this.boardService.getBoardsInWorkspace(queryDto, requesterId);
   }
 
   @MessagePattern(TASK_MSG_PATTERN.BOARD.GET_DETAILS)
@@ -200,9 +200,9 @@ export class TaskController {
   @MessagePattern(TASK_MSG_PATTERN.TASK.GET_ALL_IN_GROUP)
   async getTasksInGroup(
     @Payload()
-    { groupId, requesterId }: { groupId: string; requesterId: string },
+    { queryDto, requesterId }: { queryDto: QueryTaskDto; requesterId: string },
   ) {
-    return this.taskService.getTasksInGroup(groupId, requesterId);
+    return this.taskService.getTasksInGroup(queryDto, requesterId);
   }
 
   // @MessagePattern(TASK_MSG_PATTERN.TASK.GET_MEMBERS)
@@ -264,25 +264,42 @@ export class TaskController {
 
   // --- LABEL ---
   @MessagePattern(TASK_MSG_PATTERN.LABEL.CREATE)
-  async createNewLabel(@Payload() dto: CreateLabelDto) {
-    return this.labelService.createNewLabel(dto);
+  async createNewLabel(
+    @Payload()
+    { dto, requesterId }: { dto: CreateLabelDto; requesterId: string },
+  ) {
+    return this.labelService.createNewLabel(dto, requesterId);
   }
 
   @MessagePattern(TASK_MSG_PATTERN.LABEL.UPDATE)
   async updateLabelInfo(
-    @Payload() { id, dto }: { id: string; dto: UpdateLabelDto },
+    @Payload()
+    {
+      id,
+      dto,
+      requesterId,
+    }: {
+      id: string;
+      dto: UpdateLabelDto;
+      requesterId: string;
+    },
   ) {
-    return this.labelService.updateLabelInfo(id, dto);
+    return this.labelService.updateLabelInfo(id, dto, requesterId);
   }
 
   @MessagePattern(TASK_MSG_PATTERN.LABEL.DELETE)
-  async deleteLabel(@Payload() id: string) {
-    return this.labelService.deleteLabel(id);
+  async deleteLabel(
+    @Payload() { id, requesterId }: { id: string; requesterId: string },
+  ) {
+    return this.labelService.deleteLabel(id, requesterId);
   }
 
-  @MessagePattern(TASK_MSG_PATTERN.LABEL.GET_ALL_IN_WORKSPACE)
-  async getLabelsInWorkspace(@Payload() workspaceId: string) {
-    return this.labelService.getLabelsInWorkspace(workspaceId);
+  @MessagePattern(TASK_MSG_PATTERN.LABEL.GET_ALL_IN_BOARD)
+  async getLabelsInBoard(
+    @Payload()
+    { boardId, requesterId }: { boardId: string; requesterId: string },
+  ) {
+    return this.labelService.getLabelsInBoard(boardId, requesterId);
   }
 
   // --- CHECKLIST ---

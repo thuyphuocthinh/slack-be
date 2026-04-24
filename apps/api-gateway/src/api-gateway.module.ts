@@ -28,7 +28,7 @@ import { TaskModule } from './task/task.module';
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'fallback_secret',
     }),
-    CachedModule,
+    CachedModule.forRoot(),
   ],
   controllers: [ApiGatewayController],
   providers: [

@@ -12,9 +12,9 @@ export class LabelEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'workspace_id' })
+  @Column({ name: 'board_id' })
   @Index()
-  workspaceId: string;
+  boardId: string;
 
   @Column({ name: 'name' })
   name: string;

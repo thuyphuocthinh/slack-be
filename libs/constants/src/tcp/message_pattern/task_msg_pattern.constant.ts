@@ -30,7 +30,7 @@ export const TASK_MSG_PATTERN = {
     CREATE: 'label.create_new_label',
     UPDATE: 'label.update_label_info',
     DELETE: 'label.delete_label',
-    GET_ALL_IN_WORKSPACE: 'label.get_labels_in_workspace',
+    GET_ALL_IN_BOARD: 'label.get_labels_in_board',
   },
   CHECKLIST: {
     CREATE: 'checklist.create',

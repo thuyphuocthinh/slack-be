@@ -16,8 +16,7 @@ import { TaskMemberEntity } from './entity/task_member.entity';
 import { DatabaseModule } from '@slack/database';
 
 import { ClientsModule, Transport } from '@nestjs/microservices';
-import { NAME_SERVICE_TCP } from '@slack/constants';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { ChecklistService } from './services/checklist.service';
 import { TaskCommonService } from './services/task-common.service';
 import { TaskAttachmentEntity } from './entity/task_attachment.entity';
@@ -36,18 +35,14 @@ import { TaskAttachmentEntity } from './entity/task_attachment.entity';
       TaskMemberEntity,
       TaskAttachmentEntity,
     ]),
-    ClientsModule.registerAsync([
+    ClientsModule.register([
       {
         name: NAME_SERVICE_TCP.WORKSPACE_SERVICE,
-        imports: [ConfigModule],
-        inject: [ConfigService],
-        useFactory: (configService: ConfigService) => ({
-          transport: Transport.TCP,
-          options: {
-            host: configService.get('WORKSPACE_SERVICE_HOST', 'localhost'),
-            port: configService.get('WORKSPACE_SERVICE_PORT', 3001),
-          },
-        }),
+        transport: Transport.TCP,
+        options: {
+          host: 'localhost',
+          port: PORT_TCP.WORKSPACE_TCP_PORT,
+        },
       },
     ]),
   ],

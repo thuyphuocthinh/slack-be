@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsNotEmpty,
   IsString,
@@ -6,6 +7,7 @@ import {
   IsOptional,
   IsNumber,
   MaxLength,
+  Min,
 } from 'class-validator';
 
 export class CreateBoardApiDto {
@@ -39,6 +41,27 @@ export class UpdateBoardApiDto {
   @IsOptional()
   @MaxLength(512)
   backgroundUrl?: string;
+}
+
+export class QueryBoardApiDto {
+  @ApiProperty({ example: 'workspace-uuid' })
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @ApiPropertyOptional({ example: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiPropertyOptional({ example: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  limit?: number = 20;
 }
 
 export class CreateGroupApiDto {
@@ -93,11 +116,32 @@ export class UpdateTaskApiDto {
   title?: string;
 }
 
-export class CreateLabelApiDto {
-  @ApiProperty({ example: 'workspace-uuid' })
+export class QueryTaskApiDto {
+  @ApiProperty({ example: 'group-uuid' })
   @IsUUID()
   @IsNotEmpty()
-  workspaceId: string;
+  groupId: string;
+
+  @ApiPropertyOptional({ example: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiPropertyOptional({ example: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  limit?: number = 20;
+}
+
+export class CreateLabelApiDto {
+  @ApiProperty({ example: 'board-uuid' })
+  @IsUUID()
+  @IsNotEmpty()
+  boardId: string;
 
   @ApiProperty({ example: 'Bug' })
   @IsString()

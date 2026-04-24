@@ -30,6 +30,7 @@
     "start:user": "nest start user --watch",
     "start:workspace": "nest start workspace --watch",
     "start:notification": "nest start notification --watch",
+    "start:task": "nest start task --watch",
     "start:nodeA": "cross-env NODE_OPTIONS='--max-old-space-size=4096' concurrently -n GATEWAY,AUTH,USER -c blue,green,pink \"pnpm run start:gateway\" \"pnpm run start:auth\" \"pnpm run start:user\"",
     "start:nodeB": "cross-env NODE_OPTIONS='--max-old-space-size=4096' concurrently -n WORKSPACE,NOTIFICATION -c yellow,cyan \"pnpm run start:workspace\" \"pnpm run start:notification\"",
     "start:all": "cross-env NODE_OPTIONS='--max-old-space-size=4096' concurrently -n GATEWAY,AUTH,USER,WORKSPACE,NOTIFICATION -c blue,green,pink,yellow,cyan,magenta,red \"pnpm run start:gateway\" \"pnpm run start:auth\" \"pnpm run start:user\" \"pnpm run start:workspace\" \"pnpm run start:notification\"",

@@ -6,10 +6,12 @@ import { MicroserviceErrorHandler } from '../common/microservice_error.handler';
 import {
   CreateBoardApiDto,
   UpdateBoardApiDto,
+  QueryBoardApiDto,
   CreateGroupApiDto,
   UpdateGroupApiDto,
   CreateTaskApiDto,
   UpdateTaskApiDto,
+  QueryTaskApiDto,
   CreateLabelApiDto,
   UpdateLabelApiDto,
   CreateChecklistApiDto,
@@ -69,12 +71,12 @@ export class TaskService {
     );
   }
 
-  async getBoards(workspaceId: string, requesterId: string) {
+  async getBoards(queryDto: QueryBoardApiDto, requesterId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
           this.taskClient.send(TASK_MSG_PATTERN.BOARD.GET_ALL_IN_WORKSPACE, {
-            workspaceId,
+            queryDto,
             requesterId,
           }),
         ),
@@ -265,12 +267,12 @@ export class TaskService {
     );
   }
 
-  async getTasks(groupId: string, requesterId: string) {
+  async getTasks(queryDto: QueryTaskApiDto, requesterId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
           this.taskClient.send(TASK_MSG_PATTERN.TASK.GET_ALL_IN_GROUP, {
-            groupId,
+            queryDto,
             requesterId,
           }),
         ),
@@ -333,45 +335,57 @@ export class TaskService {
   }
 
   // --- LABEL ---
-  async createLabel(dto: CreateLabelApiDto) {
+  async createLabel(dto: CreateLabelApiDto, requesterId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.taskClient.send(TASK_MSG_PATTERN.LABEL.CREATE, dto),
+          this.taskClient.send(TASK_MSG_PATTERN.LABEL.CREATE, {
+            dto,
+            requesterId,
+          }),
         ),
       'createLabel',
       'TaskGatewayService',
     );
   }
 
-  async updateLabel(id: string, dto: UpdateLabelApiDto) {
+  async updateLabel(id: string, dto: UpdateLabelApiDto, requesterId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.taskClient.send(TASK_MSG_PATTERN.LABEL.UPDATE, { id, dto }),
+          this.taskClient.send(TASK_MSG_PATTERN.LABEL.UPDATE, {
+            id,
+            dto,
+            requesterId,
+          }),
         ),
       'updateLabel',
       'TaskGatewayService',
     );
   }
 
-  async deleteLabel(id: string) {
+  async deleteLabel(id: string, requesterId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
-        firstValueFrom(this.taskClient.send(TASK_MSG_PATTERN.LABEL.DELETE, id)),
+        firstValueFrom(
+          this.taskClient.send(TASK_MSG_PATTERN.LABEL.DELETE, {
+            id,
+            requesterId,
+          }),
+        ),
       'deleteLabel',
       'TaskGatewayService',
     );
   }
 
-  async getLabels(workspaceId: string) {
+  async getLabels(boardId: string, requesterId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.taskClient.send(
-            TASK_MSG_PATTERN.LABEL.GET_ALL_IN_WORKSPACE,
-            workspaceId,
-          ),
+          this.taskClient.send(TASK_MSG_PATTERN.LABEL.GET_ALL_IN_BOARD, {
+            boardId,
+            requesterId,
+          }),
         ),
       'getLabels',
       'TaskGatewayService',

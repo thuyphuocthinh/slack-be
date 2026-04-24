@@ -12,6 +12,8 @@ import { BoardMemberEntity } from '../entity/board_member.entity';
 import { TaskCommonService } from './task-common.service';
 import { TaskGroupEntity } from '../entity/task_group.entity';
 import { TaskAttachmentEntity } from '../entity/task_attachment.entity';
+import { IOffsetResponse } from '@slack/common';
+import { QueryTaskDto } from '../dto/task.dto';
 
 @Injectable()
 export class TaskService {
@@ -126,21 +128,40 @@ export class TaskService {
   }
 
   async getTasksInGroup(
-    groupId: string,
+    queryDto: QueryTaskDto,
     requesterId: string,
-  ): Promise<ITaskResponse[]> {
+  ): Promise<IOffsetResponse<ITaskResponse[]>> {
+    const { groupId, page = 1, limit = 20 } = queryDto;
+    const skip = (page - 1) * limit;
+
     const group = await this.dataSource
       .getRepository(TaskGroupEntity)
       .findOneBy({ id: groupId });
     if (!group) throw new RpcException(TASK_ERROR.GROUP_NOT_FOUND);
     await this.commonService.checkBoardMembership(group.boardId, requesterId);
 
-    const tasks = await this.taskRepo.find({
-      where: { groupId },
-      order: { order: 'ASC' },
-      relations: ['labels', 'members'],
-    });
-    return tasks.map((t) => this.mapTaskResponse(t));
+    const query = this.taskRepo
+      .createQueryBuilder('task')
+      .leftJoinAndSelect('task.labels', 'label')
+      .leftJoinAndSelect('task.members', 'member')
+      .where('task.groupId = :groupId', { groupId })
+      .orderBy('task.order', 'ASC')
+      .skip(skip)
+      .take(limit);
+
+    const [items, total] = await query.getManyAndCount();
+
+    const responseData = items.map((t) => this.mapTaskResponse(t));
+
+    return {
+      data: responseData,
+      paging: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    } as unknown as IOffsetResponse<ITaskResponse[]>;
   }
 
   async assignMemberToTask(
@@ -252,7 +273,7 @@ export class TaskService {
       labels: task.labels
         ? task.labels.map((l) => ({
             id: l.id,
-            workspaceId: l.workspaceId,
+            boardId: l.boardId,
             name: l.name,
             color: l.color,
           }))

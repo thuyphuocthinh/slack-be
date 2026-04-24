@@ -23,7 +23,7 @@ export interface IGroupResponse {
 
 export interface ILabelResponse {
   id: string;
-  workspaceId: string;
+  boardId: string;
   name: string;
   color: string;
 }
