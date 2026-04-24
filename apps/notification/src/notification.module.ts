@@ -16,6 +16,7 @@ import { NodemailerService } from './services/impl/nodemailer.service';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { QueueModule, EQueueName } from '@slack/queue';
+import { EmailProcessor } from './processors/email.processor';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { QueueModule, EQueueName } from '@slack/queue';
     AuditService,
     NodemailerService,
     SendgridService,
+    EmailProcessor,
     {
       provide: I_MAIL_SERVICE,
       useClass: NodemailerService,
