@@ -54,3 +54,13 @@ export class WorkspaceLinkDto {
   expiresAt?: Date;
   createdAt: Date;
 }
+
+export class WorkspaceListResponseDto {
+  data: WorkspaceDto[];
+  paging: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}

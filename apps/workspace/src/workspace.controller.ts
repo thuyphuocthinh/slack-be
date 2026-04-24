@@ -22,6 +22,7 @@ import {
   DeleteLinkRequestDto,
   UpdateWorkspaceRequestDto,
   AddBatchMembersRequestDto,
+  GetWorkspacesRequestDto,
 } from './dto/workspace-request.dto';
 import { WorkspaceRoleEnum } from './types/workspace.enum';
 
@@ -111,8 +112,8 @@ export class WorkspaceController {
   }
 
   @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.GET_WORKSPACES)
-  getListWorkspaceOfUser(@Payload() userId: string) {
-    return this.workspaceService.getListWorkspaceOfUser(userId);
+  getListWorkspaceOfUser(@Payload() dto: GetWorkspacesRequestDto) {
+    return this.workspaceService.getListWorkspaceOfUser(dto);
   }
 
   @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.CREATE_LINK)

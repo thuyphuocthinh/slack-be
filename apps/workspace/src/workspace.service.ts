@@ -1,4 +1,4 @@
-import { Injectable, HttpStatus, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, IsNull, In } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
@@ -11,10 +11,11 @@ import {
   CreateWorkspaceRequestDto,
   UpdateWorkspaceRequestDto,
   DeleteWorkspaceRequestDto,
+  GetWorkspacesRequestDto,
 } from './dto/workspace-request.dto';
 import { WorkspaceResponseDto } from './dto/workspace-response.dto';
 import { WorkspaceDto } from './dto/workspace.dto';
-import { generateSlug } from '@slack/common';
+import { generateSlug, IOffsetResponse } from '@slack/common';
 import { WorkspaceCommonService } from './services/workspace-common.service';
 
 @Injectable()
@@ -35,46 +36,57 @@ export class WorkspaceService {
   async createWorkspace(
     dto: CreateWorkspaceRequestDto,
   ): Promise<WorkspaceResponseDto> {
-    for (let i = 0; i < 3; i++) {
-      const slug = generateSlug(dto.name);
+    const slug = generateSlug(dto.name);
 
-      try {
-        const savedWorkspace = await this.dataSource.transaction(
-          async (manager) => {
-            const workspace = manager.create(WorkspaceEntity, {
-              name: dto.name,
-              description: dto.description,
-              slug,
-            });
-            const ws = await manager.save(workspace);
+    try {
+      const savedWorkspace = await this.dataSource.transaction(
+        async (manager) => {
+          // 1. Insert Workspace
+          const insertWsResult = await manager.insert(WorkspaceEntity, {
+            name: dto.name,
+            description: dto.description,
+            slug,
+          });
+          const workspaceId = insertWsResult.identifiers[0].id;
 
-            const member = manager.create(WorkspaceMemberEntity, {
-              workspaceId: ws.id,
-              userId: dto.ownerUserId,
-              role: WorkspaceRoleEnum.OWNER,
-              status: MembershipStatus.ACTIVE,
-            });
-            await manager.save(member);
+          // 2. Insert Member
+          await manager.insert(WorkspaceMemberEntity, {
+            workspaceId: workspaceId,
+            userId: dto.ownerUserId,
+            role: WorkspaceRoleEnum.OWNER,
+            status: MembershipStatus.ACTIVE,
+          });
 
-            return ws;
-          },
+          return {
+            id: workspaceId,
+            name: dto.name,
+            description: dto.description,
+            slug,
+            createdAt: new Date(),
+          } as WorkspaceEntity;
+        },
+      );
+
+      // Invalidate cache
+      this.cachedService
+        .invalidateList(
+          CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(dto.ownerUserId),
+        )
+        .catch((err) =>
+          this.logger.error(`Cache invalidation failed: ${err.message}`),
         );
 
-        await this.cachedService.del(
-          CACHE.USER_WORKSPACE.KEYS.LIST(dto.ownerUserId),
-        );
-
-        return this.commonService.mapWorkspaceToDto(savedWorkspace);
-      } catch (err) {
-        if (err.code === '23505') continue; // duplicate slug → retry
-        throw err;
+      return this.commonService.mapWorkspaceToDto(savedWorkspace);
+    } catch (err) {
+      if (err.code === '23505') {
+        this.logger.warn(`Slug collision for ${slug}, retrying...`);
+        return this.createWorkspace({
+          ...dto,
+          name: `${dto.name}-${Date.now()}`,
+        });
       }
+      throw err;
     }
-
-    throw new RpcException({
-      statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-      ...WORKSPACE_ERROR.FAILED_TO_CREATE_WORKSPACE,
-    });
   }
 
   // update workspace
@@ -142,13 +154,15 @@ export class WorkspaceService {
     workspace.deletedAt = new Date();
     await this.workspaceRepository.save(workspace);
 
-    // cần invalidate tất cả member của workspace
+    // Invalidate all members' workspace list cache
     const members = await this.memberRepository.find({
       where: { workspaceId: workspace.id },
     });
 
     for (const m of members) {
-      await this.cachedService.del(CACHE.USER_WORKSPACE.KEYS.LIST(m.userId));
+      await this.cachedService.invalidateList(
+        CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(m.userId),
+      );
     }
 
     this.logger.log('Delete workspace', JSON.stringify(workspace));
@@ -160,28 +174,60 @@ export class WorkspaceService {
   }
 
   // get list workspace of user
-  async getListWorkspaceOfUser(userId: string): Promise<WorkspaceDto[]> {
-    const key = CACHE.USER_WORKSPACE.KEYS.LIST(userId);
+  async getListWorkspaceOfUser(
+    dto: GetWorkspacesRequestDto,
+  ): Promise<IOffsetResponse<WorkspaceResponseDto[]>> {
+    const { userId, page = 1, limit = 20 } = dto;
 
-    const cached = await this.cachedService.get(key);
-    if (cached) return cached as WorkspaceDto[];
+    return this.cachedService.getOrSetList({
+      trackerKey: CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(userId),
+      keyBuilder: (version) =>
+        CACHE.USER_WORKSPACE.KEYS.LIST(userId, version, page, limit),
+      ttl: TTL.LONG,
+      fetcher: async () => {
+        const skip = (page - 1) * limit;
+        const [members, total] = await this.memberRepository.findAndCount({
+          where: { userId, status: MembershipStatus.ACTIVE },
+          skip,
+          take: limit,
+          order: { createdAt: 'DESC' },
+        });
 
-    const members = await this.memberRepository.find({
-      where: { userId, status: MembershipStatus.ACTIVE },
+        const workspaceIds = members.map((m) => m.workspaceId);
+        if (workspaceIds.length === 0) {
+          return {
+            data: [],
+            paging: {
+              page,
+              limit,
+              total: 0,
+              totalPages: 0,
+            },
+          } as unknown as IOffsetResponse<WorkspaceResponseDto[]>;
+        }
+
+        const workspaces = await this.workspaceRepository.find({
+          where: { id: In(workspaceIds), deletedAt: IsNull() },
+        });
+
+        const workspaceDtos = workspaceIds
+          .map((id) => {
+            const w = workspaces.find((ws) => ws.id === id);
+            return w ? this.commonService.mapWorkspaceToDto(w) : null;
+          })
+          .filter((w) => w !== null);
+
+        return {
+          data: workspaceDtos,
+          paging: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit),
+          },
+        } as unknown as IOffsetResponse<WorkspaceResponseDto[]>;
+      },
     });
-
-    const workspaceIds = members.map((m) => m.workspaceId);
-
-    if (workspaceIds.length === 0) return [];
-
-    const workspaces = await this.workspaceRepository.find({
-      where: { id: In(workspaceIds), deletedAt: IsNull() },
-    });
-
-    const res = workspaces.map((w) => this.commonService.mapWorkspaceToDto(w));
-
-    await this.cachedService.set(key, res, TTL.LONG);
-    return res;
   }
 
   async checkPermission(dto: {

@@ -139,7 +139,9 @@ export class WorkspaceLinkService {
 
     this.logger.log('Join link', savedMember);
 
-    this.cachedService.del(CACHE.USER_WORKSPACE.KEYS.LIST(dto.userId));
+    await this.cachedService.invalidateList(
+      CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(dto.userId),
+    );
 
     return this.commonService.mapMemberToDto(savedMember);
   }

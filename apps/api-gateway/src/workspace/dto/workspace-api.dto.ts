@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { WorkspaceRoleEnum } from '@slack/constants';
+import { Type } from 'class-transformer';
 import {
   IsArray,
   IsEmail,
@@ -103,4 +104,18 @@ export class CreateLinkApiDto {
   @IsNumber()
   @IsOptional()
   maxUsage?: number;
+}
+
+export class GetWorkspacesApiDto {
+  @ApiPropertyOptional({ example: 1 })
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  page?: number;
+
+  @ApiPropertyOptional({ example: 10 })
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  limit?: number;
 }

@@ -101,3 +101,9 @@ export class DeleteLinkRequestDto {
   linkId: string;
   adminUserId: string;
 }
+
+export class GetWorkspacesRequestDto {
+  userId: string;
+  page?: number;
+  limit?: number;
+}

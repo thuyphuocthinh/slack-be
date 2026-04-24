@@ -25,6 +25,7 @@ import {
   CreateLinkApiDto,
   UpdateWorkspaceApiDto,
   AddBatchMembersApiDto,
+  GetWorkspacesApiDto,
 } from './dto/workspace-api.dto';
 import { CurrentUser, type JwtUser } from '@slack/common';
 
@@ -69,8 +70,14 @@ export class WorkspaceController {
     status: 200,
     description: 'Workspaces retrieved successfully',
   })
-  async getWorkspaces(@CurrentUser() user: JwtUser) {
-    return await this.workspaceService.getWorkspaces(user.sub);
+  async getWorkspaces(
+    @Query() query: GetWorkspacesApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.workspaceService.getWorkspaces({
+      userId: user.sub,
+      ...query,
+    });
   }
 
   @Get(':id')

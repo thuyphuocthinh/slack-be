@@ -20,6 +20,7 @@ import {
   DeleteLinkRequestDto,
   UpdateWorkspaceRequestDto,
   AddBatchMembersRequestDto,
+  GetWorkspacesRequestDto,
 } from './dto/workspace-request.dto';
 
 @Injectable()
@@ -43,13 +44,13 @@ export class WorkspaceService {
     );
   }
 
-  async getWorkspaces(userId: string) {
+  async getWorkspaces(data: GetWorkspacesRequestDto) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
           this.workspaceClient.send(
             WORKSPACE_MESSAGE_PATTERNS.GET_WORKSPACES,
-            userId,
+            data,
           ),
         ),
       'getWorkspaces',

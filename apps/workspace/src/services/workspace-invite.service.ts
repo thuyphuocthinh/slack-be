@@ -157,7 +157,9 @@ export class WorkspaceInviteService {
     });
 
     this.logger.log('Join workspace', JSON.stringify({ savedMember }));
-    this.cachedService.del(CACHE.USER_WORKSPACE.KEYS.LIST(dto.userId));
+    await this.cachedService.invalidateList(
+      CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(dto.userId),
+    );
     this.cachedService.del(
       CACHE.WORKSPACE.KEYS.MEMBERS(savedMember.workspaceId),
     );

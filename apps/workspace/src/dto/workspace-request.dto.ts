@@ -1,3 +1,5 @@
+import { IsOptional, IsUUID, IsNumber, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 import { WorkspaceRoleEnum } from '../types/workspace.enum';
 
 export class CreateWorkspaceRequestDto {
@@ -99,4 +101,21 @@ export class DeleteLinkRequestDto {
   workspaceId: string;
   linkId: string;
   adminUserId: string;
+}
+
+export class GetWorkspacesRequestDto {
+  @IsUUID()
+  userId: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  page?: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  limit?: number = 20;
 }

@@ -81,7 +81,9 @@ export class WorkspaceMemberService {
 
     this.logger.log('Add member', JSON.stringify({ member }));
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
-    this.cachedService.del(CACHE.USER_WORKSPACE.KEYS.LIST(dto.userId));
+    await this.cachedService.invalidateList(
+      CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(dto.userId),
+    );
 
     return this.commonService.mapMemberToDto(member);
   }
@@ -132,7 +134,9 @@ export class WorkspaceMemberService {
 
     this.logger.log('Remove member', JSON.stringify({ targetMember }));
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
-    this.cachedService.del(CACHE.USER_WORKSPACE.KEYS.LIST(dto.targetUserId));
+    await this.cachedService.invalidateList(
+      CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(dto.targetUserId),
+    );
 
     return 'Member removed successfully';
   }
@@ -165,7 +169,9 @@ export class WorkspaceMemberService {
     await this.memberRepository.save(member);
 
     this.logger.log('Leave workspace', JSON.stringify({ member }));
-    this.cachedService.del(CACHE.USER_WORKSPACE.KEYS.LIST(dto.userId));
+    await this.cachedService.invalidateList(
+      CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(dto.userId),
+    );
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
 
     return 'Left workspace successfully';
