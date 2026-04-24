@@ -98,8 +98,17 @@ export const CACHE = {
   USER_WORKSPACE: {
     _VER: 'v1',
     KEYS: {
-      LIST: (userId: string): string =>
-        `${GLOBAL_PREFIX}:${GLOBAL_VER}:user-workspaces:v1:user_${userId}`,
+      LIST: (
+        userId: string,
+        version: number,
+        page: number,
+        limit: number,
+      ): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:user-workspaces:v1:user_${userId}:v_${version}:p_${page}:l_${limit}`,
+    },
+    TRACKERS: {
+      LIST_VERSION: (userId: string): string =>
+        `${GLOBAL_PREFIX}:trackers:user-workspaces:user_${userId}:version`,
     },
     TAGS: {
       ROOT: () => [`${GLOBAL_PREFIX}:user-workspaces`],
