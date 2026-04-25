@@ -5,6 +5,11 @@ import { Job } from 'bullmq';
 export abstract class BaseProcessor extends WorkerHost {
   protected readonly logger = new Logger(this.constructor.name);
 
+  @OnWorkerEvent('error')
+  onError(error: Error) {
+    this.logger.error(`Error in worker: ${error.message}`, error.stack);
+  }
+
   @OnWorkerEvent('active')
   onActive(job: Job) {
     this.logger.log(`Processing job ${job.id} of type ${job.name}...`);
