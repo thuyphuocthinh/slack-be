@@ -27,7 +27,7 @@ import {
 import { v7 } from 'uuid';
 import { firstValueFrom } from 'rxjs';
 import { ITokenResponse, ITwoFactorResponse } from './types/auth.response';
-import { hashToken, IRequestMetadata } from '@slack/common';
+import { buildTTL, hashToken, IRequestMetadata } from '@slack/common';
 import { AuthCacheService } from '@slack/cached';
 import { EJobName, EQueueName, QueueService } from '@slack/queue';
 @Injectable()
@@ -72,7 +72,10 @@ export class AuthService {
     let newUser;
     try {
       newUser = await firstValueFrom(
-        this.userClient.send(USER_MESSAGE_PATTERNS.CREATE_USER, { email }),
+        this.userClient.send(USER_MESSAGE_PATTERNS.CREATE_USER, {
+          email,
+          status: 'pending',
+        }),
       );
     } catch (error) {
       this.logger.error(`Failed to create user for ${email}: ${error.message}`);
@@ -128,6 +131,8 @@ export class AuthService {
 
   async verifyEmail(request: VerifyEmailDto): Promise<string> {
     const { code } = request;
+
+    this.logger.log(`Verifying email with code: ${code}`);
 
     // 1. Transaction to mark verification as used and verify user
     const userId = await this.dataSource.transaction(async (manager) => {
@@ -403,7 +408,10 @@ export class AuthService {
     if (!auth) {
       // create new user
       const newUser = await firstValueFrom(
-        this.userClient.send(USER_MESSAGE_PATTERNS.CREATE_USER, { email }),
+        this.userClient.send(USER_MESSAGE_PATTERNS.CREATE_USER, {
+          email,
+          status: 'active',
+        }),
       );
 
       // create new auth
@@ -482,7 +490,7 @@ export class AuthService {
     // 2. create verification
     const verification = this.verificationRepository.create({
       userId: auth.userId,
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+      expiresAt: new Date(Date.now() + buildTTL('MINUTE', 5)),
       code: v7(),
       action: VerificationAction.RESET_PASSWORD,
     });

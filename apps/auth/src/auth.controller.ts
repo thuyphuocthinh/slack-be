@@ -80,12 +80,12 @@ export class AuthController {
   verifyOtpFromAuthenticator(
     @Payload()
     payload: {
-      data: { userId: string; otp: string };
+      data: { tempToken: string; otp: string };
       metadata?: IRequestMetadata;
     },
   ) {
     return this.authService.verifyOtpFromAuthenticator(
-      payload.data.userId,
+      payload.data.tempToken,
       payload.data.otp,
       payload.metadata,
     );

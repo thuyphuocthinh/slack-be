@@ -8,7 +8,10 @@ import {
   Headers,
   Res,
   Req,
+  Logger,
+  UseGuards,
 } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
 import {
   ApiTags,
   ApiOperation,
@@ -31,6 +34,8 @@ import { Public } from '@slack/common';
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(private readonly authService: AuthService) {}
 
   @Public()
@@ -116,6 +121,7 @@ export class AuthController {
   }
 
   @Public()
+  @UseGuards(AuthGuard('google'))
   @Get('google')
   @ApiOperation({ summary: 'Initiate Google OAuth login' })
   async googleLogin() {
@@ -123,6 +129,7 @@ export class AuthController {
   }
 
   @Public()
+  @UseGuards(AuthGuard('google'))
   @Get('google/callback')
   @ApiOperation({ summary: 'Google OAuth callback' })
   @ApiResponse({
@@ -151,12 +158,24 @@ export class AuthController {
       { ipAddress, userAgent, device: userAgent },
     );
 
-    // TODO: Typically in OAuth callbacks for web apps, you would redirect to the
-    // frontend with the tokens in the URL or set them in an HTTP-only cookie.
-    // For now, we just return the tokens as JSON.
-    // E.g.: return res.redirect(`http://localhost:3000/auth/success?accessToken=${tokens.accessToken}&refreshToken=${tokens.refreshToken}`);
-
-    return res.json(tokens);
+    const html = `
+      <html>
+        <body>
+          <script>
+            window.opener.postMessage(
+              { 
+                type: 'GOOGLE_LOGIN_SUCCESS', 
+                tokens: ${JSON.stringify(tokens)} 
+              }, 
+              '*'
+            );
+            window.close();
+          </script>
+        </body>
+      </html>
+    `;
+    res.setHeader('Content-Type', 'text/html');
+    return res.send(html);
   }
 
   @Public()
