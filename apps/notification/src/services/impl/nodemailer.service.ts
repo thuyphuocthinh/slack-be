@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { MailerService } from '@nestjs-modules/mailer';
 import { RpcException } from '@nestjs/microservices';
 import { NOTIFICATION_ERROR } from '@slack/constants/errors/notification.error';
@@ -8,7 +9,10 @@ import type { IMailService } from '../mail.interface';
 export class NodemailerService implements IMailService {
   private readonly logger = new Logger(NodemailerService.name);
 
-  constructor(private readonly mailerService: MailerService) {}
+  constructor(
+    private readonly mailerService: MailerService,
+    private readonly configService: ConfigService,
+  ) {}
 
   async sendEmail(
     to: string,
@@ -21,7 +25,10 @@ export class NodemailerService implements IMailService {
         to,
         subject,
         template,
-        context,
+        context: {
+          ...context,
+          frontendUrl: this.configService.get<string>('FRONTEND_URL'),
+        },
       });
       this.logger.log(
         `Sent email to email: ${to}, subject: ${subject}, template: ${template}`,

@@ -27,12 +27,17 @@ export class SendgridService implements IMailService {
     const from = this.configService.get<string>('MAIL_FROM');
 
     try {
+      const updatedContext = {
+        ...context,
+        frontendUrl: this.configService.get<string>('FRONTEND_URL'),
+      };
+
       const msg = {
         to,
         from: from || 'no-reply@slack.com',
         subject,
-        text: `Email template: ${template}, context: ${JSON.stringify(context)}`,
-        html: `<strong>Email template: ${template}</strong><br>Context: ${JSON.stringify(context)}`,
+        text: `Email template: ${template}, context: ${JSON.stringify(updatedContext)}`,
+        html: `<strong>Email template: ${template}</strong><br>Context: ${JSON.stringify(updatedContext)}`,
       };
 
       await sgMail.send(msg);
