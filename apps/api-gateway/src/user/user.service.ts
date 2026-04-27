@@ -106,4 +106,12 @@ export class UserService {
       }),
     );
   }
+
+  async findUsersByEmails(emails: string[]) {
+    return await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.FIND_USERS_BY_EMAILS, {
+        emails,
+      }),
+    );
+  }
 }

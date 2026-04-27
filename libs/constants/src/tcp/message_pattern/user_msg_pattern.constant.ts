@@ -10,4 +10,5 @@ export const USER_MESSAGE_PATTERNS = {
   GET_USER_PREFERENCE: 'user.get_preference',
   GET_BATCH_USER_BY_IDS: 'user.get_batch_by_ids',
   UPDATE_USER_PREFERENCE: 'user.update_preference',
+  FIND_USERS_BY_EMAILS: 'user.find_users_by_emails',
 } as const;

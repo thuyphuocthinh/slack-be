@@ -97,13 +97,16 @@ export class AuthController {
     schema: {
       type: 'object',
       properties: {
-        accessToken: { type: 'string' },
-        refreshToken: { type: 'string' },
+        access_token: { type: 'string' },
+        refresh_token: { type: 'string' },
       },
     },
   })
-  logout(@Body() data: { accessToken: string; refreshToken: string }) {
-    return this.authService.logout(data);
+  logout(@Body() data: { access_token: string; refresh_token: string }) {
+    return this.authService.logout({
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+    });
   }
 
   @Post('logout-all')
@@ -114,10 +117,12 @@ export class AuthController {
   })
   @ApiBearerAuth()
   @ApiBody({
-    schema: { type: 'object', properties: { userId: { type: 'string' } } },
+    schema: { type: 'object', properties: { user_id: { type: 'string' } } },
   })
-  logoutAll(@Body() data: { userId: string }) {
-    return this.authService.logoutAll(data);
+  logoutAll(@Body() data: { user_id: string }) {
+    return this.authService.logoutAll({
+      userId: data.user_id,
+    });
   }
 
   @Public()

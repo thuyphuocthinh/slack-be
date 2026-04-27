@@ -102,4 +102,9 @@ export class UserController {
   async getUserByEmail(data: { email: string }) {
     return await this.userService.getUserByEmail(data.email);
   }
+
+  @MessagePattern(USER_MESSAGE_PATTERNS.FIND_USERS_BY_EMAILS)
+  async findUsersByEmails(data: { emails: string[] }) {
+    return await this.userService.findUsersByEmails(data.emails);
+  }
 }

@@ -160,7 +160,34 @@ export class UserService {
 
   async getBatchUserByIds(ids: string[]): Promise<IUserResponse[]> {
     const users = await this.userRepository.find({
-      where: { id: In(ids) },
+      where: { id: In(ids), status: UserStatus.ACTIVE },
+      select: [
+        'id',
+        'firstName',
+        'lastName',
+        'email',
+        'avatarUrl',
+        'status',
+        'systemRole',
+        'createdAt',
+      ],
+    });
+    return Promise.all(users.map((user) => this.mapUserToResponse(user)));
+  }
+
+  async findUsersByEmails(emails: string[]): Promise<IUserResponse[]> {
+    const users = await this.userRepository.find({
+      where: { email: In(emails), status: UserStatus.ACTIVE },
+      select: [
+        'id',
+        'firstName',
+        'lastName',
+        'email',
+        'avatarUrl',
+        'status',
+        'systemRole',
+        'createdAt',
+      ],
     });
     return Promise.all(users.map((user) => this.mapUserToResponse(user)));
   }

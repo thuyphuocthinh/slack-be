@@ -129,4 +129,11 @@ export class UserController {
   ) {
     return await this.userService.updateUserPreference(user.sub, data);
   }
+
+  @ApiOperation({ summary: 'Find users by emails' })
+  @ApiResponse({ status: 200, description: 'Users found successfully' })
+  @Post('find-by-emails')
+  async findUsersByEmails(@Body() data: { emails: string[] }) {
+    return await this.userService.findUsersByEmails(data.emails);
+  }
 }
