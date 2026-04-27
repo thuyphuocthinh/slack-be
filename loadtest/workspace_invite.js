@@ -1,0 +1,48 @@
+const autocannon = require('autocannon');
+const { v4: uuidv4 } = require('uuid');
+
+// PASTE YOUR ACCESS TOKEN HERE
+const ACCESS_TOKEN =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwYmNkYTYzYi1kNzk5LTQ3NzEtYmJmYi0wYzRlOGM0MzNlM2IiLCJlbWFpbCI6InRodXlwaHVvY3RoaW5odHB0KzVAZ21haWwuY29tIiwidG9rZW5WZXJzaW9uIjozLCJpYXQiOjE3NzY5NTYwNzAsImV4cCI6MTc3Njk1Nzg3MH0.5D1GqPoZWUTqHYkbXm67NYxQ67NCqBG6Z87HZb3q6q0';
+// PASTE A VALID WORKSPACE ID HERE
+const WORKSPACE_ID = 'YOUR_WORKSPACE_ID_HERE';
+
+const instance = autocannon(
+  {
+    url: `http://localhost:3000/api/v1/workspaces/${WORKSPACE_ID}/invite`,
+    connections: 50,
+    duration: 30,
+    pipelining: 1,
+    requests: [
+      {
+        method: 'POST',
+        path: `/api/v1/workspaces/${WORKSPACE_ID}/invite`,
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${ACCESS_TOKEN}`,
+        },
+        setupRequest: (request) => {
+          const uniqueId = uuidv4();
+          request.body = JSON.stringify({
+            email: `invite_${uniqueId}@test.com`,
+            role: 'member',
+          });
+          return request;
+        },
+      },
+    ],
+  },
+  (err, result) => {
+    if (err) {
+      console.error(err);
+    } else {
+      console.log('--- RESULTS: INVITE MEMBER STRESS TEST ---');
+      console.log(`Requests/sec: ${result.requests.average}`);
+      console.log(`Latency (p99): ${result.latency.p99} ms`);
+      console.log(`Success (2xx): ${result['2xx']}`);
+      console.log(`Errors (Non-2xx): ${result.non2xx}`);
+    }
+  },
+);
+
+autocannon.track(instance, { renderProgressBar: true });
