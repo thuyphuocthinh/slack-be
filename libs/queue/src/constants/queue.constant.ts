@@ -2,6 +2,10 @@ export enum EQueueName {
   NOTIFICATION_QUEUE = 'notification',
   EMAIL_QUEUE = 'email',
   WORKSPACE_QUEUE = 'workspace',
+  MESSAGE_QUEUE = 'message',
+  CHANNEL_QUEUE = 'channel',
+  AUDIT_QUEUE = 'audit',
+  SOCKET_QUEUE = 'socket',
 }
 
 export enum EJobName {
