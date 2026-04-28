@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ChannelController } from './channel.controller';
-import { ChannelService } from './channel.service';
+import { ChannelService } from './service/channel.service';
 import { DatabaseModule } from '@slack/database';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ChannelEntity } from './entity/channel.entity';
@@ -8,6 +8,8 @@ import { ChannelMemberEntity } from './entity/channel_member.entity';
 import { CachedModule } from '@slack/cached';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
+
+import { ChannelMemberService } from './service/channel-member.service';
 
 @Module({
   imports: [
@@ -34,6 +36,6 @@ import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
     ]),
   ],
   controllers: [ChannelController],
-  providers: [ChannelService],
+  providers: [ChannelService, ChannelMemberService],
 })
 export class ChannelModule { }

@@ -1,6 +1,6 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { ChannelService } from './channel.service';
+import { ChannelService } from './service/channel.service';
 import { ChannelMessagePattern } from '@slack/constants';
 import { CreateChannelDto } from './dto/create-channel.dto';
 import { UpdateChannelDto } from './dto/update-channel.dto';
@@ -10,9 +10,14 @@ import { GetChannelsDto } from './dto/get-channels.dto';
 
 import { AddBatchMembersDto } from './dto/add-batch-members.dto';
 
+import { ChannelMemberService } from './service/channel-member.service';
+
 @Controller()
 export class ChannelController {
-  constructor(private readonly channelService: ChannelService) { }
+  constructor(
+    private readonly channelService: ChannelService,
+    private readonly channelMemberService: ChannelMemberService,
+  ) { }
 
   @MessagePattern(ChannelMessagePattern.CREATE_CHANNEL)
   async createChannel(@Payload() dto: CreateChannelDto) {
@@ -46,26 +51,26 @@ export class ChannelController {
 
   @MessagePattern(ChannelMessagePattern.ADD_MEMBER)
   async addMember(@Payload() dto: ChannelMemberDto) {
-    return await this.channelService.addMember(dto);
+    return await this.channelMemberService.addMember(dto);
   }
 
   @MessagePattern(ChannelMessagePattern.ADD_BATCH_MEMBERS)
   async addBatchMembers(@Payload() dto: AddBatchMembersDto) {
-    return await this.channelService.addBatchMembers(dto);
+    return await this.channelMemberService.addBatchMembers(dto);
   }
 
   @MessagePattern(ChannelMessagePattern.REMOVE_MEMBER)
   async removeMember(@Payload() dto: ChannelMemberDto) {
-    return await this.channelService.removeMember(dto);
+    return await this.channelMemberService.removeMember(dto);
   }
 
   @MessagePattern(ChannelMessagePattern.GET_MEMBERS)
   async getMembers(@Payload() payload: { channelId: string }) {
-    return await this.channelService.getMembers(payload.channelId);
+    return await this.channelMemberService.getMembers(payload.channelId);
   }
 
   @MessagePattern(ChannelMessagePattern.LEAVE_CHANNEL)
   async leaveChannel(@Payload() payload: { channelId: string; memberId: string }) {
-    return await this.channelService.leaveChannel(payload.channelId, payload.memberId);
+    return await this.channelMemberService.leaveChannel(payload.channelId, payload.memberId);
   }
 }
