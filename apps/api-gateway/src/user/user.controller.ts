@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { UserService } from './user.service';
 import {
   ChangeAvatarDto,
@@ -132,8 +140,8 @@ export class UserController {
 
   @ApiOperation({ summary: 'Find users by emails' })
   @ApiResponse({ status: 200, description: 'Users found successfully' })
-  @Post('find-by-emails')
-  async findUsersByEmails(@Body() data: { emails: string[] }) {
-    return await this.userService.findUsersByEmails(data.emails);
+  @Get('find-by-email')
+  async findUsersByEmails(@Query('email') email: string) {
+    return await this.userService.findUsersByEmail(email);
   }
 }

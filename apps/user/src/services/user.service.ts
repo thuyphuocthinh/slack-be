@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UserEntity, UserStatus } from '../entity/user.entity';
-import { In, Repository } from 'typeorm';
+import { ILike, In, Repository } from 'typeorm';
 import { CreateUserDto, UpdateUserDto } from '../dto';
 import { type IUserResponse } from '../types/user.response';
 import { USER_ERROR } from '@slack/constants/errors/user.error';
@@ -175,9 +175,12 @@ export class UserService {
     return Promise.all(users.map((user) => this.mapUserToResponse(user)));
   }
 
-  async findUsersByEmails(emails: string[]): Promise<IUserResponse[]> {
+  async findUsersByEmail(email: string): Promise<IUserResponse[]> {
     const users = await this.userRepository.find({
-      where: { email: In(emails), status: UserStatus.ACTIVE },
+      where: {
+        email: ILike(`${email.toLowerCase()}%`),
+        status: UserStatus.ACTIVE,
+      },
       select: [
         'id',
         'firstName',
