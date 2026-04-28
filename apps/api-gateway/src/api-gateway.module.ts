@@ -13,6 +13,7 @@ import { ResourceModule } from './resource/resource.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { NotificationModule } from './notification/notification.module';
 import { TaskModule } from './task/task.module';
+import { ChannelModule } from './channel/channel.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { TaskModule } from './task/task.module';
     WorkspaceModule,
     NotificationModule,
     TaskModule,
+    ChannelModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'fallback_secret',
     }),

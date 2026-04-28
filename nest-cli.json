@@ -73,6 +73,15 @@
         "tsConfigPath": "libs/database/tsconfig.lib.json"
       }
     },
+    "message": {
+      "type": "application",
+      "root": "apps/message",
+      "entryFile": "main",
+      "sourceRoot": "apps/message/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/message/tsconfig.app.json"
+      }
+    },
     "notification": {
       "type": "application",
       "root": "apps/notification",

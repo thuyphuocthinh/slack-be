@@ -115,6 +115,26 @@ export const CACHE = {
       USER: (userId: string) => [`${GLOBAL_PREFIX}:user-workspaces`, userId],
     },
   },
+  CHANNEL: {
+    _VER: 'v1',
+    KEYS: {
+      LIST: (
+        workspaceId: string,
+        memberId: string,
+        version: number,
+        page: number,
+        limit: number,
+        type?: string,
+      ): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:channels:v1:ws_${workspaceId}:m_${memberId}:v_${version}:p_${page}:l_${limit}${type ? ':t_' + type : ''}`,
+      DETAIL: (id: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:channels:v1:detail:id_${id}`,
+    },
+    TRACKERS: {
+      LIST_VERSION: (workspaceId: string, memberId: string): string =>
+        `${GLOBAL_PREFIX}:trackers:channels:ws_${workspaceId}:m_${memberId}:version`,
+    },
+  },
 };
 
 /*

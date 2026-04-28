@@ -11,4 +11,8 @@ export const USER_ERROR = {
     code: 'ERR.USER.0103',
     message: 'OLD PASSWORD IS NOT MATCH',
   },
+  SOME_USER_NOT_FOUND: {
+    code: 'ERR.USER.0104',
+    message: 'SOME USER NOT FOUND',
+  },
 };
