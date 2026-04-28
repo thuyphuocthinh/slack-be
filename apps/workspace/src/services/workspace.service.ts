@@ -2,9 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, IsNull, In } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
-import { WorkspaceEntity } from './entity/workspace.entity';
-import { WorkspaceMemberEntity } from './entity/workspace_member.entity';
-import { WorkspaceRoleEnum, MembershipStatus } from './types/workspace.enum';
+import { WorkspaceEntity } from '../entity/workspace.entity';
+import { WorkspaceMemberEntity } from '../entity/workspace_member.entity';
+import { WorkspaceRoleEnum, MembershipStatus } from '../types/workspace.enum';
 import { CACHE, CachedService, TTL } from '@slack/cached';
 import { WORKSPACE_ERROR } from '@slack/constants';
 import {
@@ -12,11 +12,11 @@ import {
   UpdateWorkspaceRequestDto,
   DeleteWorkspaceRequestDto,
   GetWorkspacesRequestDto,
-} from './dto/workspace-request.dto';
-import { WorkspaceResponseDto } from './dto/workspace-response.dto';
-import { WorkspaceDto } from './dto/workspace.dto';
+} from '../dto/workspace-request.dto';
+import { WorkspaceResponseDto } from '../dto/workspace-response.dto';
+import { WorkspaceDto } from '../dto/workspace.dto';
 import { generateSlug, IOffsetResponse } from '@slack/common';
-import { WorkspaceCommonService } from './services/workspace-common.service';
+import { WorkspaceCommonService } from './workspace-common.service';
 
 @Injectable()
 export class WorkspaceService {

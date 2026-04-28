@@ -1,6 +1,6 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { WorkspaceService } from './workspace.service';
+import { WorkspaceService } from './services/workspace.service';
 import { WorkspaceMemberService } from './services/workspace-member.service';
 import { WorkspaceInviteService } from './services/workspace-invite.service';
 import { WorkspaceLinkService } from './services/workspace-link.service';

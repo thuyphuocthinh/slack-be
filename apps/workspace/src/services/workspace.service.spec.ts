@@ -3,7 +3,7 @@ jest.mock('uuid', () => ({
 }));
 
 import { Test, TestingModule } from '@nestjs/testing';
-import { WorkspaceService } from './workspace.service';
+import { WorkspaceService } from './services/workspace.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { WorkspaceEntity } from './entity/workspace.entity';
 import { WorkspaceMemberEntity } from './entity/workspace_member.entity';
