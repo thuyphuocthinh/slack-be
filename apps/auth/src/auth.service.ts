@@ -12,7 +12,7 @@ import {
   ResetPasswordDto,
   VerifyResetPasswordDto,
 } from './dto';
-import * as bcrypt from 'bcrypt';
+import * as argon2 from 'argon2';
 import {
   AUTH_ERROR,
   NAME_SERVICE_TCP,
@@ -43,13 +43,11 @@ export class AuthService {
     private readonly verificationRepository: Repository<VerificationEntity>,
     @Inject(NAME_SERVICE_TCP.USER_SERVICE)
     private readonly userClient: ClientProxy,
-    @Inject(NAME_SERVICE_TCP.NOTIFICATION_SERVICE)
-    private readonly notificationClient: ClientProxy,
     private readonly jwtService: JwtService,
     private readonly authCacheService: AuthCacheService,
     private readonly dataSource: DataSource,
     private readonly queueService: QueueService,
-  ) {}
+  ) { }
 
   async register(request: RegisterDto): Promise<string> {
     const { email, password } = request;
@@ -64,9 +62,8 @@ export class AuthService {
       throw new RpcException(AUTH_ERROR.ACCOUNT_ALREADY_EXIST);
     }
 
-    // Optimization: reduce salt rounds for stress test performance
-    const saltRounds = process.env.NODE_ENV === 'test' ? 4 : 10;
-    const hashPassword = await bcrypt.hash(password, saltRounds);
+    // Use argon2 for better security and performance (less event loop blocking)
+    const hashPassword = await argon2.hash(password);
 
     // 2. create user
     let newUser;
@@ -264,43 +261,37 @@ export class AuthService {
   ): Promise<ITokenResponse | ITwoFactorResponse> {
     const { email, password } = request;
 
-    // 1. find auth by email
-    const auth = await this.authRepository.findOne({
-      where: {
-        providerId: email,
-        providerType: ProviderType.LOCAL,
-      },
-    });
+    // 1 & 3. Fetch auth data and user profile in parallel
+    const [auth, user] = await Promise.all([
+      this.authRepository.findOne({
+        where: {
+          providerId: email,
+          providerType: ProviderType.LOCAL,
+        },
+      }),
+      firstValueFrom(
+        this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_EMAIL, {
+          email,
+        }),
+      ).catch(() => null),
+    ]);
 
-    if (!auth) {
+    if (!auth || !user) {
       throw new RpcException(AUTH_ERROR.INVALID_CREDENTIALS);
     }
 
     // 2. compare password
-    const isPasswordValid = await bcrypt.compare(password, auth.password);
+    const isPasswordValid = await argon2.verify(auth.password, password);
+    this.logger.log(`Password valid: ${isPasswordValid}`);
     if (!isPasswordValid) {
       throw new RpcException(AUTH_ERROR.INVALID_CREDENTIALS);
     }
-
-    // 3. check user status
-    const user = await firstValueFrom(
-      this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, {
-        id: auth.userId,
-      }),
-    );
 
     if (user.status !== 'active') {
       throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_VERIFIED);
     }
 
-    // 4. check two factor
-    const isEnableTwoFactor = await firstValueFrom(
-      this.userClient.send(USER_MESSAGE_PATTERNS.IS_USER_ENABLE_TWO_FACTOR, {
-        userId: auth.userId,
-      }),
-    );
-
-    if (isEnableTwoFactor) {
+    if (user.isTwoFactorEnabled) {
       return {
         isEnableTwoFactor: true,
         tempToken: await this.generateTempToken(auth.userId, email),
@@ -579,7 +570,7 @@ export class AuthService {
         throw new RpcException(AUTH_ERROR.ACCOUNT_VERIFICATION_CODE_EXPIRED);
       }
 
-      const hashedPassword = await bcrypt.hash(password, 10);
+      const hashedPassword = await argon2.hash(password);
       await manager.update(
         AuthEntity,
         { id: auth.id },
@@ -607,7 +598,7 @@ export class AuthService {
     if (!auth) {
       throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_FOUND);
     }
-    const isMatch = await bcrypt.compare(password, auth.password);
+    const isMatch = await argon2.verify(auth.password, password);
     return isMatch;
   }
 
@@ -626,7 +617,7 @@ export class AuthService {
     if (!auth) {
       throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_FOUND);
     }
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await argon2.hash(password);
     await this.authRepository.update(
       { id: auth.id },
       { password: hashedPassword },

@@ -30,15 +30,17 @@ import {
   VerifyOtpFromAuthenticatorDto,
 } from './dto';
 import { Public } from '@slack/common';
+import { RateLimit } from '../common/guards/rate-limit.decorator';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
 
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @Public()
+  @RateLimit({ limit: 3, window: 60 })
   @Post('register')
   @ApiOperation({ summary: 'Register a new user' })
   @ApiResponse({ status: 201, description: 'User successfully registered' })
@@ -55,6 +57,7 @@ export class AuthController {
   }
 
   @Public()
+  @RateLimit({ limit: 5, window: 60 })
   @Post('login')
   @ApiOperation({ summary: 'Login user' })
   @ApiResponse({
