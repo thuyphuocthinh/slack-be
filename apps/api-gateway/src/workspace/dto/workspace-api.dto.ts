@@ -78,7 +78,6 @@ export class AddMemberDirectApiDto {
 export class AddBatchMembersApiDto {
   @ApiProperty({ example: ['user-uuid-1', 'user-uuid-2'] })
   @IsArray()
-  @IsUUID()
   userIds: string[];
 
   @ApiProperty({ enum: WorkspaceRoleEnum, example: WorkspaceRoleEnum.MEMBER })

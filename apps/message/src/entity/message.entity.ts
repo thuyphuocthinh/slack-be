@@ -11,7 +11,7 @@ import {
 import { MessageReactionEntity } from './message_reaction.entity';
 import { MessageMentionEntity } from './message_mention.entity';
 
-@Entity('messages')
+// @Entity('messages')
 export class MessageEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
