@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, OptimisticLockVersionMismatchError, Repository } from 'typeorm';
 import { ChannelEntity } from '../entity/channel.entity';
 import { ChannelMemberEntity } from '../entity/channel_member.entity';
 import { CreateChannelDto } from '../dto/create-channel.dto';
@@ -8,12 +8,13 @@ import { UpdateChannelDto } from '../dto/update-channel.dto';
 import { ToggleStarDto } from '../dto/toggle-star.dto';
 import { GetChannelsDto } from '../dto/get-channels.dto';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
-import { CHANNEL_ERROR, NAME_SERVICE_TCP, USER_MESSAGE_PATTERNS, WORKSPACE_MESSAGE_PATTERNS, WorkspaceRoleEnum, ChannelTypeEnum, USER_ERROR } from '@slack/constants';
+import { CHANNEL_ERROR, NAME_SERVICE_TCP, USER_MESSAGE_PATTERNS, WORKSPACE_MESSAGE_PATTERNS, WorkspaceRoleEnum, ChannelTypeEnum, USER_ERROR, DATABASE_ERROR } from '@slack/constants';
 import { Inject, Logger } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import { ChannelResponse } from '../type/channel.response';
 import { CACHE, CachedService, TTL } from '@slack/cached';
 import { IOffsetResponse } from '@slack/common';
+import { MemberType } from '../type/member.type';
 
 @Injectable()
 export class ChannelService {
@@ -68,7 +69,6 @@ export class ChannelService {
 
     const allMemberIds = [...new Set([memberId, ...targetMemberIds])];
 
-    // Fetch user information to get names
     const users = await firstValueFrom(
       this.userClient.send(USER_MESSAGE_PATTERNS.GET_BATCH_USER_BY_IDS, {
         ids: allMemberIds,
@@ -89,7 +89,7 @@ export class ChannelService {
       title = `${currentUser.firstName} ${currentUser.lastName} (you)`.trim();
     } else {
       title = users
-        .map((u) => `${u.firstName} ${u.lastName}`.trim())
+        .map((u: MemberType) => `${u.firstName} ${u.lastName}`.trim())
         .join(', ');
     }
 
@@ -112,12 +112,19 @@ export class ChannelService {
 
       const saved = await manager.save(channel);
 
-      const members = allMemberIds.map((id) =>
-        manager.create(ChannelMemberEntity, {
+      const userMap = new Map(users.map((u: MemberType) => [u.id, u]));
+
+      const members = allMemberIds.map((id) => {
+        const user = userMap.get(id) as MemberType;
+        return manager.create(ChannelMemberEntity, {
           channelId: saved.id,
           memberId: id,
-        }),
-      );
+          email: user?.email,
+          firstName: user?.firstName,
+          lastName: user?.lastName,
+          avatarUrl: user?.avatarUrl,
+        });
+      });
 
       await manager.save(members);
 
@@ -151,9 +158,17 @@ export class ChannelService {
 
       const saved = await manager.save(channel);
 
+      const user = await firstValueFrom(
+        this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, { id: memberId }),
+      );
+
       const member = manager.create(ChannelMemberEntity, {
         channelId: saved.id,
         memberId,
+        email: user?.email,
+        firstName: user?.firstName,
+        lastName: user?.lastName,
+        avatarUrl: user?.avatarUrl,
       });
 
       await manager.save(member);
@@ -185,17 +200,16 @@ export class ChannelService {
   async updateChannel(dto: UpdateChannelDto): Promise<ChannelResponse> {
     const { channelId, memberId, title, description } = dto;
 
-    const savedChannel = await this.dataSource.transaction(async (manager) => {
-      const channel = await manager.findOne(ChannelEntity, {
+    try {
+      const channel = await this.channelRepository.findOne({
         where: { id: channelId },
-        lock: { mode: 'pessimistic_write' },
       });
 
       if (!channel) {
         throw new RpcException(CHANNEL_ERROR.CHANNEL_NOT_FOUND);
       }
 
-      // Only OWNER can update channels
+      // check ngoài transaction
       await this.checkWorkspacePermission(channel.workspaceId, memberId, [
         WorkspaceRoleEnum.OWNER
       ]);
@@ -203,14 +217,19 @@ export class ChannelService {
       if (title) channel.title = title;
       if (description !== undefined) channel.description = description;
 
-      return await manager.save(channel);
-    });
+      const savedChannel = await this.channelRepository.save(channel);
 
-    await this.cachedService.invalidateList(CACHE.CHANNEL.TRACKERS.LIST_VERSION(savedChannel.workspaceId, memberId));
+      await this.cachedService.invalidateList(
+        CACHE.CHANNEL.TRACKERS.LIST_VERSION(savedChannel.workspaceId, memberId)
+      );
 
-    this.logger.log('Updated channel: ', JSON.stringify(savedChannel, null, 2));
-
-    return this.mapChannelToResponse(savedChannel);
+      return this.mapChannelToResponse(savedChannel);
+    } catch (error) {
+      if (error instanceof OptimisticLockVersionMismatchError) {
+        throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+      }
+      throw error;
+    }
   }
 
   async deleteChannel(channelId: string, memberId: string): Promise<string> {

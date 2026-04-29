@@ -20,7 +20,7 @@ export class UserService {
   constructor(
     @Inject(NAME_SERVICE_TCP.USER_SERVICE)
     private readonly userClient: ClientProxy,
-  ) {}
+  ) { }
 
   async updateInfo(id: string, data: UpdateUserDto) {
     return await firstValueFrom(
@@ -107,9 +107,9 @@ export class UserService {
     );
   }
 
-  async findUsersByEmails(emails: string[]) {
+  async findUsersByEmail(emails: string) {
     return await firstValueFrom(
-      this.userClient.send(USER_MESSAGE_PATTERNS.FIND_USERS_BY_EMAILS, {
+      this.userClient.send(USER_MESSAGE_PATTERNS.FIND_USERS_BY_EMAIL, {
         emails,
       }),
     );

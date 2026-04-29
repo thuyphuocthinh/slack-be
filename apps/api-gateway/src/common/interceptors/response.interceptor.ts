@@ -4,7 +4,7 @@ import {
   Injectable,
   NestInterceptor,
 } from '@nestjs/common';
-import { IBaseResponse, IOffsetResponse, toSnakeCase } from '@slack/common';
+import { IBaseResponse, IOffsetResponse } from '@slack/common';
 import { Request, Response } from 'express';
 import { map, Observable } from 'rxjs';
 
@@ -38,14 +38,14 @@ export class ResponseInterceptor<T> implements NestInterceptor<
         if (data && data.data && data.paging) {
           return {
             ...commonResponse,
-            data: toSnakeCase(data.data),
-            paging: toSnakeCase(data.paging),
+            data: data.data,
+            paging: data.paging,
           };
         }
 
         return {
           ...commonResponse,
-          data: toSnakeCase(data),
+          data: data,
         };
       }),
     );

@@ -129,10 +129,14 @@ export const CACHE = {
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:channels:v1:ws_${workspaceId}:m_${memberId}:v_${version}:p_${page}:l_${limit}${type ? ':t_' + type : ''}`,
       DETAIL: (id: string): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:channels:v1:detail:id_${id}`,
+      MEMBERS: (channelId: string, version: number): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:channels:v1:members:c_${channelId}:v_${version}`,
     },
     TRACKERS: {
       LIST_VERSION: (workspaceId: string, memberId: string): string =>
         `${GLOBAL_PREFIX}:trackers:channels:ws_${workspaceId}:m_${memberId}:version`,
+      MEMBERS_VERSION: (channelId: string): string =>
+        `${GLOBAL_PREFIX}:trackers:channels:c_${channelId}:members_version`,
     },
   },
 };

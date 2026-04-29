@@ -17,8 +17,9 @@ import {
 } from '@slack/constants';
 import { firstValueFrom } from 'rxjs';
 import { ChannelMemberResponse } from '../type/channel.response';
-import { CACHE, CachedService } from '@slack/cached';
+import { CACHE, CachedService, TTL } from '@slack/cached';
 import { MemberType } from '../type/member.type';
+import { RemoveMemberDto } from '../dto/remove-member.dto';
 
 @Injectable()
 export class ChannelMemberService {
@@ -72,21 +73,18 @@ export class ChannelMemberService {
 
   private mapMemberToResponse(
     member: ChannelMemberEntity,
-    user: MemberType,
   ): ChannelMemberResponse {
     return {
       id: member.id,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      avatarUrl: user.avatarUrl,
+      email: member.email,
+      firstName: member.firstName ?? null,
+      lastName: member.lastName ?? null,
+      avatarUrl: member.avatarUrl ?? null,
     };
   }
 
   async addMember(dto: ChannelMemberDto): Promise<string> {
-    const { channelId, targetMemberId, performerId } = dto;
-
-    await this.checkUserExist(targetMemberId);
+    const { channelId, targetMember, performerId } = dto;
 
     await this.dataSource.transaction(async (manager) => {
       const channel = await manager.findOne(ChannelEntity, {
@@ -107,8 +105,10 @@ export class ChannelMemberService {
         WorkspaceRoleEnum.ADMIN,
       ]);
 
+      const { memberId, email, firstName, lastName, avatarUrl } = targetMember;
+
       const existingMember = await manager.findOne(ChannelMemberEntity, {
-        where: { channelId, memberId: targetMemberId },
+        where: { channelId, memberId },
       });
 
       if (existingMember) {
@@ -117,7 +117,11 @@ export class ChannelMemberService {
 
       const newMember = manager.create(ChannelMemberEntity, {
         channelId,
-        memberId: targetMemberId,
+        memberId,
+        email,
+        firstName: firstName ?? null,
+        lastName: lastName ?? null,
+        avatarUrl: avatarUrl ?? null,
       });
 
       await manager.save(newMember);
@@ -125,10 +129,17 @@ export class ChannelMemberService {
       // Invalidate cache for target member
       this.cachedService
         .invalidateList(
-          CACHE.CHANNEL.TRACKERS.LIST_VERSION(channel.workspaceId, targetMemberId),
+          CACHE.CHANNEL.TRACKERS.LIST_VERSION(channel.workspaceId, memberId),
         )
         .catch((err) =>
           this.logger.error(`Cache invalidation failed: ${err.message}`),
+        );
+
+      // Invalidate channel members list cache
+      this.cachedService
+        .invalidateList(CACHE.CHANNEL.TRACKERS.MEMBERS_VERSION(channelId))
+        .catch((err) =>
+          this.logger.error(`Channel members cache invalidation failed: ${err.message}`),
         );
     });
 
@@ -138,18 +149,7 @@ export class ChannelMemberService {
   }
 
   async addBatchMembers(dto: AddBatchMembersDto): Promise<string> {
-    const { channelId, targetMemberIds, performerId } = dto;
-
-    // Check if all users exist
-    const users = await firstValueFrom(
-      this.userClient.send(USER_MESSAGE_PATTERNS.GET_BATCH_USER_BY_IDS, {
-        ids: targetMemberIds,
-      }),
-    );
-
-    if (!users || users.length !== targetMemberIds.length) {
-      throw new RpcException(USER_ERROR.SOME_USER_NOT_FOUND);
-    }
+    const { channelId, targetMembers, performerId } = dto;
 
     await this.dataSource.transaction(async (manager) => {
       const channel = await manager.findOne(ChannelEntity, {
@@ -170,6 +170,8 @@ export class ChannelMemberService {
         WorkspaceRoleEnum.ADMIN,
       ]);
 
+      const targetMemberIds = targetMembers.map((m) => m.memberId);
+
       const existingMembers = await manager.find(ChannelMemberEntity, {
         where: {
           channelId,
@@ -178,36 +180,45 @@ export class ChannelMemberService {
       });
 
       const existingMemberIds = new Set(existingMembers.map((m) => m.memberId));
-      const newMemberIds = targetMemberIds.filter(
-        (id) => !existingMemberIds.has(id),
+      const newMembers = targetMembers.filter(
+        (m) => !existingMemberIds.has(m.memberId),
       );
 
-      if (newMemberIds.length === 0) {
+      if (newMembers.length === 0) {
         return;
       }
 
-      const newMembers = newMemberIds.map((id) =>
+      const memberEntities = newMembers.map((m) =>
         manager.create(ChannelMemberEntity, {
           channelId,
-          memberId: id,
+          memberId: m.memberId,
+          email: m.email,
+          firstName: m.firstName || null,
+          lastName: m.lastName || null,
+          avatarUrl: m.avatarUrl || null,
         }),
       );
 
-      await manager.save(newMembers);
+      await manager.save(memberEntities);
 
       // Invalidate cache for all new members
       await Promise.all(
-        newMemberIds.map((id) =>
+        newMembers.map((m) =>
           this.cachedService
             .invalidateList(
-              CACHE.CHANNEL.TRACKERS.LIST_VERSION(channel.workspaceId, id),
+              CACHE.CHANNEL.TRACKERS.LIST_VERSION(channel.workspaceId, m.memberId),
             )
             .catch((err) =>
               this.logger.error(
-                `Cache invalidation failed for ${id}: ${err.message}`,
+                `Cache invalidation failed for ${m.memberId}: ${err.message}`,
               ),
             ),
         ),
+      );
+
+      // Invalidate channel members list cache
+      await this.cachedService.invalidateList(
+        CACHE.CHANNEL.TRACKERS.MEMBERS_VERSION(channelId),
       );
     });
 
@@ -216,7 +227,7 @@ export class ChannelMemberService {
     return 'success';
   }
 
-  async removeMember(dto: ChannelMemberDto): Promise<string> {
+  async removeMember(dto: RemoveMemberDto): Promise<string> {
     const { channelId, targetMemberId, performerId } = dto;
 
     return await this.dataSource.transaction(async (manager) => {
@@ -277,30 +288,31 @@ export class ChannelMemberService {
           this.logger.error(`Cache invalidation failed: ${err.message}`),
         );
 
+      // Invalidate channel members list cache
+      this.cachedService
+        .invalidateList(CACHE.CHANNEL.TRACKERS.MEMBERS_VERSION(channelId))
+        .catch((err) =>
+          this.logger.error(`Channel members cache invalidation failed: ${err.message}`),
+        );
+
       this.logger.log('Removed member: ', JSON.stringify(dto, null, 2));
 
       return 'success';
     });
   }
 
-  async getMembers(channelId: string) {
-    const members = await this.channelMemberRepository.find({
-      where: { channelId },
-    });
+  async getMembers(channelId: string): Promise<ChannelMemberResponse[]> {
+    return await this.cachedService.getOrSetList({
+      trackerKey: CACHE.CHANNEL.TRACKERS.MEMBERS_VERSION(channelId),
+      keyBuilder: (v) => CACHE.CHANNEL.KEYS.MEMBERS(channelId, v),
+      ttl: TTL.SHORT,
+      fetcher: async () => {
+        const members = await this.channelMemberRepository.find({
+          where: { channelId },
+        });
 
-    const userIds = [...new Set(members.map((m) => m.memberId))];
-
-    const users = await firstValueFrom(
-      this.userClient.send(USER_MESSAGE_PATTERNS.GET_BATCH_USER_BY_IDS, {
-        ids: userIds,
-      }),
-    );
-
-    const userMap = new Map(users.map((u) => [u.id, u]));
-
-    return members.map((member) => {
-      const user = userMap.get(member.memberId) as MemberType;
-      return this.mapMemberToResponse(member, user);
+        return members.map((member) => this.mapMemberToResponse(member));
+      },
     });
   }
 
@@ -332,6 +344,13 @@ export class ChannelMemberService {
         )
         .catch((err) =>
           this.logger.error(`Cache invalidation failed: ${err.message}`),
+        );
+
+      // Invalidate channel members list cache
+      this.cachedService
+        .invalidateList(CACHE.CHANNEL.TRACKERS.MEMBERS_VERSION(channelId))
+        .catch((err) =>
+          this.logger.error(`Channel members cache invalidation failed: ${err.message}`),
         );
 
       this.logger.log(

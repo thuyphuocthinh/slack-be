@@ -126,7 +126,7 @@ export class ChannelController {
   ) {
     return await this.channelService.addMember({
       channelId: id,
-      targetMemberId: data.targetMemberId,
+      targetMember: data.targetMember,
       performerId: user.sub,
     });
   }
@@ -142,7 +142,7 @@ export class ChannelController {
   ) {
     return await this.channelService.addBatchMembers({
       channelId: id,
-      targetMemberIds: data.targetMemberIds,
+      targetMembers: data.targetMembers,
       performerId: user.sub,
     });
   }

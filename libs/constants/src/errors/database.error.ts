@@ -11,4 +11,9 @@ export const DATABASE_ERROR = {
     code: 'ERR.DATABASE.0103',
     message: 'DATA NOT FOUND',
   },
+  OPTIMISTIC_LOCK_CONFLICT: {
+    code: 'ERR.DATABASE.0104',
+    message: 'Data has been updated by another user, please try again',
+  },
 };
+
