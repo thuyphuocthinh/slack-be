@@ -4,6 +4,7 @@ import {
   PrimaryGeneratedColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  VersionColumn,
   Index,
 } from 'typeorm';
 
@@ -36,4 +37,7 @@ export class TaskBoardEntity {
     onUpdate: 'CURRENT_TIMESTAMP',
   })
   updatedAt: Date;
+
+  @VersionColumn({ nullable: false, default: 1, name: 'version' })
+  version: number;
 }

@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, In } from 'typeorm';
+import { Repository, DataSource, In, OptimisticLockVersionMismatchError } from 'typeorm';
 import { TaskEntity } from '../entity/task.entity';
 import { LabelEntity } from '../entity/label.entity';
 import { TaskMemberEntity } from '../entity/task_member.entity';
 import { CreateTaskDto, UpdateTaskDto } from '../dto/task.dto';
 import { RpcException } from '@nestjs/microservices';
-import { TASK_ERROR } from '@slack/constants';
+import { DATABASE_ERROR, TASK_ERROR } from '@slack/constants';
 import { ITaskResponse } from '../type/task.response';
 import { BoardMemberEntity } from '../entity/board_member.entity';
 import { TaskCommonService } from './task-common.service';
@@ -14,6 +14,7 @@ import { TaskGroupEntity } from '../entity/task_group.entity';
 import { TaskAttachmentEntity } from '../entity/task_attachment.entity';
 import { IOffsetResponse } from '@slack/common';
 import { QueryTaskDto } from '../dto/task.dto';
+import { CACHE, CachedService, TTL } from '@slack/cached';
 
 @Injectable()
 export class TaskService {
@@ -24,11 +25,14 @@ export class TaskService {
     private readonly labelRepo: Repository<LabelEntity>,
     @InjectRepository(TaskMemberEntity)
     private readonly taskMemberRepo: Repository<TaskMemberEntity>,
+    @InjectRepository(TaskGroupEntity)
+    private readonly groupRepo: Repository<TaskGroupEntity>,
     @InjectRepository(BoardMemberEntity)
     private readonly boardMemberRepo: Repository<BoardMemberEntity>,
     private readonly dataSource: DataSource,
     private readonly commonService: TaskCommonService,
-  ) {}
+    private readonly cachedService: CachedService,
+  ) { }
 
   async createNewTask(
     dto: CreateTaskDto,
@@ -47,7 +51,11 @@ export class TaskService {
 
       const task = manager.create(TaskEntity, dto);
       const saved = await manager.save(task);
-      return this.mapTaskResponse(saved);
+      const result = this.mapTaskResponse(saved);
+      await this.cachedService.invalidateList(
+        CACHE.TASK.TRACKERS.TASK_LIST_VERSION(dto.groupId),
+      );
+      return result;
     });
   }
 
@@ -62,7 +70,6 @@ export class TaskService {
       const task = await manager.findOne(TaskEntity, {
         where: { id },
         relations: ['labels', 'group', 'members'],
-        lock: { mode: 'pessimistic_write' },
       });
 
       if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
@@ -80,13 +87,24 @@ export class TaskService {
       }
 
       Object.assign(task, updateData);
-      const updatedTask = await manager.save(task);
+      try {
+        const updatedTask = await manager.save(task);
 
-      if (dto.dueDate) {
-        // TODO: Bắn vào BullMQ để cập nhật/tạo job mới cho deadline
+        await this.cachedService.invalidateList(
+          CACHE.TASK.TRACKERS.TASK_LIST_VERSION(updatedTask.groupId),
+        );
+
+        if (dto.dueDate) {
+          // TODO: Bắn vào BullMQ để cập nhật/tạo job mới cho deadline
+        }
+
+        return this.mapTaskResponse(updatedTask);
+      } catch (error) {
+        if (error instanceof OptimisticLockVersionMismatchError) {
+          throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+        }
+        throw error;
       }
-
-      return this.mapTaskResponse(updatedTask);
     });
   }
 
@@ -104,7 +122,13 @@ export class TaskService {
         manager,
       );
 
+      const groupId = task.groupId;
       await manager.remove(task);
+
+      await this.cachedService.invalidateList(
+        CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+      );
+
       return `Task with ID ${id} has been deleted`;
     });
   }
@@ -132,36 +156,42 @@ export class TaskService {
     requesterId: string,
   ): Promise<IOffsetResponse<ITaskResponse[]>> {
     const { groupId, page = 1, limit = 20 } = queryDto;
-    const skip = (page - 1) * limit;
 
-    const group = await this.dataSource
-      .getRepository(TaskGroupEntity)
-      .findOneBy({ id: groupId });
-    if (!group) throw new RpcException(TASK_ERROR.GROUP_NOT_FOUND);
+    const group = await this.getGroupById(groupId);
     await this.commonService.checkBoardMembership(group.boardId, requesterId);
 
-    const query = this.taskRepo
-      .createQueryBuilder('task')
-      .leftJoinAndSelect('task.labels', 'label')
-      .leftJoinAndSelect('task.members', 'member')
-      .where('task.groupId = :groupId', { groupId })
-      .orderBy('task.order', 'ASC')
-      .skip(skip)
-      .take(limit);
+    return await this.cachedService.getOrSetList({
+      trackerKey: CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+      keyBuilder: (version) =>
+        CACHE.TASK.KEYS.TASK_LIST(groupId, version, page, limit),
+      ttl: TTL.LONG,
+      fetcher: async () => {
+        const skip = (page - 1) * limit;
 
-    const [items, total] = await query.getManyAndCount();
+        const query = this.taskRepo
+          .createQueryBuilder('task')
+          .leftJoinAndSelect('task.labels', 'label')
+          .leftJoinAndSelect('task.members', 'member')
+          .where('task.groupId = :groupId', { groupId })
+          .orderBy('task.order', 'ASC')
+          .skip(skip)
+          .take(limit);
 
-    const responseData = items.map((t) => this.mapTaskResponse(t));
+        const [items, total] = await query.getManyAndCount();
 
-    return {
-      data: responseData,
-      paging: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
+        const responseData = items.map((t) => this.mapTaskResponse(t));
+
+        return {
+          data: responseData,
+          paging: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit),
+          },
+        } as unknown as IOffsetResponse<ITaskResponse[]>;
       },
-    } as unknown as IOffsetResponse<ITaskResponse[]>;
+    });
   }
 
   async assignMemberToTask(
@@ -196,6 +226,11 @@ export class TaskService {
 
       const taskMember = manager.create(TaskMemberEntity, { taskId, memberId });
       await manager.save(taskMember);
+
+      await this.cachedService.invalidateList(
+        CACHE.TASK.TRACKERS.TASK_LIST_VERSION(task.groupId),
+      );
+
       return 'Assign member to task successfully';
     });
   }
@@ -224,6 +259,11 @@ export class TaskService {
       });
       if (result.affected === 0)
         throw new RpcException(TASK_ERROR.MEMBER_NOT_ASSIGNED_TO_TASK);
+
+      await this.cachedService.invalidateList(
+        CACHE.TASK.TRACKERS.TASK_LIST_VERSION(task.groupId),
+      );
+
       return 'Unassign member from task successfully';
     });
   }
@@ -237,7 +277,6 @@ export class TaskService {
       const task = await manager.findOne(TaskEntity, {
         where: { id: taskId },
         relations: ['labels', 'group'],
-        lock: { mode: 'pessimistic_write' },
       });
       if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
 
@@ -257,8 +296,21 @@ export class TaskService {
       } else {
         task.labels.push(label);
       }
-      await manager.save(task);
-      return 'Toggle label from task successfully';
+
+      try {
+        await manager.save(task);
+
+        await this.cachedService.invalidateList(
+          CACHE.TASK.TRACKERS.TASK_LIST_VERSION(task.groupId),
+        );
+
+        return 'Toggle label from task successfully';
+      } catch (error) {
+        if (error instanceof OptimisticLockVersionMismatchError) {
+          throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+        }
+        throw error;
+      }
     });
   }
 
@@ -272,26 +324,26 @@ export class TaskService {
       order: task.order,
       labels: task.labels
         ? task.labels.map((l) => ({
-            id: l.id,
-            boardId: l.boardId,
-            name: l.name,
-            color: l.color,
-          }))
+          id: l.id,
+          boardId: l.boardId,
+          name: l.name,
+          color: l.color,
+        }))
         : [],
       members: task.members
         ? task.members.map((m) => ({
-            id: m.id,
-            taskId: m.taskId,
-            memberId: m.memberId,
-          }))
+          id: m.id,
+          taskId: m.taskId,
+          memberId: m.memberId,
+        }))
         : [],
       attachments: task.attachments
         ? task.attachments.map((a) => ({
-            id: a.id,
-            taskId: a.taskId,
-            title: a.title,
-            link: a.link,
-          }))
+          id: a.id,
+          taskId: a.taskId,
+          title: a.title,
+          link: a.link,
+        }))
         : [],
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
@@ -386,5 +438,17 @@ export class TaskService {
       await manager.remove(attachment);
       return 'Remove attachment successfully';
     });
+  }
+
+  async getGroupById(groupId: string): Promise<TaskGroupEntity> {
+    return await this.cachedService.getOrSetDetail(
+      CACHE.TASK.KEYS.GROUP_DETAIL(groupId),
+      TTL.LONG,
+      async () => {
+        const group = await this.groupRepo.findOneBy({ id: groupId });
+        if (!group) throw new RpcException(TASK_ERROR.GROUP_NOT_FOUND);
+        return group;
+      },
+    );
   }
 }

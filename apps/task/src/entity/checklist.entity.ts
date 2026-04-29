@@ -4,6 +4,7 @@ import {
   PrimaryGeneratedColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  VersionColumn,
   Index,
   ManyToOne,
   JoinColumn,
@@ -45,4 +46,7 @@ export class ChecklistEntity {
     onUpdate: 'CURRENT_TIMESTAMP',
   })
   updatedAt: Date;
+
+  @VersionColumn({ nullable: false, default: 1, name: 'version' })
+  version: number;
 }

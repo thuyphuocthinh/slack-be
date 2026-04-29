@@ -14,6 +14,7 @@ import { ChecklistItemEntity } from './entity/checklist_item.entity';
 import { BoardMemberEntity } from './entity/board_member.entity';
 import { TaskMemberEntity } from './entity/task_member.entity';
 import { DatabaseModule } from '@slack/database';
+import { CachedModule } from '@slack/cached';
 
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
@@ -24,6 +25,7 @@ import { TaskAttachmentEntity } from './entity/task_attachment.entity';
 @Module({
   imports: [
     DatabaseModule,
+    CachedModule.forRoot(),
     TypeOrmModule.forFeature([
       TaskBoardEntity,
       TaskGroupEntity,

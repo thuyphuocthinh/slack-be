@@ -11,7 +11,8 @@ import {
   UpdateChecklistItemDto,
 } from '../dto/checklist.dto';
 import { RpcException } from '@nestjs/microservices';
-import { TASK_ERROR } from '@slack/constants';
+import { DATABASE_ERROR, TASK_ERROR } from '@slack/constants';
+import { OptimisticLockVersionMismatchError } from 'typeorm';
 import { TaskCommonService } from './task-common.service';
 import {
   IChecklistResponse,
@@ -64,7 +65,6 @@ export class ChecklistService {
       const checklist = await manager.findOne(ChecklistEntity, {
         where: { id },
         relations: ['task', 'task.group', 'items'],
-        lock: { mode: 'pessimistic_write' },
       });
       if (!checklist || !checklist.task || !checklist.task.group) {
         throw new RpcException(TASK_ERROR.CHECKLIST_NOT_FOUND);
@@ -77,8 +77,15 @@ export class ChecklistService {
       );
 
       Object.assign(checklist, dto);
-      const saved = await manager.save(checklist);
-      return this.mapChecklistResponse(saved);
+      try {
+        const saved = await manager.save(checklist);
+        return this.mapChecklistResponse(saved);
+      } catch (error) {
+        if (error instanceof OptimisticLockVersionMismatchError) {
+          throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+        }
+        throw error;
+      }
     });
   }
 
@@ -160,7 +167,6 @@ export class ChecklistService {
       const item = await manager.findOne(ChecklistItemEntity, {
         where: { id },
         relations: ['checklist', 'checklist.task', 'checklist.task.group'],
-        lock: { mode: 'pessimistic_write' },
       });
       if (
         !item ||
@@ -178,8 +184,15 @@ export class ChecklistService {
       );
 
       Object.assign(item, dto);
-      const saved = await manager.save(item);
-      return this.mapChecklistItemResponse(saved);
+      try {
+        const saved = await manager.save(item);
+        return this.mapChecklistItemResponse(saved);
+      } catch (error) {
+        if (error instanceof OptimisticLockVersionMismatchError) {
+          throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+        }
+        throw error;
+      }
     });
   }
 
@@ -217,7 +230,6 @@ export class ChecklistService {
       const item = await manager.findOne(ChecklistItemEntity, {
         where: { id },
         relations: ['checklist', 'checklist.task', 'checklist.task.group'],
-        lock: { mode: 'pessimistic_write' },
       });
       if (
         !item ||
@@ -235,8 +247,15 @@ export class ChecklistService {
       );
 
       item.isCompleted = !item.isCompleted;
-      const saved = await manager.save(item);
-      return this.mapChecklistItemResponse(saved);
+      try {
+        const saved = await manager.save(item);
+        return this.mapChecklistItemResponse(saved);
+      } catch (error) {
+        if (error instanceof OptimisticLockVersionMismatchError) {
+          throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+        }
+        throw error;
+      }
     });
   }
 

@@ -5,11 +5,13 @@ import { TaskBoardEntity } from '../entity/task_board.entity';
 import { BoardMemberEntity } from '../entity/board_member.entity';
 import { CreateBoardDto, UpdateBoardDto } from '../dto/board.dto';
 import { RpcException } from '@nestjs/microservices';
-import { TASK_ERROR } from '@slack/constants';
+import { DATABASE_ERROR, TASK_ERROR } from '@slack/constants';
 import { IBoardMemberResponse, IBoardResponse } from '../type/task.response';
 import { TaskCommonService } from './task-common.service';
 import { IOffsetResponse } from '@slack/common';
 import { QueryBoardDto } from '../dto/board.dto';
+import { CACHE, CachedService, TTL } from '@slack/cached';
+import { OptimisticLockVersionMismatchError } from 'typeorm';
 
 @Injectable()
 export class BoardService {
@@ -20,7 +22,8 @@ export class BoardService {
     private readonly boardMemberRepo: Repository<BoardMemberEntity>,
     private readonly commonService: TaskCommonService,
     private readonly dataSource: DataSource,
-  ) {}
+    private readonly cachedService: CachedService,
+  ) { }
 
   async createNewBoard(
     dto: CreateBoardDto,
@@ -42,7 +45,13 @@ export class BoardService {
       });
       await manager.save(boardMember);
 
-      return this.mapBoardResponse(saved);
+      const result = this.mapBoardResponse(saved);
+
+      await this.cachedService.invalidateList(
+        CACHE.TASK.TRACKERS.BOARD_LIST_VERSION(dto.workspaceId, memberId),
+      );
+
+      return result;
     });
   }
 
@@ -56,13 +65,29 @@ export class BoardService {
 
       const board = await manager.findOne(TaskBoardEntity, {
         where: { id },
-        lock: { mode: 'pessimistic_write' },
       });
       if (!board) throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
 
       Object.assign(board, dto);
-      const saved = await manager.save(board);
-      return this.mapBoardResponse(saved);
+      try {
+        const saved = await manager.save(board);
+        const result = this.mapBoardResponse(saved);
+
+        const memberId = await this.commonService.getMemberId(
+          board.workspaceId,
+          requesterId,
+        );
+        await this.cachedService.invalidateList(
+          CACHE.TASK.TRACKERS.BOARD_LIST_VERSION(board.workspaceId, memberId),
+        );
+
+        return result;
+      } catch (error) {
+        if (error instanceof OptimisticLockVersionMismatchError) {
+          throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+        }
+        throw error;
+      }
     });
   }
 
@@ -70,9 +95,19 @@ export class BoardService {
     return await this.dataSource.transaction(async (manager) => {
       await this.commonService.checkBoardMembership(id, requesterId, manager);
 
+      const boardId = id;
+      const workspaceId = (await manager.findOne(TaskBoardEntity, { where: { id: boardId }, select: ['workspaceId'] }))?.workspaceId;
+      if (!workspaceId) throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
+
+      const members = await manager.find(BoardMemberEntity, { where: { boardId } });
+      const trackerKeys = members.map(m => CACHE.TASK.TRACKERS.BOARD_LIST_VERSION(workspaceId, m.memberId));
+
       const result = await manager.delete(TaskBoardEntity, id);
       if (result.affected === 0)
         throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
+
+      await this.cachedService.invalidateListBulk(trackerKeys);
+
       return `Board with ID ${id} has been deleted`;
     });
   }
@@ -82,35 +117,50 @@ export class BoardService {
     requesterUserId: string,
   ): Promise<IOffsetResponse<IBoardResponse[]>> {
     const { workspaceId, page = 1, limit = 20 } = queryDto;
-    const skip = (page - 1) * limit;
 
     const memberId = await this.commonService.getMemberId(
       workspaceId,
       requesterUserId,
     );
 
-    const query = this.boardRepo
-      .createQueryBuilder('board')
-      .innerJoin(BoardMemberEntity, 'member', 'member.boardId = board.id')
-      .where('board.workspaceId = :workspaceId', { workspaceId })
-      .andWhere('member.memberId = :memberId', { memberId })
-      .orderBy('board.createdAt', 'DESC')
-      .skip(skip)
-      .take(limit);
+    return await this.cachedService.getOrSetList({
+      trackerKey: CACHE.TASK.TRACKERS.BOARD_LIST_VERSION(workspaceId, memberId),
+      keyBuilder: (version) =>
+        CACHE.TASK.KEYS.BOARD_LIST(
+          workspaceId,
+          memberId,
+          version,
+          page,
+          limit,
+        ),
+      ttl: TTL.LONG,
+      fetcher: async () => {
+        const skip = (page - 1) * limit;
 
-    const [items, total] = await query.getManyAndCount();
+        const query = this.boardRepo
+          .createQueryBuilder('board')
+          .innerJoin(BoardMemberEntity, 'member', 'member.boardId = board.id')
+          .where('board.workspaceId = :workspaceId', { workspaceId })
+          .andWhere('member.memberId = :memberId', { memberId })
+          .orderBy('board.createdAt', 'DESC')
+          .skip(skip)
+          .take(limit);
 
-    const responseData = items.map((b) => this.mapBoardResponse(b));
+        const [items, total] = await query.getManyAndCount();
 
-    return {
-      data: responseData,
-      paging: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
+        const responseData = items.map((b) => this.mapBoardResponse(b));
+
+        return {
+          data: responseData,
+          paging: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit),
+          },
+        } as unknown as IOffsetResponse<IBoardResponse[]>;
       },
-    } as unknown as IOffsetResponse<IBoardResponse[]>;
+    });
   }
 
   async getBoardDetails(
@@ -156,6 +206,14 @@ export class BoardService {
         memberId,
       });
       await manager.save(boardMember);
+
+      const board = await manager.findOne(TaskBoardEntity, { where: { id: boardId }, select: ['workspaceId'] });
+      if (!board) throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
+
+      await this.cachedService.invalidateList(
+        CACHE.TASK.TRACKERS.BOARD_LIST_VERSION(board.workspaceId, memberId),
+      );
+
       return 'Add member to board successfully';
     });
   }
@@ -193,12 +251,15 @@ export class BoardService {
         }
       }
 
-      const result = await manager.delete(BoardMemberEntity, {
+      await manager.delete(BoardMemberEntity, {
         boardId,
         memberId,
       });
-      if (result.affected === 0)
-        throw new RpcException(TASK_ERROR.MEMBER_NOT_IN_BOARD);
+
+      await this.cachedService.invalidateList(
+        CACHE.TASK.TRACKERS.BOARD_LIST_VERSION(board.workspaceId, memberId),
+      );
+
       return 'Remove member from board successfully';
     });
   }
