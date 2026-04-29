@@ -52,6 +52,8 @@ export const CACHE = {
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:users:${CACHE.USER._VER}:detail:id_${id}`,
       TWO_FACTOR: (id: string): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:users:${CACHE.USER._VER}:two_factor:id_${id}`,
+      PREFERENCE: (id: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:users:${CACHE.USER._VER}:preference:id_${id}`,
     },
     TRACKERS: {
       LIST_VERSION: `${GLOBAL_PREFIX}:trackers:users:list_version`,
@@ -137,6 +139,38 @@ export const CACHE = {
         `${GLOBAL_PREFIX}:trackers:channels:ws_${workspaceId}:m_${memberId}:version`,
       MEMBERS_VERSION: (channelId: string): string =>
         `${GLOBAL_PREFIX}:trackers:channels:c_${channelId}:members_version`,
+    },
+  },
+  TASK: {
+    _VER: 'v1',
+    KEYS: {
+      BOARD_LIST: (
+        workspaceId: string,
+        memberId: string,
+        version: number,
+        page: number,
+        limit: number,
+      ): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:tasks:v1:boards:ws_${workspaceId}:m_${memberId}:v_${version}:p_${page}:l_${limit}`,
+      TASK_LIST: (
+        groupId: string,
+        version: number,
+        page: number,
+        limit: number,
+      ): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:tasks:v1:list:g_${groupId}:v_${version}:p_${page}:l_${limit}`,
+      BOARD_DETAIL: (boardId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:tasks:v1:board:id_${boardId}`,
+      BOARD_MEMBERSHIP: (boardId: string, userId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:tasks:v1:board_membership:b_${boardId}:u_${userId}`,
+      GROUP_DETAIL: (groupId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:tasks:v1:group:id_${groupId}`,
+    },
+    TRACKERS: {
+      BOARD_LIST_VERSION: (workspaceId: string, memberId: string): string =>
+        `${GLOBAL_PREFIX}:trackers:tasks:boards:ws_${workspaceId}:m_${memberId}:version`,
+      TASK_LIST_VERSION: (groupId: string): string =>
+        `${GLOBAL_PREFIX}:trackers:tasks:g_${groupId}:version`,
     },
   },
 };

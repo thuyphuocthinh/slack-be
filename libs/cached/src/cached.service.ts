@@ -1,17 +1,25 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import Redis from 'ioredis';
 
 type TtlValue = number;
 
 @Injectable()
 export class CachedService {
+  private readonly logger = new Logger(CachedService.name);
   constructor(
     @Inject('REDIS_CLIENT')
     private readonly redis: Redis,
-  ) {}
+  ) { }
+
+  private inFlightRequests = new Map<string, Promise<any>>();
 
   async exists(key: string): Promise<boolean> {
-    return (await this.redis.exists(key)) === 1;
+    try {
+      return (await this.redis.exists(key)) === 1;
+    } catch (error) {
+      this.logger.error(`Redis exists error: ${error.message}`);
+      return false;
+    }
   }
 
   // Utils
@@ -38,17 +46,30 @@ export class CachedService {
   // Base cache
 
   async get<T>(key: string): Promise<T | null> {
-    const data = await this.redis.get(key);
-    return this.deserialize<T>(data);
+    try {
+      const data = await this.redis.get(key);
+      return this.deserialize<T>(data);
+    } catch (error) {
+      this.logger.error(`Redis get error: ${error.message}`);
+      return null;
+    }
   }
 
   async set(key: string, value: any, ttl: TtlValue): Promise<void> {
-    const finalTtl = this.withJitter(ttl);
-    await this.redis.set(key, this.serialize(value), 'EX', finalTtl);
+    try {
+      const finalTtl = this.withJitter(ttl);
+      await this.redis.set(key, this.serialize(value), 'EX', finalTtl);
+    } catch (error) {
+      this.logger.error(`Redis set error: ${error.message}`);
+    }
   }
 
   async del(key: string): Promise<void> {
-    await this.redis.del(key);
+    try {
+      await this.redis.del(key);
+    } catch (error) {
+      this.logger.error(`Redis del error: ${error.message}`);
+    }
   }
 
   // Tracker (version)
@@ -69,17 +90,30 @@ export class CachedService {
     ttl: TtlValue,
     fetcher: () => Promise<T>,
   ): Promise<T> {
+    // 1. Check cache
     const cached = await this.get<T>(key);
     if (cached) return cached;
 
-    const data = await fetcher();
-
-    // tránh cache null/undefined nếu cần
-    if (data) {
-      await this.set(key, data, ttl);
+    // 2. Singleflight: Check if a fetch for this key is already in progress
+    if (this.inFlightRequests.has(key)) {
+      this.logger.debug(`Singleflight: Waiting for in-flight request for key: ${key}`);
+      return this.inFlightRequests.get(key);
     }
 
-    return data;
+    // 3. Perform fetch and store promise
+    const fetchPromise = fetcher().then(async (data) => {
+      if (data) {
+        await this.set(key, data, ttl);
+      }
+      this.inFlightRequests.delete(key);
+      return data;
+    }).catch(err => {
+      this.inFlightRequests.delete(key);
+      throw err;
+    });
+
+    this.inFlightRequests.set(key, fetchPromise);
+    return fetchPromise;
   }
 
   async invalidateDetail(key: string) {
@@ -96,29 +130,22 @@ export class CachedService {
   }): Promise<T> {
     const { trackerKey, keyBuilder, ttl, fetcher } = options;
 
-    // 1. lấy version
     const version = await this.getVersion(trackerKey);
-
-    // 2. build key
     const key = keyBuilder(version);
 
-    // 3. check cache
-    const cached = await this.get<T>(key);
-    if (cached) return cached;
-
-    // 4. fetch DB
-    const data = await fetcher();
-
-    // 5. set cache
-    if (data) {
-      await this.set(key, data, ttl);
-    }
-
-    return data;
+    // Sử dụng logic Singleflight thông qua getOrSetDetail
+    return this.getOrSetDetail(key, ttl, fetcher);
   }
 
   async invalidateList(trackerKey: string) {
     await this.bumpVersion(trackerKey);
+  }
+
+  async invalidateListBulk(trackerKeys: string[]) {
+    if (!trackerKeys.length) return;
+    const pipeline = this.redis.pipeline();
+    trackerKeys.forEach((key) => pipeline.incr(key));
+    await pipeline.exec();
   }
 
   // set data type

@@ -18,12 +18,20 @@ export class RateLimitService {
     limit: number,
     window: number,
   ): Promise<boolean> {
-    const count = await this.redis.incr(key);
+    const luaScript = `
+      local current = redis.call("INCR", KEYS[1])
+      if current == 1 then
+        redis.call("EXPIRE", KEYS[1], ARGV[1])
+      end
+      return current
+    `;
 
-    // set expire lần đầu
-    if (count === 1) {
-      await this.redis.expire(key, window);
-    }
+    const count = (await this.redis.eval(
+      luaScript,
+      1,
+      key,
+      window,
+    )) as number;
 
     return count <= limit;
   }
