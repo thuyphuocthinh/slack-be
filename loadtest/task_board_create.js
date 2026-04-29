@@ -3,10 +3,10 @@ const { v4: uuidv4 } = require('uuid');
 
 // PASTE YOUR ACCESS TOKEN HERE
 const ACCESS_TOKEN =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwYmNkYTYzYi1kNzk5LTQ3NzEtYmJmYi0wYzRlOGM0MzNlM2IiLCJlbWFpbCI6InRodXlwaHVvY3RoaW5odHB0KzVAZ21haWwuY29tIiwidG9rZW5WZXJzaW9uIjozLCJpYXQiOjE3NzcwNDAxMzAsImV4cCI6MTc3NzA0MTkzMH0.F3coT6P5fbWTsctMcvEQ0n4zJ6XlCGk81GkozCDAHoQ';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwYmNkYTYzYi1kNzk5LTQ3NzEtYmJmYi0wYzRlOGM0MzNlM2IiLCJlbWFpbCI6InRodXlwaHVvY3RoaW5odHB0KzVAZ21haWwuY29tIiwidG9rZW5WZXJzaW9uIjozLCJpYXQiOjE3Nzc0MTk0ODcsImV4cCI6MTc3NzQyMTI4N30.mu0012ApRFUNqH2zGjWLVeSQ0vdU3ubonp7o_eB1hNg';
 
 // PASTE A VALID WORKSPACE ID HERE
-const WORKSPACE_ID = '45734af0-cd01-4e86-a488-ad50cf6913d0'; // Example from previous logs
+const WORKSPACE_ID = 'fcc5f03f-7f6e-452b-95ca-eb57c60c5ad3'; // Example from previous logs
 
 const instance = autocannon(
   {

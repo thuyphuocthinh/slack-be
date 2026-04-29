@@ -13,7 +13,7 @@ const instance = autocannon(
     }),
     connections: 500,
     duration: 30,
-    pipelining: 10,
+    pipelining: 1,
   },
   (err, result) => {
     if (err) {
