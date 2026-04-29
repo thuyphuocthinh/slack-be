@@ -7,7 +7,8 @@ import { type IUserResponse } from '../types/user.response';
 import { USER_ERROR } from '@slack/constants/errors/user.error';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
 import { ChangePasswordDto } from '../dto/change-password.dto';
-import { AUTH_MESSAGE_PATTERNS, NAME_SERVICE_TCP } from '@slack/constants';
+import { AUTH_MESSAGE_PATTERNS, NAME_SERVICE_TCP, DATABASE_ERROR } from '@slack/constants';
+import { OptimisticLockVersionMismatchError } from 'typeorm';
 import { firstValueFrom } from 'rxjs';
 import { CACHE, CachedService, TTL } from '@slack/cached';
 import { TwoFactorService } from './two_fa.service';
@@ -73,10 +74,15 @@ export class UserService {
   }
 
   async getUserByEmail(email: string): Promise<IUserResponse> {
-    const user = await this.userRepository.findOneBy({
-      email,
-      status: UserStatus.ACTIVE,
-    });
+    const user = await this.cachedService.getOrSetDetail(
+      CACHE.USER.KEYS.DETAIL(email), // Dùng email làm key phụ hoặc mapping
+      TTL.MEDIUM,
+      () =>
+        this.userRepository.findOneBy({
+          email,
+          status: UserStatus.ACTIVE,
+        }),
+    );
     if (!user) {
       throw new RpcException(USER_ERROR.USER_NOT_FOUND);
     }
@@ -85,38 +91,50 @@ export class UserService {
 
   // change avatar (viet upload service truoc)
   async changeAvatar(id: string, avatarUrl: string): Promise<IUserResponse> {
-    const result = await this.userRepository.update({ id }, { avatarUrl });
-
-    if (result.affected === 0) {
+    const user = await this.userRepository.findOneBy({ id });
+    if (!user) {
       throw new RpcException(USER_ERROR.USER_NOT_FOUND);
     }
 
-    this.logger.log(`Change avatar of user id ${id}`);
-    this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(id));
+    user.avatarUrl = avatarUrl;
+    try {
+      await this.userRepository.save(user);
+      this.logger.log(`Change avatar of user id ${id}`);
+      this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(id));
+      this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(user.email));
 
-    return this.getUserById(id);
+      return this.getUserById(id);
+    } catch (error) {
+      if (error instanceof OptimisticLockVersionMismatchError) {
+        throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+      }
+      throw error;
+    }
   }
 
   // update info
   async updateInfo(id: string, data: UpdateUserDto): Promise<IUserResponse> {
-    const updateData: Partial<UserEntity> = {};
-    if (data.firstName) updateData.firstName = data.firstName;
-    if (data.lastName) updateData.lastName = data.lastName;
-
-    if (Object.keys(updateData).length === 0) {
-      return this.getUserById(id);
-    }
-
-    const result = await this.userRepository.update({ id }, updateData);
-
-    if (result.affected === 0) {
+    const user = await this.userRepository.findOneBy({ id });
+    if (!user) {
       throw new RpcException(USER_ERROR.USER_NOT_FOUND);
     }
 
-    this.logger.log(`Update info of user id ${id}`);
-    this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(id));
+    if (data.firstName) user.firstName = data.firstName;
+    if (data.lastName) user.lastName = data.lastName;
 
-    return this.getUserById(id);
+    try {
+      await this.userRepository.save(user);
+      this.logger.log(`Update info of user id ${id}`);
+      this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(id));
+      this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(user.email));
+
+      return this.getUserById(id);
+    } catch (error) {
+      if (error instanceof OptimisticLockVersionMismatchError) {
+        throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+      }
+      throw error;
+    }
   }
 
   // change password

@@ -6,6 +6,7 @@ import {
   Index,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
+  VersionColumn,
 } from 'typeorm';
 
 export enum UserStatus {
@@ -53,4 +54,7 @@ export class UserEntity {
 
   @UpdateDateColumn({ type: 'timestamp', name: 'updated_at' })
   updatedAt: Date;
+
+  @VersionColumn({ nullable: false, default: 1, name: 'version' })
+  version: number;
 }
