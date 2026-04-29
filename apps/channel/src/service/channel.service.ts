@@ -56,11 +56,17 @@ export class ChannelService {
   }
 
   private async getWorkspaceMember(workspaceId: string, userId: string) {
-    return await firstValueFrom(
-      this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.GET_MEMBER, {
-        workspaceId,
-        userId,
-      }),
+    return await this.cachedService.getOrSetDetail(
+      CACHE.WORKSPACE.KEYS.IS_MEMBER(workspaceId, userId),
+      TTL.SHORT,
+      async () => {
+        return await firstValueFrom(
+          this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.GET_MEMBER, {
+            workspaceId,
+            userId,
+          }),
+        );
+      },
     );
   }
 
@@ -322,7 +328,6 @@ export class ChannelService {
     const updatedChannel = await this.dataSource.transaction(async (manager) => {
       const channel = await manager.findOne(ChannelEntity, {
         where: { id: channelId },
-        lock: { mode: 'pessimistic_write' },
       });
 
       if (!channel) {
@@ -330,7 +335,14 @@ export class ChannelService {
       }
 
       channel.isStar = !channel.isStar;
-      return await manager.save(channel);
+      try {
+        return await manager.save(channel);
+      } catch (error) {
+        if (error instanceof OptimisticLockVersionMismatchError) {
+          throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+        }
+        throw error;
+      }
     });
 
     this.logger.log('Updated channel: ', JSON.stringify(updatedChannel, null, 2));

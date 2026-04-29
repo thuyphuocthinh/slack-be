@@ -6,13 +6,15 @@ import { DEFAULT_USER_PREFERENCE } from '../constants/user_preference.constant';
 import { UpdateUserSettingsDto } from '../dto';
 import { deepMerge } from '@slack/common';
 import { UserSettings } from '../types/user.setting';
+import { CACHE, CachedService, TTL } from '@slack/cached';
 
 @Injectable()
 export class UserPreferenceService {
   constructor(
     @InjectRepository(UserSettingEntity)
     private readonly userPreferenceRepository: Repository<UserSettingEntity>,
-  ) {}
+    private readonly cachedService: CachedService,
+  ) { }
 
   private mapEntityToResponse(entity: UserSettingEntity) {
     return entity.settings;
@@ -33,8 +35,10 @@ export class UserPreferenceService {
   }
 
   async getUserPreference(userId: string) {
-    const userPreference = await this.getOrCreate(userId);
-    return this.mapEntityToResponse(userPreference);
+    return this.cachedService.getOrSetDetail(CACHE.USER.KEYS.PREFERENCE(userId), TTL.LONG, async () => {
+      const userPreference = await this.getOrCreate(userId);
+      return this.mapEntityToResponse(userPreference);
+    });
   }
 
   async updateUserPreference(
@@ -48,6 +52,9 @@ export class UserPreferenceService {
     );
     userPreference.settings = mergedSettings;
     const updated = await this.userPreferenceRepository.save(userPreference);
+
+    await this.cachedService.del(CACHE.USER.KEYS.PREFERENCE(userId));
+
     return this.mapEntityToResponse(updated);
   }
 }

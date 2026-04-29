@@ -1,6 +1,7 @@
 import {
     Column,
     Entity,
+    Index,
     PrimaryGeneratedColumn,
     CreateDateColumn,
     UpdateDateColumn,
@@ -16,6 +17,7 @@ export class ChannelEntity {
     id: string;
 
     @Column({ name: 'workspace_id', type: "uuid" })
+    @Index()
     workspaceId: string;
 
     @Column({ name: 'title' })
@@ -45,6 +47,6 @@ export class ChannelEntity {
     })
     updatedAt: Date;
 
-    @VersionColumn({ default: 1 })
+    @VersionColumn({ nullable: false, default: 1, name: 'version' })
     version: number;
 }

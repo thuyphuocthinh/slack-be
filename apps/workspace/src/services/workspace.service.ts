@@ -154,16 +154,16 @@ export class WorkspaceService {
     workspace.deletedAt = new Date();
     await this.workspaceRepository.save(workspace);
 
-    // Invalidate all members' workspace list cache
+    // Invalidate all members' workspace list cache in bulk
     const members = await this.memberRepository.find({
       where: { workspaceId: workspace.id },
+      select: ['userId'],
     });
 
-    for (const m of members) {
-      await this.cachedService.invalidateList(
-        CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(m.userId),
-      );
-    }
+    const trackerKeys = members.map((m) =>
+      CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(m.userId),
+    );
+    await this.cachedService.invalidateListBulk(trackerKeys);
 
     this.logger.log('Delete workspace', JSON.stringify(workspace));
 

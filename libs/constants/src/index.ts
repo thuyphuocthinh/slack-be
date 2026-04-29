@@ -11,6 +11,7 @@ export * from './errors/database.error';
 export * from './errors/validation.error';
 export * from './errors/task.error';
 export * from './errors/channel.error';
+export * from './errors/system.error';
 
 export * from './tcp/tcp.constant';
 export * from './tcp/message_pattern/notification_msg_pattern.constant';

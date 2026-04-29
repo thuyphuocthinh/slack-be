@@ -1,4 +1,4 @@
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, PrimaryGeneratedColumn, Index } from 'typeorm';
 import {
   NotificationType,
   NotificationStatus,
@@ -10,6 +10,7 @@ export class Notification {
   id: string;
 
   @Column({ name: 'recipient_id' })
+  @Index()
   recipientId: string;
 
   @Column({ name: 'template_key' })
@@ -26,6 +27,7 @@ export class Notification {
     enum: NotificationStatus,
     default: NotificationStatus.UNREAD,
   })
+  @Index()
   status: NotificationStatus;
 
   @Column({ name: 'object_id' })

@@ -20,6 +20,7 @@ export class ChannelMemberEntity {
     channelId: string;
 
     @Column({ name: 'member_id', type: "uuid" })
+    @Index()
     memberId: string;
 
     @Column({ name: 'email', type: 'varchar', length: 255, nullable: false })

@@ -14,6 +14,7 @@ import { WorkspaceModule } from './workspace/workspace.module';
 import { NotificationModule } from './notification/notification.module';
 import { TaskModule } from './task/task.module';
 import { ChannelModule } from './channel/channel.module';
+import { RateLimitGuard } from './common/guards/rate-limit.guard';
 
 @Module({
   imports: [
@@ -38,6 +39,10 @@ import { ChannelModule } from './channel/channel.module';
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RateLimitGuard,
     },
   ],
 })
