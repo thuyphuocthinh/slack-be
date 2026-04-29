@@ -1,13 +1,16 @@
-import { IsUUID, IsNotEmpty } from 'class-validator';
+import { IsUUID, IsNotEmpty, ValidateNested } from 'class-validator';
+import { MemberInfoDto } from './member-info.dto';
+import { Type } from 'class-transformer';
 
 export class ChannelMemberDto {
     @IsUUID()
     @IsNotEmpty()
     channelId: string;
 
-    @IsUUID()
+    @Type(() => MemberInfoDto)
+    @ValidateNested()
     @IsNotEmpty()
-    targetMemberId: string;
+    targetMember: MemberInfoDto;
 
     @IsUUID()
     @IsNotEmpty()

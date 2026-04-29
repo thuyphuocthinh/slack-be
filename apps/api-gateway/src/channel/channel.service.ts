@@ -7,6 +7,7 @@ import {
   ChannelMemberRequestDto,
   CreateChannelRequestDto,
   GetChannelsRequestDto,
+  RemoveMemberRequestDto,
   ToggleStarRequestDto,
   UpdateChannelRequestDto,
 } from './dto/channel-request.dto';
@@ -14,11 +15,12 @@ import {
 @Injectable()
 export class ChannelService {
   private readonly logger = new Logger(ChannelService.name);
+  private membersCache = new Map<string, { data: any, expiry: number }>();
 
   constructor(
     @Inject(NAME_SERVICE_TCP.CHANNEL_SERVICE)
     private readonly channelClient: ClientProxy,
-  ) {}
+  ) { }
 
   async createChannel(dto: CreateChannelRequestDto) {
     return await firstValueFrom(
@@ -63,30 +65,49 @@ export class ChannelService {
   }
 
   async addMember(dto: ChannelMemberRequestDto) {
+    this.membersCache.delete(dto.channelId);
     return await firstValueFrom(
       this.channelClient.send(ChannelMessagePattern.ADD_MEMBER, dto),
     );
   }
 
   async addBatchMembers(dto: AddBatchMembersRequestDto) {
+    this.membersCache.delete(dto.channelId);
     return await firstValueFrom(
       this.channelClient.send(ChannelMessagePattern.ADD_BATCH_MEMBERS, dto),
     );
   }
 
-  async removeMember(dto: ChannelMemberRequestDto) {
+  async removeMember(dto: RemoveMemberRequestDto) {
+    this.membersCache.delete(dto.channelId);
     return await firstValueFrom(
       this.channelClient.send(ChannelMessagePattern.REMOVE_MEMBER, dto),
     );
   }
 
   async getMembers(channelId: string) {
-    return await firstValueFrom(
+    const cached = this.membersCache.get(channelId);
+    const now = Date.now();
+
+    if (cached && cached.expiry > now) {
+      return cached.data;
+    }
+
+    const data = await firstValueFrom(
       this.channelClient.send(ChannelMessagePattern.GET_MEMBERS, { channelId }),
     );
+
+    // Cache for 2 seconds
+    this.membersCache.set(channelId, {
+      data,
+      expiry: now + 2000
+    });
+
+    return data;
   }
 
   async leaveChannel(channelId: string, memberId: string) {
+    this.membersCache.delete(channelId);
     return await firstValueFrom(
       this.channelClient.send(ChannelMessagePattern.LEAVE_CHANNEL, {
         channelId,
@@ -95,3 +116,4 @@ export class ChannelService {
     );
   }
 }
+

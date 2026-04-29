@@ -10,6 +10,7 @@ import {
   IsString,
   IsUUID,
   Min,
+  ValidateNested,
 } from 'class-validator';
 
 export class CreateChannelApiDto {
@@ -62,17 +63,42 @@ export class GetChannelsApiDto {
   limit?: number;
 }
 
-export class AddMemberApiDto {
-  @ApiProperty({ example: 'user-uuid' })
-  @IsUUID()
+export class MemberInfoDto {
+  @ApiProperty({ example: 'email@example.com' })
+  @IsString()
   @IsNotEmpty()
-  targetMemberId: string;
+  email: string;
+
+  @ApiProperty({ example: 'John' })
+  @IsString()
+  @IsOptional()
+  firstName?: string;
+
+  @ApiProperty({ example: 'Doe' })
+  @IsString()
+  @IsOptional()
+  lastName: string;
+
+  @ApiProperty({ example: 'https://example.com/avatar.jpg' })
+  @IsString()
+  @IsOptional()
+  avatarUrl?: string;
 }
 
+
+export class AddMemberApiDto {
+  @ApiProperty({ example: new MemberInfoDto() })
+  @ValidateNested()
+  @Type(() => MemberInfoDto)
+  targetMember: MemberInfoDto;
+}
+
+
 export class AddBatchMembersApiDto {
-  @ApiProperty({ example: ['user-uuid-1', 'user-uuid-2'] })
+  @ApiProperty({ example: [new MemberInfoDto(), new MemberInfoDto()] })
   @IsArray()
-  @IsUUID('4', { each: true })
   @IsNotEmpty()
-  targetMemberIds: string[];
+  @ValidateNested({ each: true })
+  @Type(() => MemberInfoDto)
+  targetMembers: MemberInfoDto[];
 }

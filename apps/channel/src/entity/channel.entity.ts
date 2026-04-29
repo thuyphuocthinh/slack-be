@@ -5,6 +5,7 @@ import {
     CreateDateColumn,
     UpdateDateColumn,
     Unique,
+    VersionColumn,
 } from 'typeorm';
 import { ChannelTypeEnum } from '@slack/constants';
 
@@ -20,7 +21,7 @@ export class ChannelEntity {
     @Column({ name: 'title' })
     title: string;
 
-    @Column({ name: 'type', enum: ChannelTypeEnum, default: ChannelTypeEnum.GROUP })
+    @Column({ name: 'type', type: 'enum', enum: ChannelTypeEnum, default: ChannelTypeEnum.GROUP })
     type: ChannelTypeEnum;
 
     @Column({ name: 'description', type: 'text', nullable: true })
@@ -43,4 +44,7 @@ export class ChannelEntity {
         onUpdate: 'CURRENT_TIMESTAMP',
     })
     updatedAt: Date;
+
+    @VersionColumn({ default: 1 })
+    version: number;
 }

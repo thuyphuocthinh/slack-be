@@ -1,4 +1,5 @@
 import { IsArray, IsNotEmpty, IsUUID } from 'class-validator';
+import { MemberInfoDto } from './member-info.dto';
 
 export class AddBatchMembersDto {
     @IsUUID()
@@ -6,9 +7,8 @@ export class AddBatchMembersDto {
     channelId: string;
 
     @IsArray()
-    @IsUUID('4', { each: true })
     @IsNotEmpty()
-    targetMemberIds: string[];
+    targetMembers: MemberInfoDto[];
 
     @IsUUID()
     @IsNotEmpty()

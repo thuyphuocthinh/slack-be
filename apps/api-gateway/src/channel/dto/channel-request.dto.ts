@@ -1,4 +1,5 @@
 import { ChannelTypeEnum } from '@slack/constants';
+import { MemberInfoDto } from './channel-api.dto';
 
 export class CreateChannelRequestDto {
   workspaceId: string;
@@ -25,13 +26,19 @@ export class GetChannelsRequestDto {
 
 export class ChannelMemberRequestDto {
   channelId: string;
+  targetMember: MemberInfoDto;
+  performerId: string;
+}
+
+export class RemoveMemberRequestDto {
+  channelId: string;
   targetMemberId: string;
   performerId: string;
 }
 
 export class AddBatchMembersRequestDto {
   channelId: string;
-  targetMemberIds: string[];
+  targetMembers: MemberInfoDto[];
   performerId: string;
 }
 

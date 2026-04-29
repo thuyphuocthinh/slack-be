@@ -11,6 +11,7 @@ import { GetChannelsDto } from './dto/get-channels.dto';
 import { AddBatchMembersDto } from './dto/add-batch-members.dto';
 
 import { ChannelMemberService } from './service/channel-member.service';
+import { RemoveMemberDto } from './dto/remove-member.dto';
 
 @Controller()
 export class ChannelController {
@@ -60,7 +61,7 @@ export class ChannelController {
   }
 
   @MessagePattern(ChannelMessagePattern.REMOVE_MEMBER)
-  async removeMember(@Payload() dto: ChannelMemberDto) {
+  async removeMember(@Payload() dto: RemoveMemberDto) {
     return await this.channelMemberService.removeMember(dto);
   }
 
