@@ -35,4 +35,8 @@ export const AUTH_ERROR = {
     code: 'ERR.AUTH.0109',
     message: 'FORBIDDEN',
   },
+  INVALID_ACCESS_TOKEN: {
+    code: 'ERR.AUTH.0110',
+    message: 'INVALID ACCESS TOKEN',
+  },
 };

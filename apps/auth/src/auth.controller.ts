@@ -57,7 +57,7 @@ export class AuthController {
   }
 
   @MessagePattern(AUTH_MESSAGE_PATTERNS.LOGOUT_ALL)
-  logoutAll(@Payload() payload: { data: { userId: string } }) {
+  logoutAll(@Payload() payload: { data: { accessToken: string } }) {
     return this.authService.logoutAll(payload.data);
   }
 

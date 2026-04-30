@@ -5,3 +5,5 @@ export * from './refresh.dto';
 export * from './verify-reset-password.dto';
 export * from './reset-password.dto';
 export * from './two_fa.dto';
+export * from './logout.dto';
+export * from './logout-all.dto';

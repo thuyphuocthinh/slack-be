@@ -16,7 +16,7 @@ export class TwoFactorService {
     @InjectRepository(TwoFactorEntity)
     private readonly twoFactorRepository: Repository<TwoFactorEntity>,
     private readonly cachedService: CachedService,
-  ) {}
+  ) { }
 
   async generateSecret(userId: string): Promise<string> {
     const secret = speakeasy.generateSecret({
@@ -61,15 +61,17 @@ export class TwoFactorService {
     if (!verified) {
       throw new RpcException(TWO_FACTOR_ERROR.TWO_FACTOR_INVALID_OTP);
     }
-    this.twoFactorRepository.update(twoFactor.id, {
+    await this.twoFactorRepository.update(twoFactor.id, {
       enabled: true,
     });
-    this.cachedService.set(CACHE.USER.KEYS.TWO_FACTOR(userId), true, TTL.LONG);
+    this.logger.log(`Deleting cache for user ${userId}: ${CACHE.USER.KEYS.TWO_FACTOR(userId)}`);
+    await this.cachedService.del(CACHE.USER.KEYS.TWO_FACTOR(userId));
+    this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(userId));
     this.logger.log(`User ${userId} enabled two factor`);
     return verified;
   }
 
-  async toggleTwoFactor(userId: string): Promise<void> {
+  async toggleTwoFactor(userId: string): Promise<boolean> {
     const twoFactor = await this.twoFactorRepository.findOneBy({ userId });
     if (!twoFactor) {
       throw new RpcException(TWO_FACTOR_ERROR.TWO_FACTOR_NOT_FOUND);
@@ -80,13 +82,10 @@ export class TwoFactorService {
 
     const key = CACHE.USER.KEYS.TWO_FACTOR(userId);
 
-    if (twoFactor.enabled) {
-      await this.cachedService.set(key, true, TTL.LONG);
-    } else {
-      await this.cachedService.del(key);
-    }
-
-    this.logger.log(`User ${userId} toggled two factor`);
+    await this.cachedService.del(CACHE.USER.KEYS.TWO_FACTOR(userId));
+    this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(userId));
+    this.logger.log(`User ${userId} toggled two factor to ${twoFactor.enabled}`);
+    return twoFactor.enabled;
   }
 
   async isEnableTwoFactor(id: string): Promise<boolean> {
@@ -95,6 +94,7 @@ export class TwoFactorService {
       TTL.LONG,
       () => this.twoFactorRepository.findOneBy({ userId: id }),
     );
+    this.logger.log(`Checking 2FA for user ${id}: ${twoFactor?.enabled || false}`);
     return twoFactor?.enabled || false;
   }
 }

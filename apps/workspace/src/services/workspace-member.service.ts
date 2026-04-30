@@ -35,7 +35,7 @@ export class WorkspaceMemberService {
     private readonly dataSource: DataSource,
     private readonly cachedService: CachedService,
     private readonly commonService: WorkspaceCommonService,
-  ) {}
+  ) { }
 
   async addMember(
     dto: AddMemberRequestDto,
@@ -374,6 +374,12 @@ export class WorkspaceMemberService {
     });
 
     await this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+    
+    // Invalidate workspace list cache for all added/updated users
+    const trackerKeys = dto.userIds.map(userId => 
+      CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(userId)
+    );
+    await this.cachedService.invalidateListBulk(trackerKeys);
 
     return savedMembers.map((member) => {
       const user = userMap.get(member.userId);

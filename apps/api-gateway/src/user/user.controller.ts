@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Logger,
   Param,
   Patch,
   Post,
@@ -29,7 +30,8 @@ import { SystemRoleEnum } from '@slack/constants';
 @ApiTags('Users')
 @ApiBearerAuth()
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  private readonly logger = new Logger(UserController.name);
+  constructor(private readonly userService: UserService) { }
 
   @ApiOperation({ summary: 'Update user info' })
   @ApiResponse({ status: 200, description: 'User info updated successfully' })
@@ -135,6 +137,7 @@ export class UserController {
     @Body() data: UpdateUserSettingsDto,
     @CurrentUser() user: JwtUser,
   ) {
+    this.logger.log(`Update user preference: ${JSON.stringify(data)}`);
     return await this.userService.updateUserPreference(user.sub, data);
   }
 
@@ -142,6 +145,7 @@ export class UserController {
   @ApiResponse({ status: 200, description: 'Users found successfully' })
   @Get('find-by-email')
   async findUsersByEmails(@Query('email') email: string) {
+    this.logger.log(`Find users by email: ${email}`);
     return await this.userService.findUsersByEmail(email);
   }
 }

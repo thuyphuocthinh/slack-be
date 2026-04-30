@@ -107,10 +107,10 @@ export class UserService {
     );
   }
 
-  async findUsersByEmail(emails: string) {
+  async findUsersByEmail(email: string) {
     return await firstValueFrom(
       this.userClient.send(USER_MESSAGE_PATTERNS.FIND_USERS_BY_EMAIL, {
-        emails,
+        email,
       }),
     );
   }

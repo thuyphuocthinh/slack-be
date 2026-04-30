@@ -28,6 +28,8 @@ import {
   VerifyResetPasswordDto,
   ResetPasswordDto,
   VerifyOtpFromAuthenticatorDto,
+  LogoutDto,
+  LogoutAllDto,
 } from './dto';
 import { Public } from '@slack/common';
 import { RateLimit } from '../common/guards/rate-limit.decorator';
@@ -94,21 +96,13 @@ export class AuthController {
 
   @Post('logout')
   @ApiOperation({ summary: 'Logout user' })
+  @ApiBody({ type: LogoutDto })
   @ApiResponse({ status: 200, description: 'User successfully logged out' })
   @ApiBearerAuth()
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        access_token: { type: 'string' },
-        refresh_token: { type: 'string' },
-      },
-    },
-  })
-  logout(@Body() data: { access_token: string; refresh_token: string }) {
+  logout(@Body() data: LogoutDto) {
     return this.authService.logout({
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token,
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
     });
   }
 
@@ -119,12 +113,9 @@ export class AuthController {
     description: 'User successfully logged out from all devices',
   })
   @ApiBearerAuth()
-  @ApiBody({
-    schema: { type: 'object', properties: { user_id: { type: 'string' } } },
-  })
-  logoutAll(@Body() data: { user_id: string }) {
+  logoutAll(@Body() data: LogoutAllDto) {
     return this.authService.logoutAll({
-      userId: data.user_id,
+      accessToken: data.accessToken,
     });
   }
 

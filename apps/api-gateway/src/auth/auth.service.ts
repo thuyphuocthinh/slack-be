@@ -18,7 +18,7 @@ export class AuthService {
   constructor(
     @Inject(NAME_SERVICE_TCP.AUTH_SERVICE)
     private readonly authClient: ClientProxy,
-  ) {}
+  ) { }
 
   async register(data: RegisterDto): Promise<string> {
     return MicroserviceErrorHandler.handleAsyncCall(
@@ -100,7 +100,7 @@ export class AuthService {
     );
   }
 
-  async logoutAll(data: { userId: string }) {
+  async logoutAll(data: { accessToken: string }) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(

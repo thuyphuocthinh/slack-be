@@ -5,11 +5,13 @@ import {
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
+  Unique,
   UpdateDateColumn,
 } from 'typeorm';
 import { MessageEntity } from './message.entity';
 
 // @Entity('message_reactions')
+@Unique(['messageId', 'userId', 'emoji'])
 export class MessageReactionEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

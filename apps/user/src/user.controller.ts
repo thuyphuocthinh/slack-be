@@ -1,4 +1,4 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Logger } from '@nestjs/common';
 import { UserService } from './services/user.service';
 import {
   ChangeAvatarDto,
@@ -21,11 +21,14 @@ import { UserPreferenceService } from './services/user_preference.service';
 
 @Controller()
 export class UserController {
+
+  private readonly logger = new Logger(UserController.name);
+
   constructor(
     private readonly userService: UserService,
     private readonly twoFactorService: TwoFactorService,
     private readonly userPreferenceService: UserPreferenceService,
-  ) {}
+  ) { }
 
   @MessagePattern(USER_MESSAGE_PATTERNS.CREATE_USER)
   async createUser(data: CreateUserDto) {
@@ -35,6 +38,7 @@ export class UserController {
   @MessagePattern(USER_MESSAGE_PATTERNS.CHANGE_USER_STATUS)
   async changeStatus(data: UpdateUserStatusDto) {
     await this.userService.updateStatus(data.id, data.status);
+    return { success: true };
   }
 
   @MessagePattern(USER_MESSAGE_PATTERNS.GET_USER_BY_ID)
@@ -59,7 +63,7 @@ export class UserController {
 
   @MessagePattern(TWO_FA_MESSAGE_PATTERNS.TOGGLE_TWO_FACTOR)
   async toggleTwoFactor(data: ToggleTwoFactorDto) {
-    await this.twoFactorService.toggleTwoFactor(data.userId);
+    return await this.twoFactorService.toggleTwoFactor(data.userId);
   }
 
   @MessagePattern(USER_MESSAGE_PATTERNS.CHANGE_AVATAR)
@@ -105,6 +109,7 @@ export class UserController {
 
   @MessagePattern(USER_MESSAGE_PATTERNS.FIND_USERS_BY_EMAIL)
   async findUsersByEmails(data: { email: string }) {
+    this.logger.log(`Find users by email: ${data.email}`);
     return await this.userService.findUsersByEmail(data.email);
   }
 }

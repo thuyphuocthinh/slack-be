@@ -1,21 +1,64 @@
+import { IsBoolean, IsEnum, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class UIPreferenceDto {
+  @IsOptional()
+  @IsEnum(['light', 'dark'])
+  theme?: 'light' | 'dark';
+
+  @IsOptional()
+  @IsEnum(['vi', 'en'])
+  language?: 'vi' | 'en';
+
+  @IsOptional()
+  @IsEnum(['comfortable', 'compact'])
+  density?: 'comfortable' | 'compact';
+}
+
+export class NotificationPreferenceDto {
+  @IsOptional()
+  @IsBoolean()
+  desktop?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  mentionOnly?: boolean;
+}
+
+export class MessagingPreferenceDto {
+  @IsOptional()
+  @IsBoolean()
+  enterToSend?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  showPreview?: boolean;
+}
+
+export class PrivacyPreferenceDto {
+  @IsOptional()
+  @IsEnum(['everyone', 'members', 'none'])
+  allowDmFrom?: 'everyone' | 'members' | 'none';
+}
+
 export class UpdateUserSettingsDto {
-  ui?: {
-    theme?: 'light' | 'dark';
-    language?: 'vi' | 'en';
-    density?: 'comfortable' | 'compact';
-  };
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UIPreferenceDto)
+  ui?: UIPreferenceDto;
 
-  notification?: {
-    desktop?: boolean;
-    mention_only?: boolean;
-  };
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => NotificationPreferenceDto)
+  notification?: NotificationPreferenceDto;
 
-  messaging?: {
-    enter_to_send?: boolean;
-    show_preview?: boolean;
-  };
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => MessagingPreferenceDto)
+  messaging?: MessagingPreferenceDto;
 
-  privacy?: {
-    allow_dm_from?: 'everyone' | 'members' | 'none';
-  };
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PrivacyPreferenceDto)
+  privacy?: PrivacyPreferenceDto;
 }

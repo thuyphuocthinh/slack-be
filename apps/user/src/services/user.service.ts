@@ -23,7 +23,7 @@ export class UserService {
     private readonly authClient: ClientProxy,
     private readonly cachedService: CachedService,
     private readonly twoFactorService: TwoFactorService,
-  ) {}
+  ) { }
 
   private async mapUserToResponse(
     user: UserEntity,
@@ -86,7 +86,9 @@ export class UserService {
     if (!user) {
       throw new RpcException(USER_ERROR.USER_NOT_FOUND);
     }
-    return this.mapUserToResponse(user);
+    const response = await this.mapUserToResponse(user);
+    this.logger.log(`User ${email} response 2FA: ${response.isTwoFactorEnabled}`);
+    return response;
   }
 
   // change avatar (viet upload service truoc)
@@ -194,6 +196,7 @@ export class UserService {
   }
 
   async findUsersByEmail(email: string): Promise<IUserResponse[]> {
+    this.logger.log(`Finding users with email: ${email}`);
     const users = await this.userRepository.find({
       where: {
         email: ILike(`${email.toLowerCase()}%`),

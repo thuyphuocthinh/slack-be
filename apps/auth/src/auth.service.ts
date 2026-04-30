@@ -227,7 +227,7 @@ export class AuthService {
     otp: string,
     metadata?: IRequestMetadata,
   ): Promise<ITokenResponse> {
-    const { userId } = await this.jwtService.verifyAsync(tempToken);
+    const { sub: userId } = await this.jwtService.verifyAsync(tempToken);
     await firstValueFrom(
       this.userClient.send(TWO_FA_MESSAGE_PATTERNS.VERIFY_OTP, {
         userId,
@@ -291,6 +291,7 @@ export class AuthService {
       throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_VERIFIED);
     }
 
+    this.logger.log(`User ${email} 2FA enabled: ${user.isTwoFactorEnabled}`);
     if (user.isTwoFactorEnabled) {
       return {
         isEnableTwoFactor: true,
@@ -434,6 +435,15 @@ export class AuthService {
     refreshToken: string;
   }): Promise<string> {
     const { accessToken, refreshToken } = request;
+
+    if (!refreshToken) {
+      throw new RpcException(AUTH_ERROR.INVALID_REFRESH_TOKEN);
+    }
+
+    if (!accessToken) {
+      throw new RpcException(AUTH_ERROR.INVALID_ACCESS_TOKEN);
+    }
+
     const result = await this.sessionRepository.update(
       {
         refreshToken: hashToken(refreshToken),
@@ -452,17 +462,30 @@ export class AuthService {
   }
 
   // logout all
-  async logoutAll(request: { userId: string }): Promise<string> {
-    const { userId } = request;
-    await this.sessionRepository.update(
-      {
-        userId,
-        isRevoked: false,
-      },
-      { isRevoked: true },
-    );
-    await this.authCacheService.bumpUserTokenVersion(userId);
-    return 'Logout all successfully.';
+  async logoutAll(request: { accessToken: string }): Promise<string> {
+    const { accessToken } = request;
+
+    if (!accessToken) {
+      throw new RpcException(AUTH_ERROR.INVALID_ACCESS_TOKEN);
+    }
+
+    try {
+      const payload = await this.jwtService.verifyAsync(accessToken);
+      const userId = payload.sub;
+
+      await this.sessionRepository.update(
+        {
+          userId,
+          isRevoked: false,
+        },
+        { isRevoked: true },
+      );
+      await this.authCacheService.bumpUserTokenVersion(userId);
+      return 'Logout all successfully.';
+    } catch (error) {
+      this.logger.error(`Logout all failed: ${error.message}`);
+      throw new RpcException(AUTH_ERROR.INVALID_ACCESS_TOKEN);
+    }
   }
 
   // forgot passsword
