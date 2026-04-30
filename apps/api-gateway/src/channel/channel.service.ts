@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
-import { ChannelMessagePattern, NAME_SERVICE_TCP } from '@slack/constants';
+import { CHANNEL_MESSAGE_PATTERN, NAME_SERVICE_TCP } from '@slack/constants';
 import { firstValueFrom } from 'rxjs';
 import {
   AddBatchMembersRequestDto,
@@ -24,19 +24,19 @@ export class ChannelService {
 
   async createChannel(dto: CreateChannelRequestDto) {
     return await firstValueFrom(
-      this.channelClient.send(ChannelMessagePattern.CREATE_CHANNEL, dto),
+      this.channelClient.send(CHANNEL_MESSAGE_PATTERN.CREATE_CHANNEL, dto),
     );
   }
 
   async updateChannel(dto: UpdateChannelRequestDto) {
     return await firstValueFrom(
-      this.channelClient.send(ChannelMessagePattern.UPDATE_CHANNEL, dto),
+      this.channelClient.send(CHANNEL_MESSAGE_PATTERN.UPDATE_CHANNEL, dto),
     );
   }
 
   async deleteChannel(channelId: string, memberId: string) {
     return await firstValueFrom(
-      this.channelClient.send(ChannelMessagePattern.DELETE_CHANNEL, {
+      this.channelClient.send(CHANNEL_MESSAGE_PATTERN.DELETE_CHANNEL, {
         channelId,
         memberId,
       }),
@@ -45,13 +45,13 @@ export class ChannelService {
 
   async getChannels(dto: GetChannelsRequestDto) {
     return await firstValueFrom(
-      this.channelClient.send(ChannelMessagePattern.GET_CHANNELS, dto),
+      this.channelClient.send(CHANNEL_MESSAGE_PATTERN.GET_CHANNELS, dto),
     );
   }
 
   async getChannel(channelId: string, memberId: string) {
     return await firstValueFrom(
-      this.channelClient.send(ChannelMessagePattern.GET_CHANNEL, {
+      this.channelClient.send(CHANNEL_MESSAGE_PATTERN.GET_CHANNEL, {
         channelId,
         memberId,
       }),
@@ -60,28 +60,28 @@ export class ChannelService {
 
   async toggleStar(dto: ToggleStarRequestDto) {
     return await firstValueFrom(
-      this.channelClient.send(ChannelMessagePattern.TOGGLE_STAR, dto),
+      this.channelClient.send(CHANNEL_MESSAGE_PATTERN.TOGGLE_STAR, dto),
     );
   }
 
   async addMember(dto: ChannelMemberRequestDto) {
     this.membersCache.delete(dto.channelId);
     return await firstValueFrom(
-      this.channelClient.send(ChannelMessagePattern.ADD_MEMBER, dto),
+      this.channelClient.send(CHANNEL_MESSAGE_PATTERN.ADD_MEMBER, dto),
     );
   }
 
   async addBatchMembers(dto: AddBatchMembersRequestDto) {
     this.membersCache.delete(dto.channelId);
     return await firstValueFrom(
-      this.channelClient.send(ChannelMessagePattern.ADD_BATCH_MEMBERS, dto),
+      this.channelClient.send(CHANNEL_MESSAGE_PATTERN.ADD_BATCH_MEMBERS, dto),
     );
   }
 
   async removeMember(dto: RemoveMemberRequestDto) {
     this.membersCache.delete(dto.channelId);
     return await firstValueFrom(
-      this.channelClient.send(ChannelMessagePattern.REMOVE_MEMBER, dto),
+      this.channelClient.send(CHANNEL_MESSAGE_PATTERN.REMOVE_MEMBER, dto),
     );
   }
 
@@ -94,7 +94,7 @@ export class ChannelService {
     }
 
     const data = await firstValueFrom(
-      this.channelClient.send(ChannelMessagePattern.GET_MEMBERS, { channelId }),
+      this.channelClient.send(CHANNEL_MESSAGE_PATTERN.GET_MEMBERS, { channelId }),
     );
 
     // Cache for 2 seconds
@@ -109,7 +109,7 @@ export class ChannelService {
   async leaveChannel(channelId: string, memberId: string) {
     this.membersCache.delete(channelId);
     return await firstValueFrom(
-      this.channelClient.send(ChannelMessagePattern.LEAVE_CHANNEL, {
+      this.channelClient.send(CHANNEL_MESSAGE_PATTERN.LEAVE_CHANNEL, {
         channelId,
         memberId,
       }),

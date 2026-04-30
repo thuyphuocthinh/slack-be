@@ -7,6 +7,8 @@ import { MessageEntity } from './entity/message.entity';
 import { MessageMentionEntity } from './entity/message_mention.entity';
 import { MessageReactionEntity } from './entity/message_reaction.entity';
 import { CachedModule } from '@slack/cached';
+import { ClientsModule, Transport } from '@nestjs/microservices';
+import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 
 @Module({
   imports: [
@@ -17,8 +19,34 @@ import { CachedModule } from '@slack/cached';
       MessageMentionEntity,
       MessageReactionEntity,
     ]),
+    ClientsModule.register([
+      {
+        name: NAME_SERVICE_TCP.CHANNEL_SERVICE,
+        transport: Transport.TCP,
+        options: {
+          host: 'localhost',
+          port: PORT_TCP.CHANNEL_TCP_PORT,
+        },
+      },
+      {
+        name: NAME_SERVICE_TCP.USER_SERVICE,
+        transport: Transport.TCP,
+        options: {
+          host: 'localhost',
+          port: PORT_TCP.USER_TCP_PORT,
+        },
+      },
+      {
+        name: NAME_SERVICE_TCP.NOTIFICATION_SERVICE,
+        transport: Transport.TCP,
+        options: {
+          host: 'localhost',
+          port: PORT_TCP.NOTIFICATION_TCP_PORT,
+        },
+      },
+    ]),
   ],
   controllers: [MessageController],
   providers: [MessageService],
 })
-export class MessageModule {}
+export class MessageModule { }

@@ -12,6 +12,8 @@ export * from './errors/validation.error';
 export * from './errors/task.error';
 export * from './errors/channel.error';
 export * from './errors/system.error';
+export * from './errors/message.error';
+
 
 export * from './tcp/tcp.constant';
 export * from './tcp/message_pattern/notification_msg_pattern.constant';
@@ -22,6 +24,8 @@ export * from './tcp/message_pattern/workspace_msg_pattern.constant';
 export * from './tcp/message_pattern/audit_msg_pattern.constant';
 export * from './tcp/message_pattern/task_msg_pattern.constant';
 export * from './tcp/message_pattern/channel_msg_pattern.constant';
+export * from './tcp/message_pattern/message_msg_pattern.constant';
+
 
 export * from './const/regex.constant';
 export * from './const/notification.constant';

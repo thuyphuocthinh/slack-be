@@ -1,4 +1,4 @@
-export const ChannelMessagePattern = {
+export const CHANNEL_MESSAGE_PATTERN = {
     GET_CHANNEL: "channel.get_channel",
     GET_CHANNELS: "channel.get_channels",
     CREATE_CHANNEL: "channel.create_channel",
