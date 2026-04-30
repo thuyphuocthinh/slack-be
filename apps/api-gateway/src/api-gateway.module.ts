@@ -14,6 +14,7 @@ import { WorkspaceModule } from './workspace/workspace.module';
 import { NotificationModule } from './notification/notification.module';
 import { TaskModule } from './task/task.module';
 import { ChannelModule } from './channel/channel.module';
+import { MessageModule } from './message/message.module';
 import { RateLimitGuard } from './common/guards/rate-limit.guard';
 
 @Module({
@@ -28,6 +29,8 @@ import { RateLimitGuard } from './common/guards/rate-limit.guard';
     NotificationModule,
     TaskModule,
     ChannelModule,
+    MessageModule,
+
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'fallback_secret',
     }),
