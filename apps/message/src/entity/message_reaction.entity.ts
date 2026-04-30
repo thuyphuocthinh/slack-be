@@ -10,7 +10,7 @@ import {
 } from 'typeorm';
 import { MessageEntity } from './message.entity';
 
-// @Entity('message_reactions')
+@Entity('message_reactions')
 @Unique(['messageId', 'userId', 'emoji'])
 export class MessageReactionEntity {
   @PrimaryGeneratedColumn('uuid')

@@ -12,12 +12,12 @@ import {
 import { MessageReactionEntity } from './message_reaction.entity';
 import { MessageMentionEntity } from './message_mention.entity';
 
-// @Entity('messages')
+@Entity('messages')
 export class MessageEntity {
   @PrimaryColumn({ type: 'uuid' })
   id: string; // uuid v7
   /**
-   * UUID cho User và Channel. Dùng UUIDv7 cho Message sẽ giúp đồng bộ hoàn toàn kiểu dữ liệu. 
+   * UUID cho User và Channel. Dùng UUIDv7 cho Message sẽ giúp đồng bộ hoàn toàn kiểu dữ liệu.
    * UUIDv7 vẫn đảm bảo sắp xếp theo thời gian (giúp query tin nhắn mới nhất rất nhanh).
    */
 
