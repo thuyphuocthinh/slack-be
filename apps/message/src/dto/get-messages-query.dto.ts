@@ -1,10 +1,15 @@
-import { IsInt, IsOptional, IsUUID, Min } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsUUID, Min } from 'class-validator';
+
 import { Type } from 'class-transformer';
 
 export class GetMessagesQueryDto {
   @IsUUID()
   @IsOptional()
   channelId?: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
 
   @IsUUID()
   @IsOptional()

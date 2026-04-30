@@ -29,3 +29,8 @@ export class MessageResponseDto {
   mentions: MentionResponseDto[] | [];
   replyCount: number;
 }
+
+export class ThreadResponseDto {
+  threads: MessageResponseDto[];
+  nextCursor?: string;
+}

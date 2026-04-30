@@ -9,6 +9,7 @@ import { MessageReactionEntity } from './entity/message_reaction.entity';
 import { CachedModule } from '@slack/cached';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
+import { ThreadService } from './service/thread.service';
 
 @Module({
   imports: [
@@ -47,6 +48,6 @@ import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
     ]),
   ],
   controllers: [MessageController],
-  providers: [MessageService],
+  providers: [MessageService, ThreadService],
 })
-export class MessageModule { }
+export class MessageModule {}

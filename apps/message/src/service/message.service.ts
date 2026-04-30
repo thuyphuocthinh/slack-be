@@ -135,7 +135,18 @@ export class MessageService {
     // cursor - id of message (uuidv7 is sortable)
     // cursor mean "old messages" => message id is less than cursor, like "get messages before this cursor"
     // cursor !== offset that cursor does not start from the beginning and skip "offset" messages
-    const { channelId, parentId, limit = 20, cursor } = query;
+    const { channelId, userId, parentId, limit = 20, cursor } = query;
+
+    // Check channel exist
+    if (channelId) {
+      await this.checkChannelExist(channelId, userId);
+    } else if (parentId) {
+      const parent = await this.messageRepository.findOne({
+        where: { id: parentId },
+      });
+      if (!parent) throw new RpcException(MESSAGE_ERROR.PARENT_NOT_FOUND);
+      await this.checkChannelExist(parent.channelId, userId);
+    }
 
     return await this.dataSource.transaction(async (manager) => {
       const messageRepo = manager.getRepository(MessageEntity);
@@ -144,7 +155,14 @@ export class MessageService {
         .createQueryBuilder('message')
         .leftJoinAndSelect('message.reactions', 'reaction')
         .leftJoinAndSelect('message.mentions', 'mention')
-        .where('message.channelId = :channelId', { channelId });
+        .where('message.channelId = :channelId', {
+          channelId:
+            channelId ||
+            (parentId
+              ? (await messageRepo.findOne({ where: { id: parentId } }))
+                  ?.channelId
+              : undefined),
+        });
 
       if (parentId) {
         queryBuilder.andWhere('message.parentId = :parentId', { parentId });
@@ -174,7 +192,10 @@ export class MessageService {
     });
   }
 
-  async getMessageById(id: string): Promise<MessageResponseDto> {
+  async getMessageById(
+    id: string,
+    userId: string,
+  ): Promise<MessageResponseDto> {
     return await this.dataSource.transaction(async (manager) => {
       const messageRepo = manager.getRepository(MessageEntity);
       const message = await messageRepo.findOne({
@@ -185,6 +206,9 @@ export class MessageService {
       if (!message) {
         throw new RpcException(MESSAGE_ERROR.MESSAGE_NOT_FOUND);
       }
+
+      // Check membership
+      await this.checkChannelExist(message.channelId, userId);
 
       const [dto] = await this.hydrateMessages([message], manager);
       return dto;
@@ -208,13 +232,16 @@ export class MessageService {
         throw new RpcException(MESSAGE_ERROR.NOT_ALLOWED_EDIT);
       }
 
+      // Check membership
+      await this.checkChannelExist(message.channelId, userId);
+
       message.content =
         typeof updateDto.content === 'string'
           ? updateDto.content
           : JSON.stringify(updateDto.content);
       await messageRepo.save(message);
 
-      return this.getMessageById(id);
+      return this.getMessageById(id, userId);
     });
   }
 
@@ -231,6 +258,9 @@ export class MessageService {
         throw new RpcException(MESSAGE_ERROR.NOT_ALLOWED_DELETE);
       }
 
+      // Check membership
+      await this.checkChannelExist(message.channelId, userId);
+
       await messageRepo.remove(message);
       return true;
     });
@@ -241,6 +271,15 @@ export class MessageService {
     toggleDto: ToggleReactionDto,
   ): Promise<boolean> {
     return await this.dataSource.transaction(async (manager) => {
+      const messageRepo = manager.getRepository(MessageEntity);
+      const message = await messageRepo.findOne({
+        where: { id: toggleDto.messageId },
+      });
+      if (!message) throw new RpcException(MESSAGE_ERROR.MESSAGE_NOT_FOUND);
+
+      // Check membership
+      await this.checkChannelExist(message.channelId, userId);
+
       const reactionRepo = manager.getRepository(MessageReactionEntity);
       const { messageId, emoji } = toggleDto;
 
@@ -263,11 +302,15 @@ export class MessageService {
     });
   }
 
-  async togglePin(id: string): Promise<boolean> {
+  async togglePin(id: string, userId: string): Promise<boolean> {
     return await this.dataSource.transaction(async (manager) => {
       const messageRepo = manager.getRepository(MessageEntity);
       const message = await messageRepo.findOne({ where: { id } });
       if (!message) throw new RpcException(MESSAGE_ERROR.MESSAGE_NOT_FOUND);
+
+      // Check membership
+      await this.checkChannelExist(message.channelId, userId);
+
       message.isPinned = !message.isPinned;
       await messageRepo.save(message);
       return message.isPinned;
@@ -307,7 +350,7 @@ export class MessageService {
   /**
    * Helper to populate user info and metadata for a list of messages
    */
-  private async hydrateMessages(
+  public async hydrateMessages(
     messages: MessageEntity[],
     manager?: any,
   ): Promise<MessageResponseDto[]> {
@@ -401,7 +444,7 @@ export class MessageService {
     dto.updatedAt = message.updatedAt;
     dto.sender = sender || {
       id: message.userId,
-      firstName: 'Unknown',
+      firstName: 'Unactived',
       lastName: 'User',
       avatarUrl: '',
       email: '',
