@@ -20,14 +20,25 @@ export class CloudinaryUploadService implements UploadService {
 
   constructor(@Inject('CLOUDINARY') private readonly cloudinary) {}
 
+  private calculateSize(number: number, unit: 'MB' | 'GB'): number {
+    switch (unit) {
+      case 'MB':
+        return number * 1024 * 1024;
+      case 'GB':
+        return number * 1024 * 1024 * 1024;
+      default:
+        return number;
+    }
+  }
+
   private calculateLimit(file: Express.Multer.File) {
     const { mimetype } = file;
-    let limit = 20 * 1024 * 1024; // Default 20MB
+    let limit = this.calculateSize(20, 'MB'); // Default 20MB
 
     if (mimetype.startsWith('image/')) {
-      limit = 5 * 1024 * 1024; // 5MB
+      limit = this.calculateSize(5, 'MB'); // 5MB
     } else if (mimetype.startsWith('video/')) {
-      limit = 100 * 1024 * 1024; // 100MB
+      limit = this.calculateSize(100, 'MB'); // 100MB
     }
 
     return limit;
