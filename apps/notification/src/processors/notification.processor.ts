@@ -6,13 +6,23 @@ import {
   CHANNEL_MESSAGE_PATTERN,
   NotificationType,
 } from '@slack/constants';
-import { QueueService, EQueueName, BaseProcessor } from '@slack/queue';
+import {
+  QueueService,
+  EQueueName,
+  BaseProcessor,
+  EJobName,
+  ICreateNotificationJobData,
+} from '@slack/queue';
 import { ClientProxy } from '@nestjs/microservices';
 import { lastValueFrom } from 'rxjs';
 import { NotificationService } from '../services/impl/notification.service';
 
 @Processor(EQueueName.NOTIFICATION_QUEUE)
-export class NotificationProcessor extends BaseProcessor {
+export class NotificationProcessor extends BaseProcessor<
+  ICreateNotificationJobData,
+  void,
+  EJobName
+> {
   constructor(
     private readonly notificationService: NotificationService,
     @Inject(NAME_SERVICE_TCP.CHANNEL_SERVICE)
@@ -22,7 +32,9 @@ export class NotificationProcessor extends BaseProcessor {
     super();
   }
 
-  async process(job: Job<any, any, string>): Promise<any> {
+  async process(
+    job: Job<ICreateNotificationJobData, void, EJobName>,
+  ): Promise<void> {
     const { channelId, senderId, messageId, mentions, parentId } = job.data;
 
     try {

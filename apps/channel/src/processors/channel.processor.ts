@@ -5,12 +5,22 @@ import {
   BaseProcessor,
   EJobName,
   QueueService,
+  IIncrementUnreadJobData,
 } from '@slack/queue';
 import { ESocketEvent } from '@slack/constants';
 import { ChannelMemberService } from '../service/channel-member.service';
 
+export interface IChannelProcessResult {
+  success: boolean;
+  recipients: number;
+}
+
 @Processor(EQueueName.CHANNEL_QUEUE)
-export class ChannelProcessor extends BaseProcessor {
+export class ChannelProcessor extends BaseProcessor<
+  IIncrementUnreadJobData,
+  IChannelProcessResult,
+  EJobName
+> {
   constructor(
     private readonly channelMemberService: ChannelMemberService,
     private readonly queueService: QueueService,
@@ -18,7 +28,9 @@ export class ChannelProcessor extends BaseProcessor {
     super();
   }
 
-  async process(job: Job<any, any, string>): Promise<any> {
+  async process(
+    job: Job<IIncrementUnreadJobData, IChannelProcessResult, EJobName>,
+  ): Promise<IChannelProcessResult> {
     const { channelId, senderId } = job.data;
 
     if (job.name === EJobName.INCREMENT_UNREAD_COUNT) {
@@ -53,11 +65,13 @@ export class ChannelProcessor extends BaseProcessor {
           await Promise.all(socketPromises);
         }
 
-        return { success: true, recipients: updatedMembers.length - 1 };
+        return { success: true, recipients: updatedMembers?.length || 0 };
       } catch (error) {
         this.logger.error(`Failed to increment unread count: ${error.message}`);
         throw error;
       }
     }
+
+    return { success: false, recipients: 0 };
   }
 }

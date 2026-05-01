@@ -11,7 +11,11 @@ import { Inject } from '@nestjs/common';
 import { I_MAIL_SERVICE, type IMailService } from '../services/mail.interface';
 
 @Processor(EQueueName.EMAIL_QUEUE)
-export class EmailProcessor extends BaseProcessor {
+export class EmailProcessor extends BaseProcessor<
+  IEmailJobData | IInviteJobData,
+  void,
+  EJobName
+> {
   constructor(
     @Inject(I_MAIL_SERVICE) private readonly mailerService: IMailService,
   ) {
@@ -19,8 +23,8 @@ export class EmailProcessor extends BaseProcessor {
   }
 
   async process(
-    job: Job<IEmailJobData | IInviteJobData, any, EJobName>,
-  ): Promise<any> {
+    job: Job<IEmailJobData | IInviteJobData, void, EJobName>,
+  ): Promise<void> {
     switch (job.name) {
       case EJobName.SEND_VERIFICATION_EMAIL: {
         const { email, code } = job.data as IEmailJobData;

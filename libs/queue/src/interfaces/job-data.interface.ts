@@ -12,7 +12,7 @@ export interface IEmailJobData {
   code: string;
 }
 
-export interface INotificationJobData {
+export interface IPushNotificationData {
   recipientId: string;
   type: string;
   templateKey?: string;
@@ -20,6 +20,14 @@ export interface INotificationJobData {
   objectId?: string;
   objectType?: string;
   metadata?: any;
+}
+
+export interface ICreateNotificationJobData {
+  channelId: string;
+  senderId: string;
+  messageId: string;
+  mentions?: any[];
+  parentId?: string;
 }
 
 export interface IEmitEventJobData {
@@ -37,7 +45,7 @@ export type TJobData = {
   [EJobName.SEND_VERIFICATION_EMAIL]: IEmailJobData;
   [EJobName.SEND_INVITE_EMAIL]: IInviteJobData;
   [EJobName.SEND_PASSWORD_RESET_EMAIL]: IEmailJobData;
-  [EJobName.CREATE_NOTIFICATION]: INotificationJobData;
+  [EJobName.CREATE_NOTIFICATION]: ICreateNotificationJobData;
   [EJobName.EMIT_EVENT]: IEmitEventJobData;
   [EJobName.INCREMENT_UNREAD_COUNT]: IIncrementUnreadJobData;
 };

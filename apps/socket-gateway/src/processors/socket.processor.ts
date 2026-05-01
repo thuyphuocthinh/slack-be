@@ -1,17 +1,29 @@
 import { Processor } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
-import { EQueueName, BaseProcessor, EJobName } from '@slack/queue';
+import {
+  EQueueName,
+  BaseProcessor,
+  EJobName,
+  IEmitEventJobData,
+} from '@slack/queue';
 import { SocketGateway } from '../gateway/socket.gateway';
 
 @Processor(EQueueName.SOCKET_QUEUE)
-export class SocketProcessor extends BaseProcessor {
+export class SocketProcessor extends BaseProcessor<
+  IEmitEventJobData,
+  string,
+  EJobName
+> {
   constructor(private readonly socketGateway: SocketGateway) {
     super();
   }
 
-  async process(job: Job<any, any, string>): Promise<any> {
+  async process(
+    job: Job<IEmitEventJobData, string, EJobName>,
+  ): Promise<string> {
     if (job.name !== EJobName.EMIT_EVENT) {
-      return;
+      this.logger.warn(`Unknown job name: ${job.name}`);
+      return 'Ignored';
     }
     this.logger.log(`Processing socket job: ${job.name} (ID: ${job.id})`);
 
@@ -27,7 +39,7 @@ export class SocketProcessor extends BaseProcessor {
       this.logger.debug(`Broadcasted event [${event}] to everyone`);
     }
 
-    return { success: true };
+    return 'Success';
   }
 }
 

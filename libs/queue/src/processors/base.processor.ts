@@ -2,8 +2,14 @@ import { OnWorkerEvent, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 
-export abstract class BaseProcessor extends WorkerHost {
+export abstract class BaseProcessor<
+  T = any,
+  R = any,
+  N extends string = string,
+> extends WorkerHost {
   protected readonly logger = new Logger(this.constructor.name);
+
+  abstract process(job: Job<T, R, N>): Promise<R>;
 
   @OnWorkerEvent('error')
   onError(error: Error) {
