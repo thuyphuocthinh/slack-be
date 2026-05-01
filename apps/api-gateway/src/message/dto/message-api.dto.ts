@@ -11,11 +11,6 @@ import {
 import { Type } from 'class-transformer';
 
 export class CreateMessageApiDto {
-  @IsUUID()
-  @IsNotEmpty()
-  @ApiProperty()
-  channelId: string;
-
   @IsNotEmpty()
   @ApiProperty()
   content: string | Record<string, unknown>[];
@@ -40,11 +35,6 @@ export class UpdateMessageApiDto {
 
 export class GetMessagesQueryApiDto {
   @IsUUID()
-  @IsNotEmpty()
-  @ApiProperty()
-  channelId: string;
-
-  @IsUUID()
   @IsOptional()
   @ApiPropertyOptional()
   parentId?: string;
@@ -63,11 +53,6 @@ export class GetMessagesQueryApiDto {
 }
 
 export class ToggleReactionApiDto {
-  @IsUUID()
-  @IsNotEmpty()
-  @ApiProperty()
-  messageId: string;
-
   @IsString()
   @IsNotEmpty()
   @ApiProperty()
@@ -79,11 +64,6 @@ export class SearchMessagesQueryApiDto {
   @IsNotEmpty()
   @ApiProperty()
   keyword: string;
-
-  @IsUUID()
-  @IsNotEmpty()
-  @ApiProperty()
-  channelId: string;
 }
 
 export class GetThreadQueryApiDto {

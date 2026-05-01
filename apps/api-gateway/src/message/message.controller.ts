@@ -17,11 +17,17 @@ import {
   UpdateMessageApiDto,
   ToggleReactionApiDto,
   SearchMessagesQueryApiDto,
-  GetThreadQueryApiDto,
 } from './dto/message-api.dto';
+import {
+  CreateMessageRequestDto,
+  GetMessagesRequestDto,
+  UpdateMessageRequestDto,
+  ToggleReactionRequestDto,
+  SearchMessagesRequestDto,
+} from './dto/message-request.dto';
 
 @ApiTags('Messages')
-@Controller('messages')
+@Controller('workspaces/:workspaceId/channels/:channelId/messages')
 @ApiBearerAuth()
 export class MessageController {
   constructor(private readonly messageService: MessageService) {}
@@ -29,85 +35,110 @@ export class MessageController {
   @Post()
   @ApiOperation({ summary: 'Create a new message' })
   async createMessage(
+    @Param('workspaceId') workspaceId: string,
+    @Param('channelId') channelId: string,
     @Body() data: CreateMessageApiDto,
     @CurrentUser() user: JwtUser,
   ) {
     return await this.messageService.createMessage({
       ...data,
+      channelId,
       senderId: user.sub,
-    });
+    } as CreateMessageRequestDto);
   }
 
   @Get()
   @ApiOperation({ summary: 'Get messages' })
   async getMessages(
+    @Param('workspaceId') workspaceId: string,
+    @Param('channelId') channelId: string,
     @Query() query: GetMessagesQueryApiDto,
     @CurrentUser() user: JwtUser,
   ) {
     return await this.messageService.getMessages({
       ...query,
+      channelId,
       userId: user.sub,
-    });
-  }
-
-  @Get('threads')
-  @ApiOperation({ summary: 'Get user threads' })
-  async getThreads(
-    @Query() query: GetThreadQueryApiDto,
-    @CurrentUser() user: JwtUser,
-  ) {
-    return await this.messageService.getThreads({
-      ...query,
-      userId: user.sub,
-    });
+    } as GetMessagesRequestDto);
   }
 
   @Get('search')
   @ApiOperation({ summary: 'Search messages' })
   async searchMessages(
+    @Param('workspaceId') workspaceId: string,
+    @Param('channelId') channelId: string,
     @Query() query: SearchMessagesQueryApiDto,
     @CurrentUser() user: JwtUser,
   ) {
     return await this.messageService.searchMessages({
-      ...query,
+      query: query.keyword,
+      channelId,
       senderId: user.sub,
-    });
+    } as SearchMessagesRequestDto);
   }
 
-  @Get(':id')
+  @Get('item/:id')
   @ApiOperation({ summary: 'Get message by ID' })
-  async getMessageById(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+  async getMessageById(
+    @Param('workspaceId') workspaceId: string,
+    @Param('channelId') channelId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+  ) {
     return await this.messageService.getMessageById(id, user.sub);
   }
 
-  @Patch(':id')
+  @Patch('item/:id')
   @ApiOperation({ summary: 'Update message' })
   async updateMessage(
+    @Param('workspaceId') workspaceId: string,
+    @Param('channelId') channelId: string,
     @Param('id') id: string,
     @Body() data: UpdateMessageApiDto,
     @CurrentUser() user: JwtUser,
   ) {
-    return await this.messageService.updateMessage(id, user.sub, data);
+    return await this.messageService.updateMessage({
+      ...data,
+      messageId: id,
+      userId: user.sub,
+    } as UpdateMessageRequestDto);
   }
 
-  @Delete(':id')
+  @Delete('item/:id')
   @ApiOperation({ summary: 'Delete message' })
-  async deleteMessage(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+  async deleteMessage(
+    @Param('workspaceId') workspaceId: string,
+    @Param('channelId') channelId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+  ) {
     return await this.messageService.deleteMessage(id, user.sub);
   }
 
-  @Post('reaction')
+  @Post('item/:id/reaction')
   @ApiOperation({ summary: 'Toggle reaction' })
   async toggleReaction(
+    @Param('workspaceId') workspaceId: string,
+    @Param('channelId') channelId: string,
+    @Param('id') messageId: string,
     @Body() data: ToggleReactionApiDto,
     @CurrentUser() user: JwtUser,
   ) {
-    return await this.messageService.toggleReaction(user.sub, data);
+    return await this.messageService.toggleReaction({
+      ...data,
+      messageId,
+      userId: user.sub,
+    } as ToggleReactionRequestDto);
   }
 
-  @Post(':id/pin')
+  @Post('item/:id/pin')
   @ApiOperation({ summary: 'Toggle pin message' })
-  async togglePin(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+  async togglePin(
+    @Param('workspaceId') workspaceId: string,
+    @Param('channelId') channelId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+  ) {
     return await this.messageService.togglePin(id, user.sub);
   }
 }

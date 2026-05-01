@@ -4,21 +4,21 @@ import { NAME_SERVICE_TCP, TASK_MSG_PATTERN } from '@slack/constants';
 import { firstValueFrom } from 'rxjs';
 import { MicroserviceErrorHandler } from '../common/microservice_error.handler';
 import {
-  CreateBoardApiDto,
-  UpdateBoardApiDto,
-  QueryBoardApiDto,
-  CreateGroupApiDto,
-  UpdateGroupApiDto,
-  CreateTaskApiDto,
-  UpdateTaskApiDto,
-  QueryTaskApiDto,
-  CreateLabelApiDto,
-  UpdateLabelApiDto,
-  CreateChecklistApiDto,
-  UpdateChecklistApiDto,
-  AddChecklistItemApiDto,
-  UpdateChecklistItemApiDto,
-} from './dto/task-api.dto';
+  CreateBoardRequestDto,
+  UpdateBoardRequestDto,
+  QueryBoardRequestDto,
+  CreateGroupRequestDto,
+  UpdateGroupRequestDto,
+  CreateTaskRequestDto,
+  UpdateTaskRequestDto,
+  QueryTaskRequestDto,
+  CreateLabelRequestDto,
+  UpdateLabelRequestDto,
+  CreateChecklistRequestDto,
+  UpdateChecklistRequestDto,
+  AddChecklistItemRequestDto,
+  UpdateChecklistItemRequestDto,
+} from './dto/task-request.dto';
 
 @Injectable()
 export class TaskService {
@@ -28,7 +28,7 @@ export class TaskService {
   ) {}
 
   // --- BOARD ---
-  async createBoard(dto: CreateBoardApiDto, requesterId: string) {
+  async createBoard(dto: CreateBoardRequestDto, requesterId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -42,7 +42,11 @@ export class TaskService {
     );
   }
 
-  async updateBoard(id: string, dto: UpdateBoardApiDto, requesterId: string) {
+  async updateBoard(
+    id: string,
+    dto: UpdateBoardRequestDto,
+    requesterId: string,
+  ) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -71,7 +75,7 @@ export class TaskService {
     );
   }
 
-  async getBoards(queryDto: QueryBoardApiDto, requesterId: string) {
+  async getBoards(queryDto: QueryBoardRequestDto, requesterId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -152,7 +156,7 @@ export class TaskService {
   }
 
   // --- GROUP ---
-  async createGroup(dto: CreateGroupApiDto, requesterId: string) {
+  async createGroup(dto: CreateGroupRequestDto, requesterId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -166,7 +170,11 @@ export class TaskService {
     );
   }
 
-  async updateGroup(id: string, dto: UpdateGroupApiDto, requesterId: string) {
+  async updateGroup(
+    id: string,
+    dto: UpdateGroupRequestDto,
+    requesterId: string,
+  ) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -210,7 +218,7 @@ export class TaskService {
   }
 
   // --- TASK ---
-  async createTask(dto: CreateTaskApiDto, requesterId: string) {
+  async createTask(dto: CreateTaskRequestDto, requesterId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -224,7 +232,7 @@ export class TaskService {
     );
   }
 
-  async updateTask(id: string, dto: UpdateTaskApiDto, requesterId: string) {
+  async updateTask(id: string, dto: UpdateTaskRequestDto, requesterId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -267,7 +275,7 @@ export class TaskService {
     );
   }
 
-  async getTasks(queryDto: QueryTaskApiDto, requesterId: string) {
+  async getTasks(queryDto: QueryTaskRequestDto, requesterId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -335,7 +343,7 @@ export class TaskService {
   }
 
   // --- LABEL ---
-  async createLabel(dto: CreateLabelApiDto, requesterId: string) {
+  async createLabel(dto: CreateLabelRequestDto, requesterId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -349,7 +357,11 @@ export class TaskService {
     );
   }
 
-  async updateLabel(id: string, dto: UpdateLabelApiDto, requesterId: string) {
+  async updateLabel(
+    id: string,
+    dto: UpdateLabelRequestDto,
+    requesterId: string,
+  ) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -393,7 +405,7 @@ export class TaskService {
   }
 
   // --- CHECKLIST ---
-  async createChecklist(dto: CreateChecklistApiDto, requesterId: string) {
+  async createChecklist(dto: CreateChecklistRequestDto, requesterId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -409,7 +421,7 @@ export class TaskService {
 
   async updateChecklist(
     id: string,
-    dto: UpdateChecklistApiDto,
+    dto: UpdateChecklistRequestDto,
     requesterId: string,
   ) {
     return MicroserviceErrorHandler.handleAsyncCall(
@@ -454,7 +466,7 @@ export class TaskService {
     );
   }
 
-  async addChecklistItem(dto: AddChecklistItemApiDto, requesterId: string) {
+  async addChecklistItem(dto: AddChecklistItemRequestDto, requesterId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -470,7 +482,7 @@ export class TaskService {
 
   async updateChecklistItem(
     id: string,
-    dto: UpdateChecklistItemApiDto,
+    dto: UpdateChecklistItemRequestDto,
     requesterId: string,
   ) {
     return MicroserviceErrorHandler.handleAsyncCall(

@@ -11,11 +11,6 @@ import {
 } from 'class-validator';
 
 export class CreateBoardApiDto {
-  @ApiProperty({ example: 'workspace-uuid' })
-  @IsUUID()
-  @IsNotEmpty()
-  workspaceId: string;
-
   @ApiProperty({ example: 'https://example.com/bg.png' })
   @IsString()
   @IsNotEmpty()
@@ -44,11 +39,6 @@ export class UpdateBoardApiDto {
 }
 
 export class QueryBoardApiDto {
-  @ApiProperty({ example: 'workspace-uuid' })
-  @IsUUID()
-  @IsNotEmpty()
-  workspaceId: string;
-
   @ApiPropertyOptional({ example: 1 })
   @IsOptional()
   @Type(() => Number)
@@ -65,11 +55,6 @@ export class QueryBoardApiDto {
 }
 
 export class CreateGroupApiDto {
-  @ApiProperty({ example: 'board-uuid' })
-  @IsUUID()
-  @IsNotEmpty()
-  boardId: string;
-
   @ApiProperty({ example: 'To Do' })
   @IsString()
   @IsNotEmpty()
@@ -96,11 +81,6 @@ export class UpdateGroupApiDto {
 }
 
 export class CreateTaskApiDto {
-  @ApiProperty({ example: 'group-uuid' })
-  @IsUUID()
-  @IsNotEmpty()
-  groupId: string;
-
   @ApiProperty({ example: 'Task Title' })
   @IsString()
   @IsNotEmpty()
@@ -117,11 +97,6 @@ export class UpdateTaskApiDto {
 }
 
 export class QueryTaskApiDto {
-  @ApiProperty({ example: 'group-uuid' })
-  @IsUUID()
-  @IsNotEmpty()
-  groupId: string;
-
   @ApiPropertyOptional({ example: 1 })
   @IsOptional()
   @Type(() => Number)
@@ -138,11 +113,6 @@ export class QueryTaskApiDto {
 }
 
 export class CreateLabelApiDto {
-  @ApiProperty({ example: 'board-uuid' })
-  @IsUUID()
-  @IsNotEmpty()
-  boardId: string;
-
   @ApiProperty({ example: 'Bug' })
   @IsString()
   @IsNotEmpty()
@@ -185,11 +155,6 @@ export class ToggleTaskLabelApiDto {
 }
 
 export class CreateChecklistApiDto {
-  @ApiProperty({ example: 'task-uuid' })
-  @IsUUID()
-  @IsNotEmpty()
-  taskId: string;
-
   @ApiProperty({ example: 'Acceptance Criteria' })
   @IsString()
   @IsNotEmpty()
@@ -206,11 +171,6 @@ export class UpdateChecklistApiDto {
 }
 
 export class AddChecklistItemApiDto {
-  @ApiProperty({ example: 'checklist-uuid' })
-  @IsUUID()
-  @IsNotEmpty()
-  checklistId: string;
-
   @ApiProperty({ example: 'Complete unit tests' })
   @IsString()
   @IsNotEmpty()

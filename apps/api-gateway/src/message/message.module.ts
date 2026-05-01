@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { MessageController } from './message.controller';
+import { ThreadController } from './thread.controller';
 import { MessageService } from './message.service';
 
 @Module({
@@ -17,7 +18,7 @@ import { MessageService } from './message.service';
       },
     ]),
   ],
-  controllers: [MessageController],
+  controllers: [MessageController, ThreadController],
   providers: [MessageService],
 })
 export class MessageModule {}

@@ -2,6 +2,14 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { MESSAGE_MESSAGE_PATTERNS, NAME_SERVICE_TCP } from '@slack/constants';
 import { firstValueFrom } from 'rxjs';
+import {
+  CreateMessageRequestDto,
+  GetMessagesRequestDto,
+  GetThreadRequestDto,
+  SearchMessagesRequestDto,
+  ToggleReactionRequestDto,
+  UpdateMessageRequestDto,
+} from './dto/message-request.dto';
 
 @Injectable()
 export class MessageService {
@@ -12,70 +20,73 @@ export class MessageService {
     private readonly messageClient: ClientProxy,
   ) {}
 
-  async createMessage(data: any) {
+  async createMessage(dto: CreateMessageRequestDto) {
     return await firstValueFrom(
-      this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.CREATE, data),
+      this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.CREATE, dto),
     );
   }
 
-  async getMessages(query: any) {
+  async getMessages(dto: GetMessagesRequestDto) {
     return await firstValueFrom(
-      this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.GET_MESSAGES, query),
+      this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.GET_MESSAGES, dto),
     );
   }
 
-  async getMessageById(id: string, userId: string) {
+  async getThreads(dto: GetThreadRequestDto) {
+    return await firstValueFrom(
+      this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.GET_THREADS, dto),
+    );
+  }
+
+  async searchMessages(dto: SearchMessagesRequestDto) {
+    return await firstValueFrom(
+      this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.SEARCH, dto),
+    );
+  }
+
+  async getMessageById(messageId: string, userId: string) {
     return await firstValueFrom(
       this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.GET_BY_ID, {
-        id,
+        id: messageId,
         userId,
       }),
     );
   }
 
-  async updateMessage(id: string, userId: string, updateDto: any) {
+  async updateMessage(dto: UpdateMessageRequestDto) {
     return await firstValueFrom(
       this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.UPDATE, {
-        id,
-        userId,
-        updateDto,
+        id: dto.messageId,
+        userId: dto.userId,
+        updateDto: { content: dto.content },
       }),
     );
   }
 
-  async deleteMessage(id: string, userId: string) {
+  async deleteMessage(messageId: string, userId: string) {
     return await firstValueFrom(
-      this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.DELETE, { id, userId }),
+      this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.DELETE, {
+        id: messageId,
+        userId,
+      }),
     );
   }
 
-  async toggleReaction(userId: string, toggleDto: any) {
+  async toggleReaction(dto: ToggleReactionRequestDto) {
     return await firstValueFrom(
       this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.TOGGLE_REACTION, {
-        userId,
-        toggleDto,
+        userId: dto.userId,
+        toggleDto: { emoji: dto.emoji, messageId: dto.messageId },
       }),
     );
   }
 
-  async togglePin(id: string, userId: string) {
+  async togglePin(messageId: string, userId: string) {
     return await firstValueFrom(
       this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.TOGGLE_PIN, {
-        id,
+        id: messageId,
         userId,
       }),
-    );
-  }
-
-  async searchMessages(query: any) {
-    return await firstValueFrom(
-      this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.SEARCH, query),
-    );
-  }
-
-  async getThreads(query: any) {
-    return await firstValueFrom(
-      this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.GET_THREADS, query),
     );
   }
 }
