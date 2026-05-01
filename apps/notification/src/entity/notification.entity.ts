@@ -1,8 +1,5 @@
 import { Column, Entity, PrimaryGeneratedColumn, Index } from 'typeorm';
-import {
-  NotificationType,
-  NotificationStatus,
-} from '../types/notification.type';
+import { NotificationType, NotificationStatus } from '@slack/constants';
 
 @Entity('notifications')
 export class Notification {

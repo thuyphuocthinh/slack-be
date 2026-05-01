@@ -9,7 +9,17 @@ export enum EQueueName {
 }
 
 export enum EJobName {
+  // Email
   SEND_VERIFICATION_EMAIL = 'send_verification_email',
   SEND_PASSWORD_RESET_EMAIL = 'send_password_reset_email',
   SEND_INVITE_EMAIL = 'send_invite_email',
+
+  // Notification
+  CREATE_NOTIFICATION = 'create_notification',
+
+  // Socket
+  EMIT_EVENT = 'emit_event',
+
+  // Channel
+  INCREMENT_UNREAD_COUNT = 'increment_unread_count',
 }

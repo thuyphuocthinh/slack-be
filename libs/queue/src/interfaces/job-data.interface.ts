@@ -13,14 +13,31 @@ export interface IEmailJobData {
 }
 
 export interface INotificationJobData {
-  userId: string;
-  title: string;
-  message: string;
+  recipientId: string;
+  type: string;
+  templateKey?: string;
+  content?: string;
+  objectId?: string;
+  objectType?: string;
   metadata?: any;
+}
+
+export interface IEmitEventJobData {
+  event: string;
+  room?: string | string[];
+  data: any;
+}
+
+export interface IIncrementUnreadJobData {
+  channelId: string;
+  senderId: string;
 }
 
 export type TJobData = {
   [EJobName.SEND_VERIFICATION_EMAIL]: IEmailJobData;
   [EJobName.SEND_INVITE_EMAIL]: IInviteJobData;
   [EJobName.SEND_PASSWORD_RESET_EMAIL]: IEmailJobData;
+  [EJobName.CREATE_NOTIFICATION]: INotificationJobData;
+  [EJobName.EMIT_EVENT]: IEmitEventJobData;
+  [EJobName.INCREMENT_UNREAD_COUNT]: IIncrementUnreadJobData;
 };

@@ -10,11 +10,17 @@ import { CachedModule } from '@slack/cached';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { ThreadService } from './service/thread.service';
+import { EQueueName, QueueModule } from '@slack/queue';
 
 @Module({
   imports: [
     DatabaseModule,
     CachedModule.forRoot(),
+    QueueModule.forRoot(),
+    QueueModule.forFeature([
+      EQueueName.SOCKET_QUEUE,
+      EQueueName.NOTIFICATION_QUEUE,
+    ]),
     TypeOrmModule.forFeature([
       MessageEntity,
       MessageMentionEntity,

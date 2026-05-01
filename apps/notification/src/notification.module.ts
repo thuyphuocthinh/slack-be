@@ -17,11 +17,16 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { QueueModule, EQueueName } from '@slack/queue';
 import { EmailProcessor } from './processors/email.processor';
+import { NotificationProcessor } from './processors/notification.processor';
 
 @Module({
   imports: [
     QueueModule.forRoot(),
-    QueueModule.forFeature([EQueueName.EMAIL_QUEUE]),
+    QueueModule.forFeature([
+      EQueueName.EMAIL_QUEUE,
+      EQueueName.NOTIFICATION_QUEUE,
+      EQueueName.SOCKET_QUEUE,
+    ]),
     DatabaseModule,
     TypeOrmModule.forFeature([Notification, AuditLog]),
     ClientsModule.register([
@@ -31,6 +36,14 @@ import { EmailProcessor } from './processors/email.processor';
         options: {
           host: 'localhost',
           port: PORT_TCP.USER_TCP_PORT,
+        },
+      },
+      {
+        name: NAME_SERVICE_TCP.CHANNEL_SERVICE,
+        transport: Transport.TCP,
+        options: {
+          host: 'localhost',
+          port: PORT_TCP.CHANNEL_TCP_PORT,
         },
       },
     ]),
@@ -71,6 +84,7 @@ import { EmailProcessor } from './processors/email.processor';
     NodemailerService,
     SendgridService,
     EmailProcessor,
+    NotificationProcessor,
     {
       provide: I_MAIL_SERVICE,
       useClass: NodemailerService,

@@ -33,24 +33,24 @@ export class ThreadService {
 
       // Subquery tìm tất cả rootId mà user có tham gia
       /*
-            SELECT root.*, 
-            (
-                SELECT MAX(reply.created_at) 
-                FROM messages reply     
-                WHERE reply.parent_id = root.id
-            ) AS "lastActivity"
-            FROM messages root
-            WHERE root.id IN (
-                SELECT DISTINCT COALESCE(m.parent_id, m.id)
-                FROM messages m
-                LEFT JOIN message_mentions mention ON m.id = mention.message_id
-                WHERE m.user_id = :userId OR mention.user_id = :userId
-            )
-            AND root.parent_id IS NULL
-            AND EXISTS (SELECT 1 FROM messages r WHERE r.parent_id = root.id)
-            ORDER BY COALESCE("lastActivity", root.created_at) DESC
-            LIMIT :limit OFFSET :offset
-            */
+        SELECT root.*, 
+        (
+            SELECT MAX(reply.created_at) 
+            FROM messages reply     
+            WHERE reply.parent_id = root.id
+        ) AS "lastActivity"
+        FROM messages root
+        WHERE root.id IN (
+            SELECT DISTINCT COALESCE(m.parent_id, m.id)
+            FROM messages m
+            LEFT JOIN message_mentions mention ON m.id = mention.message_id
+            WHERE m.user_id = :userId OR mention.user_id = :userId
+        )
+        AND root.parent_id IS NULL
+        AND EXISTS (SELECT 1 FROM messages r WHERE r.parent_id = root.id)
+        ORDER BY COALESCE("lastActivity", root.created_at) DESC
+        LIMIT :limit OFFSET :offset
+      */
 
       const involvedRootsQuery = messageRepo
         .createQueryBuilder('m')
@@ -90,22 +90,21 @@ export class ThreadService {
       }
 
       /*
-            cursor = 3 => [1,2,3,4] => take 4 (limit + 1)
-            hasMore = true
-            resultMessages = [1,2,3]
-            nextCursor = 3
-            
-            cursor = 2 => [1,2,3] => take 3 (limit + 1)
-            hasMore = true
-            resultMessages = [1,2]
-            nextCursor = 2
-            
-            cursor = 1 => [1] => take 1 (limit + 1)
-            hasMore = false
-            resultMessages = [1]
-            nextCursor = undefined
-            
-            */
+        cursor = 3 => [1,2,3,4] => take 4 (limit + 1)
+        hasMore = true
+        resultMessages = [1,2,3]
+        nextCursor = 3
+        
+        cursor = 2 => [1,2,3] => take 3 (limit + 1)
+        hasMore = true
+        resultMessages = [1,2]
+        nextCursor = 2
+        
+        cursor = 1 => [1] => take 1 (limit + 1)
+        hasMore = false
+        resultMessages = [1]
+        nextCursor = undefined
+      */
       queryBuilder.take(limit + 1);
       const rootMessages = await queryBuilder.getMany();
       const hasMore = rootMessages.length > limit;

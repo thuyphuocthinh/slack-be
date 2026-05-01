@@ -4,15 +4,19 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
   SubscribeMessage,
-  MessageBody,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Logger, UseFilters, UsePipes, ValidationPipe } from '@nestjs/common';
-import { SocketService } from '../services/socket.service';
 import { JwtService } from '@nestjs/jwt';
 import { AuthCacheService } from '@slack/cached';
 import { WebsocketExceptionsFilter } from '../common/filters/ws-exception.filter';
-import { SubscribeChannelDto } from '../dto/subscribe-channel.dto';
+import {
+  ESocketEvent,
+  NAME_SERVICE_TCP,
+  CHANNEL_MESSAGE_PATTERN,
+} from '@slack/constants';
+import { Inject } from '@nestjs/common';
+import { ClientProxy } from '@nestjs/microservices';
 
 @WebSocketGateway({
   cors: {
@@ -30,9 +34,10 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(SocketGateway.name);
 
   constructor(
-    private readonly socketService: SocketService,
     private readonly jwtService: JwtService,
     private readonly authCache: AuthCacheService,
+    @Inject(NAME_SERVICE_TCP.CHANNEL_SERVICE)
+    private readonly channelClient: ClientProxy,
   ) {}
 
   private async verifyToken(client: Socket) {
@@ -71,54 +76,113 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleConnection(client: Socket) {
     try {
       await this.verifyToken(client);
+      const userId = client.data.user.sub;
+
+      // 1. Join vào phòng cá nhân (Nhận: Unread count, Mention, Reaction, v.v.)
+      client.join(`user_${userId}`);
+
+      this.logger.log(`User ${userId} connected and joined private room`);
+
+      // 2. Gửi thông báo sẵn sàng
+      client.emit(ESocketEvent.SERVER_READY, {
+        message: 'Kết nối Socket thành công và đã vào phòng cá nhân!',
+        userId,
+      });
     } catch (error) {
       this.logger.warn(
         `Authentication failed for client ${client.id}: ${error.message}`,
       );
-      client.disconnect(); // Ngắt kết nối nếu không hợp lệ
+      client.disconnect();
     }
+  }
+
+  // TEST: Sự kiện Ping-Pong
+  @SubscribeMessage(ESocketEvent.PING)
+  handlePing(client: Socket, data: any) {
+    this.logger.log(`Received ping from ${client.id}`);
+    return {
+      event: ESocketEvent.PONG,
+      data: { reply: 'Server is alive!', yourData: data },
+    };
   }
 
   async handleDisconnect(client: Socket) {
     this.logger.log(`Client disconnected: ${client.id}`);
-
-    // Dọn dẹp các subscription khi client ngắt kết nối
-    const rooms = Array.from(client.rooms);
-    for (const room of rooms) {
-      if (room !== client.id) {
-        await this.socketService.unsubscribeChannel(room);
-      }
-    }
   }
 
-  @SubscribeMessage('subscribe_channel')
-  async handleSubscribeChannel(
-    client: Socket,
-    @MessageBody() payload: SubscribeChannelDto,
-  ) {
+  @SubscribeMessage(ESocketEvent.SUBSCRIBE_CHANNEL)
+  handleSubscribeChannel(client: Socket, payload: { channelId: string }) {
     const { channelId } = payload;
     if (!channelId) return;
 
-    this.logger.log(
-      `User ${client.data.user?.sub} subscribing to channel: ${channelId}`,
-    );
-
     client.join(channelId);
-
-    await this.socketService.subscribeChannel(channelId, (data) => {
-      this.server.to(channelId).emit('message_received', data);
-    });
+    this.logger.debug(`User ${client.id} joined channel: ${channelId}`);
+    client.emit(ESocketEvent.SUBSCRIBED, { channelId });
+    return { status: 'success', room: channelId };
   }
 
-  @SubscribeMessage('unsubscribe_channel')
-  async handleUnsubscribeChannel(
-    client: Socket,
-    payload: { channelId: string },
-  ) {
+  @SubscribeMessage(ESocketEvent.UNSUBSCRIBE_CHANNEL)
+  handleUnsubscribeChannel(client: Socket, payload: { channelId: string }) {
     const { channelId } = payload;
     if (!channelId) return;
 
     client.leave(channelId);
-    await this.socketService.unsubscribeChannel(channelId);
+    this.logger.debug(`User ${client.id} left channel: ${channelId}`);
+    client.emit(ESocketEvent.UNSUBSCRIBED, { channelId });
+    return { status: 'success', room: channelId };
+  }
+
+  @SubscribeMessage(ESocketEvent.SUBSCRIBE_THREAD)
+  handleSubscribeThread(client: Socket, payload: { threadId: string }) {
+    const { threadId } = payload;
+    if (!threadId) return;
+
+    const roomName = `thread_${threadId}`;
+    client.join(roomName);
+    this.logger.debug(`User ${client.id} joined thread: ${roomName}`);
+    client.emit(ESocketEvent.THREAD_SUBSCRIBED, { threadId });
+    return { status: 'success', room: roomName };
+  }
+
+  @SubscribeMessage(ESocketEvent.UNSUBSCRIBE_THREAD)
+  handleUnsubscribeThread(client: Socket, payload: { threadId: string }) {
+    const { threadId } = payload;
+    if (!threadId) return;
+
+    const roomName = `thread_${threadId}`;
+    client.leave(roomName);
+    this.logger.debug(`User ${client.id} left thread: ${roomName}`);
+    client.emit(ESocketEvent.THREAD_UNSUBSCRIBED, { threadId });
+    return { status: 'success', room: roomName };
+  }
+
+  @SubscribeMessage(ESocketEvent.MESSAGE_READ)
+  async handleMessageRead(
+    client: Socket,
+    payload: { channelId: string; lastMessageId: string },
+  ) {
+    const { channelId, lastMessageId } = payload;
+    if (!channelId || !lastMessageId) return;
+
+    const userId = client.data.user.sub;
+
+    // Gọi sang Channel Service để cập nhật trạng thái đã đọc qua TCP
+    this.channelClient.emit(CHANNEL_MESSAGE_PATTERN.MARK_AS_READ, {
+      channelId,
+      memberId: userId,
+      lastMessageId,
+    });
+
+    this.logger.debug(
+      `User ${userId} marked channel ${channelId} as read up to ${lastMessageId}`,
+    );
+
+    // Bắn ngược lại thông báo unread count = 0 cho chính user đó để update UI tức thì
+    client.emit(ESocketEvent.CHANNEL_UNREAD_UPDATED, {
+      channelId,
+      unreadCount: 0,
+    });
+
+    return { status: 'success' };
   }
 }

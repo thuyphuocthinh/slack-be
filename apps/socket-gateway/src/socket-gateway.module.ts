@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { SocketGateway } from './gateway/socket.gateway';
-import { SocketService } from './services/socket.service';
-import { Redis } from 'ioredis';
 import { QueueModule, EQueueName } from '@slack/queue';
 import { SocketProcessor } from './processors/socket.processor';
 import { JwtModule } from '@nestjs/jwt';
 import { CachedModule } from '@slack/cached';
+import { ClientsModule, Transport } from '@nestjs/microservices';
+import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 
 @Module({
   imports: [
@@ -15,37 +15,24 @@ import { CachedModule } from '@slack/cached';
     }),
     QueueModule.forRoot(),
     QueueModule.forFeature([EQueueName.SOCKET_QUEUE]),
-    JwtModule.register({
-      secret: process.env.JWT_SECRET || 'fallback_secret',
+    ClientsModule.register([
+      {
+        name: NAME_SERVICE_TCP.CHANNEL_SERVICE,
+        transport: Transport.TCP,
+        options: {
+          host: 'localhost',
+          port: PORT_TCP.CHANNEL_TCP_PORT,
+        },
+      },
+    ]),
+    JwtModule.registerAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        secret: config.get('JWT_SECRET'),
+      }),
     }),
     CachedModule.forRoot(),
   ],
-  providers: [
-    SocketGateway,
-    SocketService,
-    SocketProcessor,
-    {
-      provide: 'REDIS_SUBSCRIBER',
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        return new Redis({
-          host: configService.get<string>('REDIS_HOST', '127.0.0.1'),
-          port: configService.get<number>('REDIS_PORT', 6379),
-          password: configService.get<string>('REDIS_PASSWORD'),
-        });
-      },
-    },
-    {
-      provide: 'REDIS_PUBLISHER',
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        return new Redis({
-          host: configService.get<string>('REDIS_HOST', '127.0.0.1'),
-          port: configService.get<number>('REDIS_PORT', 6379),
-          password: configService.get<string>('REDIS_PASSWORD'),
-        });
-      },
-    },
-  ],
+  providers: [SocketGateway, SocketProcessor],
 })
 export class SocketGatewayModule {}

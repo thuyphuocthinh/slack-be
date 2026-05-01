@@ -1,22 +1,28 @@
 export enum NotificationType {
   // message
-  MESSAGE_RECEIVED = 'MESSAGE_RECEIVED',
-  MENTIONED_IN_MESSAGE = 'MENTIONED_IN_MESSAGE',
-  REPLY_IN_THREAD = 'REPLY_IN_THREAD',
-
-  // reaction
-  REACTION_ADDED = 'REACTION_ADDED',
+  MESSAGE_RECEIVED = 'message_received',
+  MENTIONED_IN_MESSAGE = 'mentioned_in_message',
+  REPLY_IN_THREAD = 'reply_in_thread',
+  MESSAGE_REACTION_ADDED = 'message_reaction_added',
 
   // channel
-  ADDED_TO_CHANNEL = 'ADDED_TO_CHANNEL',
-  REMOVED_FROM_CHANNEL = 'REMOVED_FROM_CHANNEL',
+  USER_ADDED_TO_CHANNEL = 'user_added_to_channel',
+  USER_REMOVED_FROM_CHANNEL = 'user_removed_from_channel',
+  CHANNEL_CREATED = 'channel_created',
+  CHANNEL_RENAMED = 'channel_renamed',
+
+  // workspace
+  INVITED_TO_WORKSPACE = 'invited_to_workspace',
+  JOINED_WORKSPACE = 'joined_workspace',
 
   // task
-  TASK_ASSIGNED = 'TASK_ASSIGNED',
-  TASK_UPDATED = 'TASK_UPDATED',
+  TASK_ASSIGNED = 'task_assigned',
+  TASK_UPDATED = 'task_updated',
+  TASK_DUE_SOON = 'task_due_soon',
 
   // system
-  WORKSPACE_INVITED = 'WORKSPACE_INVITED',
+  SYSTEM_ANNOUNCEMENT = 'system_announcement',
+  WORKSPACE_INVITED = 'workspace_invited',
 }
 
 export enum NotificationStatus {

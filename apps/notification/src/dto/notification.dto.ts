@@ -14,11 +14,6 @@ import {
   NotificationStatus,
 } from '../types/notification.type';
 
-import {
-  NOTIFICATION_TEMPLATE_KEYS,
-  type NotificationTemplateKey,
-} from '../constants/notification.const';
-
 export class FetchNotificationsDto {
   @IsUUID()
   userId: string;
@@ -47,8 +42,8 @@ export class PushNotificationDto {
   @IsEnum(NotificationType)
   type: NotificationType;
 
-  @IsEnum(NOTIFICATION_TEMPLATE_KEYS)
-  templateKey: NotificationTemplateKey;
+  @IsEnum(NotificationType)
+  templateKey: NotificationType;
 
   @IsString()
   @IsOptional()

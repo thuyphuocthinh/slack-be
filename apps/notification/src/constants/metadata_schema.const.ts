@@ -1,14 +1,11 @@
 import { z } from 'zod';
-import {
-  NOTIFICATION_TEMPLATE_KEYS,
-  NotificationTemplateKey,
-} from './notification.const';
+import { NotificationType } from '@slack/constants';
 
 export const NotificationMetadataSchema = {
   // ======================
   // MESSAGE
   // ======================
-  [NOTIFICATION_TEMPLATE_KEYS.MESSAGE_RECEIVED]: z.object({
+  [NotificationType.MESSAGE_RECEIVED]: z.object({
     actorId: z.string(),
     actorName: z.string(),
     messageId: z.string(),
@@ -17,7 +14,7 @@ export const NotificationMetadataSchema = {
     snippet: z.string().optional(),
   }),
 
-  [NOTIFICATION_TEMPLATE_KEYS.MENTIONED_IN_MESSAGE]: z.object({
+  [NotificationType.MENTIONED_IN_MESSAGE]: z.object({
     actorId: z.string(),
     actorName: z.string(),
     messageId: z.string(),
@@ -26,7 +23,7 @@ export const NotificationMetadataSchema = {
     snippet: z.string(),
   }),
 
-  [NOTIFICATION_TEMPLATE_KEYS.REPLY_IN_THREAD]: z.object({
+  [NotificationType.REPLY_IN_THREAD]: z.object({
     actorId: z.string(),
     actorName: z.string(),
     messageId: z.string(),
@@ -34,7 +31,7 @@ export const NotificationMetadataSchema = {
     snippet: z.string().optional(),
   }),
 
-  [NOTIFICATION_TEMPLATE_KEYS.MESSAGE_REACTION_ADDED]: z.object({
+  [NotificationType.MESSAGE_REACTION_ADDED]: z.object({
     actorId: z.string(),
     actorName: z.string(),
     messageId: z.string(),
@@ -44,7 +41,7 @@ export const NotificationMetadataSchema = {
   // ======================
   // CHANNEL
   // ======================
-  [NOTIFICATION_TEMPLATE_KEYS.USER_ADDED_TO_CHANNEL]: z.object({
+  [NotificationType.USER_ADDED_TO_CHANNEL]: z.object({
     actorId: z.string(),
     actorName: z.string(),
     targetUserId: z.string(),
@@ -52,7 +49,7 @@ export const NotificationMetadataSchema = {
     channelName: z.string(),
   }),
 
-  [NOTIFICATION_TEMPLATE_KEYS.USER_REMOVED_FROM_CHANNEL]: z.object({
+  [NotificationType.USER_REMOVED_FROM_CHANNEL]: z.object({
     actorId: z.string(),
     actorName: z.string(),
     targetUserId: z.string(),
@@ -60,14 +57,14 @@ export const NotificationMetadataSchema = {
     channelName: z.string(),
   }),
 
-  [NOTIFICATION_TEMPLATE_KEYS.CHANNEL_CREATED]: z.object({
+  [NotificationType.CHANNEL_CREATED]: z.object({
     actorId: z.string(),
     actorName: z.string(),
     channelId: z.string(),
     channelName: z.string(),
   }),
 
-  [NOTIFICATION_TEMPLATE_KEYS.CHANNEL_RENAMED]: z.object({
+  [NotificationType.CHANNEL_RENAMED]: z.object({
     actorId: z.string(),
     actorName: z.string(),
     channelId: z.string(),
@@ -78,14 +75,14 @@ export const NotificationMetadataSchema = {
   // ======================
   // WORKSPACE
   // ======================
-  [NOTIFICATION_TEMPLATE_KEYS.INVITED_TO_WORKSPACE]: z.object({
+  [NotificationType.INVITED_TO_WORKSPACE]: z.object({
     actorId: z.string(),
     actorName: z.string(),
     workspaceId: z.string(),
     workspaceName: z.string(),
   }),
 
-  [NOTIFICATION_TEMPLATE_KEYS.JOINED_WORKSPACE]: z.object({
+  [NotificationType.JOINED_WORKSPACE]: z.object({
     userId: z.string(),
     userName: z.string(),
     workspaceId: z.string(),
@@ -95,14 +92,14 @@ export const NotificationMetadataSchema = {
   // ======================
   // TASK
   // ======================
-  [NOTIFICATION_TEMPLATE_KEYS.TASK_ASSIGNED]: z.object({
+  [NotificationType.TASK_ASSIGNED]: z.object({
     actorId: z.string(),
     actorName: z.string(),
     taskId: z.string(),
     taskTitle: z.string(),
   }),
 
-  [NOTIFICATION_TEMPLATE_KEYS.TASK_UPDATED]: z.object({
+  [NotificationType.TASK_UPDATED]: z.object({
     actorId: z.string(),
     actorName: z.string(),
     taskId: z.string(),
@@ -113,12 +110,20 @@ export const NotificationMetadataSchema = {
   // ======================
   // SYSTEM
   // ======================
-  [NOTIFICATION_TEMPLATE_KEYS.SYSTEM_ANNOUNCEMENT]: z.object({
+  [NotificationType.SYSTEM_ANNOUNCEMENT]: z.object({
     title: z.string(),
     content: z.string(),
   }),
+
+  [NotificationType.WORKSPACE_INVITED]: z.object({
+    actorId: z.string(),
+    actorName: z.string(),
+    workspaceId: z.string(),
+  }),
 } as const;
 
-export type MetadataOf<T extends NotificationTemplateKey> = z.infer<
+export type NotificationTemplateKey = NotificationType;
+
+export type MetadataOf<T extends NotificationType> = z.infer<
   (typeof NotificationMetadataSchema)[T]
 >;

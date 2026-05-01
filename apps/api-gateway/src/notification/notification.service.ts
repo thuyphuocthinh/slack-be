@@ -14,6 +14,15 @@ export class NotificationService {
     private readonly notificationClient: ClientProxy,
   ) {}
 
+  async getUnreadSummary(userId: string) {
+    return await firstValueFrom(
+      this.notificationClient.send(
+        NOTIFICATION_MESSAGE_PATTERNS.GET_UNREAD_SUMMARY,
+        { userId },
+      ),
+    );
+  }
+
   async fetchNotifications(userId: string, dto: FetchNotificationsDto) {
     return await firstValueFrom(
       this.notificationClient.send(

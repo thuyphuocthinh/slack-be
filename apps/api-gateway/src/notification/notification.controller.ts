@@ -15,6 +15,13 @@ import { CurrentUser, type JwtUser } from '@slack/common';
 export class NotificationController {
   constructor(private readonly notificationService: NotificationService) {}
 
+  @ApiOperation({ summary: 'Get unread notifications summary' })
+  @ApiResponse({ status: 200, description: 'Unread summary retrieved' })
+  @Get('unread')
+  async getUnreadSummary(@CurrentUser() user: JwtUser) {
+    return await this.notificationService.getUnreadSummary(user.sub);
+  }
+
   @ApiOperation({ summary: 'Fetch notifications' })
   @ApiResponse({
     status: 200,

@@ -40,9 +40,9 @@ export class UpdateMessageApiDto {
 
 export class GetMessagesQueryApiDto {
   @IsUUID()
-  @IsOptional()
-  @ApiPropertyOptional()
-  channelId?: string;
+  @IsNotEmpty()
+  @ApiProperty()
+  channelId: string;
 
   @IsUUID()
   @IsOptional()

@@ -18,7 +18,6 @@ import {
 import { firstValueFrom } from 'rxjs';
 import { ChannelMemberResponse } from '../type/channel.response';
 import { CACHE, CachedService, TTL } from '@slack/cached';
-import { MemberType } from '../type/member.type';
 import { RemoveMemberDto } from '../dto/remove-member.dto';
 
 @Injectable()
@@ -36,7 +35,7 @@ export class ChannelMemberService {
     @Inject(NAME_SERVICE_TCP.USER_SERVICE)
     private readonly userClient: ClientProxy,
     private readonly cachedService: CachedService,
-  ) { }
+  ) {}
 
   private async checkWorkspacePermission(
     workspaceId: string,
@@ -63,7 +62,9 @@ export class ChannelMemberService {
 
   private async checkUserExist(userId: string) {
     const user = await firstValueFrom(
-      this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, { id: userId }),
+      this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, {
+        id: userId,
+      }),
     );
     if (!user) {
       throw new RpcException(USER_ERROR.USER_NOT_FOUND);
@@ -96,7 +97,9 @@ export class ChannelMemberService {
       }
 
       if (channel.type === ChannelTypeEnum.DIRECT) {
-        throw new RpcException(CHANNEL_ERROR.CANNOT_ADD_MEMBER_TO_DIRECT_CHANNEL);
+        throw new RpcException(
+          CHANNEL_ERROR.CANNOT_ADD_MEMBER_TO_DIRECT_CHANNEL,
+        );
       }
 
       // Only OWNER and ADMIN can add members to channels
@@ -139,7 +142,9 @@ export class ChannelMemberService {
       this.cachedService
         .invalidateList(CACHE.CHANNEL.TRACKERS.MEMBERS_VERSION(channelId))
         .catch((err) =>
-          this.logger.error(`Channel members cache invalidation failed: ${err.message}`),
+          this.logger.error(
+            `Channel members cache invalidation failed: ${err.message}`,
+          ),
         );
     });
 
@@ -161,7 +166,9 @@ export class ChannelMemberService {
       }
 
       if (channel.type === ChannelTypeEnum.DIRECT) {
-        throw new RpcException(CHANNEL_ERROR.CANNOT_ADD_MEMBER_TO_DIRECT_CHANNEL);
+        throw new RpcException(
+          CHANNEL_ERROR.CANNOT_ADD_MEMBER_TO_DIRECT_CHANNEL,
+        );
       }
 
       // Only OWNER and ADMIN can add members to channels
@@ -206,7 +213,10 @@ export class ChannelMemberService {
         newMembers.map((m) =>
           this.cachedService
             .invalidateList(
-              CACHE.CHANNEL.TRACKERS.LIST_VERSION(channel.workspaceId, m.memberId),
+              CACHE.CHANNEL.TRACKERS.LIST_VERSION(
+                channel.workspaceId,
+                m.memberId,
+              ),
             )
             .catch((err) =>
               this.logger.error(
@@ -282,7 +292,10 @@ export class ChannelMemberService {
       // Invalidate cache for target member
       this.cachedService
         .invalidateList(
-          CACHE.CHANNEL.TRACKERS.LIST_VERSION(channel.workspaceId, targetMemberId),
+          CACHE.CHANNEL.TRACKERS.LIST_VERSION(
+            channel.workspaceId,
+            targetMemberId,
+          ),
         )
         .catch((err) =>
           this.logger.error(`Cache invalidation failed: ${err.message}`),
@@ -292,7 +305,9 @@ export class ChannelMemberService {
       this.cachedService
         .invalidateList(CACHE.CHANNEL.TRACKERS.MEMBERS_VERSION(channelId))
         .catch((err) =>
-          this.logger.error(`Channel members cache invalidation failed: ${err.message}`),
+          this.logger.error(
+            `Channel members cache invalidation failed: ${err.message}`,
+          ),
         );
 
       this.logger.log('Removed member: ', JSON.stringify(dto, null, 2));
@@ -350,7 +365,9 @@ export class ChannelMemberService {
       this.cachedService
         .invalidateList(CACHE.CHANNEL.TRACKERS.MEMBERS_VERSION(channelId))
         .catch((err) =>
-          this.logger.error(`Channel members cache invalidation failed: ${err.message}`),
+          this.logger.error(
+            `Channel members cache invalidation failed: ${err.message}`,
+          ),
         );
 
       this.logger.log(
@@ -360,5 +377,43 @@ export class ChannelMemberService {
 
       return 'User left channel successfully';
     });
+  }
+
+  async incrementUnreadCount(
+    channelId: string,
+    senderId: string,
+  ): Promise<{ memberId: string; unreadCount: number }[]> {
+    await this.channelMemberRepository
+      .createQueryBuilder()
+      .update(ChannelMemberEntity)
+      .set({ unreadCount: () => 'unread_count + 1' })
+      .where('channel_id = :channelId AND member_id != :senderId', {
+        channelId,
+        senderId,
+      })
+      .execute();
+
+    // Lấy lại danh sách member và unread_count mới để bắn socket
+    const updatedMembers = await this.channelMemberRepository.find({
+      where: { channelId },
+      select: ['memberId', 'unreadCount'],
+    });
+
+    return updatedMembers;
+  }
+
+  async markAsRead(
+    channelId: string,
+    memberId: string,
+    lastReadMessageId: string,
+  ): Promise<void> {
+    await this.channelMemberRepository.update(
+      { channelId, memberId },
+      {
+        unreadCount: 0,
+        lastReadMessageId,
+        lastReadAt: new Date(),
+      },
+    );
   }
 }

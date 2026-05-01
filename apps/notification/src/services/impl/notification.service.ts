@@ -7,6 +7,8 @@ import {
   NAME_SERVICE_TCP,
   NOTIFICATION_ERROR,
   USER_MESSAGE_PATTERNS,
+  ESocketEvent,
+  NotificationType,
 } from '@slack/constants';
 import { IOffsetResponse } from '@slack/common';
 import { lastValueFrom } from 'rxjs';
@@ -18,8 +20,10 @@ import {
   MarkAllAsReadDto,
   DeleteNotificationDto,
 } from '../../dto';
-import { NotificationStatus } from '../../types/notification.type';
+import { NotificationStatus } from '@slack/constants';
 import { NotificationResponse } from '../../types/notification.response';
+import { NotificationUnreadSummaryResponse } from '../../types/notification-unread-summary.response';
+import { QueueService, EQueueName, EJobName } from '@slack/queue';
 
 @Injectable()
 export class NotificationService {
@@ -30,6 +34,7 @@ export class NotificationService {
     private readonly notificationRepo: Repository<Notification>,
     @Inject(NAME_SERVICE_TCP.USER_SERVICE)
     private readonly userClient: ClientProxy,
+    private readonly queueService: QueueService,
   ) {}
 
   async fetchNotifications(
@@ -114,10 +119,25 @@ export class NotificationService {
 
     const saved = await this.notificationRepo.save(notification);
 
-    // CHÚ THÍCH:
-    // Chỗ này (nếu cần) sẽ gọi API/Gateway để emit qua Socket.io thông báo message mới tới user.
-    // Hiện tại chỉ implement service thuần, không dùng socket.
-    // flow: client -> gateway (either SOCKET | HTTPS) -> CHAT | TASK ... -> REDIS | QUEUE  -> notification service -> save notification -> gateway (SOCKET) -> client
+    // Bắn tin hiệu Socket Realtime tới Room cá nhân của User đó
+    // Đưa vào try-catch để nếu socket lỗi cũng không làm fail transaction chính
+    try {
+      const unreadNotiCount = await this.getUnreadCount(saved.recipientId);
+      await this.queueService.addJob(
+        EQueueName.SOCKET_QUEUE,
+        EJobName.EMIT_EVENT,
+        {
+          event: ESocketEvent.UNREAD_COUNT_UPDATED,
+          room: `user_${saved.recipientId}`,
+          data: {
+            ...saved,
+            unreadNotiCount,
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error(`Failed to emit socket event: ${error.message}`);
+    }
 
     return saved;
   }
@@ -165,5 +185,64 @@ export class NotificationService {
     }
 
     return 'Delete notification successfully';
+  }
+
+  async getUnreadCount(userId: string): Promise<number> {
+    return this.notificationRepo.count({
+      where: { recipientId: userId, status: NotificationStatus.UNREAD },
+    });
+  }
+
+  async getUnreadSummary(
+    userId: string,
+  ): Promise<NotificationUnreadSummaryResponse> {
+    const rawCounts = await this.notificationRepo
+      .createQueryBuilder('notification')
+      .select('notification.type', 'type')
+      .addSelect('COUNT(*)', 'count')
+      .where('notification.recipient_id = :userId', { userId })
+      .andWhere('notification.status = :status', {
+        status: NotificationStatus.UNREAD,
+      })
+      .groupBy('notification.type')
+      .getRawMany();
+
+    const summary: NotificationUnreadSummaryResponse = {
+      unreadAll: 0,
+      unreadMention: 0,
+      unreadReaction: 0,
+      unreadThread: 0,
+      unreadSystem: 0,
+      unreadTask: 0,
+    };
+
+    rawCounts.forEach((rc) => {
+      const count = parseInt(rc.count, 10);
+      summary.unreadAll += count;
+
+      switch (rc.type) {
+        case NotificationType.MENTIONED_IN_MESSAGE:
+          summary.unreadMention += count;
+          break;
+        case NotificationType.MESSAGE_REACTION_ADDED:
+          summary.unreadReaction += count;
+          break;
+        case NotificationType.REPLY_IN_THREAD:
+          summary.unreadThread += count;
+          break;
+        case NotificationType.SYSTEM_ANNOUNCEMENT:
+        case NotificationType.WORKSPACE_INVITED:
+        case NotificationType.INVITED_TO_WORKSPACE:
+          summary.unreadSystem += count;
+          break;
+        case NotificationType.TASK_ASSIGNED:
+        case NotificationType.TASK_UPDATED:
+        case NotificationType.TASK_DUE_SOON:
+          summary.unreadTask += count;
+          break;
+      }
+    });
+
+    return summary;
   }
 }

@@ -14,6 +14,7 @@ import {
   MESSAGE_ERROR,
   NAME_SERVICE_TCP,
   USER_MESSAGE_PATTERNS,
+  ESocketEvent,
 } from '@slack/constants';
 import { InjectRepository } from '@nestjs/typeorm';
 import { MessageEntity } from '../entity/message.entity';
@@ -22,6 +23,7 @@ import { MessageMentionEntity } from '../entity/message_mention.entity';
 import { MessageReactionEntity } from '../entity/message_reaction.entity';
 import { firstValueFrom } from 'rxjs';
 import { v7 as uuidv7 } from 'uuid';
+import { EQueueName, EJobName, QueueService } from '@slack/queue';
 
 @Injectable()
 export class MessageService {
@@ -35,6 +37,7 @@ export class MessageService {
     @InjectRepository(MessageEntity)
     private readonly messageRepository: Repository<MessageEntity>,
     private readonly dataSource: DataSource,
+    private readonly queueService: QueueService,
   ) {}
 
   private async checkChannelExist(channelId: string, senderId: string) {
@@ -122,9 +125,49 @@ export class MessageService {
       }
 
       // 5. Hydrate and return
-      // We reload to get relations if needed, but since we just saved,
-      // we can manually populate or just let hydrateMessages handle it (it will fetch user info)
       const [response] = await this.hydrateMessages([savedMessage], manager);
+
+      // 6. Emit Socket Event (Background)
+      const targetRoom = response.parentId
+        ? `thread_${response.parentId}`
+        : response.channelId;
+
+      await this.queueService.addJob(
+        EQueueName.SOCKET_QUEUE,
+        EJobName.EMIT_EVENT,
+        {
+          event: ESocketEvent.MESSAGE_RECEIVED,
+          room: targetRoom,
+          data: response,
+        },
+      );
+
+      // 7. Push to Notification Queue (Background)
+      // This will handle saving to DB and push notifications
+      await this.queueService.addJob(
+        EQueueName.NOTIFICATION_QUEUE,
+        EJobName.CREATE_NOTIFICATION,
+        {
+          channelId: response.channelId,
+          senderId: response.sender.id,
+          messageId: response.id,
+          mentions: response.mentions,
+          parentId: response.parentId,
+        },
+      );
+
+      // 8. Push to Channel Queue (Background) - For unread count
+      if (!response.parentId) {
+        await this.queueService.addJob(
+          EQueueName.CHANNEL_QUEUE,
+          EJobName.INCREMENT_UNREAD_COUNT,
+          {
+            channelId: response.channelId,
+            senderId: response.sender.id,
+          },
+        );
+      }
+
       return response;
     });
   }
@@ -241,7 +284,24 @@ export class MessageService {
           : JSON.stringify(updateDto.content);
       await messageRepo.save(message);
 
-      return this.getMessageById(id, userId);
+      const response = await this.getMessageById(id, userId);
+
+      // Emit Socket Event
+      const targetRoom = response.parentId
+        ? `thread_${response.parentId}`
+        : response.channelId;
+
+      await this.queueService.addJob(
+        EQueueName.SOCKET_QUEUE,
+        EJobName.EMIT_EVENT,
+        {
+          event: ESocketEvent.MESSAGE_UPDATED,
+          room: targetRoom,
+          data: response,
+        },
+      );
+
+      return response;
     });
   }
 
@@ -262,6 +322,27 @@ export class MessageService {
       await this.checkChannelExist(message.channelId, userId);
 
       await messageRepo.remove(message);
+
+      // Emit Socket Event
+      const targetRoom = message.parentId
+        ? `thread_${message.parentId}`
+        : message.channelId;
+
+      await this.queueService.addJob(
+        EQueueName.SOCKET_QUEUE,
+        EJobName.EMIT_EVENT,
+        {
+          event: ESocketEvent.MESSAGE_DELETED,
+          room: targetRoom,
+          data: {
+            messageId: message.id,
+            userId,
+            channelId: message.channelId,
+            parentId: message.parentId,
+          },
+        },
+      );
+
       return true;
     });
   }
@@ -287,9 +368,10 @@ export class MessageService {
         where: { messageId, userId, emoji },
       });
 
+      let isAdded = false;
       if (existing) {
         await reactionRepo.remove(existing);
-        return false; // removed
+        isAdded = false;
       } else {
         const reaction = reactionRepo.create({
           messageId,
@@ -297,8 +379,32 @@ export class MessageService {
           emoji,
         });
         await reactionRepo.save(reaction);
-        return true; // added
+        isAdded = true;
       }
+
+      // Emit Socket Event cho Reaction
+      const updatedMessage = await this.getMessageById(
+        toggleDto.messageId,
+        userId,
+      );
+
+      await this.queueService.addJob(
+        EQueueName.SOCKET_QUEUE,
+        EJobName.EMIT_EVENT,
+        {
+          event: ESocketEvent.REACTION_UPDATED,
+          room: updatedMessage.channelId, // Reaction luôn bắn về channel để update UI
+          data: {
+            messageId: updatedMessage.id,
+            reactions: updatedMessage.reactions,
+            userId,
+            emoji,
+            isAdded,
+          },
+        },
+      );
+
+      return isAdded;
     });
   }
 
@@ -464,6 +570,8 @@ Vấn đề Realtime
 chính tương đương channel trong database.
 => Khi có message mới gửi vào một channel nào đó thì ws server nào nhận được message => pub/sub => broadcast tới các 
 ws client connected tới nó
+Redis Pub/Sub là "bắn và quên". Nếu tại thời điểm bạn publish, SocketGateway đang restart (offline 1-2 giây), tin nhắn đó sẽ mất vĩnh viễn, client sẽ không thấy tin nhắn realtime đó dù nó đã lưu vào DB.
+Với BullMQ (SOCKET_QUEUE), tin nhắn được lưu vào danh sách "Waiting". Khi SocketGateway online trở lại, nó sẽ nhặt job ra và gửi đi. Người dùng sẽ thấy tin nhắn hiện lên chậm một chút thay vì không thấy gì.
 => User offline/disconnect => không nhận được message từ redis => user phải PULL về call api, k push message tới device
 => Channel trong redis chỉ unsub khi ko còn ws client nào connect tới, tức rỗng.
 => Logout là phải unsub, clear hết

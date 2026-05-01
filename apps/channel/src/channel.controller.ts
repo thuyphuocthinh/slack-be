@@ -18,7 +18,7 @@ export class ChannelController {
   constructor(
     private readonly channelService: ChannelService,
     private readonly channelMemberService: ChannelMemberService,
-  ) { }
+  ) {}
 
   @MessagePattern(CHANNEL_MESSAGE_PATTERN.CREATE_CHANNEL)
   async createChannel(@Payload() dto: CreateChannelDto) {
@@ -31,8 +31,13 @@ export class ChannelController {
   }
 
   @MessagePattern(CHANNEL_MESSAGE_PATTERN.DELETE_CHANNEL)
-  async deleteChannel(@Payload() payload: { channelId: string; memberId: string }) {
-    return await this.channelService.deleteChannel(payload.channelId, payload.memberId);
+  async deleteChannel(
+    @Payload() payload: { channelId: string; memberId: string },
+  ) {
+    return await this.channelService.deleteChannel(
+      payload.channelId,
+      payload.memberId,
+    );
   }
 
   @MessagePattern(CHANNEL_MESSAGE_PATTERN.GET_CHANNELS)
@@ -41,8 +46,13 @@ export class ChannelController {
   }
 
   @MessagePattern(CHANNEL_MESSAGE_PATTERN.GET_CHANNEL)
-  async getChannel(@Payload() payload: { channelId: string; memberId: string }) {
-    return await this.channelService.getChannel(payload.channelId, payload.memberId);
+  async getChannel(
+    @Payload() payload: { channelId: string; memberId: string },
+  ) {
+    return await this.channelService.getChannel(
+      payload.channelId,
+      payload.memberId,
+    );
   }
 
   @MessagePattern(CHANNEL_MESSAGE_PATTERN.TOGGLE_STAR)
@@ -71,7 +81,38 @@ export class ChannelController {
   }
 
   @MessagePattern(CHANNEL_MESSAGE_PATTERN.LEAVE_CHANNEL)
-  async leaveChannel(@Payload() payload: { channelId: string; memberId: string }) {
-    return await this.channelMemberService.leaveChannel(payload.channelId, payload.memberId);
+  async leaveChannel(
+    @Payload() payload: { channelId: string; memberId: string },
+  ) {
+    return await this.channelMemberService.leaveChannel(
+      payload.channelId,
+      payload.memberId,
+    );
+  }
+
+  @MessagePattern(CHANNEL_MESSAGE_PATTERN.INCREMENT_UNREAD_COUNT)
+  async incrementUnreadCount(
+    @Payload() payload: { channelId: string; senderId: string },
+  ) {
+    return await this.channelMemberService.incrementUnreadCount(
+      payload.channelId,
+      payload.senderId,
+    );
+  }
+
+  @MessagePattern(CHANNEL_MESSAGE_PATTERN.MARK_AS_READ)
+  async markAsRead(
+    @Payload()
+    payload: {
+      channelId: string;
+      memberId: string;
+      lastReadMessageId: string;
+    },
+  ) {
+    return await this.channelMemberService.markAsRead(
+      payload.channelId,
+      payload.memberId,
+      payload.lastReadMessageId,
+    );
   }
 }

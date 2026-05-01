@@ -1,22 +1,22 @@
-import { ChannelTypeEnum } from "@slack/constants";
+import { ChannelTypeEnum } from '@slack/constants';
 
 export interface ChannelResponse {
-    id: string;
-    name: string;
-    description: string | null;
-    type: ChannelTypeEnum;
-    createdAt: Date;
-    isStar: boolean;
-    workspaceId: string;
-    unreadCount?: number;
-    lastReadAt?: Date;
+  id: string;
+  name: string;
+  description: string | null;
+  type: ChannelTypeEnum;
+  createdAt: Date;
+  isStar: boolean;
+  workspaceId: string;
+  unreadCount?: number;
+  lastReadAt?: Date;
+  lastReadMessageId?: string | null;
 }
 
 export interface ChannelMemberResponse {
-    id: string;
-    email: string;
-    firstName: string | null;
-    lastName: string | null;
-    avatarUrl: string | null;
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  avatarUrl: string | null;
 }
-

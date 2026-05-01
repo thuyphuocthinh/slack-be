@@ -1,18 +1,18 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { Processor } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
-import { Logger } from '@nestjs/common';
-import { EQueueName } from '@slack/queue';
+import { EQueueName, BaseProcessor, EJobName } from '@slack/queue';
 import { SocketGateway } from '../gateway/socket.gateway';
 
 @Processor(EQueueName.SOCKET_QUEUE)
-export class SocketProcessor extends WorkerHost {
-  private readonly logger = new Logger(SocketProcessor.name);
-
+export class SocketProcessor extends BaseProcessor {
   constructor(private readonly socketGateway: SocketGateway) {
     super();
   }
 
   async process(job: Job<any, any, string>): Promise<any> {
+    if (job.name !== EJobName.EMIT_EVENT) {
+      return;
+    }
     this.logger.log(`Processing socket job: ${job.name} (ID: ${job.id})`);
 
     const { event, room, data } = job.data;
@@ -30,3 +30,12 @@ export class SocketProcessor extends WorkerHost {
     return { success: true };
   }
 }
+
+/*
+MessageService muốn gửi tin nhắn. Nó không biết User đang ở WS Server nào.
+Nó đẩy 1 Job vào BullMQ.
+Chỉ có DUY NHẤT 1 WS Server (ví dụ WS Server 1) nhặt Job đó lên để xử lý (đây là đặc tính của Queue).
+WS Server 1 gọi server.to('room_A').emit(...).
+Ngay lập tức, RedisIoAdapter sẽ "loan tin" này sang cho WS Server 2 và WS Server 3.
+Kết quả: Tất cả User ở cả 3 Server đều nhận được tin nhắn, và mỗi tin nhắn chỉ được gửi đúng 1 lần (không bị lặp).
+*/

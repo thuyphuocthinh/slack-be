@@ -70,4 +70,9 @@ export class NotificationController {
   async deleteNotification(@Payload() data: DeleteNotificationDto) {
     return this.notificationService.deleteNotification(data);
   }
+
+  @MessagePattern(NOTIFICATION_MESSAGE_PATTERNS.GET_UNREAD_SUMMARY)
+  async getUnreadSummary(@Payload() payload: { userId: string }) {
+    return this.notificationService.getUnreadSummary(payload.userId);
+  }
 }

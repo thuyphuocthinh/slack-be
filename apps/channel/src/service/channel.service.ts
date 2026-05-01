@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, OptimisticLockVersionMismatchError, Repository } from 'typeorm';
+import {
+  DataSource,
+  OptimisticLockVersionMismatchError,
+  Repository,
+} from 'typeorm';
 import { ChannelEntity } from '../entity/channel.entity';
 import { ChannelMemberEntity } from '../entity/channel_member.entity';
 import { CreateChannelDto } from '../dto/create-channel.dto';
@@ -8,7 +12,16 @@ import { UpdateChannelDto } from '../dto/update-channel.dto';
 import { ToggleStarDto } from '../dto/toggle-star.dto';
 import { GetChannelsDto } from '../dto/get-channels.dto';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
-import { CHANNEL_ERROR, NAME_SERVICE_TCP, USER_MESSAGE_PATTERNS, WORKSPACE_MESSAGE_PATTERNS, WorkspaceRoleEnum, ChannelTypeEnum, USER_ERROR, DATABASE_ERROR } from '@slack/constants';
+import {
+  CHANNEL_ERROR,
+  NAME_SERVICE_TCP,
+  USER_MESSAGE_PATTERNS,
+  WORKSPACE_MESSAGE_PATTERNS,
+  WorkspaceRoleEnum,
+  ChannelTypeEnum,
+  USER_ERROR,
+  DATABASE_ERROR,
+} from '@slack/constants';
 import { Inject, Logger } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import { ChannelResponse } from '../type/channel.response';
@@ -31,9 +44,12 @@ export class ChannelService {
     @Inject(NAME_SERVICE_TCP.USER_SERVICE)
     private readonly userClient: ClientProxy,
     private readonly cachedService: CachedService,
-  ) { }
+  ) {}
 
-  private mapChannelToResponse(channel: ChannelEntity): ChannelResponse {
+  private mapChannelToResponse(
+    channel: ChannelEntity,
+    member?: ChannelMemberEntity,
+  ): ChannelResponse {
     return {
       id: channel.id,
       name: channel.title,
@@ -42,10 +58,17 @@ export class ChannelService {
       createdAt: channel.createdAt,
       isStar: channel.isStar,
       workspaceId: channel.workspaceId,
+      unreadCount: member?.unreadCount ?? 0,
+      lastReadAt: member?.lastReadAt,
+      lastReadMessageId: member?.lastReadMessageId,
     };
   }
 
-  private async checkWorkspacePermission(workspaceId: string, userId: string, allowedRoles: WorkspaceRoleEnum[]) {
+  private async checkWorkspacePermission(
+    workspaceId: string,
+    userId: string,
+    allowedRoles: WorkspaceRoleEnum[],
+  ) {
     return await firstValueFrom(
       this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.CHECK_PERMISSION, {
         workspaceId,
@@ -70,7 +93,9 @@ export class ChannelService {
     );
   }
 
-  private async createDirectChannel(dto: CreateChannelDto): Promise<ChannelEntity> {
+  private async createDirectChannel(
+    dto: CreateChannelDto,
+  ): Promise<ChannelEntity> {
     const { workspaceId, memberId, targetMemberIds = [], description } = dto;
 
     const allMemberIds = [...new Set([memberId, ...targetMemberIds])];
@@ -138,7 +163,9 @@ export class ChannelService {
     });
   }
 
-  private async createGroupChannel(dto: CreateChannelDto): Promise<ChannelEntity> {
+  private async createGroupChannel(
+    dto: CreateChannelDto,
+  ): Promise<ChannelEntity> {
     const { workspaceId, title, description, memberId } = dto;
 
     // Only OWNER can create group channels
@@ -165,7 +192,9 @@ export class ChannelService {
       const saved = await manager.save(channel);
 
       const user = await firstValueFrom(
-        this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, { id: memberId }),
+        this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, {
+          id: memberId,
+        }),
       );
 
       const member = manager.create(ChannelMemberEntity, {
@@ -217,7 +246,7 @@ export class ChannelService {
 
       // check ngoài transaction
       await this.checkWorkspacePermission(channel.workspaceId, memberId, [
-        WorkspaceRoleEnum.OWNER
+        WorkspaceRoleEnum.OWNER,
       ]);
 
       if (title) channel.title = title;
@@ -226,7 +255,7 @@ export class ChannelService {
       const savedChannel = await this.channelRepository.save(channel);
 
       await this.cachedService.invalidateList(
-        CACHE.CHANNEL.TRACKERS.LIST_VERSION(savedChannel.workspaceId, memberId)
+        CACHE.CHANNEL.TRACKERS.LIST_VERSION(savedChannel.workspaceId, memberId),
       );
 
       return this.mapChannelToResponse(savedChannel);
@@ -239,14 +268,16 @@ export class ChannelService {
   }
 
   async deleteChannel(channelId: string, memberId: string): Promise<string> {
-    const channel = await this.channelRepository.findOne({ where: { id: channelId } });
+    const channel = await this.channelRepository.findOne({
+      where: { id: channelId },
+    });
     if (!channel) {
       throw new RpcException(CHANNEL_ERROR.CHANNEL_NOT_FOUND);
     }
 
     // Only OWNER can delete channels
     await this.checkWorkspacePermission(channel.workspaceId, memberId, [
-      WorkspaceRoleEnum.OWNER
+      WorkspaceRoleEnum.OWNER,
     ]);
 
     await this.dataSource.transaction(async (manager) => {
@@ -254,12 +285,16 @@ export class ChannelService {
       await manager.delete(ChannelEntity, { id: channelId });
     });
 
-    await this.cachedService.invalidateList(CACHE.CHANNEL.TRACKERS.LIST_VERSION(channel.workspaceId, memberId));
+    await this.cachedService.invalidateList(
+      CACHE.CHANNEL.TRACKERS.LIST_VERSION(channel.workspaceId, memberId),
+    );
 
     return 'success';
   }
 
-  async getChannels(dto: GetChannelsDto): Promise<IOffsetResponse<ChannelResponse[]>> {
+  async getChannels(
+    dto: GetChannelsDto,
+  ): Promise<IOffsetResponse<ChannelResponse[]>> {
     const { workspaceId, memberId, type, page = 1, limit = 20 } = dto;
 
     // Check if user is at least a member of the workspace
@@ -268,14 +303,25 @@ export class ChannelService {
     return await this.cachedService.getOrSetList({
       trackerKey: CACHE.CHANNEL.TRACKERS.LIST_VERSION(workspaceId, memberId),
       keyBuilder: (version) =>
-        CACHE.CHANNEL.KEYS.LIST(workspaceId, memberId, version, page, limit, type),
+        CACHE.CHANNEL.KEYS.LIST(
+          workspaceId,
+          memberId,
+          version,
+          page,
+          limit,
+          type,
+        ),
       ttl: TTL.LONG,
       fetcher: async () => {
         const skip = (page - 1) * limit;
 
         const queryBuilder = this.channelRepository
           .createQueryBuilder('channel')
-          .innerJoin('channel_members', 'member', 'member.channel_id = channel.id')
+          .innerJoin(
+            'channel_members',
+            'member',
+            'member.channel_id = channel.id',
+          )
           .where('channel.workspace_id = :workspaceId', { workspaceId })
           .andWhere('member.member_id = :memberId', { memberId });
 
@@ -283,14 +329,32 @@ export class ChannelService {
           queryBuilder.andWhere('channel.type = :type', { type });
         }
 
-        const [channels, total] = await queryBuilder
+        const [results, total] = await queryBuilder
           .orderBy('channel.createdAt', 'DESC')
+          .addSelect('member.unreadCount')
+          .addSelect('member.lastReadAt')
+          .addSelect('member.lastReadMessageId')
           .skip(skip)
           .take(limit)
           .getManyAndCount();
 
+        // TypeORM getMany() with join might return entities.
+        // We need to map carefully.
+        const channels = results as (ChannelEntity & {
+          member: ChannelMemberEntity;
+        })[];
+
         return {
-          data: channels.map(channel => this.mapChannelToResponse(channel)),
+          data: channels.map((c) => {
+            // Because of innerJoin, TypeORM might put member data into channel if configured,
+            // but here we used a simple join. Let's find the member data.
+            // Actually, getMany() on channelRepository will return ChannelEntity objects.
+            // If we want the member data, we might need getRawAndEntities or use relations.
+
+            // Re-fetching or using a smarter query:
+            // Let's use a simpler approach for now to ensure correctness:
+            return this.mapChannelToResponse(c, (c as any).member);
+          }),
           paging: {
             page,
             limit,
@@ -302,7 +366,10 @@ export class ChannelService {
     });
   }
 
-  async getChannel(channelId: string, memberId: string): Promise<ChannelResponse> {
+  async getChannel(
+    channelId: string,
+    memberId: string,
+  ): Promise<ChannelResponse> {
     const channel = await this.channelRepository.findOne({
       where: { id: channelId },
     });
@@ -320,32 +387,37 @@ export class ChannelService {
       throw new RpcException(CHANNEL_ERROR.USER_NOT_MEMBER);
     }
 
-    return this.mapChannelToResponse(channel);
+    return this.mapChannelToResponse(channel, isMember);
   }
 
   async toggleStar(dto: ToggleStarDto): Promise<ChannelResponse> {
-    const { channelId, memberId } = dto;
-    const updatedChannel = await this.dataSource.transaction(async (manager) => {
-      const channel = await manager.findOne(ChannelEntity, {
-        where: { id: channelId },
-      });
+    const { channelId } = dto;
+    const updatedChannel = await this.dataSource.transaction(
+      async (manager) => {
+        const channel = await manager.findOne(ChannelEntity, {
+          where: { id: channelId },
+        });
 
-      if (!channel) {
-        throw new RpcException(CHANNEL_ERROR.CHANNEL_NOT_FOUND);
-      }
-
-      channel.isStar = !channel.isStar;
-      try {
-        return await manager.save(channel);
-      } catch (error) {
-        if (error instanceof OptimisticLockVersionMismatchError) {
-          throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+        if (!channel) {
+          throw new RpcException(CHANNEL_ERROR.CHANNEL_NOT_FOUND);
         }
-        throw error;
-      }
-    });
 
-    this.logger.log('Updated channel: ', JSON.stringify(updatedChannel, null, 2));
+        channel.isStar = !channel.isStar;
+        try {
+          return await manager.save(channel);
+        } catch (error) {
+          if (error instanceof OptimisticLockVersionMismatchError) {
+            throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+          }
+          throw error;
+        }
+      },
+    );
+
+    this.logger.log(
+      'Updated channel: ',
+      JSON.stringify(updatedChannel, null, 2),
+    );
 
     return this.mapChannelToResponse(updatedChannel);
   }
