@@ -76,7 +76,7 @@ export class ChannelMemberService {
     member: ChannelMemberEntity,
   ): ChannelMemberResponse {
     return {
-      id: member.id,
+      memberId: member.memberId,
       email: member.email,
       firstName: member.firstName ?? null,
       lastName: member.lastName ?? null,

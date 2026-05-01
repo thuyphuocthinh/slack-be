@@ -123,7 +123,3 @@ export const NotificationMetadataSchema = {
 } as const;
 
 export type NotificationTemplateKey = NotificationType;
-
-export type MetadataOf<T extends NotificationType> = z.infer<
-  (typeof NotificationMetadataSchema)[T]
->;

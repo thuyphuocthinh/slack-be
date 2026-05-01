@@ -67,7 +67,7 @@ export class MessageService {
     try {
       const users: UserResponseDto[] = await firstValueFrom(
         this.userService.send(USER_MESSAGE_PATTERNS.GET_BATCH_USER_BY_IDS, {
-          userIds: [...new Set(userIds)],
+          ids: [...new Set(userIds)],
         }),
       );
       const userMap = new Map<string, UserResponseDto>();
@@ -152,7 +152,7 @@ export class MessageService {
           senderId: response.sender.id,
           messageId: response.id,
           mentions: response.mentions,
-          parentId: response.parentId,
+          parentId: response.parentId || undefined,
         },
       );
 
@@ -550,7 +550,7 @@ export class MessageService {
     dto.updatedAt = message.updatedAt;
     dto.sender = sender || {
       id: message.userId,
-      firstName: 'Unactived',
+      firstName: 'Unknown',
       lastName: 'User',
       avatarUrl: '',
       email: '',

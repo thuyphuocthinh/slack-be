@@ -19,7 +19,10 @@ export class CreateChannelApiDto {
   @IsNotEmpty()
   title: string;
 
-  @ApiPropertyOptional({ enum: ChannelTypeEnum, example: ChannelTypeEnum.GROUP })
+  @ApiPropertyOptional({
+    enum: ChannelTypeEnum,
+    example: ChannelTypeEnum.GROUP,
+  })
   @IsEnum(ChannelTypeEnum)
   @IsOptional()
   type?: ChannelTypeEnum;
@@ -69,6 +72,11 @@ export class MemberInfoDto {
   @IsNotEmpty()
   email: string;
 
+  @ApiProperty({ example: '0bcda63b-d799-4771-bbfb-0c4e8c433e3b' })
+  @IsUUID()
+  @IsNotEmpty()
+  memberId: string;
+
   @ApiProperty({ example: 'John' })
   @IsString()
   @IsOptional()
@@ -77,7 +85,7 @@ export class MemberInfoDto {
   @ApiProperty({ example: 'Doe' })
   @IsString()
   @IsOptional()
-  lastName: string;
+  lastName?: string;
 
   @ApiProperty({ example: 'https://example.com/avatar.jpg' })
   @IsString()
@@ -85,14 +93,12 @@ export class MemberInfoDto {
   avatarUrl?: string;
 }
 
-
 export class AddMemberApiDto {
   @ApiProperty({ example: new MemberInfoDto() })
   @ValidateNested()
   @Type(() => MemberInfoDto)
   targetMember: MemberInfoDto;
 }
-
 
 export class AddBatchMembersApiDto {
   @ApiProperty({ example: [new MemberInfoDto(), new MemberInfoDto()] })

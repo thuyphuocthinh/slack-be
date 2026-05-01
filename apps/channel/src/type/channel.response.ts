@@ -14,7 +14,7 @@ export interface ChannelResponse {
 }
 
 export interface ChannelMemberResponse {
-  id: string;
+  memberId: string;
   email: string;
   firstName: string | null;
   lastName: string | null;

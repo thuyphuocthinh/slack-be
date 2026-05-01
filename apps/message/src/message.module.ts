@@ -20,6 +20,7 @@ import { EQueueName, QueueModule } from '@slack/queue';
     QueueModule.forFeature([
       EQueueName.SOCKET_QUEUE,
       EQueueName.NOTIFICATION_QUEUE,
+      EQueueName.CHANNEL_QUEUE,
     ]),
     TypeOrmModule.forFeature([
       MessageEntity,

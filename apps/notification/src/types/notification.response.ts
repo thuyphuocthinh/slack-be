@@ -1,4 +1,4 @@
-import { NotificationType, NotificationStatus } from './notification.type';
+import { NotificationType, NotificationStatus } from '@slack/constants';
 
 export interface NotificationResponse {
   id: string;

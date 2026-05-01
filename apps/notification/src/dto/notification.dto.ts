@@ -9,10 +9,7 @@ import {
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import {
-  NotificationType,
-  NotificationStatus,
-} from '../types/notification.type';
+import { NotificationType, NotificationStatus } from '@slack/constants';
 
 export class FetchNotificationsDto {
   @IsUUID()
