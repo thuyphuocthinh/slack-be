@@ -24,6 +24,14 @@ import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
           port: PORT_TCP.CHANNEL_TCP_PORT,
         },
       },
+      {
+        name: NAME_SERVICE_TCP.MESSAGE_SERVICE,
+        transport: Transport.TCP,
+        options: {
+          host: 'localhost',
+          port: PORT_TCP.MESSAGE_TCP_PORT,
+        },
+      },
     ]),
     JwtModule.registerAsync({
       inject: [ConfigService],

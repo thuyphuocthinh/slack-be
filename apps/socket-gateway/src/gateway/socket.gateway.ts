@@ -10,6 +10,9 @@ import { Logger, UseFilters, UsePipes, ValidationPipe } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuthCacheService } from '@slack/cached';
 import { WebsocketExceptionsFilter } from '../common/filters/ws-exception.filter';
+import { OnModuleInit } from '@nestjs/common';
+import { createBreaker } from '../common/utils/circuit-breaker.util';
+import CircuitBreaker from 'opossum';
 import {
   ESocketEvent,
   NAME_SERVICE_TCP,
@@ -17,6 +20,8 @@ import {
 } from '@slack/constants';
 import { Inject } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
+import { firstValueFrom } from 'rxjs';
+import { MESSAGE_MESSAGE_PATTERNS } from '@slack/constants';
 
 @WebSocketGateway({
   cors: {
@@ -27,18 +32,63 @@ import { ClientProxy } from '@nestjs/microservices';
 })
 @UseFilters(new WebsocketExceptionsFilter())
 @UsePipes(new ValidationPipe({ transform: true }))
-export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class SocketGateway
+  implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit
+{
   @WebSocketServer()
   server: Server;
 
   private readonly logger = new Logger(SocketGateway.name);
+  private channelBreaker: CircuitBreaker;
+  private messageBreaker: CircuitBreaker;
 
   constructor(
     private readonly jwtService: JwtService,
     private readonly authCache: AuthCacheService,
     @Inject(NAME_SERVICE_TCP.CHANNEL_SERVICE)
     private readonly channelClient: ClientProxy,
+    @Inject(NAME_SERVICE_TCP.MESSAGE_SERVICE)
+    private readonly messageClient: ClientProxy,
   ) {}
+
+  onModuleInit() {
+    // Khởi tạo Circuit Breaker cho Channel Service
+    this.channelBreaker = createBreaker(
+      (data: any) =>
+        firstValueFrom(
+          this.channelClient.send(CHANNEL_MESSAGE_PATTERN.GET_CHANNEL, data),
+        ),
+      {
+        name: 'ChannelService',
+        timeout: 3000,
+        errorThresholdPercentage: 50,
+        resetTimeout: 10000,
+      },
+    );
+
+    // Fallback khi Channel Service ngắt mạch
+    this.channelBreaker.fallback(() => {
+      throw new Error('Channel Service đang gặp sự cố, vui lòng thử lại sau!');
+    });
+
+    // Khởi tạo Circuit Breaker cho Message Service
+    this.messageBreaker = createBreaker(
+      (data: any) =>
+        firstValueFrom(
+          this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.GET_BY_ID, data),
+        ),
+      {
+        name: 'MessageService',
+        timeout: 3000,
+        errorThresholdPercentage: 50,
+        resetTimeout: 10000,
+      },
+    );
+
+    this.messageBreaker.fallback(() => {
+      throw new Error('Message Service đang gặp sự cố, vui lòng thử lại sau!');
+    });
+  }
 
   private async verifyToken(client: Socket) {
     // 1. Lấy token từ handshake (auth object hoặc header)
@@ -78,12 +128,12 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
       await this.verifyToken(client);
       const userId = client.data.user.sub;
 
-      // 1. Join vào phòng cá nhân (Nhận: Unread count, Mention, Reaction, v.v.)
+      // Join vào phòng cá nhân (Nhận: Unread count, Mention, Reaction, v.v.)
       client.join(`user_${userId}`);
 
       this.logger.log(`User ${userId} connected and joined private room`);
 
-      // 2. Gửi thông báo sẵn sàng
+      // Gửi thông báo sẵn sàng
       client.emit(ESocketEvent.SERVER_READY, {
         message: 'Kết nối Socket thành công và đã vào phòng cá nhân!',
         userId,
@@ -111,14 +161,32 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage(ESocketEvent.SUBSCRIBE_CHANNEL)
-  handleSubscribeChannel(client: Socket, payload: { channelId: string }) {
+  async handleSubscribeChannel(client: Socket, payload: { channelId: string }) {
     const { channelId } = payload;
     if (!channelId) return;
 
-    client.join(channelId);
-    this.logger.debug(`User ${client.id} joined channel: ${channelId}`);
-    client.emit(ESocketEvent.SUBSCRIBED, { channelId });
-    return { status: 'success', room: channelId };
+    const userId = client.data.user.sub;
+
+    try {
+      // Sử dụng Circuit Breaker thay vì gọi trực tiếp
+      await this.channelBreaker.fire({
+        channelId,
+        memberId: userId,
+      });
+
+      client.join(channelId);
+      this.logger.debug(`User ${userId} joined channel: ${channelId}`);
+      client.emit(ESocketEvent.SUBSCRIBED, { channelId });
+      return { status: 'success', room: channelId };
+    } catch (error) {
+      this.logger.warn(
+        `User ${userId} failed to join channel ${channelId}: ${error.message}`,
+      );
+      return {
+        status: 'error',
+        message: 'You are not a member of this channel',
+      };
+    }
   }
 
   @SubscribeMessage(ESocketEvent.UNSUBSCRIBE_CHANNEL)
@@ -133,15 +201,33 @@ export class SocketGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage(ESocketEvent.SUBSCRIBE_THREAD)
-  handleSubscribeThread(client: Socket, payload: { threadId: string }) {
+  async handleSubscribeThread(client: Socket, payload: { threadId: string }) {
     const { threadId } = payload;
     if (!threadId) return;
 
-    const roomName = `thread_${threadId}`;
-    client.join(roomName);
-    this.logger.debug(`User ${client.id} joined thread: ${roomName}`);
-    client.emit(ESocketEvent.THREAD_SUBSCRIBED, { threadId });
-    return { status: 'success', room: roomName };
+    const userId = client.data.user.sub;
+
+    try {
+      // Sử dụng Circuit Breaker cho Thread
+      await this.messageBreaker.fire({
+        id: threadId,
+        userId,
+      });
+
+      const roomName = `thread_${threadId}`;
+      client.join(roomName);
+      this.logger.debug(`User ${userId} joined thread: ${roomName}`);
+      client.emit(ESocketEvent.THREAD_SUBSCRIBED, { threadId });
+      return { status: 'success', room: roomName };
+    } catch (error) {
+      this.logger.warn(
+        `User ${userId} failed to join thread ${threadId}: ${error.message}`,
+      );
+      return {
+        status: 'error',
+        message: 'You do not have access to this thread',
+      };
+    }
   }
 
   @SubscribeMessage(ESocketEvent.UNSUBSCRIBE_THREAD)
