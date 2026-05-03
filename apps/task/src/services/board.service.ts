@@ -23,7 +23,7 @@ export class BoardService {
     private readonly commonService: TaskCommonService,
     private readonly dataSource: DataSource,
     private readonly cachedService: CachedService,
-  ) { }
+  ) {}
 
   async createNewBoard(
     dto: CreateBoardDto,
@@ -73,13 +73,14 @@ export class BoardService {
         const saved = await manager.save(board);
         const result = this.mapBoardResponse(saved);
 
-        const memberId = await this.commonService.getMemberId(
-          board.workspaceId,
-          requesterId,
+        const members = await manager.find(BoardMemberEntity, {
+          where: { boardId: id },
+        });
+
+        const trackerKeys = members.map((m) =>
+          CACHE.TASK.TRACKERS.BOARD_LIST_VERSION(board.workspaceId, m.memberId),
         );
-        await this.cachedService.invalidateList(
-          CACHE.TASK.TRACKERS.BOARD_LIST_VERSION(board.workspaceId, memberId),
-        );
+        await this.cachedService.invalidateListBulk(trackerKeys);
 
         return result;
       } catch (error) {
@@ -96,11 +97,20 @@ export class BoardService {
       await this.commonService.checkBoardMembership(id, requesterId, manager);
 
       const boardId = id;
-      const workspaceId = (await manager.findOne(TaskBoardEntity, { where: { id: boardId }, select: ['workspaceId'] }))?.workspaceId;
+      const workspaceId = (
+        await manager.findOne(TaskBoardEntity, {
+          where: { id: boardId },
+          select: ['workspaceId'],
+        })
+      )?.workspaceId;
       if (!workspaceId) throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
 
-      const members = await manager.find(BoardMemberEntity, { where: { boardId } });
-      const trackerKeys = members.map(m => CACHE.TASK.TRACKERS.BOARD_LIST_VERSION(workspaceId, m.memberId));
+      const members = await manager.find(BoardMemberEntity, {
+        where: { boardId },
+      });
+      const trackerKeys = members.map((m) =>
+        CACHE.TASK.TRACKERS.BOARD_LIST_VERSION(workspaceId, m.memberId),
+      );
 
       const result = await manager.delete(TaskBoardEntity, id);
       if (result.affected === 0)
@@ -126,13 +136,7 @@ export class BoardService {
     return await this.cachedService.getOrSetList({
       trackerKey: CACHE.TASK.TRACKERS.BOARD_LIST_VERSION(workspaceId, memberId),
       keyBuilder: (version) =>
-        CACHE.TASK.KEYS.BOARD_LIST(
-          workspaceId,
-          memberId,
-          version,
-          page,
-          limit,
-        ),
+        CACHE.TASK.KEYS.BOARD_LIST(workspaceId, memberId, version, page, limit),
       ttl: TTL.LONG,
       fetcher: async () => {
         const skip = (page - 1) * limit;
@@ -207,7 +211,10 @@ export class BoardService {
       });
       await manager.save(boardMember);
 
-      const board = await manager.findOne(TaskBoardEntity, { where: { id: boardId }, select: ['workspaceId'] });
+      const board = await manager.findOne(TaskBoardEntity, {
+        where: { id: boardId },
+        select: ['workspaceId'],
+      });
       if (!board) throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
 
       await this.cachedService.invalidateList(

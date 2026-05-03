@@ -217,38 +217,55 @@ export class UserService {
   }
 
   async findUsersByEmail(email: string): Promise<IUserResponse[]> {
-    this.logger.log(`Finding users with email: ${email}`);
-    const users = await this.userRepository.find({
-      where: {
-        email: ILike(`${email}%`),
-        status: UserStatus.ACTIVE,
+    return await this.cachedService.getOrSetList({
+      trackerKey: CACHE.USER.TRACKERS.LIST_VERSION,
+      keyBuilder: (version) => CACHE.USER.KEYS.SEARCH(email, version),
+      ttl: TTL.SHORT,
+      fetcher: async () => {
+        this.logger.log(`Finding users with email: ${email}`);
+        const users = await this.userRepository.find({
+          where: {
+            email: ILike(`${email}%`),
+            status: UserStatus.ACTIVE,
+          },
+          select: [
+            'id',
+            'firstName',
+            'lastName',
+            'email',
+            'avatarUrl',
+            'status',
+            'systemRole',
+            'createdAt',
+          ],
+        });
+
+        const twoFaStatuses =
+          await this.twoFactorService.getBatchTwoFactorStatus(
+            users.map((u) => u.id),
+          );
+
+        return users.map((user) => ({
+          id: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          avatarUrl: user.avatarUrl,
+          createdAt: user.createdAt,
+          systemRole: user.systemRole,
+          status: user.status,
+          isTwoFactorEnabled: twoFaStatuses[user.id] || false,
+        }));
       },
-      select: [
-        'id',
-        'firstName',
-        'lastName',
-        'email',
-        'avatarUrl',
-        'status',
-        'systemRole',
-        'createdAt',
-      ],
     });
+  }
 
-    const twoFaStatuses = await this.twoFactorService.getBatchTwoFactorStatus(
-      users.map((u) => u.id),
-    );
-
-    return users.map((user) => ({
-      id: user.id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-      avatarUrl: user.avatarUrl,
-      createdAt: user.createdAt,
-      systemRole: user.systemRole,
-      status: user.status,
-      isTwoFactorEnabled: twoFaStatuses[user.id] || false,
-    }));
+  async deleteUser(id: string): Promise<void> {
+    const result = await this.userRepository.delete(id);
+    if (result.affected === 0) {
+      throw new RpcException(USER_ERROR.USER_NOT_FOUND);
+    }
+    this.logger.log(`Deleted user id ${id}`);
+    this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(id));
   }
 }

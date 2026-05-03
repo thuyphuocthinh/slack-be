@@ -54,6 +54,8 @@ export const CACHE = {
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:users:${CACHE.USER._VER}:two_factor:id_${id}`,
       PREFERENCE: (id: string): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:users:${CACHE.USER._VER}:preference:id_${id}`,
+      SEARCH: (query: string, version: number): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:users:${CACHE.USER._VER}:search:q_${query}:v_${version}`,
     },
     TRACKERS: {
       LIST_VERSION: `${GLOBAL_PREFIX}:trackers:users:list_version`,

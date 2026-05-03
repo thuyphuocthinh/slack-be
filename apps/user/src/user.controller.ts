@@ -7,7 +7,7 @@ import {
   UpdateUserSettingsDto,
   UpdateUserStatusDto,
 } from './dto';
-import { MessagePattern } from '@nestjs/microservices';
+import { MessagePattern, Payload } from '@nestjs/microservices';
 import { USER_MESSAGE_PATTERNS } from '@slack/constants';
 import { TWO_FA_MESSAGE_PATTERNS } from '@slack/constants/tcp/message_pattern/two_fa_pattern.constant';
 import { TwoFactorService } from './services/two_fa.service';
@@ -21,14 +21,13 @@ import { UserPreferenceService } from './services/user_preference.service';
 
 @Controller()
 export class UserController {
-
   private readonly logger = new Logger(UserController.name);
 
   constructor(
     private readonly userService: UserService,
     private readonly twoFactorService: TwoFactorService,
     private readonly userPreferenceService: UserPreferenceService,
-  ) { }
+  ) {}
 
   @MessagePattern(USER_MESSAGE_PATTERNS.CREATE_USER)
   async createUser(data: CreateUserDto) {
@@ -111,5 +110,10 @@ export class UserController {
   async findUsersByEmails(data: { email: string }) {
     this.logger.log(`Find users by email: ${data.email}`);
     return await this.userService.findUsersByEmail(data.email);
+  }
+
+  @MessagePattern(USER_MESSAGE_PATTERNS.DELETE_USER)
+  async deleteUser(@Payload() data: { id: string }) {
+    return await this.userService.deleteUser(data.id);
   }
 }

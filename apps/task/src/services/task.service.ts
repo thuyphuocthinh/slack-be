@@ -400,7 +400,13 @@ export class TaskService {
         title,
         link,
       });
+
       await manager.save(attachment);
+
+      await this.cachedService.invalidateList(
+        CACHE.TASK.TRACKERS.TASK_LIST_VERSION(task.groupId),
+      );
+
       return 'Add attachment to task successfully';
     });
   }
@@ -434,6 +440,11 @@ export class TaskService {
       attachment.link = link;
       try {
         await manager.save(attachment);
+
+        await this.cachedService.invalidateList(
+          CACHE.TASK.TRACKERS.TASK_LIST_VERSION(task.groupId),
+        );
+
         return 'Update attachment successfully';
       } catch (error) {
         if (error instanceof OptimisticLockVersionMismatchError) {
@@ -468,6 +479,11 @@ export class TaskService {
       if (!attachment) throw new RpcException(TASK_ERROR.ATTACHMENT_NOT_FOUND);
 
       await manager.remove(attachment);
+
+      await this.cachedService.invalidateList(
+        CACHE.TASK.TRACKERS.TASK_LIST_VERSION(task.groupId),
+      );
+
       return 'Remove attachment successfully';
     });
   }
@@ -488,9 +504,10 @@ export class TaskService {
     const jobId = `task_deadline_${taskId}`;
 
     try {
+      // Xóa job cũ trước khi add mới hoặc gỡ bỏ hoàn toàn
+      await this.queueService.removeJob(EQueueName.TASK_QUEUE, jobId);
+
       if (!dueDate) {
-        // Xóa job cũ nếu deadline bị gỡ hoặc task bị xóa
-        await this.queueService.removeJob(EQueueName.TASK_QUEUE, jobId);
         return;
       }
 
