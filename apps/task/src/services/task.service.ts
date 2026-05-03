@@ -47,30 +47,35 @@ export class TaskService {
     dto: CreateTaskDto,
     requesterId: string,
   ): Promise<ITaskResponse> {
-    return await this.dataSource.transaction(async (manager) => {
-      const group = await manager.findOne(TaskGroupEntity, {
-        where: { id: dto.groupId },
-      });
-      if (!group) throw new RpcException(TASK_ERROR.GROUP_NOT_FOUND);
-      await this.commonService.checkBoardMembership(
-        group.boardId,
-        requesterId,
-        manager,
-      );
+    const { result, saved } = await this.dataSource.transaction(
+      async (manager) => {
+        const group = await manager.findOne(TaskGroupEntity, {
+          where: { id: dto.groupId },
+        });
+        if (!group) throw new RpcException(TASK_ERROR.GROUP_NOT_FOUND);
+        await this.commonService.checkBoardMembership(
+          group.boardId,
+          requesterId,
+          manager,
+        );
 
-      const task = manager.create(TaskEntity, dto);
-      const saved = await manager.save(task);
-      const result = this.mapTaskResponse(saved);
-      await this.cachedService.invalidateList(
-        CACHE.TASK.TRACKERS.TASK_LIST_VERSION(dto.groupId),
-      );
+        const task = manager.create(TaskEntity, dto);
+        const saved = await manager.save(task);
+        const result = this.mapTaskResponse(saved);
 
-      if (saved.dueDate) {
-        await this.handleTaskDeadlineJob(saved.id, saved.dueDate);
-      }
+        return { result, saved };
+      },
+    );
 
-      return result;
-    });
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(dto.groupId),
+    );
+
+    if (saved.dueDate) {
+      await this.handleTaskDeadlineJob(saved.id, saved.dueDate);
+    }
+
+    return result;
   }
 
   async updateTaskDetails(
@@ -80,48 +85,53 @@ export class TaskService {
   ): Promise<ITaskResponse> {
     const { labelIds, ...updateData } = dto;
 
-    return await this.dataSource.transaction(async (manager) => {
-      const task = await manager.findOne(TaskEntity, {
-        where: { id },
-        relations: ['labels', 'group', 'members'],
-      });
+    const { result, updatedTask } = await this.dataSource.transaction(
+      async (manager) => {
+        const task = await manager.findOne(TaskEntity, {
+          where: { id },
+          relations: ['labels', 'group', 'members'],
+        });
 
-      if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
+        if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
 
-      await this.commonService.checkBoardMembership(
-        task.group.boardId,
-        requesterId,
-        manager,
-      );
-
-      if (labelIds !== undefined) {
-        task.labels = labelIds.length
-          ? await manager.findBy(LabelEntity, { id: In(labelIds) })
-          : [];
-      }
-
-      Object.assign(task, updateData);
-      try {
-        const updatedTask = await manager.save(task);
-
-        await this.cachedService.invalidateList(
-          CACHE.TASK.TRACKERS.TASK_LIST_VERSION(updatedTask.groupId),
+        await this.commonService.checkBoardMembership(
+          task.group.boardId,
+          requesterId,
+          manager,
         );
 
-        await this.handleTaskDeadlineJob(updatedTask.id, updatedTask.dueDate);
-
-        return this.mapTaskResponse(updatedTask);
-      } catch (error) {
-        if (error instanceof OptimisticLockVersionMismatchError) {
-          throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+        if (labelIds !== undefined) {
+          task.labels = labelIds.length
+            ? await manager.findBy(LabelEntity, { id: In(labelIds) })
+            : [];
         }
-        throw error;
-      }
-    });
+
+        Object.assign(task, updateData);
+        try {
+          const updatedTask = await manager.save(task);
+          const result = this.mapTaskResponse(updatedTask);
+
+          return { result, updatedTask };
+        } catch (error) {
+          if (error instanceof OptimisticLockVersionMismatchError) {
+            throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+          }
+          throw error;
+        }
+      },
+    );
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(updatedTask.groupId),
+    );
+
+    await this.handleTaskDeadlineJob(updatedTask.id, updatedTask.dueDate);
+
+    return result;
   }
 
   async removeTask(id: string, requesterId: string): Promise<string> {
-    return await this.dataSource.transaction(async (manager) => {
+    const { groupId } = await this.dataSource.transaction(async (manager) => {
       const task = await manager.findOne(TaskEntity, {
         where: { id },
         relations: ['group'],
@@ -137,14 +147,16 @@ export class TaskService {
       const groupId = task.groupId;
       await manager.remove(task);
 
-      await this.cachedService.invalidateList(
-        CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
-      );
-
-      await this.handleTaskDeadlineJob(id, null);
-
-      return `Task with ID ${id} has been deleted`;
+      return { groupId };
     });
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+    );
+
+    await this.handleTaskDeadlineJob(id, null);
+
+    return `Task with ID ${id} has been deleted`;
   }
 
   async getTaskDetails(
@@ -214,7 +226,7 @@ export class TaskService {
     memberId: string,
     requesterId: string,
   ): Promise<string> {
-    return await this.dataSource.transaction(async (manager) => {
+    const { groupId } = await this.dataSource.transaction(async (manager) => {
       const task = await manager.findOne(TaskEntity, {
         where: { id: taskId },
         relations: ['group', 'group.board'],
@@ -246,11 +258,7 @@ export class TaskService {
         });
         await manager.save(taskMember);
 
-        await this.cachedService.invalidateList(
-          CACHE.TASK.TRACKERS.TASK_LIST_VERSION(task.groupId),
-        );
-
-        return 'Assign member to task successfully';
+        return { groupId: task.groupId };
       } catch (error) {
         if (error instanceof OptimisticLockVersionMismatchError) {
           throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
@@ -258,6 +266,12 @@ export class TaskService {
         throw error;
       }
     });
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+    );
+
+    return 'Assign member to task successfully';
   }
 
   async unassignMemberFromTask(
@@ -265,7 +279,7 @@ export class TaskService {
     memberId: string,
     requesterId: string,
   ): Promise<string> {
-    return await this.dataSource.transaction(async (manager) => {
+    const { groupId } = await this.dataSource.transaction(async (manager) => {
       const task = await manager.findOne(TaskEntity, {
         where: { id: taskId },
         relations: ['group'],
@@ -285,12 +299,14 @@ export class TaskService {
       if (result.affected === 0)
         throw new RpcException(TASK_ERROR.MEMBER_NOT_ASSIGNED_TO_TASK);
 
-      await this.cachedService.invalidateList(
-        CACHE.TASK.TRACKERS.TASK_LIST_VERSION(task.groupId),
-      );
-
-      return 'Unassign member from task successfully';
+      return { groupId: task.groupId };
     });
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+    );
+
+    return 'Unassign member from task successfully';
   }
 
   async toggleTaskLabel(
@@ -298,7 +314,7 @@ export class TaskService {
     labelId: string,
     requesterId: string,
   ): Promise<string> {
-    return await this.dataSource.transaction(async (manager) => {
+    const { groupId } = await this.dataSource.transaction(async (manager) => {
       const task = await manager.findOne(TaskEntity, {
         where: { id: taskId },
         relations: ['labels', 'group'],
@@ -325,11 +341,7 @@ export class TaskService {
       try {
         await manager.save(task);
 
-        await this.cachedService.invalidateList(
-          CACHE.TASK.TRACKERS.TASK_LIST_VERSION(task.groupId),
-        );
-
-        return 'Toggle label from task successfully';
+        return { groupId: task.groupId };
       } catch (error) {
         if (error instanceof OptimisticLockVersionMismatchError) {
           throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
@@ -337,6 +349,12 @@ export class TaskService {
         throw error;
       }
     });
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+    );
+
+    return 'Toggle label from task successfully';
   }
 
   private mapTaskResponse(task: TaskEntity): ITaskResponse {
@@ -382,7 +400,7 @@ export class TaskService {
     link: string,
     requesterId: string,
   ): Promise<string> {
-    return await this.dataSource.transaction(async (manager) => {
+    const { groupId } = await this.dataSource.transaction(async (manager) => {
       const task = await manager.findOne(TaskEntity, {
         where: { id: taskId },
         relations: ['group'],
@@ -403,12 +421,14 @@ export class TaskService {
 
       await manager.save(attachment);
 
-      await this.cachedService.invalidateList(
-        CACHE.TASK.TRACKERS.TASK_LIST_VERSION(task.groupId),
-      );
-
-      return 'Add attachment to task successfully';
+      return { groupId: task.groupId };
     });
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+    );
+
+    return 'Add attachment to task successfully';
   }
 
   async updateAttachment(
@@ -418,7 +438,7 @@ export class TaskService {
     link: string,
     requesterId: string,
   ): Promise<string> {
-    return await this.dataSource.transaction(async (manager) => {
+    const { groupId } = await this.dataSource.transaction(async (manager) => {
       const task = await manager.findOne(TaskEntity, {
         where: { id: taskId },
         relations: ['group'],
@@ -441,11 +461,7 @@ export class TaskService {
       try {
         await manager.save(attachment);
 
-        await this.cachedService.invalidateList(
-          CACHE.TASK.TRACKERS.TASK_LIST_VERSION(task.groupId),
-        );
-
-        return 'Update attachment successfully';
+        return { groupId: task.groupId };
       } catch (error) {
         if (error instanceof OptimisticLockVersionMismatchError) {
           throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
@@ -453,6 +469,12 @@ export class TaskService {
         throw error;
       }
     });
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+    );
+
+    return 'Update attachment successfully';
   }
 
   async removeAttachment(
@@ -460,7 +482,7 @@ export class TaskService {
     attachmentId: string,
     requesterId: string,
   ): Promise<string> {
-    return await this.dataSource.transaction(async (manager) => {
+    const { groupId } = await this.dataSource.transaction(async (manager) => {
       const task = await manager.findOne(TaskEntity, {
         where: { id: taskId },
         relations: ['group'],
@@ -480,12 +502,14 @@ export class TaskService {
 
       await manager.remove(attachment);
 
-      await this.cachedService.invalidateList(
-        CACHE.TASK.TRACKERS.TASK_LIST_VERSION(task.groupId),
-      );
-
-      return 'Remove attachment successfully';
+      return { groupId: task.groupId };
     });
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+    );
+
+    return 'Remove attachment successfully';
   }
 
   async getGroupById(groupId: string): Promise<TaskGroupEntity> {

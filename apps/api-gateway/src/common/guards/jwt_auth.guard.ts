@@ -42,26 +42,29 @@ export class JwtAuthGuard implements CanActivate {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return false;
 
-    const payload = this.jwtService.verify(token);
-    this.logger.log(`JWT Payload: ${JSON.stringify(payload)}`);
+    try {
+      const payload = this.jwtService.verify(token);
+      this.logger.log(`JWT Payload: ${JSON.stringify(payload)}`);
 
-    // check blacklist
-    if (await this.authCache.isBlacklisted(token)) {
+      // check blacklist
+      if (await this.authCache.isBlacklisted(token)) {
+        throw new UnauthorizedException(AUTH_ERROR.UNAUTHORIZED);
+      }
+
+      // check version
+      const currentVersion = await this.authCache.getUserTokenVersion(
+        payload.sub,
+      );
+
+      if (payload.tokenVersion !== currentVersion) {
+        throw new UnauthorizedException(AUTH_ERROR.UNAUTHORIZED);
+      }
+
+      req.user = payload;
+    } catch (error) {
+      this.logger.error(`JWT Verification failed: ${error.message}`);
       throw new UnauthorizedException(AUTH_ERROR.UNAUTHORIZED);
     }
-
-    // check version
-    const currentVersion = await this.authCache.getUserTokenVersion(
-      payload.sub,
-    );
-    this.logger.log(`Current Version: ${currentVersion}`);
-    this.logger.log(`Payload Version: ${payload.tokenVersion}`);
-
-    if (payload.tokenVersion !== currentVersion) {
-      throw new UnauthorizedException(AUTH_ERROR.UNAUTHORIZED);
-    }
-
-    req.user = payload;
 
     return true;
   }
