@@ -125,13 +125,27 @@ export class ChannelService {
     }
 
     return await this.dataSource.transaction(async (manager) => {
-      // Check if a DIRECT channel with this title already exists in this workspace
-      const existingChannel = await manager.findOne(ChannelEntity, {
-        where: { workspaceId, title, type: ChannelTypeEnum.DIRECT },
-      });
+      // Check if a DIRECT channel with these EXACT members already exists in this workspace
+      const existingChannels = await manager
+        .createQueryBuilder(ChannelEntity, 'channel')
+        .innerJoin('channel_members', 'm', 'm.channel_id = channel.id')
+        .where('channel.workspaceId = :workspaceId', { workspaceId })
+        .andWhere('channel.type = :type', { type: ChannelTypeEnum.DIRECT })
+        .andWhere('m.memberId = :memberId', { memberId })
+        .getMany();
 
-      if (existingChannel) {
-        return existingChannel;
+      for (const channel of existingChannels) {
+        const members = await manager.find(ChannelMemberEntity, {
+          where: { channelId: channel.id },
+        });
+        const currentMemberIds = members.map((m) => m.memberId).sort();
+        const searchMemberIds = [...allMemberIds].sort();
+
+        if (
+          JSON.stringify(currentMemberIds) === JSON.stringify(searchMemberIds)
+        ) {
+          return channel;
+        }
       }
 
       const channel = manager.create(ChannelEntity, {
@@ -329,32 +343,35 @@ export class ChannelService {
           queryBuilder.andWhere('channel.type = :type', { type });
         }
 
-        const [results, total] = await queryBuilder
+        const total = await queryBuilder.getCount();
+
+        const { entities, raw } = await queryBuilder
           .orderBy('channel.createdAt', 'DESC')
-          .addSelect('member.unreadCount')
-          .addSelect('member.lastReadAt')
-          .addSelect('member.lastReadMessageId')
+          .addSelect('member.unreadCount', 'unreadCount')
+          .addSelect('member.lastReadAt', 'lastReadAt')
+          .addSelect('member.lastReadMessageId', 'lastReadMessageId')
           .skip(skip)
           .take(limit)
-          .getManyAndCount();
+          .getRawAndEntities();
 
-        // TypeORM getMany() with join might return entities.
-        // We need to map carefully.
-        const channels = results as (ChannelEntity & {
-          member: ChannelMemberEntity;
-        })[];
+        const data = entities.map((channel, index) => {
+          const rawItem = raw[index];
+          return {
+            id: channel.id,
+            name: channel.title,
+            description: channel.description || null,
+            type: channel.type,
+            createdAt: channel.createdAt,
+            isStar: channel.isStar,
+            workspaceId: channel.workspaceId,
+            unreadCount: rawItem.unreadCount || 0,
+            lastReadAt: rawItem.lastReadAt,
+            lastReadMessageId: rawItem.lastReadMessageId,
+          };
+        });
 
         return {
-          data: channels.map((c) => {
-            // Because of innerJoin, TypeORM might put member data into channel if configured,
-            // but here we used a simple join. Let's find the member data.
-            // Actually, getMany() on channelRepository will return ChannelEntity objects.
-            // If we want the member data, we might need getRawAndEntities or use relations.
-
-            // Re-fetching or using a smarter query:
-            // Let's use a simpler approach for now to ensure correctness:
-            return this.mapChannelToResponse(c, (c as any).member);
-          }),
+          data,
           paging: {
             page,
             limit,
