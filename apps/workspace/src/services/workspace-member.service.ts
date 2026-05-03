@@ -84,6 +84,9 @@ export class WorkspaceMemberService {
 
     this.logger.log('Add member', JSON.stringify({ member }));
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+    this.cachedService.del(
+      CACHE.WORKSPACE.KEYS.IS_MEMBER(dto.workspaceId, dto.userId),
+    );
     await this.cachedService.invalidateList(
       CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(dto.userId),
     );
@@ -137,6 +140,9 @@ export class WorkspaceMemberService {
 
     this.logger.log('Remove member', JSON.stringify({ targetMember }));
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+    this.cachedService.del(
+      CACHE.WORKSPACE.KEYS.IS_MEMBER(dto.workspaceId, dto.targetUserId),
+    );
     await this.cachedService.invalidateList(
       CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(dto.targetUserId),
     );
@@ -185,6 +191,9 @@ export class WorkspaceMemberService {
       CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(dto.userId),
     );
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+    this.cachedService.del(
+      CACHE.WORKSPACE.KEYS.IS_MEMBER(dto.workspaceId, dto.userId),
+    );
 
     // Cleanup channel memberships
     this.channelClient.emit(
@@ -248,6 +257,9 @@ export class WorkspaceMemberService {
       JSON.stringify({ targetMember, updatedMember }),
     );
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+    this.cachedService.del(
+      CACHE.WORKSPACE.KEYS.IS_MEMBER(dto.workspaceId, dto.targetUserId),
+    );
 
     return this.commonService.mapMemberToDto(updatedMember);
   }
@@ -295,6 +307,17 @@ export class WorkspaceMemberService {
     this.logger.log(
       'Transfer ownership',
       JSON.stringify({ currentOwner, targetMember }),
+    );
+
+    // Invalidate members list cache because roles changed
+    await this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+
+    // Invalidate individual membership cache
+    this.cachedService.del(
+      CACHE.WORKSPACE.KEYS.IS_MEMBER(dto.workspaceId, dto.ownerUserId),
+    );
+    this.cachedService.del(
+      CACHE.WORKSPACE.KEYS.IS_MEMBER(dto.workspaceId, dto.targetUserId),
     );
 
     return 'Ownership transferred successfully';
@@ -395,6 +418,12 @@ export class WorkspaceMemberService {
     });
 
     await this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+
+    // Invalidate individual membership cache
+    const isMemberKeys = dto.userIds.map((userId) =>
+      CACHE.WORKSPACE.KEYS.IS_MEMBER(dto.workspaceId, userId),
+    );
+    await Promise.all(isMemberKeys.map((key) => this.cachedService.del(key)));
 
     // Invalidate workspace list cache for all added/updated users
     const trackerKeys = dto.userIds.map((userId) =>

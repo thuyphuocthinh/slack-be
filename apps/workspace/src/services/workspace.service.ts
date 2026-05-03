@@ -179,10 +179,20 @@ export class WorkspaceService {
     );
     await this.cachedService.invalidateListBulk(trackerKeys);
 
+    // 4. Invalidate individual membership cache for all members
+    await Promise.all(
+      members.map((m) =>
+        this.cachedService.del(
+          CACHE.WORKSPACE.KEYS.IS_MEMBER(workspace.id, m.userId),
+        ),
+      ),
+    );
+
     this.logger.log('Hard delete workspace', JSON.stringify(workspace));
 
     // delete cached
     this.cachedService.del(CACHE.WORKSPACE.KEYS.DETAIL(workspace.id));
+    this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(workspace.id));
 
     return 'Workspace deleted successfully';
   }

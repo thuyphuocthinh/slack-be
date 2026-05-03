@@ -313,7 +313,7 @@ export class ChannelService {
       WorkspaceRoleEnum.OWNER,
     ]);
 
-    await this.dataSource.transaction(async (manager) => {
+    const members = await this.dataSource.transaction(async (manager) => {
       // Fetch members before deletion for cache invalidation
       const members = await manager.find(ChannelMemberEntity, {
         where: { channelId },
@@ -323,12 +323,14 @@ export class ChannelService {
       await manager.delete(ChannelMemberEntity, { channelId });
       await manager.delete(ChannelEntity, { id: channelId });
 
-      // Invalidate cache for all members
-      const trackerKeys = members.map((m) =>
-        CACHE.CHANNEL.TRACKERS.LIST_VERSION(channel.workspaceId, m.memberId),
-      );
-      await this.cachedService.invalidateListBulk(trackerKeys);
+      return members;
     });
+
+    // Invalidate cache for all members
+    const trackerKeys = members.map((m) =>
+      CACHE.CHANNEL.TRACKERS.LIST_VERSION(channel.workspaceId, m.memberId),
+    );
+    await this.cachedService.invalidateListBulk(trackerKeys);
 
     return 'success';
   }
@@ -457,6 +459,19 @@ export class ChannelService {
         }
       },
     );
+
+    // Invalidate cache for all channel members because star status changed
+    const members = await this.channelMemberRepository.find({
+      where: { channelId: updatedChannel.id },
+      select: ['memberId'],
+    });
+    const trackerKeys = members.map((m) =>
+      CACHE.CHANNEL.TRACKERS.LIST_VERSION(
+        updatedChannel.workspaceId,
+        m.memberId,
+      ),
+    );
+    await this.cachedService.invalidateListBulk(trackerKeys);
 
     this.logger.log(
       'Updated channel: ',

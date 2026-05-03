@@ -58,6 +58,11 @@ export class BoardService {
       CACHE.TASK.TRACKERS.BOARD_LIST_VERSION(dto.workspaceId, memberId),
     );
 
+    // Invalidate individual board membership cache
+    this.cachedService.del(
+      CACHE.TASK.KEYS.BOARD_MEMBERSHIP(result.id, memberId),
+    );
+
     return result;
   }
 
@@ -99,11 +104,20 @@ export class BoardService {
     );
     await this.cachedService.invalidateListBulk(trackerKeys);
 
+    // Invalidate individual board membership cache for all members
+    await Promise.all(
+      members.map((m) =>
+        this.cachedService.del(
+          CACHE.TASK.KEYS.BOARD_MEMBERSHIP(result.id, m.memberId),
+        ),
+      ),
+    );
+
     return result;
   }
 
   async deleteBoard(id: string, requesterId: string): Promise<string> {
-    const { trackerKeys } = await this.dataSource.transaction(
+    const { trackerKeys, memberIds } = await this.dataSource.transaction(
       async (manager) => {
         await this.commonService.checkBoardMembership(id, requesterId, manager);
 
@@ -122,16 +136,24 @@ export class BoardService {
         const trackerKeys = members.map((m) =>
           CACHE.TASK.TRACKERS.BOARD_LIST_VERSION(workspaceId, m.memberId),
         );
+        const memberIds = members.map((m) => m.memberId);
 
         const result = await manager.delete(TaskBoardEntity, id);
         if (result.affected === 0)
           throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
 
-        return { trackerKeys };
+        return { trackerKeys, memberIds };
       },
     );
 
     await this.cachedService.invalidateListBulk(trackerKeys);
+
+    // Invalidate individual board membership cache for all members
+    await Promise.all(
+      memberIds.map((memberId) =>
+        this.cachedService.del(CACHE.TASK.KEYS.BOARD_MEMBERSHIP(id, memberId)),
+      ),
+    );
 
     return `Board with ID ${id} has been deleted`;
   }
@@ -247,6 +269,9 @@ export class BoardService {
       CACHE.TASK.TRACKERS.BOARD_LIST_VERSION(workspaceId, memberId),
     );
 
+    // Invalidate individual board membership cache
+    this.cachedService.del(CACHE.TASK.KEYS.BOARD_MEMBERSHIP(boardId, memberId));
+
     return 'Add member to board successfully';
   }
 
@@ -296,6 +321,9 @@ export class BoardService {
     await this.cachedService.invalidateList(
       CACHE.TASK.TRACKERS.BOARD_LIST_VERSION(workspaceId, memberId),
     );
+
+    // Invalidate individual board membership cache
+    this.cachedService.del(CACHE.TASK.KEYS.BOARD_MEMBERSHIP(boardId, memberId));
 
     return 'Remove member from board successfully';
   }
