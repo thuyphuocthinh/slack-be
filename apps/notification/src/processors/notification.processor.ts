@@ -7,7 +7,6 @@ import {
   NotificationType,
 } from '@slack/constants';
 import {
-  QueueService,
   EQueueName,
   BaseProcessor,
   EJobName,
@@ -27,7 +26,6 @@ export class NotificationProcessor extends BaseProcessor<
     private readonly notificationService: NotificationService,
     @Inject(NAME_SERVICE_TCP.CHANNEL_SERVICE)
     private readonly channelClient: ClientProxy,
-    private readonly queueService: QueueService,
   ) {
     super();
   }
@@ -35,7 +33,8 @@ export class NotificationProcessor extends BaseProcessor<
   async process(
     job: Job<ICreateNotificationJobData, void, EJobName>,
   ): Promise<void> {
-    const { channelId, senderId, messageId, mentions, parentId } = job.data;
+    const { channelId, senderId, messageId, mentions, parentId, workspaceId } =
+      job.data;
 
     try {
       // 1. Lấy danh sách thành viên trong channel qua TCP
@@ -71,6 +70,7 @@ export class NotificationProcessor extends BaseProcessor<
           templateKey: notificationType,
           objectId: messageId,
           objectType: 'message',
+          workspaceId,
           metadata: {
             channelId,
             senderId,

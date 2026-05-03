@@ -114,6 +114,7 @@ export class NotificationService {
       objectId: dto.objectId,
       objectType: dto.objectType,
       metadata: dto.metadata,
+      workspaceId: dto.workspaceId,
       status: NotificationStatus.UNREAD,
     });
 
@@ -166,7 +167,7 @@ export class NotificationService {
       .andWhere('status = :status', { status: NotificationStatus.UNREAD });
 
     if (workspaceId) {
-      // query.andWhere("metadata->>'workspaceId' = :workspaceId", { workspaceId });
+      query.andWhere('workspaceId = :workspaceId', { workspaceId });
     }
 
     await query.execute();

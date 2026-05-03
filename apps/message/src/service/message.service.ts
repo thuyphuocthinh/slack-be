@@ -88,7 +88,7 @@ export class MessageService {
       createMessageDto;
 
     // check channel exist
-    await this.checkChannelExist(channelId, senderId);
+    const channel = await this.checkChannelExist(channelId, senderId);
 
     return await this.dataSource.transaction(async (manager) => {
       // 2. Validate parent if it's a reply
@@ -153,6 +153,7 @@ export class MessageService {
           messageId: response.id,
           mentions: response.mentions,
           parentId: response.parentId || undefined,
+          workspaceId: channel.workspaceId,
         },
       );
 

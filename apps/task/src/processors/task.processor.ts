@@ -52,7 +52,7 @@ export class TaskProcessor extends BaseProcessor<
         // 1. Kiểm tra task còn tồn tại không
         const task = await this.taskRepo.findOne({
           where: { id: taskId },
-          relations: ['group'],
+          relations: ['group', 'group.board'],
         });
 
         if (!task) {
@@ -85,8 +85,8 @@ export class TaskProcessor extends BaseProcessor<
                 content: `Nhiệm vụ "${task.title}" sắp đến hạn!`,
                 objectId: task.id,
                 objectType: 'task',
+                workspaceId: task.group.board.workspaceId,
                 metadata: {
-                  workspaceId: task.group.boardId,
                   groupId: task.groupId,
                 },
               },

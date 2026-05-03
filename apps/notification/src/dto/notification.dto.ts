@@ -57,6 +57,10 @@ export class PushNotificationDto {
   @IsObject()
   @IsOptional()
   metadata?: Record<string, any>;
+
+  @IsUUID()
+  @IsOptional()
+  workspaceId?: string;
 }
 
 export class MarkNotificationDto {
@@ -73,7 +77,7 @@ export class MarkAllAsReadDto {
 
   @IsUUID()
   @IsOptional()
-  workspaceId?: string; // Optional filter if marking all by workspace
+  workspaceId?: string;
 }
 
 export class DeleteNotificationDto {

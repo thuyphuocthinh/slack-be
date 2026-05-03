@@ -20,6 +20,7 @@ export interface IPushNotificationData {
   objectId?: string;
   objectType?: string;
   metadata?: any;
+  workspaceId: string;
 }
 
 export interface ICreateNotificationJobData {
@@ -28,6 +29,7 @@ export interface ICreateNotificationJobData {
   messageId: string;
   mentions?: any[];
   parentId?: string;
+  workspaceId: string;
 }
 
 export interface IEmitEventJobData {

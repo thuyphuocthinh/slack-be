@@ -10,6 +10,10 @@ export class Notification {
   @Index()
   recipientId: string;
 
+  @Column({ name: 'workspace_id', nullable: true })
+  @Index()
+  workspaceId: string;
+
   @Column({ name: 'template_key' })
   templateKey: string;
 
