@@ -47,7 +47,7 @@ export class AuthService {
     private readonly authCacheService: AuthCacheService,
     private readonly dataSource: DataSource,
     private readonly queueService: QueueService,
-  ) { }
+  ) {}
 
   async register(request: RegisterDto): Promise<string> {
     const { email, password } = request;
@@ -168,10 +168,12 @@ export class AuthService {
     });
 
     // 4. Update user status
-    this.userClient.emit(USER_MESSAGE_PATTERNS.CHANGE_USER_STATUS, {
-      id: userId,
-      status: 'active',
-    });
+    await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.CHANGE_USER_STATUS, {
+        id: userId,
+        status: 'active',
+      }),
+    );
 
     return 'Email successfully verified.';
   }
@@ -227,7 +229,11 @@ export class AuthService {
     otp: string,
     metadata?: IRequestMetadata,
   ): Promise<ITokenResponse> {
-    const { sub: userId } = await this.jwtService.verifyAsync(tempToken);
+    const payload = await this.jwtService.verifyAsync(tempToken);
+    if (payload.state !== '2FA_OTP_IS_BEING_VERIFIED') {
+      throw new RpcException(AUTH_ERROR.INVALID_ACCESS_TOKEN);
+    }
+    const userId = payload.sub;
     await firstValueFrom(
       this.userClient.send(TWO_FA_MESSAGE_PATTERNS.VERIFY_OTP, {
         userId,
@@ -385,11 +391,10 @@ export class AuthService {
     };
   }
 
-  // login google - fix later
   async loginGoogle(
     request: { email: string },
     metadata?: IRequestMetadata,
-  ): Promise<ITokenResponse> {
+  ): Promise<ITokenResponse | ITwoFactorResponse> {
     const { email } = request;
     let auth = await this.authRepository.findOne({
       where: {
@@ -397,9 +402,11 @@ export class AuthService {
         providerType: ProviderType.GOOGLE,
       },
     });
+
+    let user;
     if (!auth) {
       // create new user
-      const newUser = await firstValueFrom(
+      user = await firstValueFrom(
         this.userClient.send(USER_MESSAGE_PATTERNS.CREATE_USER, {
           email,
           status: 'active',
@@ -408,14 +415,32 @@ export class AuthService {
 
       // create new auth
       const newAuth = this.authRepository.create({
-        userId: newUser.id,
+        userId: user.id,
         providerId: email,
         providerType: ProviderType.GOOGLE,
         password: '',
       });
 
       auth = await this.authRepository.save(newAuth);
+    } else {
+      user = await firstValueFrom(
+        this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, {
+          id: auth.userId,
+        }),
+      );
     }
+
+    if (!user) {
+      throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_FOUND);
+    }
+
+    if (user.isTwoFactorEnabled) {
+      return {
+        isEnableTwoFactor: true,
+        tempToken: await this.generateTempToken(auth.userId, email),
+      };
+    }
+
     const { accessToken, refreshToken } = await this.generateTokens(
       auth.userId,
       email,
@@ -457,7 +482,10 @@ export class AuthService {
       throw new RpcException(AUTH_ERROR.INVALID_REFRESH_TOKEN);
     }
 
-    await this.authCacheService.blacklistToken(accessToken, 7 * 24 * 60 * 60);
+    await this.authCacheService.blacklistToken(
+      accessToken,
+      buildTTL('MINUTE', 30),
+    );
     return 'Logout successfully.';
   }
 
