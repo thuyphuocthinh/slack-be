@@ -561,24 +561,3 @@ export class MessageService {
     return dto;
   }
 }
-
-/*
-Vấn đề Realtime
-- Dùng redis pub/sub cho realtime message | notification (mention, reaction,... k phải device push)
-=> Nhiều ws server <= redis io adapter => pub/sub, nếu k dùng adapter thì dùng redis pub/sub riêng
-=> Mỗi user là một ws client khi connected tới ws server, ws client này được sub vào các channel trong redis, các channel này
-chính tương đương channel trong database.
-=> Khi có message mới gửi vào một channel nào đó thì ws server nào nhận được message => pub/sub => broadcast tới các 
-ws client connected tới nó
-Redis Pub/Sub là "bắn và quên". Nếu tại thời điểm bạn publish, SocketGateway đang restart (offline 1-2 giây), tin nhắn đó sẽ mất vĩnh viễn, client sẽ không thấy tin nhắn realtime đó dù nó đã lưu vào DB.
-Với BullMQ (SOCKET_QUEUE), tin nhắn được lưu vào danh sách "Waiting". Khi SocketGateway online trở lại, nó sẽ nhặt job ra và gửi đi. Người dùng sẽ thấy tin nhắn hiện lên chậm một chút thay vì không thấy gì.
-=> User offline/disconnect => không nhận được message từ redis => user phải PULL về call api, k push message tới device
-=> Channel trong redis chỉ unsub khi ko còn ws client nào connect tới, tức rỗng.
-=> Logout là phải unsub, clear hết
-=> Realtime luôn về unread count, user bấm vào count => realtime về đẩy job cập nhật last read message và unread count, của channel lẫn notification
-=> Về phần typing thì k liên can đến message service, chỉ giao tiếp ở tầng socket-gateway.
-
-- Dùng queue cho background jobs
-+ Bắn job vào queue job để lưu vào database notification
-+ Mỗi lần nhận một request message hay thread thì phải update user read latest message of channel
-*/

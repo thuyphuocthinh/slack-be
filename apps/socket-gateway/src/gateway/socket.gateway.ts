@@ -28,7 +28,7 @@ import { MESSAGE_MESSAGE_PATTERNS } from '@slack/constants';
     origin: '*',
   },
   pingInterval: 30000,
-  pingTimeout: 5000,
+  pingTimeout: 20000,
 })
 @UseFilters(new WebsocketExceptionsFilter())
 @UsePipes(new ValidationPipe({ transform: true }))
@@ -101,7 +101,7 @@ export class SocketGateway
     }
 
     // 2. Verify JWT
-    const payload = this.jwtService.verify(token);
+    const payload = await this.jwtService.verifyAsync(token);
 
     // 3. Kiểm tra xem token có bị blacklist (đã logout) không
     if (await this.authCache.isBlacklisted(token)) {
@@ -253,11 +253,18 @@ export class SocketGateway
     const userId = client.data.user.sub;
 
     // Gọi sang Channel Service để cập nhật trạng thái đã đọc qua TCP
-    this.channelClient.emit(CHANNEL_MESSAGE_PATTERN.MARK_AS_READ, {
-      channelId,
-      memberId: userId,
-      lastMessageId,
-    });
+    try {
+      await firstValueFrom(
+        this.channelClient.send(CHANNEL_MESSAGE_PATTERN.MARK_AS_READ, {
+          channelId,
+          memberId: userId,
+          lastMessageId,
+        }),
+      );
+    } catch (error) {
+      this.logger.error(`Failed to mark as read: ${error.message}`);
+      return { status: 'error', message: 'Failed to sync unread status' };
+    }
 
     this.logger.debug(
       `User ${userId} marked channel ${channelId} as read up to ${lastMessageId}`,
