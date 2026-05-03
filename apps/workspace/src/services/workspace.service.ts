@@ -1,12 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, IsNull, In } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
 import { WorkspaceEntity } from '../entity/workspace.entity';
 import { WorkspaceMemberEntity } from '../entity/workspace_member.entity';
 import { WorkspaceRoleEnum, MembershipStatus } from '../types/workspace.enum';
 import { CACHE, CachedService, TTL } from '@slack/cached';
-import { WORKSPACE_ERROR } from '@slack/constants';
+import { SYSTEM_ERRORS, WORKSPACE_ERROR } from '@slack/constants';
 import {
   CreateWorkspaceRequestDto,
   UpdateWorkspaceRequestDto,
@@ -36,57 +36,61 @@ export class WorkspaceService {
   async createWorkspace(
     dto: CreateWorkspaceRequestDto,
   ): Promise<WorkspaceResponseDto> {
-    const slug = generateSlug(dto.name);
+    const currentDto = { ...dto };
+    const maxRetries = 5;
+    let retries = 0;
 
-    try {
-      const savedWorkspace = await this.dataSource.transaction(
-        async (manager) => {
-          // 1. Insert Workspace
-          const insertWsResult = await manager.insert(WorkspaceEntity, {
-            name: dto.name,
-            description: dto.description,
-            slug,
-          });
-          const workspaceId = insertWsResult.identifiers[0].id;
+    while (retries < maxRetries) {
+      const slug = generateSlug(currentDto.name);
+      try {
+        const savedWorkspace = await this.dataSource.transaction(
+          async (manager) => {
+            const insertWsResult = await manager.insert(WorkspaceEntity, {
+              name: currentDto.name,
+              description: currentDto.description,
+              slug,
+            });
+            const workspaceId = insertWsResult.identifiers[0].id;
 
-          // 2. Insert Member
-          await manager.insert(WorkspaceMemberEntity, {
-            workspaceId: workspaceId,
-            userId: dto.ownerUserId,
-            role: WorkspaceRoleEnum.OWNER,
-            status: MembershipStatus.ACTIVE,
-          });
+            await manager.insert(WorkspaceMemberEntity, {
+              workspaceId: workspaceId,
+              userId: currentDto.ownerUserId,
+              role: WorkspaceRoleEnum.OWNER,
+              status: MembershipStatus.ACTIVE,
+            });
 
-          return {
-            id: workspaceId,
-            name: dto.name,
-            description: dto.description,
-            slug,
-            createdAt: new Date(),
-          } as WorkspaceEntity;
-        },
-      );
-
-      // Invalidate cache
-      this.cachedService
-        .invalidateList(
-          CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(dto.ownerUserId),
-        )
-        .catch((err) =>
-          this.logger.error(`Cache invalidation failed: ${err.message}`),
+            return {
+              id: workspaceId,
+              name: currentDto.name,
+              description: currentDto.description,
+              slug,
+              createdAt: new Date(),
+            } as WorkspaceEntity;
+          },
         );
 
-      return this.commonService.mapWorkspaceToDto(savedWorkspace);
-    } catch (err) {
-      if (err.code === '23505') {
-        this.logger.warn(`Slug collision for ${slug}, retrying...`);
-        return this.createWorkspace({
-          ...dto,
-          name: `${dto.name}-${Date.now()}`,
-        });
+        this.cachedService
+          .invalidateList(
+            CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(currentDto.ownerUserId),
+          )
+          .catch((err) =>
+            this.logger.error(`Cache invalidation failed: ${err.message}`),
+          );
+
+        return this.commonService.mapWorkspaceToDto(savedWorkspace);
+      } catch (err) {
+        if (err.code === '23505' && retries < maxRetries - 1) {
+          retries++;
+          this.logger.warn(
+            `Slug collision for ${slug}, retrying ${retries}/${maxRetries}...`,
+          );
+          currentDto.name = `${dto.name}-${Math.floor(Math.random() * 10000)}`;
+          continue;
+        }
+        throw err;
       }
-      throw err;
     }
+    throw new RpcException(SYSTEM_ERRORS.INTERNAL_SERVER_ERROR);
   }
 
   // update workspace
@@ -116,6 +120,16 @@ export class WorkspaceService {
 
     await this.cachedService.del(CACHE.WORKSPACE.KEYS.DETAIL(dto.workspaceId));
 
+    // Invalidate all members' workspace list cache because workspace info (name/logo) changed
+    const members = await this.memberRepository.find({
+      where: { workspaceId: dto.workspaceId },
+      select: ['userId'],
+    });
+    const trackerKeys = members.map((m) =>
+      CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(m.userId),
+    );
+    await this.cachedService.invalidateListBulk(trackerKeys);
+
     return this.commonService.mapWorkspaceToDto(updatedWorkspace);
   }
 
@@ -131,7 +145,7 @@ export class WorkspaceService {
       TTL.LONG,
       async () => {
         const workspace = await this.workspaceRepository.findOne({
-          where: { id: workspaceId, deletedAt: IsNull() },
+          where: { id: workspaceId },
         });
         if (!workspace) {
           throw new RpcException(WORKSPACE_ERROR.WORKSPACE_NOT_FOUND);
@@ -151,8 +165,19 @@ export class WorkspaceService {
       dto.workspaceId,
     );
 
-    workspace.deletedAt = new Date();
-    await this.workspaceRepository.save(workspace);
+    // Hard delete workspace and cleanup related members
+    await this.dataSource.transaction(async (manager) => {
+      // 1. Delete members
+      await manager.delete(WorkspaceMemberEntity, {
+        workspaceId: workspace.id,
+      });
+
+      // 2. Delete workspace
+      await manager.delete(WorkspaceEntity, { id: workspace.id });
+
+      // Note: Channels and Messages cleanup should be handled via Events or cross-service calls
+      // but for now we've cleaned up what's inside Workspace Service.
+    });
 
     // Invalidate all members' workspace list cache in bulk
     const members = await this.memberRepository.find({
@@ -165,7 +190,7 @@ export class WorkspaceService {
     );
     await this.cachedService.invalidateListBulk(trackerKeys);
 
-    this.logger.log('Delete workspace', JSON.stringify(workspace));
+    this.logger.log('Hard delete workspace', JSON.stringify(workspace));
 
     // delete cached
     this.cachedService.del(CACHE.WORKSPACE.KEYS.DETAIL(workspace.id));
@@ -207,7 +232,7 @@ export class WorkspaceService {
         }
 
         const workspaces = await this.workspaceRepository.find({
-          where: { id: In(workspaceIds), deletedAt: IsNull() },
+          where: { id: In(workspaceIds) },
         });
 
         const workspaceDtos = workspaceIds

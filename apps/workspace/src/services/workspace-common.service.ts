@@ -1,6 +1,6 @@
 import { Injectable, HttpStatus, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { Repository } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
 import { WorkspaceMemberEntity } from '../entity/workspace_member.entity';
 import { WorkspaceEntity } from '../entity/workspace.entity';
@@ -179,7 +179,7 @@ export class WorkspaceCommonService {
         TTL.MEDIUM,
         async () => {
           return this.workspaceRepository.findOne({
-            where: { id: workspaceId, deletedAt: IsNull() },
+            where: { id: workspaceId },
           });
         },
       );

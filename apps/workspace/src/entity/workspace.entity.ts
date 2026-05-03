@@ -25,9 +25,6 @@ export class WorkspaceEntity {
   @Column({ length: 512, nullable: true })
   logo: string;
 
-  @Column({ name: 'deleted_at', nullable: true })
-  deletedAt: Date;
-
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
