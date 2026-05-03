@@ -7,7 +7,11 @@ import { type IUserResponse } from '../types/user.response';
 import { USER_ERROR } from '@slack/constants/errors/user.error';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
 import { ChangePasswordDto } from '../dto/change-password.dto';
-import { AUTH_MESSAGE_PATTERNS, NAME_SERVICE_TCP, DATABASE_ERROR } from '@slack/constants';
+import {
+  AUTH_MESSAGE_PATTERNS,
+  NAME_SERVICE_TCP,
+  DATABASE_ERROR,
+} from '@slack/constants';
 import { OptimisticLockVersionMismatchError } from 'typeorm';
 import { firstValueFrom } from 'rxjs';
 import { CACHE, CachedService, TTL } from '@slack/cached';
@@ -23,7 +27,7 @@ export class UserService {
     private readonly authClient: ClientProxy,
     private readonly cachedService: CachedService,
     private readonly twoFactorService: TwoFactorService,
-  ) { }
+  ) {}
 
   private async mapUserToResponse(
     user: UserEntity,
@@ -87,7 +91,9 @@ export class UserService {
       throw new RpcException(USER_ERROR.USER_NOT_FOUND);
     }
     const response = await this.mapUserToResponse(user);
-    this.logger.log(`User ${email} response 2FA: ${response.isTwoFactorEnabled}`);
+    this.logger.log(
+      `User ${email} response 2FA: ${response.isTwoFactorEnabled}`,
+    );
     return response;
   }
 
@@ -192,14 +198,29 @@ export class UserService {
         'createdAt',
       ],
     });
-    return Promise.all(users.map((user) => this.mapUserToResponse(user)));
+
+    const twoFaStatuses = await this.twoFactorService.getBatchTwoFactorStatus(
+      users.map((u) => u.id),
+    );
+
+    return users.map((user) => ({
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      avatarUrl: user.avatarUrl,
+      createdAt: user.createdAt,
+      systemRole: user.systemRole,
+      status: user.status,
+      isTwoFactorEnabled: twoFaStatuses[user.id] || false,
+    }));
   }
 
   async findUsersByEmail(email: string): Promise<IUserResponse[]> {
     this.logger.log(`Finding users with email: ${email}`);
     const users = await this.userRepository.find({
       where: {
-        email: ILike(`${email.toLowerCase()}%`),
+        email: ILike(`${email}%`),
         status: UserStatus.ACTIVE,
       },
       select: [
@@ -213,6 +234,21 @@ export class UserService {
         'createdAt',
       ],
     });
-    return Promise.all(users.map((user) => this.mapUserToResponse(user)));
+
+    const twoFaStatuses = await this.twoFactorService.getBatchTwoFactorStatus(
+      users.map((u) => u.id),
+    );
+
+    return users.map((user) => ({
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      avatarUrl: user.avatarUrl,
+      createdAt: user.createdAt,
+      systemRole: user.systemRole,
+      status: user.status,
+      isTwoFactorEnabled: twoFaStatuses[user.id] || false,
+    }));
   }
 }

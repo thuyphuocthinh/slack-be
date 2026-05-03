@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { TwoFactorEntity } from '../entity/two_factor.entity';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import * as speakeasy from 'speakeasy';
 import { RpcException } from '@nestjs/microservices';
 import { TWO_FACTOR_ERROR } from '@slack/constants/errors/two_factor.error';
@@ -16,7 +16,7 @@ export class TwoFactorService {
     @InjectRepository(TwoFactorEntity)
     private readonly twoFactorRepository: Repository<TwoFactorEntity>,
     private readonly cachedService: CachedService,
-  ) { }
+  ) {}
 
   async generateSecret(userId: string): Promise<string> {
     const secret = speakeasy.generateSecret({
@@ -64,7 +64,9 @@ export class TwoFactorService {
     await this.twoFactorRepository.update(twoFactor.id, {
       enabled: true,
     });
-    this.logger.log(`Deleting cache for user ${userId}: ${CACHE.USER.KEYS.TWO_FACTOR(userId)}`);
+    this.logger.log(
+      `Deleting cache for user ${userId}: ${CACHE.USER.KEYS.TWO_FACTOR(userId)}`,
+    );
     await this.cachedService.del(CACHE.USER.KEYS.TWO_FACTOR(userId));
     this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(userId));
     this.logger.log(`User ${userId} enabled two factor`);
@@ -80,11 +82,11 @@ export class TwoFactorService {
     twoFactor.enabled = !twoFactor.enabled;
     await this.twoFactorRepository.save(twoFactor);
 
-    const key = CACHE.USER.KEYS.TWO_FACTOR(userId);
-
     await this.cachedService.del(CACHE.USER.KEYS.TWO_FACTOR(userId));
     this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(userId));
-    this.logger.log(`User ${userId} toggled two factor to ${twoFactor.enabled}`);
+    this.logger.log(
+      `User ${userId} toggled two factor to ${twoFactor.enabled}`,
+    );
     return twoFactor.enabled;
   }
 
@@ -94,7 +96,25 @@ export class TwoFactorService {
       TTL.LONG,
       () => this.twoFactorRepository.findOneBy({ userId: id }),
     );
-    this.logger.log(`Checking 2FA for user ${id}: ${twoFactor?.enabled || false}`);
+    this.logger.log(
+      `Checking 2FA for user ${id}: ${twoFactor?.enabled || false}`,
+    );
     return twoFactor?.enabled || false;
+  }
+
+  async getBatchTwoFactorStatus(
+    ids: string[],
+  ): Promise<Record<string, boolean>> {
+    const twoFactors = await this.twoFactorRepository.find({
+      where: { userId: In(ids) },
+    });
+
+    const statusMap: Record<string, boolean> = {};
+    ids.forEach((id) => (statusMap[id] = false));
+    twoFactors.forEach((tf) => {
+      statusMap[tf.userId] = tf.enabled;
+    });
+
+    return statusMap;
   }
 }
