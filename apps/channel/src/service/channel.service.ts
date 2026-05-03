@@ -182,9 +182,11 @@ export class ChannelService {
   ): Promise<ChannelEntity> {
     const { workspaceId, title, description, memberId } = dto;
 
-    // Only OWNER can create group channels
+    // Only OWNER and ADMIN can create group channels
     await this.checkWorkspacePermission(workspaceId, memberId, [
       WorkspaceRoleEnum.OWNER,
+      WorkspaceRoleEnum.ADMIN,
+      WorkspaceRoleEnum.MEMBER,
     ]);
 
     return await this.dataSource.transaction(async (manager) => {
@@ -234,9 +236,16 @@ export class ChannelService {
         ? await this.createDirectChannel(dto)
         : await this.createGroupChannel(dto);
 
-    await this.cachedService.invalidateList(
-      CACHE.CHANNEL.TRACKERS.LIST_VERSION(workspaceId, memberId),
+    // Invalidate cache for all members involved
+    const allMemberIds =
+      savedChannel.type === ChannelTypeEnum.DIRECT
+        ? [...new Set([memberId, ...(dto.targetMemberIds || [])])]
+        : [memberId];
+
+    const trackerKeys = allMemberIds.map((id) =>
+      CACHE.CHANNEL.TRACKERS.LIST_VERSION(workspaceId, id),
     );
+    await this.cachedService.invalidateListBulk(trackerKeys);
 
     this.logger.log(
       `Created ${type} channel: `,
@@ -268,9 +277,19 @@ export class ChannelService {
 
       const savedChannel = await this.channelRepository.save(channel);
 
-      await this.cachedService.invalidateList(
-        CACHE.CHANNEL.TRACKERS.LIST_VERSION(savedChannel.workspaceId, memberId),
+      // Invalidate cache for all channel members
+      const members = await this.channelMemberRepository.find({
+        where: { channelId: savedChannel.id },
+        select: ['memberId'],
+      });
+
+      const trackerKeys = members.map((m) =>
+        CACHE.CHANNEL.TRACKERS.LIST_VERSION(
+          savedChannel.workspaceId,
+          m.memberId,
+        ),
       );
+      await this.cachedService.invalidateListBulk(trackerKeys);
 
       return this.mapChannelToResponse(savedChannel);
     } catch (error) {
@@ -295,13 +314,21 @@ export class ChannelService {
     ]);
 
     await this.dataSource.transaction(async (manager) => {
+      // Fetch members before deletion for cache invalidation
+      const members = await manager.find(ChannelMemberEntity, {
+        where: { channelId },
+        select: ['memberId'],
+      });
+
       await manager.delete(ChannelMemberEntity, { channelId });
       await manager.delete(ChannelEntity, { id: channelId });
-    });
 
-    await this.cachedService.invalidateList(
-      CACHE.CHANNEL.TRACKERS.LIST_VERSION(channel.workspaceId, memberId),
-    );
+      // Invalidate cache for all members
+      const trackerKeys = members.map((m) =>
+        CACHE.CHANNEL.TRACKERS.LIST_VERSION(channel.workspaceId, m.memberId),
+      );
+      await this.cachedService.invalidateListBulk(trackerKeys);
+    });
 
     return 'success';
   }

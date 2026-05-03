@@ -12,4 +12,5 @@ export const CHANNEL_MESSAGE_PATTERN = {
   LEAVE_CHANNEL: 'channel.leave_channel',
   INCREMENT_UNREAD_COUNT: 'channel.increment_unread_count',
   MARK_AS_READ: 'channel.mark_as_read',
+  REMOVE_MEMBER_FROM_ALL_CHANNELS: 'channel.remove_member_from_all_channels',
 };

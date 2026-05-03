@@ -416,4 +416,54 @@ export class ChannelMemberService {
       },
     );
   }
+
+  async removeMemberFromAllChannels(
+    workspaceId: string,
+    memberId: string,
+  ): Promise<void> {
+    // 1. Find all channels in this workspace where this user is a member
+    const memberships = await this.channelMemberRepository
+      .createQueryBuilder('member')
+      .innerJoin('channels', 'channel', 'channel.id = member.channel_id')
+      .where('channel.workspace_id = :workspaceId', { workspaceId })
+      .andWhere('member.member_id = :memberId', { memberId })
+      .select('member.channel_id', 'channelId')
+      .getRawMany();
+
+    if (memberships.length === 0) return;
+
+    const channelIds = memberships.map((m) => m.channelId);
+
+    // 2. Remove the memberships
+    await this.channelMemberRepository.delete({
+      channelId: In(channelIds),
+      memberId,
+    });
+
+    // 3. Invalidate cache for the member's channel list
+    await this.cachedService
+      .invalidateList(
+        CACHE.CHANNEL.TRACKERS.LIST_VERSION(workspaceId, memberId),
+      )
+      .catch((err) =>
+        this.logger.error(`Cache invalidation failed: ${err.message}`),
+      );
+
+    // 4. Invalidate members list for each channel
+    await Promise.all(
+      channelIds.map((id) =>
+        this.cachedService
+          .invalidateList(CACHE.CHANNEL.TRACKERS.MEMBERS_VERSION(id))
+          .catch((err) =>
+            this.logger.error(
+              `Channel members cache invalidation failed for ${id}: ${err.message}`,
+            ),
+          ),
+      ),
+    );
+
+    this.logger.log(
+      `Removed member ${memberId} from all channels in workspace ${workspaceId}`,
+    );
+  }
 }

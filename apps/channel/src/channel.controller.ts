@@ -115,4 +115,14 @@ export class ChannelController {
       payload.lastReadMessageId,
     );
   }
+
+  @MessagePattern(CHANNEL_MESSAGE_PATTERN.REMOVE_MEMBER_FROM_ALL_CHANNELS)
+  async removeMemberFromAllChannels(
+    @Payload() payload: { workspaceId: string; memberId: string },
+  ) {
+    return await this.channelMemberService.removeMemberFromAllChannels(
+      payload.workspaceId,
+      payload.memberId,
+    );
+  }
 }
