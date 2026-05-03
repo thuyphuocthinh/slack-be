@@ -8,6 +8,7 @@ import {
   NAME_SERVICE_TCP,
   USER_MESSAGE_PATTERNS,
   WORKSPACE_ERROR,
+  CHANNEL_MESSAGE_PATTERN,
 } from '@slack/constants';
 import {
   AddMemberRequestDto,
@@ -32,10 +33,12 @@ export class WorkspaceMemberService {
     private readonly memberRepository: Repository<WorkspaceMemberEntity>,
     @Inject(NAME_SERVICE_TCP.USER_SERVICE)
     private readonly userClient: ClientProxy,
+    @Inject(NAME_SERVICE_TCP.CHANNEL_SERVICE)
+    private readonly channelClient: ClientProxy,
     private readonly dataSource: DataSource,
     private readonly cachedService: CachedService,
     private readonly commonService: WorkspaceCommonService,
-  ) { }
+  ) {}
 
   async addMember(
     dto: AddMemberRequestDto,
@@ -138,6 +141,15 @@ export class WorkspaceMemberService {
       CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(dto.targetUserId),
     );
 
+    // Cleanup channel memberships
+    this.channelClient.emit(
+      CHANNEL_MESSAGE_PATTERN.REMOVE_MEMBER_FROM_ALL_CHANNELS,
+      {
+        workspaceId: dto.workspaceId,
+        memberId: dto.targetUserId,
+      },
+    );
+
     return 'Member removed successfully';
   }
 
@@ -173,6 +185,15 @@ export class WorkspaceMemberService {
       CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(dto.userId),
     );
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+
+    // Cleanup channel memberships
+    this.channelClient.emit(
+      CHANNEL_MESSAGE_PATTERN.REMOVE_MEMBER_FROM_ALL_CHANNELS,
+      {
+        workspaceId: dto.workspaceId,
+        memberId: dto.userId,
+      },
+    );
 
     return 'Left workspace successfully';
   }
@@ -374,10 +395,10 @@ export class WorkspaceMemberService {
     });
 
     await this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
-    
+
     // Invalidate workspace list cache for all added/updated users
-    const trackerKeys = dto.userIds.map(userId => 
-      CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(userId)
+    const trackerKeys = dto.userIds.map((userId) =>
+      CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(userId),
     );
     await this.cachedService.invalidateListBulk(trackerKeys);
 

@@ -117,7 +117,6 @@ export class WorkspaceService {
     }
 
     const updatedWorkspace = await this.workspaceRepository.save(workspace);
-
     await this.cachedService.del(CACHE.WORKSPACE.KEYS.DETAIL(dto.workspaceId));
 
     // Invalidate all members' workspace list cache because workspace info (name/logo) changed
