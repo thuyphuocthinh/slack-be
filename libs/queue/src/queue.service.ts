@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { getQueueToken } from '@nestjs/bullmq';
 import { Queue, JobsOptions } from 'bullmq';
-import { EQueueName, EJobName } from './constants/queue.constant';
+import { EQueueName } from './constants/queue.constant';
 import { TJobData } from './interfaces/job-data.interface';
 
 @Injectable()
@@ -11,7 +11,7 @@ export class QueueService {
 
   constructor(private readonly moduleRef: ModuleRef) {}
 
-  async addJob<T extends EJobName>(
+  async addJob<T extends keyof TJobData>(
     queueName: EQueueName,
     jobName: T,
     data: TJobData[T],
@@ -44,6 +44,30 @@ export class QueueService {
     } catch (error) {
       this.logger.error(
         `Failed to add job to queue ${queueName}: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
+  }
+
+  async removeJob(queueName: EQueueName, jobId: string) {
+    try {
+      const queue = this.moduleRef.get<Queue>(getQueueToken(queueName), {
+        strict: false,
+      });
+
+      if (!queue) {
+        throw new Error(`Queue ${queueName} not found or not registered`);
+      }
+
+      const job = await queue.getJob(jobId);
+      if (job) {
+        await job.remove();
+        this.logger.log(`Job ${jobId} removed from queue ${queueName}`);
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to remove job from queue ${queueName}: ${error.message}`,
         error.stack,
       );
       throw error;

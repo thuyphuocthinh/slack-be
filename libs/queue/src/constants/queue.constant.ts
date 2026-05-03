@@ -6,6 +6,7 @@ export enum EQueueName {
   CHANNEL_QUEUE = 'channel',
   AUDIT_QUEUE = 'audit',
   SOCKET_QUEUE = 'socket',
+  TASK_QUEUE = 'task',
 }
 
 export enum EJobName {
@@ -22,4 +23,7 @@ export enum EJobName {
 
   // Channel
   INCREMENT_UNREAD_COUNT = 'increment_unread_count',
+
+  // Task
+  TASK_DEADLINE_REMINDER = 'task_deadline_reminder',
 }

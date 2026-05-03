@@ -8,6 +8,7 @@ import {
   ManyToOne,
   JoinColumn,
   Unique,
+  VersionColumn,
 } from 'typeorm';
 import { TaskEntity } from './task.entity';
 
@@ -43,4 +44,7 @@ export class TaskMemberEntity {
     onUpdate: 'CURRENT_TIMESTAMP',
   })
   updatedAt: Date;
+
+  @VersionColumn({ nullable: false, default: 1, name: 'version' })
+  version: number;
 }

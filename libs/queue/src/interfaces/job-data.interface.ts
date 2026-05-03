@@ -41,6 +41,10 @@ export interface IIncrementUnreadJobData {
   senderId: string;
 }
 
+export interface ITaskDeadlineJobData {
+  taskId: string;
+}
+
 export type TJobData = {
   [EJobName.SEND_VERIFICATION_EMAIL]: IEmailJobData;
   [EJobName.SEND_INVITE_EMAIL]: IInviteJobData;
@@ -48,4 +52,5 @@ export type TJobData = {
   [EJobName.CREATE_NOTIFICATION]: ICreateNotificationJobData;
   [EJobName.EMIT_EVENT]: IEmitEventJobData;
   [EJobName.INCREMENT_UNREAD_COUNT]: IIncrementUnreadJobData;
+  [EJobName.TASK_DEADLINE_REMINDER]: ITaskDeadlineJobData;
 };
