@@ -83,23 +83,41 @@ export class AuthService {
     }
 
     // 3. create auth and verification in transaction
-    const verification = await this.dataSource.transaction(async (manager) => {
-      const auth = manager.create(AuthEntity, {
-        providerId: email,
-        providerType: ProviderType.LOCAL,
-        password: hashPassword,
-        userId: newUser.id,
-      });
-      await manager.save(auth);
+    let verification;
+    try {
+      verification = await this.dataSource.transaction(async (manager) => {
+        const auth = manager.create(AuthEntity, {
+          providerId: email,
+          providerType: ProviderType.LOCAL,
+          password: hashPassword,
+          userId: newUser.id,
+        });
+        await manager.save(auth);
 
-      const v = manager.create(VerificationEntity, {
-        code: v7(),
-        userId: newUser.id,
-        action: VerificationAction.VERIFY_EMAIL,
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 phút
+        const v = manager.create(VerificationEntity, {
+          code: v7(),
+          userId: newUser.id,
+          action: VerificationAction.VERIFY_EMAIL,
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 phút
+        });
+        return await manager.save(v);
       });
-      return await manager.save(v);
-    });
+    } catch (error) {
+      this.logger.error(
+        `Failed to create auth record for ${email}. Rolling back user creation. Error: ${error.message}`,
+      );
+      // Compensating action: delete the newly created user
+      await firstValueFrom(
+        this.userClient.send(USER_MESSAGE_PATTERNS.DELETE_USER, {
+          id: newUser.id,
+        }),
+      ).catch((err) => {
+        this.logger.error(
+          `Critical: Failed to rollback user creation for ${newUser.id}: ${err.message}`,
+        );
+      });
+      throw error;
+    }
 
     this.logger.log(`Register success for email ${email}`);
 

@@ -39,7 +39,7 @@ import { RateLimit } from '../common/guards/rate-limit.decorator';
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
 
-  constructor(private readonly authService: AuthService) { }
+  constructor(private readonly authService: AuthService) {}
 
   @Public()
   @RateLimit({ limit: 3, window: 60 })
@@ -178,6 +178,7 @@ export class AuthController {
   }
 
   @Public()
+  @RateLimit({ limit: 3, window: 60 })
   @Post('forgot-password')
   @ApiOperation({ summary: 'Request password reset email' })
   @ApiResponse({ status: 200, description: 'Password reset email sent' })
@@ -200,6 +201,7 @@ export class AuthController {
   }
 
   @Public()
+  @RateLimit({ limit: 3, window: 60 })
   @Post('reset-password')
   @ApiOperation({ summary: 'Reset user password' })
   @ApiResponse({ status: 200, description: 'Password successfully reset' })
@@ -208,6 +210,7 @@ export class AuthController {
   }
 
   @Public()
+  @RateLimit({ limit: 5, window: 60 })
   @Post('verify-otp-from-authenticator')
   @ApiOperation({ summary: 'Verify OTP from authenticator' })
   @ApiResponse({ status: 200, description: 'OTP verified successfully' })
