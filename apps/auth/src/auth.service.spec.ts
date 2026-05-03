@@ -19,10 +19,13 @@ import {
 } from '@slack/constants';
 import { Repository } from 'typeorm';
 import { of, throwError } from 'rxjs';
-import * as bcrypt from 'bcrypt';
+import * as argon2 from 'argon2';
 import { v7 } from 'uuid';
+import { ITokenResponse, ITwoFactorResponse } from './types/auth.response';
+import { QueueService } from '@slack/queue';
+import { DataSource } from 'typeorm';
 
-jest.mock('bcrypt');
+jest.mock('argon2');
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -33,6 +36,8 @@ describe('AuthService', () => {
   let notificationClient: any;
   let jwtService: JwtService;
   let authCacheService: AuthCacheService;
+  let dataSource: DataSource;
+  let queueService: QueueService;
 
   const mockRepository = () => ({
     findOneBy: jest.fn(),
@@ -46,6 +51,23 @@ describe('AuthService', () => {
     send: jest.fn(),
     emit: jest.fn(),
   });
+
+  const mockEntityManager = {
+    save: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    findOne: jest.fn(),
+    findOneBy: jest.fn(),
+    remove: jest.fn(),
+  };
+
+  const mockDataSource = {
+    transaction: jest.fn((cb) => cb(mockEntityManager)),
+  };
+
+  const mockQueueService = {
+    addJob: jest.fn().mockResolvedValue(undefined),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -87,10 +109,20 @@ describe('AuthService', () => {
             bumpUserTokenVersion: jest.fn(),
           },
         },
+        {
+          provide: DataSource,
+          useValue: mockDataSource,
+        },
+        {
+          provide: QueueService,
+          useValue: mockQueueService,
+        },
       ],
     }).compile();
 
     service = module.get<AuthService>(AuthService);
+    dataSource = module.get(DataSource);
+    queueService = module.get(QueueService);
     authRepository = module.get(getRepositoryToken(AuthEntity));
     sessionRepository = module.get(getRepositoryToken(SessionEntity));
     verificationRepository = module.get(getRepositoryToken(VerificationEntity));
@@ -109,7 +141,7 @@ describe('AuthService', () => {
 
     it('should register successfully', async () => {
       (authRepository.findOneBy as jest.Mock).mockResolvedValue(null);
-      (bcrypt.hash as jest.Mock).mockResolvedValue('hashedPassword');
+      (argon2.hash as jest.Mock).mockResolvedValue('hashedPassword');
       userClient.send.mockReturnValue(of({ id: 'user-id' }));
       (authRepository.create as jest.Mock).mockReturnValue({});
       (verificationRepository.create as jest.Mock).mockReturnValue({
@@ -141,7 +173,7 @@ describe('AuthService', () => {
 
     it('should throw error if user creation fails', async () => {
       (authRepository.findOneBy as jest.Mock).mockResolvedValue(null);
-      (bcrypt.hash as jest.Mock).mockResolvedValue('hashedPassword');
+      (argon2.hash as jest.Mock).mockResolvedValue('hashedPassword');
       userClient.send.mockReturnValue(
         throwError(() => new Error('Creation failed')),
       );
@@ -208,7 +240,7 @@ describe('AuthService', () => {
 
     it('should login successfully', async () => {
       (authRepository.findOne as jest.Mock).mockResolvedValue(auth);
-      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      (argon2.verify as jest.Mock).mockResolvedValue(true);
       userClient.send.mockImplementation((pattern: string) => {
         if (pattern === USER_MESSAGE_PATTERNS.GET_USER_BY_ID) {
           return of({
@@ -238,7 +270,7 @@ describe('AuthService', () => {
 
     it('should return tempToken when 2FA is enabled', async () => {
       (authRepository.findOne as jest.Mock).mockResolvedValue(auth);
-      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      (argon2.verify as jest.Mock).mockResolvedValue(true);
       userClient.send.mockImplementation((pattern: string) => {
         if (pattern === USER_MESSAGE_PATTERNS.GET_USER_BY_ID) {
           return of({
@@ -275,7 +307,7 @@ describe('AuthService', () => {
 
     it('should throw error if password invalid', async () => {
       (authRepository.findOne as jest.Mock).mockResolvedValue(auth);
-      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+      (argon2.verify as jest.Mock).mockResolvedValue(false);
 
       await expect(service.login(loginDto)).rejects.toThrow(RpcException);
     });
@@ -382,6 +414,7 @@ describe('AuthService', () => {
 
   describe('loginGoogle', () => {
     const googleDto = { email: 'google@example.com' };
+    const metadata = { ipAddress: '127.0.0.1' };
 
     it('should login with google for new user', async () => {
       (authRepository.findOne as jest.Mock).mockResolvedValue(null);
@@ -394,24 +427,46 @@ describe('AuthService', () => {
       });
       (authCacheService.getUserTokenVersion as jest.Mock).mockResolvedValue(1);
       (jwtService.signAsync as jest.Mock).mockResolvedValue('google-token');
+      (sessionRepository.create as jest.Mock).mockReturnValue({});
 
-      const result = await service.loginGoogle(googleDto);
+      const result = await service.loginGoogle(googleDto, metadata as any);
 
-      expect(result.accessToken).toBe('google-token');
+      expect((result as ITokenResponse).accessToken).toBe('google-token');
       expect(authRepository.create).toHaveBeenCalled();
+      expect(sessionRepository.save).toHaveBeenCalled();
     });
 
     it('should login with google for existing user', async () => {
-      (authRepository.findOne as jest.Mock).mockResolvedValue({
-        userId: 'existing-google-user-id',
-      });
+      const auth = { userId: 'existing-google-user-id' };
+      (authRepository.findOne as jest.Mock).mockResolvedValue(auth);
+      userClient.send.mockReturnValue(
+        of({ id: auth.userId, isTwoFactorEnabled: false }),
+      );
       (authCacheService.getUserTokenVersion as jest.Mock).mockResolvedValue(1);
       (jwtService.signAsync as jest.Mock).mockResolvedValue('google-token');
+      (sessionRepository.create as jest.Mock).mockReturnValue({});
 
-      const result = await service.loginGoogle(googleDto);
+      const result = await service.loginGoogle(googleDto, metadata as any);
 
-      expect(result.accessToken).toBe('google-token');
+      expect((result as ITokenResponse).accessToken).toBe('google-token');
       expect(authRepository.create).not.toHaveBeenCalled();
+      expect(sessionRepository.save).toHaveBeenCalled();
+    });
+
+    it('should return tempToken if 2FA is enabled', async () => {
+      const auth = { userId: '2fa-user-id' };
+      (authRepository.findOne as jest.Mock).mockResolvedValue(auth);
+      userClient.send.mockReturnValue(
+        of({ id: auth.userId, isTwoFactorEnabled: true }),
+      );
+      (jwtService.signAsync as jest.Mock).mockResolvedValue('temp-token');
+
+      const result = (await service.loginGoogle(
+        googleDto,
+      )) as ITwoFactorResponse;
+
+      expect(result.isEnableTwoFactor).toBe(true);
+      expect(result.tempToken).toBe('temp-token');
     });
 
     it('should throw error if user creation fails in loginGoogle', async () => {
@@ -462,34 +517,38 @@ describe('AuthService', () => {
   });
 
   describe('logoutAll', () => {
+    const accessToken = 'valid-at';
     const userId = 'user-id';
 
     it('should logout all sessions successfully', async () => {
-      const sessions = [{ isRevoked: false }, { isRevoked: false }];
-      (sessionRepository.find as jest.Mock).mockResolvedValue(sessions);
+      (jwtService.verifyAsync as jest.Mock).mockResolvedValue({ sub: userId });
+      (sessionRepository.update as jest.Mock).mockResolvedValue({ affected: 1 });
 
-      const result = await service.logoutAll({ userId });
+      const result = await service.logoutAll({ accessToken });
 
       expect(result).toBe('Logout all successfully.');
-      expect(sessions.every((s) => s.isRevoked)).toBe(true);
+      expect(sessionRepository.update).toHaveBeenCalledWith(
+        { userId, isRevoked: false },
+        { isRevoked: true },
+      );
       expect(authCacheService.bumpUserTokenVersion).toHaveBeenCalledWith(
         userId,
       );
     });
 
-    it('should throw error if no sessions found', async () => {
-      (sessionRepository.find as jest.Mock).mockResolvedValue(null);
-
-      await expect(service.logoutAll({ userId })).rejects.toThrow(RpcException);
+    it('should throw error if accessToken is missing', async () => {
+      await expect(service.logoutAll({ accessToken: '' })).rejects.toThrow(
+        RpcException,
+      );
     });
 
-    it('should bump token version in cache during logoutAll', async () => {
-      (sessionRepository.find as jest.Mock).mockResolvedValue([]);
+    it('should throw error if token verification fails', async () => {
+      (jwtService.verifyAsync as jest.Mock).mockRejectedValue(
+        new Error('Invalid token'),
+      );
 
-      const result = await service.logoutAll({ userId });
-      expect(result).toBe('Logout all successfully.');
-      expect(authCacheService.bumpUserTokenVersion).toHaveBeenCalledWith(
-        userId,
+      await expect(service.logoutAll({ accessToken })).rejects.toThrow(
+        RpcException,
       );
     });
   });
@@ -591,7 +650,7 @@ describe('AuthService', () => {
       (verificationRepository.findOne as jest.Mock).mockResolvedValue(
         verification,
       );
-      (bcrypt.hash as jest.Mock).mockResolvedValue('new-hashed-password');
+      (argon2.hash as jest.Mock).mockResolvedValue('new-hashed-password');
 
       const result = await service.resetPassword(resetDto);
 

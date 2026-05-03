@@ -87,14 +87,27 @@ describe('ChannelMemberService', () => {
   });
 
   describe('addMember', () => {
-    const dto = { channelId: 'c-id', targetMemberId: 't-id', performerId: 'p-id' };
+    const dto = {
+      channelId: 'c-id',
+      targetMember: {
+        memberId: 't-id',
+        email: 'test@gmail.com',
+        avatarUrl: '',
+      },
+      performerId: 'p-id',
+    };
 
     it('should add member successfully', async () => {
-      mockClientProxy.send.mockReturnValueOnce(of({ id: 't-id' }));
-      mockEntityManager.findOne.mockResolvedValueOnce({ id: 'c-id', workspaceId: 'ws-id', type: ChannelTypeEnum.GROUP });
-      mockClientProxy.send.mockReturnValueOnce(of({ role: WorkspaceRoleEnum.ADMIN }));
+      mockEntityManager.findOne.mockResolvedValueOnce({
+        id: 'c-id',
+        workspaceId: 'ws-id',
+        type: ChannelTypeEnum.GROUP,
+      });
+      mockClientProxy.send.mockReturnValueOnce(
+        of({ role: WorkspaceRoleEnum.ADMIN }),
+      );
       mockEntityManager.findOne.mockResolvedValueOnce(null);
-      mockEntityManager.create.mockReturnValue({ id: 'new-member' });
+      mockEntityManager.create.mockImplementation((entity, data) => data);
 
       const result = await service.addMember(dto);
 
@@ -103,16 +116,23 @@ describe('ChannelMemberService', () => {
     });
 
     it('should throw error if channel is DIRECT', async () => {
-      mockClientProxy.send.mockReturnValueOnce(of({ id: 't-id' }));
-      mockEntityManager.findOne.mockResolvedValueOnce({ id: 'c-id', type: ChannelTypeEnum.DIRECT });
+      mockEntityManager.findOne.mockResolvedValueOnce({
+        id: 'c-id',
+        type: ChannelTypeEnum.DIRECT,
+      });
 
       await expect(service.addMember(dto)).rejects.toThrow(RpcException);
     });
 
     it('should throw error if user already member', async () => {
-      mockClientProxy.send.mockReturnValueOnce(of({ id: 't-id' }));
-      mockEntityManager.findOne.mockResolvedValueOnce({ id: 'c-id', workspaceId: 'ws-id', type: ChannelTypeEnum.GROUP });
-      mockClientProxy.send.mockReturnValueOnce(of({ role: WorkspaceRoleEnum.ADMIN }));
+      mockEntityManager.findOne.mockResolvedValueOnce({
+        id: 'c-id',
+        workspaceId: 'ws-id',
+        type: ChannelTypeEnum.GROUP,
+      });
+      mockClientProxy.send.mockReturnValueOnce(
+        of({ role: WorkspaceRoleEnum.ADMIN }),
+      );
       mockEntityManager.findOne.mockResolvedValueOnce({ id: 'existing' });
 
       await expect(service.addMember(dto)).rejects.toThrow(RpcException);
@@ -120,12 +140,24 @@ describe('ChannelMemberService', () => {
   });
 
   describe('addBatchMembers', () => {
-    const dto = { channelId: 'c-id', targetMemberIds: ['id1', 'id2'], performerId: 'p-id' };
+    const dto = {
+      channelId: 'c-id',
+      targetMembers: [
+        { memberId: 'id1', email: 'id1@gmail.com', avatarUrl: '' },
+        { memberId: 'id2', email: 'id2@gmail.com', avatarUrl: '' },
+      ],
+      performerId: 'p-id',
+    };
 
     it('should add multiple members successfully', async () => {
-      mockClientProxy.send.mockReturnValueOnce(of([{ id: 'id1' }, { id: 'id2' }]));
-      mockEntityManager.findOne.mockResolvedValueOnce({ id: 'c-id', workspaceId: 'ws-id', type: ChannelTypeEnum.GROUP });
-      mockClientProxy.send.mockReturnValueOnce(of({ role: WorkspaceRoleEnum.OWNER }));
+      mockEntityManager.findOne.mockResolvedValueOnce({
+        id: 'c-id',
+        workspaceId: 'ws-id',
+        type: ChannelTypeEnum.GROUP,
+      });
+      mockClientProxy.send.mockReturnValueOnce(
+        of({ role: WorkspaceRoleEnum.OWNER }),
+      );
       mockEntityManager.find.mockResolvedValueOnce([]);
       mockEntityManager.create.mockImplementation((entity, data) => data);
 
@@ -136,10 +168,18 @@ describe('ChannelMemberService', () => {
     });
 
     it('should return if all members already exist', async () => {
-      mockClientProxy.send.mockReturnValueOnce(of([{ id: 'id1' }, { id: 'id2' }]));
-      mockEntityManager.findOne.mockResolvedValueOnce({ id: 'c-id', workspaceId: 'ws-id', type: ChannelTypeEnum.GROUP });
-      mockClientProxy.send.mockReturnValueOnce(of({ role: WorkspaceRoleEnum.OWNER }));
-      mockEntityManager.find.mockResolvedValueOnce([{ memberId: 'id1' }, { memberId: 'id2' }]);
+      mockEntityManager.findOne.mockResolvedValueOnce({
+        id: 'c-id',
+        workspaceId: 'ws-id',
+        type: ChannelTypeEnum.GROUP,
+      });
+      mockClientProxy.send.mockReturnValueOnce(
+        of({ role: WorkspaceRoleEnum.OWNER }),
+      );
+      mockEntityManager.find.mockResolvedValueOnce([
+        { memberId: 'id1' },
+        { memberId: 'id2' },
+      ]);
 
       await service.addBatchMembers(dto);
 
@@ -172,18 +212,30 @@ describe('ChannelMemberService', () => {
   });
 
   describe('getMembers', () => {
-    it('should return member list with user details', async () => {
-      const members = [{ memberId: 'u1' }, { memberId: 'u2' }];
+    it('should return member list from repository', async () => {
+      const members = [
+        {
+          memberId: 'u1',
+          email: 'e1@gmail.com',
+          firstName: 'U1',
+          lastName: 'L1',
+          avatarUrl: 'a1',
+        },
+        {
+          memberId: 'u2',
+          email: 'e2@gmail.com',
+          firstName: 'U2',
+          lastName: 'L2',
+          avatarUrl: 'a2',
+        },
+      ];
       mockChannelMemberRepository.find.mockResolvedValue(members);
-      mockClientProxy.send.mockReturnValue(of([
-        { id: 'u1', firstName: 'U1', lastName: 'L1', email: 'e1' },
-        { id: 'u2', firstName: 'U2', lastName: 'L2', email: 'e2' }
-      ]));
 
       const result = await service.getMembers('c-id');
 
       expect(result).toHaveLength(2);
       expect(result[0].firstName).toBe('U1');
+      expect(result[0].email).toBe('e1@gmail.com');
     });
   });
 
