@@ -1,6 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, In, OptimisticLockVersionMismatchError } from 'typeorm';
+import {
+  Repository,
+  DataSource,
+  In,
+  OptimisticLockVersionMismatchError,
+} from 'typeorm';
 import { TaskEntity } from '../entity/task.entity';
 import { LabelEntity } from '../entity/label.entity';
 import { TaskMemberEntity } from '../entity/task_member.entity';
@@ -15,9 +20,12 @@ import { TaskAttachmentEntity } from '../entity/task_attachment.entity';
 import { IOffsetResponse } from '@slack/common';
 import { QueryTaskDto } from '../dto/task.dto';
 import { CACHE, CachedService, TTL } from '@slack/cached';
+import { EJobName, EQueueName, QueueService } from '@slack/queue';
 
 @Injectable()
 export class TaskService {
+  private readonly logger = new Logger(TaskService.name);
+
   constructor(
     @InjectRepository(TaskEntity)
     private readonly taskRepo: Repository<TaskEntity>,
@@ -32,7 +40,8 @@ export class TaskService {
     private readonly dataSource: DataSource,
     private readonly commonService: TaskCommonService,
     private readonly cachedService: CachedService,
-  ) { }
+    private readonly queueService: QueueService,
+  ) {}
 
   async createNewTask(
     dto: CreateTaskDto,
@@ -55,6 +64,11 @@ export class TaskService {
       await this.cachedService.invalidateList(
         CACHE.TASK.TRACKERS.TASK_LIST_VERSION(dto.groupId),
       );
+
+      if (saved.dueDate) {
+        await this.handleTaskDeadlineJob(saved.id, saved.dueDate);
+      }
+
       return result;
     });
   }
@@ -94,9 +108,7 @@ export class TaskService {
           CACHE.TASK.TRACKERS.TASK_LIST_VERSION(updatedTask.groupId),
         );
 
-        if (dto.dueDate) {
-          // TODO: Bắn vào BullMQ để cập nhật/tạo job mới cho deadline
-        }
+        await this.handleTaskDeadlineJob(updatedTask.id, updatedTask.dueDate);
 
         return this.mapTaskResponse(updatedTask);
       } catch (error) {
@@ -129,6 +141,8 @@ export class TaskService {
         CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
       );
 
+      await this.handleTaskDeadlineJob(id, null);
+
       return `Task with ID ${id} has been deleted`;
     });
   }
@@ -155,7 +169,8 @@ export class TaskService {
     queryDto: QueryTaskDto,
     requesterId: string,
   ): Promise<IOffsetResponse<ITaskResponse[]>> {
-    const { groupId, page = 1, limit = 20 } = queryDto;
+    const { groupId, page = 1 } = queryDto;
+    const limit = Math.min(queryDto.limit || 20, 100);
 
     const group = await this.getGroupById(groupId);
     await this.commonService.checkBoardMembership(group.boardId, requesterId);
@@ -224,14 +239,24 @@ export class TaskService {
       if (existing)
         throw new RpcException(TASK_ERROR.MEMBER_ALREADY_ASSIGNED_TO_TASK);
 
-      const taskMember = manager.create(TaskMemberEntity, { taskId, memberId });
-      await manager.save(taskMember);
+      try {
+        const taskMember = manager.create(TaskMemberEntity, {
+          taskId,
+          memberId,
+        });
+        await manager.save(taskMember);
 
-      await this.cachedService.invalidateList(
-        CACHE.TASK.TRACKERS.TASK_LIST_VERSION(task.groupId),
-      );
+        await this.cachedService.invalidateList(
+          CACHE.TASK.TRACKERS.TASK_LIST_VERSION(task.groupId),
+        );
 
-      return 'Assign member to task successfully';
+        return 'Assign member to task successfully';
+      } catch (error) {
+        if (error instanceof OptimisticLockVersionMismatchError) {
+          throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+        }
+        throw error;
+      }
     });
   }
 
@@ -324,26 +349,26 @@ export class TaskService {
       order: task.order,
       labels: task.labels
         ? task.labels.map((l) => ({
-          id: l.id,
-          boardId: l.boardId,
-          name: l.name,
-          color: l.color,
-        }))
+            id: l.id,
+            boardId: l.boardId,
+            name: l.name,
+            color: l.color,
+          }))
         : [],
       members: task.members
         ? task.members.map((m) => ({
-          id: m.id,
-          taskId: m.taskId,
-          memberId: m.memberId,
-        }))
+            id: m.id,
+            taskId: m.taskId,
+            memberId: m.memberId,
+          }))
         : [],
       attachments: task.attachments
         ? task.attachments.map((a) => ({
-          id: a.id,
-          taskId: a.taskId,
-          title: a.title,
-          link: a.link,
-        }))
+            id: a.id,
+            taskId: a.taskId,
+            title: a.title,
+            link: a.link,
+          }))
         : [],
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
@@ -407,8 +432,15 @@ export class TaskService {
 
       attachment.title = title;
       attachment.link = link;
-      await manager.save(attachment);
-      return 'Update attachment successfully';
+      try {
+        await manager.save(attachment);
+        return 'Update attachment successfully';
+      } catch (error) {
+        if (error instanceof OptimisticLockVersionMismatchError) {
+          throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+        }
+        throw error;
+      }
     });
   }
 
@@ -450,5 +482,44 @@ export class TaskService {
         return group;
       },
     );
+  }
+
+  private async handleTaskDeadlineJob(taskId: string, dueDate: Date | null) {
+    const jobId = `task_deadline_${taskId}`;
+
+    try {
+      if (!dueDate) {
+        // Xóa job cũ nếu deadline bị gỡ hoặc task bị xóa
+        await this.queueService.removeJob(EQueueName.TASK_QUEUE, jobId);
+        return;
+      }
+
+      const now = Date.now();
+      const deadline = new Date(dueDate).getTime();
+
+      // Thông báo trước 30 phút. Nếu còn ít hơn 30 phút thì bắn ngay lập tức (delay = 0)
+      const reminderBuffer = 30 * 60 * 1000;
+      let delay = deadline - now - reminderBuffer;
+
+      if (delay < 0) {
+        delay = 0;
+      }
+
+      // Nếu task đã quá hạn thì không cần add job nữa
+      if (deadline < now) {
+        return;
+      }
+
+      await this.queueService.addJob(
+        EQueueName.TASK_QUEUE,
+        EJobName.TASK_DEADLINE_REMINDER,
+        { taskId },
+        { delay, jobId }, // Dùng jobId cố định để ghi đè (overwrite) job cũ nếu có
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to handle deadline job for task ${taskId}: ${error.message}`,
+      );
+    }
   }
 }

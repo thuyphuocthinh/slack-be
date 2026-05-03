@@ -15,17 +15,21 @@ import { BoardMemberEntity } from './entity/board_member.entity';
 import { TaskMemberEntity } from './entity/task_member.entity';
 import { DatabaseModule } from '@slack/database';
 import { CachedModule } from '@slack/cached';
+import { EQueueName, QueueModule } from '@slack/queue';
 
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { ChecklistService } from './services/checklist.service';
-import { TaskCommonService } from './services/task-common.service';
 import { TaskAttachmentEntity } from './entity/task_attachment.entity';
+import { TaskProcessor } from './processors/task.processor';
+import { TaskCommonService } from './services/task-common.service';
 
 @Module({
   imports: [
     DatabaseModule,
     CachedModule.forRoot(),
+    QueueModule.forRoot(),
+    QueueModule.forFeature([EQueueName.TASK_QUEUE]),
     TypeOrmModule.forFeature([
       TaskBoardEntity,
       TaskGroupEntity,
@@ -46,6 +50,14 @@ import { TaskAttachmentEntity } from './entity/task_attachment.entity';
           port: PORT_TCP.WORKSPACE_TCP_PORT,
         },
       },
+      {
+        name: NAME_SERVICE_TCP.NOTIFICATION_SERVICE,
+        transport: Transport.TCP,
+        options: {
+          host: 'localhost',
+          port: PORT_TCP.NOTIFICATION_TCP_PORT,
+        },
+      },
     ]),
   ],
   controllers: [TaskController],
@@ -56,6 +68,7 @@ import { TaskAttachmentEntity } from './entity/task_attachment.entity';
     LabelService,
     ChecklistService,
     TaskCommonService,
+    TaskProcessor,
   ],
 })
 export class TaskModule {}
