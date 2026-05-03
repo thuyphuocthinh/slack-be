@@ -6,8 +6,11 @@ import {
   UpdateDateColumn,
   Index,
   Unique,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import { WorkspaceRoleEnum, MembershipStatus } from '../types/workspace.enum';
+import { WorkspaceEntity } from './workspace.entity';
 
 @Entity('workspace_members')
 @Unique(['workspaceId', 'userId'])
@@ -18,6 +21,10 @@ export class WorkspaceMemberEntity {
   @Column({ name: 'workspace_id', type: 'uuid' })
   @Index()
   workspaceId: string;
+
+  @ManyToOne(() => WorkspaceEntity, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'workspace_id' })
+  workspace: WorkspaceEntity;
 
   @Column({ name: 'user_id', type: 'uuid' })
   @Index()

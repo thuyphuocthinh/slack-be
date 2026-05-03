@@ -5,8 +5,11 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import { InviteStatus, WorkspaceRoleEnum } from '../types/workspace.enum';
+import { WorkspaceEntity } from './workspace.entity';
 
 @Entity('workspace_invites')
 export class WorkspaceInviteEntity {
@@ -16,6 +19,10 @@ export class WorkspaceInviteEntity {
   @Column({ name: 'workspace_id', type: 'uuid' })
   @Index()
   workspaceId: string;
+
+  @ManyToOne(() => WorkspaceEntity, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'workspace_id' })
+  workspace: WorkspaceEntity;
 
   @Column({ length: 255 })
   @Index()

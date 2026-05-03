@@ -5,11 +5,14 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import {
   WorkspaceLinkStatus,
   WorkspaceLinkType,
 } from '../types/workspace.enum';
+import { WorkspaceEntity } from './workspace.entity';
 
 @Entity('workspace_links')
 export class WorkspaceLinkEntity {
@@ -19,6 +22,10 @@ export class WorkspaceLinkEntity {
   @Column({ name: 'workspace_id', type: 'uuid' })
   @Index()
   workspaceId: string;
+
+  @ManyToOne(() => WorkspaceEntity, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'workspace_id' })
+  workspace: WorkspaceEntity;
 
   @Column({
     type: 'enum',

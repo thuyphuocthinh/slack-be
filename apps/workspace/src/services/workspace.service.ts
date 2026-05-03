@@ -165,26 +165,16 @@ export class WorkspaceService {
       dto.workspaceId,
     );
 
-    // Hard delete workspace and cleanup related members
-    await this.dataSource.transaction(async (manager) => {
-      // 1. Delete members
-      await manager.delete(WorkspaceMemberEntity, {
-        workspaceId: workspace.id,
-      });
-
-      // 2. Delete workspace
-      await manager.delete(WorkspaceEntity, { id: workspace.id });
-
-      // Note: Channels and Messages cleanup should be handled via Events or cross-service calls
-      // but for now we've cleaned up what's inside Workspace Service.
-    });
-
-    // Invalidate all members' workspace list cache in bulk
+    // 1. Get members before deletion for cache invalidation
     const members = await this.memberRepository.find({
       where: { workspaceId: workspace.id },
       select: ['userId'],
     });
 
+    // 2. Hard delete workspace (related entities like members, invites, and links are deleted via CASCADE)
+    await this.workspaceRepository.delete({ id: workspace.id });
+
+    // 3. Invalidate all members' workspace list cache in bulk
     const trackerKeys = members.map((m) =>
       CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(m.userId),
     );
