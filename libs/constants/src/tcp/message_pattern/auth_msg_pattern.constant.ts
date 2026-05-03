@@ -12,4 +12,5 @@ export const AUTH_MESSAGE_PATTERNS = {
   VERIFY_PASSWORD_FOR_UPDATE: 'auth.verify_password_for_update',
   CHANGE_PASSWORD: 'auth.change_password',
   VERIFY_OTP_FROM_AUTHENTICATOR: 'auth.verify_otp_from_authenticator',
+  RESEND_CODE: 'auth.resend_code',
 } as const;

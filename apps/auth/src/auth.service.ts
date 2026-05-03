@@ -11,6 +11,7 @@ import {
   RefreshTokenDto,
   ResetPasswordDto,
   VerifyResetPasswordDto,
+  ResendCodeDto,
 } from './dto';
 import * as argon2 from 'argon2';
 import {
@@ -472,7 +473,6 @@ export class AuthService {
     };
   }
 
-  // logout
   async logout(request: {
     accessToken: string;
     refreshToken: string;
@@ -507,7 +507,6 @@ export class AuthService {
     return 'Logout successfully.';
   }
 
-  // logout all
   async logoutAll(request: { accessToken: string }): Promise<string> {
     const { accessToken } = request;
 
@@ -534,10 +533,8 @@ export class AuthService {
     }
   }
 
-  // forgot passsword
   async forgotPassword(request: { email: string }): Promise<string> {
     const { email } = request;
-    // 1. find auth by email
     const auth = await this.authRepository.findOne({
       where: {
         providerId: email,
@@ -579,10 +576,8 @@ export class AuthService {
     return 'Check your email to verify your email.';
   }
 
-  // verify reset password
   async verifyResetPassword(request: VerifyResetPasswordDto): Promise<string> {
     const { code } = request;
-    // 1. find verification
     const verification = await this.verificationRepository.findOne({
       where: {
         code,
@@ -609,7 +604,6 @@ export class AuthService {
     return 'Verify reset password successfully.';
   }
 
-  // reset password
   async resetPassword(request: ResetPasswordDto): Promise<string> {
     const { email, code, password } = request;
     // 1. find auth by email
@@ -652,7 +646,6 @@ export class AuthService {
     return 'Reset password successfully.';
   }
 
-  // verify password
   async verifyPassword(request: {
     email: string;
     password: string;
@@ -671,7 +664,6 @@ export class AuthService {
     return isMatch;
   }
 
-  // change password
   async changePassword(request: {
     email: string;
     password: string;
@@ -691,5 +683,63 @@ export class AuthService {
       { id: auth.id },
       { password: hashedPassword },
     );
+  }
+
+  async resendCode(request: ResendCodeDto): Promise<string> {
+    const { email, action } = request;
+
+    // Use transaction to ensure atomicity and avoid race conditions
+    const { code } = await this.dataSource.transaction(async (manager) => {
+      const auth = await manager.findOne(AuthEntity, {
+        where: { providerId: email, providerType: ProviderType.LOCAL },
+      });
+
+      if (!auth) {
+        throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_FOUND);
+      }
+
+      // Upsert pattern: Find active verification with lock or create a new instance
+      const verification =
+        (await manager.findOne(VerificationEntity, {
+          where: {
+            userId: auth.userId,
+            action: action as VerificationAction,
+            isUsed: false,
+            expiresAt: MoreThan(new Date()),
+          },
+          lock: { mode: 'pessimistic_write' },
+        })) ||
+        manager.create(VerificationEntity, {
+          userId: auth.userId,
+          action: action as VerificationAction,
+        });
+
+      const newCode = v7();
+      Object.assign(verification, {
+        code: newCode,
+        expiresAt: new Date(Date.now() + buildTTL('MINUTE', 5)),
+      });
+
+      await manager.save(verification);
+      return { code: newCode };
+    });
+
+    const JOB_MAP: Record<VerificationAction, EJobName> = {
+      [VerificationAction.VERIFY_EMAIL]: EJobName.SEND_VERIFICATION_EMAIL,
+      [VerificationAction.RESET_PASSWORD]: EJobName.SEND_PASSWORD_RESET_EMAIL,
+    };
+
+    const jobName = JOB_MAP[action as VerificationAction];
+    if (jobName) {
+      this.queueService
+        .addJob(EQueueName.EMAIL_QUEUE, jobName, { email, code })
+        .catch((err) => {
+          this.logger.error(
+            `Failed to push ${jobName} job for ${email}: ${err.message}`,
+          );
+        });
+    }
+
+    return 'Resend code successfully.';
   }
 }

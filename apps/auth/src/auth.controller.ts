@@ -9,6 +9,7 @@ import {
   RefreshTokenDto,
   VerifyResetPasswordDto,
   ResetPasswordDto,
+  ResendCodeDto,
 } from './dto';
 import { IRequestMetadata } from '@slack/common';
 
@@ -99,5 +100,10 @@ export class AuthController {
   @MessagePattern(AUTH_MESSAGE_PATTERNS.CHANGE_PASSWORD)
   changePassword(@Payload() payload: { data: LoginDto }) {
     return this.authService.changePassword(payload.data);
+  }
+
+  @MessagePattern(AUTH_MESSAGE_PATTERNS.RESEND_CODE)
+  resendCode(@Payload() payload: { data: ResendCodeDto }) {
+    return this.authService.resendCode(payload.data);
   }
 }

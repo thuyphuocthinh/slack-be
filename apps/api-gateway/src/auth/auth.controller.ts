@@ -30,6 +30,7 @@ import {
   VerifyOtpFromAuthenticatorDto,
   LogoutDto,
   LogoutAllDto,
+  ResendCodeDto,
 } from './dto';
 import { Public } from '@slack/common';
 import { RateLimit } from '../common/guards/rate-limit.decorator';
@@ -224,5 +225,23 @@ export class AuthController {
       userAgent,
       device: userAgent,
     });
+  }
+
+  @Public()
+  @RateLimit({ limit: 3, window: 60 })
+  @Post('resend-code')
+  @ApiOperation({ summary: 'Resend code' })
+  @ApiResponse({ status: 200, description: 'Code resent successfully' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        email: { type: 'string', example: 'user@example.com' },
+        action: { type: 'string', example: 'VERIFY_EMAIL' },
+      },
+    },
+  })
+  resendCode(@Body() data: ResendCodeDto) {
+    return this.authService.resendCode(data);
   }
 }

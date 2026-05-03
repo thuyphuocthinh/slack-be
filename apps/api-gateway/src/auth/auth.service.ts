@@ -9,6 +9,7 @@ import {
   RefreshTokenDto,
   VerifyResetPasswordDto,
   VerifyOtpFromAuthenticatorDto,
+  ResendCodeDto,
 } from './dto';
 import { MicroserviceErrorHandler } from '../common/microservice_error.handler';
 import { IRequestMetadata } from '@slack/common';
@@ -18,7 +19,7 @@ export class AuthService {
   constructor(
     @Inject(NAME_SERVICE_TCP.AUTH_SERVICE)
     private readonly authClient: ClientProxy,
-  ) { }
+  ) {}
 
   async register(data: RegisterDto): Promise<string> {
     return MicroserviceErrorHandler.handleAsyncCall(
@@ -168,6 +169,19 @@ export class AuthService {
           ),
         ),
       'verifyOtpFromAuthenticator',
+      'AuthService',
+    );
+  }
+
+  async resendCode(data: ResendCodeDto) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.authClient.send(AUTH_MESSAGE_PATTERNS.RESEND_CODE, {
+            data,
+          }),
+        ),
+      'resendCode',
       'AuthService',
     );
   }

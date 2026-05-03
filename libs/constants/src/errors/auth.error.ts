@@ -5,7 +5,7 @@ export const AUTH_ERROR = {
   },
   ACCOUNT_NOT_FOUND: {
     code: 'ERR.AUTH.0102',
-    message: 'ACCOUNT NOT FOUND',
+    message: 'WRONG CREDENTIALS',
   },
   ACCOUNT_INVALID_VERIFICATION_CODE: {
     code: 'ERR.AUTH.0103',
