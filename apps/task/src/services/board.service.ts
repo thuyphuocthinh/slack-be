@@ -33,6 +33,11 @@ export class BoardService {
   ): Promise<IBoardResponse> {
     const { result, memberId } = await this.dataSource.transaction(
       async (manager) => {
+        await this.commonService.checkWorkspaceRole(
+          dto.workspaceId,
+          requesterId,
+        );
+
         const memberId = await this.commonService.checkWorkspaceMembership(
           dto.workspaceId,
           requesterId,
@@ -79,7 +84,10 @@ export class BoardService {
         if (!board) throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
 
         // Optimization: check admin role and board membership using the board we already fetched
-        await this.commonService.checkAdminRole(board.workspaceId, requesterId);
+        await this.commonService.checkWorkspaceRole(
+          board.workspaceId,
+          requesterId,
+        );
         await this.commonService.checkBoardMembership(id, requesterId, manager);
 
         Object.assign(board, dto);
@@ -127,7 +135,10 @@ export class BoardService {
         });
         if (!board) throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
 
-        await this.commonService.checkAdminRole(board.workspaceId, requesterId);
+        await this.commonService.checkWorkspaceRole(
+          board.workspaceId,
+          requesterId,
+        );
 
         const boardId = id;
         const workspaceId = board.workspaceId;
@@ -166,7 +177,7 @@ export class BoardService {
   ): Promise<IOffsetResponse<IBoardResponse[]>> {
     const { workspaceId, page = 1, limit = 20 } = queryDto;
 
-    const memberId = await this.commonService.getMemberId(
+    const memberId = await this.commonService.getWorkspaceMemberId(
       workspaceId,
       requesterUserId,
     );
@@ -246,7 +257,10 @@ export class BoardService {
         if (!board) throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
 
         // Only Workspace Admin/Owner can add members to boards
-        await this.commonService.checkAdminRole(board.workspaceId, requesterId);
+        await this.commonService.checkWorkspaceRole(
+          board.workspaceId,
+          requesterId,
+        );
 
         const existing = await manager.findOne(BoardMemberEntity, {
           where: { boardId, memberId },
@@ -286,24 +300,33 @@ export class BoardService {
         });
         if (!board) throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
 
-        const requesterMemberId = await this.commonService.getMemberId(
+        // check if requester is member of board
+        await this.commonService.checkBoardMembership(
+          boardId,
+          requesterId,
+          manager,
+        );
+
+        const requesterMemberId = await this.commonService.getWorkspaceMemberId(
           board.workspaceId,
           requesterId,
         );
 
         // If removing someone else, must be Admin/Owner
         if (requesterMemberId !== memberId) {
-          await this.commonService.checkAdminRole(
+          await this.commonService.checkWorkspaceRole(
             board.workspaceId,
             requesterId,
           );
         } else {
           // If leaving by self, just need to be a member
-          await this.commonService.checkBoardMembership(
-            boardId,
+          // if the owner => not allow to remove
+          const requesterRole = await this.commonService.getWorkspaceMemberRole(
+            board.workspaceId,
             requesterId,
-            manager,
           );
+          if (requesterRole === 'owner')
+            throw new RpcException(TASK_ERROR.OWNER_CANNOT_LEAVE_BOARD);
         }
 
         await manager.delete(BoardMemberEntity, {

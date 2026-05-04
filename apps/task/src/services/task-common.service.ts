@@ -51,7 +51,10 @@ export class TaskCommonService {
       const board = await boardRepo.findOneBy({ id: boardId });
       if (!board) throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
 
-      const memberId = await this.getMemberId(board.workspaceId, userId);
+      const memberId = await this.getWorkspaceMemberId(
+        board.workspaceId,
+        userId,
+      );
       const membership = await boardMemberRepo.findOneBy({ boardId, memberId });
       if (!membership) throw new RpcException(TASK_ERROR.MEMBER_NOT_IN_BOARD);
       return;
@@ -63,7 +66,10 @@ export class TaskCommonService {
       TTL.SHORT,
       async () => {
         const board = await this.getBoardById(boardId);
-        const memberId = await this.getMemberId(board.workspaceId, userId);
+        const memberId = await this.getWorkspaceMemberId(
+          board.workspaceId,
+          userId,
+        );
         const membership = await this.boardMemberRepo.findOneBy({
           boardId,
           memberId,
@@ -81,10 +87,13 @@ export class TaskCommonService {
     workspaceId: string,
     userId: string,
   ): Promise<string> {
-    return await this.getMemberId(workspaceId, userId);
+    return await this.getWorkspaceMemberId(workspaceId, userId);
   }
 
-  async getMemberId(workspaceId: string, userId: string): Promise<string> {
+  async getWorkspaceMemberId(
+    workspaceId: string,
+    userId: string,
+  ): Promise<string> {
     try {
       const member = await this.cachedService.getOrSetDetail(
         CACHE.WORKSPACE.KEYS.IS_MEMBER(workspaceId, userId),
@@ -106,7 +115,10 @@ export class TaskCommonService {
     }
   }
 
-  async getMemberRole(workspaceId: string, userId: string): Promise<string> {
+  async getWorkspaceMemberRole(
+    workspaceId: string,
+    userId: string,
+  ): Promise<string> {
     try {
       const member = await this.cachedService.getOrSetDetail(
         CACHE.WORKSPACE.KEYS.IS_MEMBER(workspaceId, userId),
@@ -120,7 +132,7 @@ export class TaskCommonService {
           );
         },
       );
-      if (!member) throw new Error('Member not found');
+      if (!member) throw new RpcException(TASK_ERROR.NOT_MEMBER_OF_WORKSPACE);
       return member.role;
     } catch (error) {
       this.logger.error('Get member role failed', error);
@@ -128,8 +140,8 @@ export class TaskCommonService {
     }
   }
 
-  async checkAdminRole(workspaceId: string, userId: string): Promise<void> {
-    const role = await this.getMemberRole(workspaceId, userId);
+  async checkWorkspaceRole(workspaceId: string, userId: string): Promise<void> {
+    const role = await this.getWorkspaceMemberRole(workspaceId, userId);
     if (role !== 'owner' && role !== 'admin') {
       throw new RpcException(WORKSPACE_ERROR.NOT_ALLOWED);
     }
