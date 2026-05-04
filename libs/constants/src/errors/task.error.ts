@@ -55,4 +55,8 @@ export const TASK_ERROR = {
     code: 'ERR.TASK.0114',
     message: 'LOWER ROLES CAN NOT MANAGE THE SAME OR HIGHER ROLES',
   },
+  GROUPS_NOT_IN_SAME_BOARD: {
+    code: 'ERR.TASK.0115',
+    message: 'GROUPS ARE NOT IN THE SAME BOARD',
+  },
 };

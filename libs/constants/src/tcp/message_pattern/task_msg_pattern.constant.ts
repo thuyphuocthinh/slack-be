@@ -14,6 +14,7 @@ export const TASK_MSG_PATTERN = {
     UPDATE: 'group.update_group_info',
     DELETE: 'group.remove_group_from_board',
     GET_ALL_IN_BOARD: 'group.get_groups_by_board_id',
+    CHANGE_ORDER: 'group.change_group_order',
   },
   TASK: {
     CREATE: 'task.create_new_task',
@@ -25,6 +26,7 @@ export const TASK_MSG_PATTERN = {
     ASSIGN_MEMBER: 'task.assign_member_to_task',
     UNASSIGN_MEMBER: 'task.unassign_member_from_task',
     TOGGLE_LABEL: 'task.toggle_task_label',
+    DRAG_DROP: 'task.drag_drop_task',
   },
   LABEL: {
     CREATE: 'label.create_new_label',

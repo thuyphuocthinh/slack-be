@@ -38,3 +38,13 @@ export class GroupResponseDto {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export class ChangeGroupOrderDto {
+  @IsUUID()
+  @IsNotEmpty()
+  sourceGroupId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  targetGroupId: string;
+}

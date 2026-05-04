@@ -80,3 +80,17 @@ export class QueryTaskDto {
   @Min(1)
   limit?: number = 20;
 }
+
+export class DragDropTaskDto {
+  @IsUUID()
+  @IsNotEmpty()
+  taskId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  targetGroupId: string;
+
+  @IsNumber()
+  @IsNotEmpty()
+  targetOrder: number;
+}

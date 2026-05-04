@@ -1,8 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, Between } from 'typeorm';
 import { TaskGroupEntity } from '../entity/task_group.entity';
-import { CreateGroupDto, UpdateGroupDto } from '../dto/group.dto';
+import {
+  ChangeGroupOrderDto,
+  CreateGroupDto,
+  UpdateGroupDto,
+} from '../dto/group.dto';
 import { RpcException } from '@nestjs/microservices';
 import { TASK_ERROR } from '@slack/constants';
 import { IGroupResponse } from '../type/task.response';
@@ -96,5 +100,58 @@ export class GroupService {
       createdAt: group.createdAt,
       updatedAt: group.updatedAt,
     };
+  }
+
+  async changeGroupOrder(
+    dto: ChangeGroupOrderDto,
+    requesterId: string,
+  ): Promise<void> {
+    return await this.dataSource.transaction(async (manager) => {
+      const sourceGroup = await manager.findOneBy(TaskGroupEntity, {
+        id: dto.sourceGroupId,
+      });
+      const targetGroup = await manager.findOneBy(TaskGroupEntity, {
+        id: dto.targetGroupId,
+      });
+
+      if (!sourceGroup || !targetGroup)
+        throw new RpcException(TASK_ERROR.GROUP_NOT_FOUND);
+      if (sourceGroup.boardId !== targetGroup.boardId)
+        throw new RpcException(TASK_ERROR.GROUPS_NOT_IN_SAME_BOARD);
+
+      await this.commonService.checkBoardMembership(
+        sourceGroup.boardId,
+        requesterId,
+        manager,
+      );
+
+      const { boardId, order: sOrder } = sourceGroup;
+      const { order: tOrder } = targetGroup;
+
+      if (sOrder === tOrder) return;
+
+      if (sOrder < tOrder) {
+        await manager.update(
+          TaskGroupEntity,
+          {
+            boardId,
+            order: Between(sOrder + 1, tOrder),
+          },
+          { order: () => 'order - 1' },
+        );
+      } else {
+        await manager.update(
+          TaskGroupEntity,
+          {
+            boardId,
+            order: Between(tOrder, sOrder - 1),
+          },
+          { order: () => 'order + 1' },
+        );
+      }
+
+      sourceGroup.order = tOrder;
+      await manager.save(sourceGroup);
+    });
   }
 }

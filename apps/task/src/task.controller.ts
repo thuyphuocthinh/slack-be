@@ -7,8 +7,17 @@ import { LabelService } from './services/label.service';
 import { ChecklistService } from './services/checklist.service';
 import { TASK_MSG_PATTERN } from '@slack/constants';
 import { CreateBoardDto, QueryBoardDto, UpdateBoardDto } from './dto/board.dto';
-import { CreateGroupDto, UpdateGroupDto } from './dto/group.dto';
-import { CreateTaskDto, QueryTaskDto, UpdateTaskDto } from './dto/task.dto';
+import {
+  ChangeGroupOrderDto,
+  CreateGroupDto,
+  UpdateGroupDto,
+} from './dto/group.dto';
+import {
+  CreateTaskDto,
+  DragDropTaskDto,
+  QueryTaskDto,
+  UpdateTaskDto,
+} from './dto/task.dto';
 import { CreateLabelDto, UpdateLabelDto } from './dto/label.dto';
 import {
   CreateChecklistDto,
@@ -158,6 +167,14 @@ export class TaskController {
     return this.groupService.getGroupsByBoardId(boardId, requesterId);
   }
 
+  @MessagePattern(TASK_MSG_PATTERN.GROUP.CHANGE_ORDER)
+  async changeGroupOrder(
+    @Payload()
+    { dto, requesterId }: { dto: ChangeGroupOrderDto; requesterId: string },
+  ) {
+    return this.groupService.changeGroupOrder(dto, requesterId);
+  }
+
   // --- TASK ---
   @MessagePattern(TASK_MSG_PATTERN.TASK.CREATE)
   async createNewTask(
@@ -204,11 +221,6 @@ export class TaskController {
   ) {
     return this.taskService.getTasksInGroup(queryDto, requesterId);
   }
-
-  // @MessagePattern(TASK_MSG_PATTERN.TASK.GET_MEMBERS)
-  // async getTaskMembers(@Payload() taskId: string) {
-  //   return this.taskService.getTaskMembers(taskId);
-  // }
 
   @MessagePattern(TASK_MSG_PATTERN.TASK.ASSIGN_MEMBER)
   async assignMemberToTask(
@@ -260,6 +272,14 @@ export class TaskController {
     },
   ) {
     return this.taskService.toggleTaskLabel(taskId, labelId, requesterId);
+  }
+
+  @MessagePattern(TASK_MSG_PATTERN.TASK.DRAG_DROP)
+  async dragDropTask(
+    @Payload()
+    { dto, requesterId }: { dto: DragDropTaskDto; requesterId: string },
+  ) {
+    return this.taskService.dragDropTask(dto, requesterId);
   }
 
   // --- LABEL ---

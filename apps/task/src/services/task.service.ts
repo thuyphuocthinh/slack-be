@@ -5,11 +5,13 @@ import {
   DataSource,
   In,
   OptimisticLockVersionMismatchError,
+  EntityManager,
+  Between,
 } from 'typeorm';
 import { TaskEntity } from '../entity/task.entity';
 import { LabelEntity } from '../entity/label.entity';
 import { TaskMemberEntity } from '../entity/task_member.entity';
-import { CreateTaskDto, UpdateTaskDto } from '../dto/task.dto';
+import { CreateTaskDto, DragDropTaskDto, UpdateTaskDto } from '../dto/task.dto';
 import { RpcException } from '@nestjs/microservices';
 import { DATABASE_ERROR, TASK_ERROR } from '@slack/constants';
 import { ITaskResponse } from '../type/task.response';
@@ -562,5 +564,119 @@ export class TaskService {
         `Failed to handle deadline job for task ${taskId}: ${error.message}`,
       );
     }
+  }
+
+  async dragDropTask(dto: DragDropTaskDto, requesterId: string): Promise<void> {
+    return await this.dataSource.transaction(async (manager) => {
+      const task = await manager.findOne(TaskEntity, {
+        where: { id: dto.taskId },
+        relations: ['group'],
+      });
+      const targetGroup = await manager.findOneBy(TaskGroupEntity, {
+        id: dto.targetGroupId,
+      });
+
+      if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
+      if (!targetGroup) throw new RpcException(TASK_ERROR.GROUP_NOT_FOUND);
+
+      // Check membership for both source and target boards
+      await this.commonService.checkBoardMembership(
+        task.group.boardId,
+        requesterId,
+        manager,
+      );
+      if (task.group.boardId !== targetGroup.boardId) {
+        await this.commonService.checkBoardMembership(
+          targetGroup.boardId,
+          requesterId,
+          manager,
+        );
+      }
+
+      if (task.groupId === dto.targetGroupId) {
+        await this.moveTaskWithinGroup(manager, task, dto.targetOrder);
+      } else {
+        await this.moveTaskToDifferentGroup(
+          manager,
+          task,
+          targetGroup,
+          dto.targetOrder,
+        );
+      }
+    });
+  }
+
+  private async moveTaskWithinGroup(
+    manager: EntityManager,
+    task: TaskEntity,
+    targetOrder: number,
+  ): Promise<void> {
+    const { groupId, order: currentOrder } = task;
+    if (currentOrder === targetOrder) return;
+
+    if (currentOrder < targetOrder) {
+      await manager.update(
+        TaskEntity,
+        {
+          groupId,
+          order: Between(currentOrder + 1, targetOrder),
+        },
+        { order: () => 'order - 1' },
+      );
+    } else {
+      await manager.update(
+        TaskEntity,
+        {
+          groupId,
+          order: Between(targetOrder, currentOrder - 1),
+        },
+        { order: () => 'order + 1' },
+      );
+    }
+
+    task.order = targetOrder;
+    await manager.save(task);
+  }
+
+  private async moveTaskToDifferentGroup(
+    manager: EntityManager,
+    task: TaskEntity,
+    targetGroup: TaskGroupEntity,
+    targetOrder: number,
+  ): Promise<void> {
+    const { groupId: sourceGroupId, order: currentOrder } = task;
+
+    // Shift tasks in source group down
+    await manager.update(
+      TaskEntity,
+      {
+        groupId: sourceGroupId,
+        order: Between(currentOrder + 1, Number.MAX_SAFE_INTEGER),
+      },
+      { order: () => 'order - 1' },
+    );
+
+    // Shift tasks in target group up
+    await manager.update(
+      TaskEntity,
+      {
+        groupId: targetGroup.id,
+        order: Between(targetOrder, Number.MAX_SAFE_INTEGER),
+      },
+      { order: () => 'order + 1' },
+    );
+
+    // Update task
+    task.groupId = targetGroup.id;
+    task.order = targetOrder;
+    await manager.save(task);
+
+    // Invalidate cache for both groups
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(sourceGroupId),
+    );
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(targetGroup.id),
+    );
   }
 }
