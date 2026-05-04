@@ -27,8 +27,10 @@ import {
   QueryTaskApiDto,
   CreateChecklistApiDto,
   UpdateChecklistApiDto,
-  AddChecklistItemApiDto,
   UpdateChecklistItemApiDto,
+  ChangeGroupOrderApiDto,
+  DragDropTaskApiDto,
+  AddChecklistItemApiDto,
 } from './dto/task-api.dto';
 import {
   CreateBoardRequestDto,
@@ -45,6 +47,8 @@ import {
   CreateTaskRequestDto,
   UpdateTaskRequestDto,
   QueryTaskRequestDto,
+  ChangeGroupOrderRequestDto,
+  DragDropTaskRequestDto,
 } from './dto/task-request.dto';
 import { WorkspaceRoleEnum } from '@slack/constants';
 
@@ -207,6 +211,20 @@ export class TaskController {
     @CurrentUser() user: JwtUser,
   ) {
     return this.taskService.getGroups(boardId, user.sub);
+  }
+
+  @Patch('boards/:id/groups/order')
+  @ApiOperation({ summary: 'Change group order' })
+  async changeGroupOrder(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') boardId: string,
+    @Body() dto: ChangeGroupOrderApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.taskService.changeGroupOrder(
+      { ...dto, requesterId: user.sub } as ChangeGroupOrderRequestDto,
+      user.sub,
+    );
   }
 
   // --- LABELS ---
@@ -457,5 +475,18 @@ export class TaskController {
     @CurrentUser() user: JwtUser,
   ) {
     return this.taskService.toggleTaskLabel(taskId, dto.labelId, user.sub);
+  }
+
+  @Patch('items/drag-drop')
+  @ApiOperation({ summary: 'Drag and drop task' })
+  async dragDropTask(
+    @Param('workspaceId') workspaceId: string,
+    @Body() dto: DragDropTaskApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.taskService.dragDropTask(
+      { ...dto, requesterId: user.sub } as DragDropTaskRequestDto,
+      user.sub,
+    );
   }
 }

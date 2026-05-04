@@ -189,3 +189,32 @@ export class UpdateChecklistItemApiDto {
   @IsOptional()
   isCompleted?: boolean;
 }
+
+export class ChangeGroupOrderApiDto {
+  @ApiProperty({ example: 'source-group-uuid' })
+  @IsUUID()
+  @IsNotEmpty()
+  sourceGroupId: string;
+
+  @ApiProperty({ example: 'target-group-uuid' })
+  @IsUUID()
+  @IsNotEmpty()
+  targetGroupId: string;
+}
+
+export class DragDropTaskApiDto {
+  @ApiProperty({ example: 'task-uuid' })
+  @IsUUID()
+  @IsNotEmpty()
+  taskId: string;
+
+  @ApiProperty({ example: 'target-group-uuid' })
+  @IsUUID()
+  @IsNotEmpty()
+  targetGroupId: string;
+
+  @ApiProperty({ example: 1 })
+  @IsNumber()
+  @IsNotEmpty()
+  targetOrder: number;
+}

@@ -90,3 +90,16 @@ export class UpdateChecklistItemRequestDto {
   isCompleted?: boolean;
   requesterId: string;
 }
+
+export class ChangeGroupOrderRequestDto {
+  sourceGroupId: string;
+  targetGroupId: string;
+  requesterId: string;
+}
+
+export class DragDropTaskRequestDto {
+  taskId: string;
+  targetGroupId: string;
+  targetOrder: number;
+  requesterId: string;
+}

@@ -18,6 +18,8 @@ import {
   UpdateChecklistRequestDto,
   AddChecklistItemRequestDto,
   UpdateChecklistItemRequestDto,
+  ChangeGroupOrderRequestDto,
+  DragDropTaskRequestDto,
 } from './dto/task-request.dto';
 
 @Injectable()
@@ -217,6 +219,20 @@ export class TaskService {
     );
   }
 
+  async changeGroupOrder(dto: ChangeGroupOrderRequestDto, requesterId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.taskClient.send(TASK_MSG_PATTERN.GROUP.CHANGE_ORDER, {
+            dto,
+            requesterId,
+          }),
+        ),
+      'changeGroupOrder',
+      'TaskGatewayService',
+    );
+  }
+
   // --- TASK ---
   async createTask(dto: CreateTaskRequestDto, requesterId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
@@ -338,6 +354,20 @@ export class TaskService {
           }),
         ),
       'toggleTaskLabel',
+      'TaskGatewayService',
+    );
+  }
+
+  async dragDropTask(dto: DragDropTaskRequestDto, requesterId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.taskClient.send(TASK_MSG_PATTERN.TASK.DRAG_DROP, {
+            dto,
+            requesterId,
+          }),
+        ),
+      'dragDropTask',
       'TaskGatewayService',
     );
   }
