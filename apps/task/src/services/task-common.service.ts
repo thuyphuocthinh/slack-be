@@ -8,6 +8,7 @@ import {
   TASK_ERROR,
   NAME_SERVICE_TCP,
   WORKSPACE_MESSAGE_PATTERNS,
+  WORKSPACE_ERROR,
 } from '@slack/constants';
 import { firstValueFrom } from 'rxjs';
 import { CACHE, CachedService, TTL } from '@slack/cached';
@@ -98,7 +99,7 @@ export class TaskCommonService {
         },
       );
       if (!member) throw new Error('Member not found');
-      return member.id;
+      return member.userId;
     } catch (error) {
       this.logger.error('Get member failed', error);
       throw new RpcException(TASK_ERROR.NOT_MEMBER_OF_WORKSPACE);
@@ -124,6 +125,13 @@ export class TaskCommonService {
     } catch (error) {
       this.logger.error('Get member role failed', error);
       throw new RpcException(TASK_ERROR.NOT_MEMBER_OF_WORKSPACE);
+    }
+  }
+
+  async checkAdminRole(workspaceId: string, userId: string): Promise<void> {
+    const role = await this.getMemberRole(workspaceId, userId);
+    if (role !== 'owner' && role !== 'admin') {
+      throw new RpcException(WORKSPACE_ERROR.NOT_ALLOWED);
     }
   }
 }

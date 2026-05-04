@@ -7,4 +7,8 @@ export const SYSTEM_ERRORS = {
     code: 'ERR.SYS.0102',
     message: 'INTERNAL SERVER ERROR',
   },
+  PERMISSION_DENIED: {
+    code: 'ERR.SYS.0103',
+    message: 'PERMISSION DENIED',
+  },
 };

@@ -73,12 +73,14 @@ export class BoardService {
   ): Promise<IBoardResponse> {
     const { result, members, workspaceId } = await this.dataSource.transaction(
       async (manager) => {
-        await this.commonService.checkBoardMembership(id, requesterId, manager);
-
         const board = await manager.findOne(TaskBoardEntity, {
           where: { id },
         });
         if (!board) throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
+
+        // Optimization: check admin role and board membership using the board we already fetched
+        await this.commonService.checkAdminRole(board.workspaceId, requesterId);
+        await this.commonService.checkBoardMembership(id, requesterId, manager);
 
         Object.assign(board, dto);
         try {
@@ -119,16 +121,16 @@ export class BoardService {
   async deleteBoard(id: string, requesterId: string): Promise<string> {
     const { trackerKeys, memberIds } = await this.dataSource.transaction(
       async (manager) => {
-        await this.commonService.checkBoardMembership(id, requesterId, manager);
+        const board = await manager.findOne(TaskBoardEntity, {
+          where: { id },
+          select: ['id', 'workspaceId'],
+        });
+        if (!board) throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
+
+        await this.commonService.checkAdminRole(board.workspaceId, requesterId);
 
         const boardId = id;
-        const workspaceId = (
-          await manager.findOne(TaskBoardEntity, {
-            where: { id: boardId },
-            select: ['workspaceId'],
-          })
-        )?.workspaceId;
-        if (!workspaceId) throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
+        const workspaceId = board.workspaceId;
 
         const members = await manager.find(BoardMemberEntity, {
           where: { boardId },
@@ -237,11 +239,14 @@ export class BoardService {
   ): Promise<string> {
     const { workspaceId } = await this.dataSource.transaction(
       async (manager) => {
-        await this.commonService.checkBoardMembership(
-          boardId,
-          requesterId,
-          manager,
-        );
+        const board = await manager.findOne(TaskBoardEntity, {
+          where: { id: boardId },
+          select: ['id', 'workspaceId'],
+        });
+        if (!board) throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
+
+        // Only Workspace Admin/Owner can add members to boards
+        await this.commonService.checkAdminRole(board.workspaceId, requesterId);
 
         const existing = await manager.findOne(BoardMemberEntity, {
           where: { boardId, memberId },
@@ -254,12 +259,6 @@ export class BoardService {
           memberId,
         });
         await manager.save(boardMember);
-
-        const board = await manager.findOne(TaskBoardEntity, {
-          where: { id: boardId },
-          select: ['workspaceId'],
-        });
-        if (!board) throw new RpcException(TASK_ERROR.BOARD_NOT_FOUND);
 
         return { workspaceId: board.workspaceId };
       },
@@ -282,12 +281,6 @@ export class BoardService {
   ): Promise<string> {
     const { workspaceId } = await this.dataSource.transaction(
       async (manager) => {
-        await this.commonService.checkBoardMembership(
-          boardId,
-          requesterId,
-          manager,
-        );
-
         const board = await manager.findOne(TaskBoardEntity, {
           where: { id: boardId },
         });
@@ -300,13 +293,17 @@ export class BoardService {
 
         // If removing someone else, must be Admin/Owner
         if (requesterMemberId !== memberId) {
-          const role = await this.commonService.getMemberRole(
+          await this.commonService.checkAdminRole(
             board.workspaceId,
             requesterId,
           );
-          if (role !== 'ADMIN' && role !== 'OWNER') {
-            throw new RpcException(TASK_ERROR.NOT_ENOUGH_PERMISSION);
-          }
+        } else {
+          // If leaving by self, just need to be a member
+          await this.commonService.checkBoardMembership(
+            boardId,
+            requesterId,
+            manager,
+          );
         }
 
         await manager.delete(BoardMemberEntity, {
