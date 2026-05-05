@@ -32,7 +32,16 @@ export class GroupService {
         manager,
       );
 
-      const group = manager.create(TaskGroupEntity, dto);
+      const lastGroup = await manager.findOne(TaskGroupEntity, {
+        where: { boardId: dto.boardId },
+        order: { order: 'DESC' },
+      });
+      const nextOrder = lastGroup ? lastGroup.order + 1 : 0;
+
+      const group = manager.create(TaskGroupEntity, {
+        ...dto,
+        order: nextOrder,
+      });
       const saved = await manager.save(group);
       return this.mapGroupResponse(saved);
     });
@@ -105,7 +114,7 @@ export class GroupService {
   async changeGroupOrder(
     dto: ChangeGroupOrderDto,
     requesterId: string,
-  ): Promise<void> {
+  ): Promise<string> {
     return await this.dataSource.transaction(async (manager) => {
       const sourceGroup = await manager.findOneBy(TaskGroupEntity, {
         id: dto.sourceGroupId,
@@ -128,7 +137,7 @@ export class GroupService {
       const { boardId, order: sOrder } = sourceGroup;
       const { order: tOrder } = targetGroup;
 
-      if (sOrder === tOrder) return;
+      if (sOrder === tOrder) return 'Group order remains the same';
 
       if (sOrder < tOrder) {
         await manager.update(
@@ -152,6 +161,8 @@ export class GroupService {
 
       sourceGroup.order = tOrder;
       await manager.save(sourceGroup);
+
+      return 'Change group order successfully';
     });
   }
 }

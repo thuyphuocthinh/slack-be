@@ -17,6 +17,7 @@ import {
   DragDropTaskDto,
   QueryTaskDto,
   UpdateTaskDto,
+  CreateAttachmentDto,
 } from './dto/task.dto';
 import { CreateLabelDto, UpdateLabelDto } from './dto/label.dto';
 import {
@@ -397,5 +398,21 @@ export class TaskController {
     @Payload() { id, requesterId }: { id: string; requesterId: string },
   ) {
     return this.checklistService.toggleChecklistItem(id, requesterId);
+  }
+
+  // --- ATTACHMENT ---
+  @MessagePattern(TASK_MSG_PATTERN.TASK.ADD_ATTACHMENT)
+  async addAttachment(
+    @Payload()
+    { dto, requesterId }: { dto: CreateAttachmentDto; requesterId: string },
+  ) {
+    return this.taskService.addAttachment(dto, requesterId);
+  }
+
+  @MessagePattern(TASK_MSG_PATTERN.TASK.DELETE_ATTACHMENT)
+  async deleteAttachment(
+    @Payload() { id, requesterId }: { id: string; requesterId: string },
+  ) {
+    return this.taskService.deleteAttachment(id, requesterId);
   }
 }

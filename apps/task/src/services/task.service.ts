@@ -7,11 +7,12 @@ import {
   OptimisticLockVersionMismatchError,
   EntityManager,
   Between,
+  MoreThanOrEqual,
 } from 'typeorm';
 import { TaskEntity } from '../entity/task.entity';
 import { LabelEntity } from '../entity/label.entity';
 import { TaskMemberEntity } from '../entity/task_member.entity';
-import { CreateTaskDto, DragDropTaskDto, UpdateTaskDto } from '../dto/task.dto';
+import { CreateAttachmentDto, CreateTaskDto, DragDropTaskDto, UpdateTaskDto } from '../dto/task.dto';
 import { RpcException } from '@nestjs/microservices';
 import { DATABASE_ERROR, TASK_ERROR } from '@slack/constants';
 import { ITaskResponse } from '../type/task.response';
@@ -43,7 +44,7 @@ export class TaskService {
     private readonly commonService: TaskCommonService,
     private readonly cachedService: CachedService,
     private readonly queueService: QueueService,
-  ) {}
+  ) { }
 
   async createNewTask(
     dto: CreateTaskDto,
@@ -61,7 +62,16 @@ export class TaskService {
           manager,
         );
 
-        const task = manager.create(TaskEntity, dto);
+        const lastTask = await manager.findOne(TaskEntity, {
+          where: { groupId: dto.groupId },
+          order: { order: 'DESC' },
+        });
+        const nextOrder = lastTask ? lastTask.order + 1 : 0;
+
+        const task = manager.create(TaskEntity, {
+          ...dto,
+          order: nextOrder,
+        });
         const saved = await manager.save(task);
         const result = this.mapTaskResponse(saved);
 
@@ -167,7 +177,7 @@ export class TaskService {
   ): Promise<ITaskResponse> {
     const task = await this.taskRepo.findOne({
       where: { id },
-      relations: ['labels', 'group', 'members'],
+      relations: ['labels', 'group', 'members', 'attachments', 'checklists'],
     });
     if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
 
@@ -365,30 +375,46 @@ export class TaskService {
       groupId: task.groupId,
       title: task.title,
       description: task.description,
+      startDate: task.startDate,
       dueDate: task.dueDate,
       order: task.order,
       labels: task.labels
         ? task.labels.map((l) => ({
-            id: l.id,
-            boardId: l.boardId,
-            name: l.name,
-            color: l.color,
-          }))
+          id: l.id,
+          boardId: l.boardId,
+          name: l.name,
+          color: l.color,
+        }))
         : [],
       members: task.members
         ? task.members.map((m) => ({
-            id: m.id,
-            taskId: m.taskId,
-            memberId: m.memberId,
-          }))
+          id: m.id,
+          taskId: m.taskId,
+          memberId: m.memberId,
+        }))
         : [],
       attachments: task.attachments
         ? task.attachments.map((a) => ({
-            id: a.id,
-            taskId: a.taskId,
-            title: a.title,
-            link: a.link,
-          }))
+          id: a.id,
+          taskId: a.taskId,
+          title: a.title,
+          link: a.link,
+        }))
+        : [],
+      checklists: task.checklists
+        ? task.checklists.map((c) => ({
+          id: c.id,
+          taskId: c.taskId,
+          name: c.name,
+          items: c.items
+            ? c.items.map((i) => ({
+              id: i.id,
+              checklistId: i.checklistId,
+              content: i.content,
+              isCompleted: i.isCompleted,
+            }))
+            : [],
+        }))
         : [],
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
@@ -396,12 +422,11 @@ export class TaskService {
   }
 
   // add attachments (title - link), no need to upload => reduce costs and time
-  async addAttachmentToTask(
-    taskId: string,
-    title: string,
-    link: string,
+  async addAttachment(
+    dto: CreateAttachmentDto,
     requesterId: string,
   ): Promise<string> {
+    const { taskId, title, link } = dto;
     const { groupId } = await this.dataSource.transaction(async (manager) => {
       const task = await manager.findOne(TaskEntity, {
         where: { id: taskId },
@@ -479,32 +504,25 @@ export class TaskService {
     return 'Update attachment successfully';
   }
 
-  async removeAttachment(
-    taskId: string,
-    attachmentId: string,
-    requesterId: string,
-  ): Promise<string> {
+  async deleteAttachment(id: string, requesterId: string): Promise<string> {
     const { groupId } = await this.dataSource.transaction(async (manager) => {
-      const task = await manager.findOne(TaskEntity, {
-        where: { id: taskId },
-        relations: ['group'],
+      const attachment = await manager.findOne(TaskAttachmentEntity, {
+        where: { id },
+        relations: ['task', 'task.group'],
       });
-      if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
+      if (!attachment) throw new RpcException(TASK_ERROR.ATTACHMENT_NOT_FOUND);
 
+      const task = attachment.task;
       await this.commonService.checkBoardMembership(
         task.group.boardId,
         requesterId,
         manager,
       );
 
-      const attachment = await manager.findOne(TaskAttachmentEntity, {
-        where: { id: attachmentId },
-      });
-      if (!attachment) throw new RpcException(TASK_ERROR.ATTACHMENT_NOT_FOUND);
-
+      const groupId = task.groupId;
       await manager.remove(attachment);
 
-      return { groupId: task.groupId };
+      return { groupId };
     });
 
     await this.cachedService.invalidateList(
@@ -566,44 +584,62 @@ export class TaskService {
     }
   }
 
-  async dragDropTask(dto: DragDropTaskDto, requesterId: string): Promise<void> {
-    return await this.dataSource.transaction(async (manager) => {
-      const task = await manager.findOne(TaskEntity, {
-        where: { id: dto.taskId },
-        relations: ['group'],
-      });
-      const targetGroup = await manager.findOneBy(TaskGroupEntity, {
-        id: dto.targetGroupId,
-      });
+  async dragDropTask(dto: DragDropTaskDto, requesterId: string): Promise<string> {
+    const { sourceGroupId, targetGroupId } = await this.dataSource.transaction(
+      async (manager) => {
+        const task = await manager.findOne(TaskEntity, {
+          where: { id: dto.taskId },
+          relations: ['group'],
+        });
+        const targetGroup = await manager.findOneBy(TaskGroupEntity, {
+          id: dto.targetGroupId,
+        });
 
-      if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
-      if (!targetGroup) throw new RpcException(TASK_ERROR.GROUP_NOT_FOUND);
+        if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
+        if (!targetGroup) throw new RpcException(TASK_ERROR.GROUP_NOT_FOUND);
 
-      // Check membership for both source and target boards
-      await this.commonService.checkBoardMembership(
-        task.group.boardId,
-        requesterId,
-        manager,
-      );
-      if (task.group.boardId !== targetGroup.boardId) {
+        const sourceGroupId = task.groupId;
+        const targetGroupId = targetGroup.id;
+
+        // Check membership for both source and target boards
         await this.commonService.checkBoardMembership(
-          targetGroup.boardId,
+          task.group.boardId,
           requesterId,
           manager,
         );
-      }
+        if (task.group.boardId !== targetGroup.boardId) {
+          await this.commonService.checkBoardMembership(
+            targetGroup.boardId,
+            requesterId,
+            manager,
+          );
+        }
 
-      if (task.groupId === dto.targetGroupId) {
-        await this.moveTaskWithinGroup(manager, task, dto.targetOrder);
-      } else {
-        await this.moveTaskToDifferentGroup(
-          manager,
-          task,
-          targetGroup,
-          dto.targetOrder,
-        );
-      }
-    });
+        if (sourceGroupId === targetGroupId) {
+          await this.moveTaskWithinGroup(manager, task, dto.targetOrder);
+        } else {
+          await this.moveTaskToDifferentGroup(
+            manager,
+            task,
+            targetGroup,
+            dto.targetOrder,
+          );
+        }
+
+        return { sourceGroupId, targetGroupId };
+      },
+    );
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(sourceGroupId),
+    );
+    if (sourceGroupId !== targetGroupId) {
+      await this.cachedService.invalidateList(
+        CACHE.TASK.TRACKERS.TASK_LIST_VERSION(targetGroupId),
+      );
+    }
+
+    return 'Drag and drop task successfully';
   }
 
   private async moveTaskWithinGroup(
@@ -634,8 +670,7 @@ export class TaskService {
       );
     }
 
-    task.order = targetOrder;
-    await manager.save(task);
+    await manager.update(TaskEntity, task.id, { order: targetOrder });
   }
 
   private async moveTaskToDifferentGroup(
@@ -651,7 +686,7 @@ export class TaskService {
       TaskEntity,
       {
         groupId: sourceGroupId,
-        order: Between(currentOrder + 1, Number.MAX_SAFE_INTEGER),
+        order: MoreThanOrEqual(currentOrder + 1),
       },
       { order: () => 'order - 1' },
     );
@@ -661,22 +696,15 @@ export class TaskService {
       TaskEntity,
       {
         groupId: targetGroup.id,
-        order: Between(targetOrder, Number.MAX_SAFE_INTEGER),
+        order: MoreThanOrEqual(targetOrder),
       },
       { order: () => 'order + 1' },
     );
 
     // Update task
-    task.groupId = targetGroup.id;
-    task.order = targetOrder;
-    await manager.save(task);
-
-    // Invalidate cache for both groups
-    await this.cachedService.invalidateList(
-      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(sourceGroupId),
-    );
-    await this.cachedService.invalidateList(
-      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(targetGroup.id),
-    );
+    await manager.update(TaskEntity, task.id, {
+      groupId: targetGroup.id,
+      order: targetOrder,
+    });
   }
 }

@@ -31,6 +31,10 @@ export class UpdateTaskDto {
 
   @IsDateString()
   @IsOptional()
+  startDate?: string;
+
+  @IsDateString()
+  @IsOptional()
   dueDate?: string;
 
   @IsArray()
@@ -57,6 +61,7 @@ export class TaskResponseDto {
   groupId: string;
   title: string;
   description: string;
+  startDate: Date;
   dueDate: Date;
   order: number;
   assigneeIds: string[];
@@ -93,4 +98,18 @@ export class DragDropTaskDto {
   @IsNumber()
   @IsNotEmpty()
   targetOrder: number;
+}
+
+export class CreateAttachmentDto {
+  @IsUUID()
+  @IsNotEmpty()
+  taskId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  title: string;
+
+  @IsString()
+  @IsNotEmpty()
+  link: string;
 }

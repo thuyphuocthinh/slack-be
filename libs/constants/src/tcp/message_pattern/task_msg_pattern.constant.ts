@@ -27,6 +27,8 @@ export const TASK_MSG_PATTERN = {
     UNASSIGN_MEMBER: 'task.unassign_member_from_task',
     TOGGLE_LABEL: 'task.toggle_task_label',
     DRAG_DROP: 'task.drag_drop_task',
+    ADD_ATTACHMENT: 'task.add_attachment',
+    DELETE_ATTACHMENT: 'task.delete_attachment',
   },
   LABEL: {
     CREATE: 'label.create_new_label',

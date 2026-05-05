@@ -33,11 +33,13 @@ export interface ITaskResponse {
   groupId: string;
   title: string;
   description: string;
+  startDate: Date;
   dueDate: Date;
   order: number;
   labels: ILabelResponse[];
   members: ITaskMemberResponse[];
   attachments: ITaskAttachmentResponse[];
+  checklists: IChecklistResponse[];
   createdAt: Date;
   updatedAt: Date;
 }

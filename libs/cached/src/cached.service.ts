@@ -76,7 +76,7 @@ export class CachedService {
 
   async getVersion(trackerKey: string): Promise<number> {
     const version = await this.redis.get(trackerKey);
-    return version ? Number(version) : 1;
+    return version ? Number(version) : 0;
   }
 
   async bumpVersion(trackerKey: string): Promise<number> {

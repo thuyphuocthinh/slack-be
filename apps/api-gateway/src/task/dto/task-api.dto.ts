@@ -94,6 +94,21 @@ export class UpdateTaskApiDto {
   @IsOptional()
   @MaxLength(255)
   title?: string;
+
+  @ApiPropertyOptional({ example: 'Updated Description' })
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @ApiPropertyOptional({ example: '2026-05-05T00:00:00Z' })
+  @IsString()
+  @IsOptional()
+  startDate?: string;
+
+  @ApiPropertyOptional({ example: '2026-05-06T00:00:00Z' })
+  @IsString()
+  @IsOptional()
+  dueDate?: string;
 }
 
 export class QueryTaskApiDto {
@@ -217,4 +232,18 @@ export class DragDropTaskApiDto {
   @IsNumber()
   @IsNotEmpty()
   targetOrder: number;
+}
+
+export class CreateAttachmentApiDto {
+  @ApiProperty({ example: 'Attachment Title' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  title: string;
+
+  @ApiProperty({ example: 'https://example.com/file.pdf' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(512)
+  link: string;
 }

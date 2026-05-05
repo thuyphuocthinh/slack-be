@@ -20,6 +20,7 @@ import {
   UpdateChecklistItemRequestDto,
   ChangeGroupOrderRequestDto,
   DragDropTaskRequestDto,
+  CreateAttachmentRequestDto,
 } from './dto/task-request.dto';
 
 @Injectable()
@@ -553,6 +554,35 @@ export class TaskService {
           }),
         ),
       'toggleChecklistItem',
+      'TaskGatewayService',
+    );
+  }
+
+  // --- ATTACHMENTS ---
+  async createAttachment(dto: CreateAttachmentRequestDto, requesterId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.taskClient.send(TASK_MSG_PATTERN.TASK.ADD_ATTACHMENT, {
+            dto,
+            requesterId,
+          }),
+        ),
+      'createAttachment',
+      'TaskGatewayService',
+    );
+  }
+
+  async deleteAttachment(id: string, requesterId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.taskClient.send(TASK_MSG_PATTERN.TASK.DELETE_ATTACHMENT, {
+            id,
+            requesterId,
+          }),
+        ),
+      'deleteAttachment',
       'TaskGatewayService',
     );
   }

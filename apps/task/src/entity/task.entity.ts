@@ -33,6 +33,9 @@ export class TaskEntity {
   @Column({ name: 'description', type: 'text', nullable: true })
   description: string;
 
+  @Column({ name: 'start_date', nullable: true })
+  startDate: Date;
+
   @Column({ name: 'due_date', nullable: true })
   dueDate: Date;
 

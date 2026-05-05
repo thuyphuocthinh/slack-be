@@ -42,6 +42,9 @@ export class CreateTaskRequestDto {
 export class UpdateTaskRequestDto {
   id: string;
   title?: string;
+  description?: string;
+  startDate?: string;
+  dueDate?: string;
   requesterId: string;
 }
 
@@ -101,5 +104,12 @@ export class DragDropTaskRequestDto {
   taskId: string;
   targetGroupId: string;
   targetOrder: number;
+  requesterId: string;
+}
+
+export class CreateAttachmentRequestDto {
+  taskId: string;
+  title: string;
+  link: string;
   requesterId: string;
 }

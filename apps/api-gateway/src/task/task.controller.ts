@@ -31,6 +31,7 @@ import {
   ChangeGroupOrderApiDto,
   DragDropTaskApiDto,
   AddChecklistItemApiDto,
+  CreateAttachmentApiDto,
 } from './dto/task-api.dto';
 import {
   CreateBoardRequestDto,
@@ -49,6 +50,7 @@ import {
   QueryTaskRequestDto,
   ChangeGroupOrderRequestDto,
   DragDropTaskRequestDto,
+  CreateAttachmentRequestDto,
 } from './dto/task-request.dto';
 import { WorkspaceRoleEnum } from '@slack/constants';
 
@@ -488,5 +490,30 @@ export class TaskController {
       { ...dto, requesterId: user.sub } as DragDropTaskRequestDto,
       user.sub,
     );
+  }
+
+  // --- ATTACHMENTS ---
+  @Post('item/:id/attachments')
+  @ApiOperation({ summary: 'Add attachment to task' })
+  async createAttachment(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') taskId: string,
+    @Body() dto: CreateAttachmentApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.taskService.createAttachment(
+      { ...dto, taskId, requesterId: user.sub } as CreateAttachmentRequestDto,
+      user.sub,
+    );
+  }
+
+  @Delete('attachments/:id')
+  @ApiOperation({ summary: 'Delete attachment' })
+  async deleteAttachment(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.taskService.deleteAttachment(id, user.sub);
   }
 }
