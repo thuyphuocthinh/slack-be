@@ -21,6 +21,7 @@ import {
   ChangeGroupOrderRequestDto,
   DragDropTaskRequestDto,
   CreateAttachmentRequestDto,
+  ChangeTaskGroupRequestDto,
 } from './dto/task-request.dto';
 
 @Injectable()
@@ -28,7 +29,7 @@ export class TaskService {
   constructor(
     @Inject(NAME_SERVICE_TCP.TASK_SERVICE)
     private readonly taskClient: ClientProxy,
-  ) {}
+  ) { }
 
   // --- BOARD ---
   async createBoard(dto: CreateBoardRequestDto, requesterId: string) {
@@ -369,6 +370,20 @@ export class TaskService {
           }),
         ),
       'dragDropTask',
+      'TaskGatewayService',
+    );
+  }
+
+  async changeTaskGroup(dto: ChangeTaskGroupRequestDto, requesterId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.taskClient.send(TASK_MSG_PATTERN.TASK.CHANGE_GROUP, {
+            dto,
+            requesterId,
+          }),
+        ),
+      'changeTaskGroup',
       'TaskGatewayService',
     );
   }

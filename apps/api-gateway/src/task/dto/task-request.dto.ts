@@ -107,6 +107,12 @@ export class DragDropTaskRequestDto {
   requesterId: string;
 }
 
+export class ChangeTaskGroupRequestDto {
+  taskId: string;
+  targetGroupId: string;
+  requesterId: string;
+}
+
 export class CreateAttachmentRequestDto {
   taskId: string;
   title: string;

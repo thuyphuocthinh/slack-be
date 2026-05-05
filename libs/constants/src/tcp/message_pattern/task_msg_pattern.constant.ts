@@ -29,6 +29,7 @@ export const TASK_MSG_PATTERN = {
     DRAG_DROP: 'task.drag_drop_task',
     ADD_ATTACHMENT: 'task.add_attachment',
     DELETE_ATTACHMENT: 'task.delete_attachment',
+    CHANGE_GROUP: 'task.change_task_group',
   },
   LABEL: {
     CREATE: 'label.create_new_label',

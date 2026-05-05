@@ -32,6 +32,7 @@ import {
   DragDropTaskApiDto,
   AddChecklistItemApiDto,
   CreateAttachmentApiDto,
+  ChangeTaskGroupApiDto,
 } from './dto/task-api.dto';
 import {
   CreateBoardRequestDto,
@@ -51,6 +52,7 @@ import {
   ChangeGroupOrderRequestDto,
   DragDropTaskRequestDto,
   CreateAttachmentRequestDto,
+  ChangeTaskGroupRequestDto,
 } from './dto/task-request.dto';
 import { WorkspaceRoleEnum } from '@slack/constants';
 
@@ -386,7 +388,6 @@ export class TaskController {
   @Post('groups/:id/tasks')
   @ApiOperation({ summary: 'Create a new task' })
   async createTask(
-    @Param('workspaceId') workspaceId: string,
     @Param('id') groupId: string,
     @Body() dto: CreateTaskApiDto,
     @CurrentUser() user: JwtUser,
@@ -400,7 +401,6 @@ export class TaskController {
   @Patch('tasks/:id')
   @ApiOperation({ summary: 'Update task details' })
   async updateTask(
-    @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
     @Body() dto: UpdateTaskApiDto,
     @CurrentUser() user: JwtUser,
@@ -415,7 +415,6 @@ export class TaskController {
   @Delete('tasks/:id')
   @ApiOperation({ summary: 'Remove task' })
   async deleteTask(
-    @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,
   ) {
@@ -425,7 +424,6 @@ export class TaskController {
   @Get('tasks/:id')
   @ApiOperation({ summary: 'Get task details' })
   async getTaskDetails(
-    @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,
   ) {
@@ -435,7 +433,6 @@ export class TaskController {
   @Get('groups/:id/tasks')
   @ApiOperation({ summary: 'Get tasks in a group' })
   async getTasks(
-    @Param('workspaceId') workspaceId: string,
     @Param('id') groupId: string,
     @Query() queryDto: QueryTaskApiDto,
     @CurrentUser() user: JwtUser,
@@ -449,7 +446,6 @@ export class TaskController {
   @Post('tasks/:id/assign/:memberId')
   @ApiOperation({ summary: 'Assign member to task' })
   async assignMemberToTask(
-    @Param('workspaceId') workspaceId: string,
     @Param('id') taskId: string,
     @Param('memberId') memberId: string,
     @CurrentUser() user: JwtUser,
@@ -460,7 +456,6 @@ export class TaskController {
   @Post('tasks/:id/unassign/:memberId')
   @ApiOperation({ summary: 'Unassign member from task' })
   async unassignMemberFromTask(
-    @Param('workspaceId') workspaceId: string,
     @Param('id') taskId: string,
     @Param('memberId') memberId: string,
     @CurrentUser() user: JwtUser,
@@ -471,7 +466,6 @@ export class TaskController {
   @Post('tasks/:id/toggle-label')
   @ApiOperation({ summary: 'Toggle label for task' })
   async toggleTaskLabel(
-    @Param('workspaceId') workspaceId: string,
     @Param('id') taskId: string,
     @Body() dto: ToggleTaskLabelApiDto,
     @CurrentUser() user: JwtUser,
@@ -482,7 +476,6 @@ export class TaskController {
   @Patch('tasks/drag-drop')
   @ApiOperation({ summary: 'Drag and drop task' })
   async dragDropTask(
-    @Param('workspaceId') workspaceId: string,
     @Body() dto: DragDropTaskApiDto,
     @CurrentUser() user: JwtUser,
   ) {
@@ -492,11 +485,28 @@ export class TaskController {
     );
   }
 
+  @Post('tasks/:id/change-group')
+  @ApiOperation({ summary: 'Change task group (move task)' })
+  async changeTaskGroup(
+    @Param('id') taskId: string,
+    @Body() dto: ChangeTaskGroupApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.taskService.changeTaskGroup(
+      {
+        ...dto,
+        taskId,
+        targetGroupId: dto.targetGroupId,
+        requesterId: user.sub,
+      } as ChangeTaskGroupRequestDto,
+      user.sub,
+    );
+  }
+
   // --- ATTACHMENTS ---
   @Post('tasks/:id/attachments')
   @ApiOperation({ summary: 'Add attachment to task' })
   async createAttachment(
-    @Param('workspaceId') workspaceId: string,
     @Param('id') taskId: string,
     @Body() dto: CreateAttachmentApiDto,
     @CurrentUser() user: JwtUser,
@@ -510,7 +520,6 @@ export class TaskController {
   @Delete('attachments/:id')
   @ApiOperation({ summary: 'Delete attachment' })
   async deleteAttachment(
-    @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
     @CurrentUser() user: JwtUser,
   ) {

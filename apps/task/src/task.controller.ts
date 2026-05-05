@@ -18,6 +18,7 @@ import {
   QueryTaskDto,
   UpdateTaskDto,
   CreateAttachmentDto,
+  ChangeTaskGroupDto,
 } from './dto/task.dto';
 import { CreateLabelDto, UpdateLabelDto } from './dto/label.dto';
 import {
@@ -35,7 +36,7 @@ export class TaskController {
     private readonly groupService: GroupService,
     private readonly labelService: LabelService,
     private readonly checklistService: ChecklistService,
-  ) {}
+  ) { }
 
   // --- BOARD ---
   @MessagePattern(TASK_MSG_PATTERN.BOARD.CREATE)
@@ -281,6 +282,14 @@ export class TaskController {
     { dto, requesterId }: { dto: DragDropTaskDto; requesterId: string },
   ) {
     return this.taskService.dragDropTask(dto, requesterId);
+  }
+
+  @MessagePattern(TASK_MSG_PATTERN.TASK.CHANGE_GROUP)
+  async changeTaskGroup(
+    @Payload()
+    { dto, requesterId }: { dto: ChangeTaskGroupDto; requesterId: string },
+  ) {
+    return this.taskService.changeTaskGroup(dto, requesterId);
   }
 
   // --- LABEL ---

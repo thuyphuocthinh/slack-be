@@ -113,3 +113,13 @@ export class CreateAttachmentDto {
   @IsNotEmpty()
   link: string;
 }
+
+export class ChangeTaskGroupDto {
+  @IsUUID()
+  @IsNotEmpty()
+  taskId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  targetGroupId: string;
+}

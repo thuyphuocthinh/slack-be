@@ -12,7 +12,7 @@ import {
 import { TaskEntity } from '../entity/task.entity';
 import { LabelEntity } from '../entity/label.entity';
 import { TaskMemberEntity } from '../entity/task_member.entity';
-import { CreateAttachmentDto, CreateTaskDto, DragDropTaskDto, UpdateTaskDto } from '../dto/task.dto';
+import { ChangeTaskGroupDto, CreateAttachmentDto, CreateTaskDto, DragDropTaskDto, UpdateTaskDto } from '../dto/task.dto';
 import { RpcException } from '@nestjs/microservices';
 import { DATABASE_ERROR, TASK_ERROR } from '@slack/constants';
 import { ITaskResponse } from '../type/task.response';
@@ -706,5 +706,60 @@ export class TaskService {
       groupId: targetGroup.id,
       order: targetOrder,
     });
+  }
+
+  async changeTaskGroup(dto: ChangeTaskGroupDto, requesterId: string): Promise<string> {
+    const { taskId, targetGroupId } = dto;
+    const { sourceGroupId } = await this.dataSource.transaction(async (manager) => {
+      const task = await manager.findOne(TaskEntity, {
+        where: { id: taskId },
+        relations: ['group', 'group.board'],
+      });
+      if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
+
+      const targetGroup = await manager.findOneBy(TaskGroupEntity, { id: targetGroupId });
+      if (!targetGroup) throw new RpcException(TASK_ERROR.GROUP_NOT_FOUND);
+
+      // Check membership for source board
+      await this.commonService.checkBoardMembership(
+        task.group.boardId,
+        requesterId,
+        manager,
+      );
+
+      // Check membership for target board
+      await this.commonService.checkBoardMembership(
+        targetGroup.boardId,
+        requesterId,
+        manager,
+      );
+
+      const sourceGroupId = task.groupId;
+
+      // 1. Lấy max order hiện tại của group đích
+      const maxTargetOrder = await manager
+        .createQueryBuilder(TaskEntity, 'task')
+        .select('MAX(task.order)', 'maxOrder')
+        .where('task.groupId = :groupId', { groupId: targetGroupId })
+        .getRawOne();
+
+      // 2. Cập nhật cả groupId và order mới (đưa xuống cuối)
+      await manager.update(TaskEntity, task.id, {
+        groupId: targetGroupId,
+        order: (Number(maxTargetOrder?.maxOrder) || 0) + 1024,
+      });
+
+
+      return { sourceGroupId };
+    });
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(sourceGroupId),
+    );
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(targetGroupId),
+    );
+
+    return 'Task moved to new group successfully';
   }
 }

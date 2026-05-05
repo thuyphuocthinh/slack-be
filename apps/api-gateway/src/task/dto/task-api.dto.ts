@@ -234,6 +234,18 @@ export class DragDropTaskApiDto {
   targetOrder: number;
 }
 
+export class ChangeTaskGroupApiDto {
+  @ApiProperty({ example: 'task-uuid' })
+  @IsUUID()
+  @IsNotEmpty()
+  taskId: string;
+
+  @ApiProperty({ example: 'target-group-uuid' })
+  @IsUUID()
+  @IsNotEmpty()
+  targetGroupId: string;
+}
+
 export class CreateAttachmentApiDto {
   @ApiProperty({ example: 'Attachment Title' })
   @IsString()
