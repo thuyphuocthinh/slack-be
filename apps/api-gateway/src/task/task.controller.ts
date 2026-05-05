@@ -55,13 +55,13 @@ import {
 import { WorkspaceRoleEnum } from '@slack/constants';
 
 @ApiTags('Tasks')
-@Controller('workspaces/:workspaceId/tasks')
+@Controller('workspaces/:workspaceId')
 @ApiBearerAuth()
 export class TaskController {
   constructor(
     private readonly taskService: TaskService,
     private readonly workspaceService: WorkspaceService,
-  ) {}
+  ) { }
 
   // --- BOARDS ---
   @Post('boards')
@@ -280,7 +280,7 @@ export class TaskController {
   }
 
   // --- CHECKLISTS ---
-  @Post('item/:id/checklists')
+  @Post('tasks/:id/checklists')
   @ApiOperation({ summary: 'Create a new checklist' })
   async createChecklist(
     @Param('workspaceId') workspaceId: string,
@@ -319,7 +319,7 @@ export class TaskController {
     return this.taskService.deleteChecklist(id, user.sub);
   }
 
-  @Get('item/:id/checklists')
+  @Get('tasks/:id/checklists')
   @ApiOperation({ summary: 'Get checklists in a task' })
   async getChecklists(
     @Param('workspaceId') workspaceId: string,
@@ -397,7 +397,7 @@ export class TaskController {
     );
   }
 
-  @Patch('item/:id')
+  @Patch('tasks/:id')
   @ApiOperation({ summary: 'Update task details' })
   async updateTask(
     @Param('workspaceId') workspaceId: string,
@@ -412,7 +412,7 @@ export class TaskController {
     );
   }
 
-  @Delete('item/:id')
+  @Delete('tasks/:id')
   @ApiOperation({ summary: 'Remove task' })
   async deleteTask(
     @Param('workspaceId') workspaceId: string,
@@ -422,7 +422,7 @@ export class TaskController {
     return this.taskService.deleteTask(id, user.sub);
   }
 
-  @Get('item/:id')
+  @Get('tasks/:id')
   @ApiOperation({ summary: 'Get task details' })
   async getTaskDetails(
     @Param('workspaceId') workspaceId: string,
@@ -446,7 +446,7 @@ export class TaskController {
     );
   }
 
-  @Post('item/:id/assign/:memberId')
+  @Post('tasks/:id/assign/:memberId')
   @ApiOperation({ summary: 'Assign member to task' })
   async assignMemberToTask(
     @Param('workspaceId') workspaceId: string,
@@ -457,7 +457,7 @@ export class TaskController {
     return this.taskService.assignMemberToTask(taskId, memberId, user.sub);
   }
 
-  @Post('item/:id/unassign/:memberId')
+  @Post('tasks/:id/unassign/:memberId')
   @ApiOperation({ summary: 'Unassign member from task' })
   async unassignMemberFromTask(
     @Param('workspaceId') workspaceId: string,
@@ -468,7 +468,7 @@ export class TaskController {
     return this.taskService.unassignMemberFromTask(taskId, memberId, user.sub);
   }
 
-  @Post('item/:id/toggle-label')
+  @Post('tasks/:id/toggle-label')
   @ApiOperation({ summary: 'Toggle label for task' })
   async toggleTaskLabel(
     @Param('workspaceId') workspaceId: string,
@@ -479,7 +479,7 @@ export class TaskController {
     return this.taskService.toggleTaskLabel(taskId, dto.labelId, user.sub);
   }
 
-  @Patch('items/drag-drop')
+  @Patch('tasks/drag-drop')
   @ApiOperation({ summary: 'Drag and drop task' })
   async dragDropTask(
     @Param('workspaceId') workspaceId: string,
@@ -493,7 +493,7 @@ export class TaskController {
   }
 
   // --- ATTACHMENTS ---
-  @Post('item/:id/attachments')
+  @Post('tasks/:id/attachments')
   @ApiOperation({ summary: 'Add attachment to task' })
   async createAttachment(
     @Param('workspaceId') workspaceId: string,
