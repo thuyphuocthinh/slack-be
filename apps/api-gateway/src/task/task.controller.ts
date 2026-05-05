@@ -33,6 +33,7 @@ import {
   AddChecklistItemApiDto,
   CreateAttachmentApiDto,
   ChangeTaskGroupApiDto,
+  FilterTasksApiDto,
 } from './dto/task-api.dto';
 import {
   CreateBoardRequestDto,
@@ -53,6 +54,7 @@ import {
   DragDropTaskRequestDto,
   CreateAttachmentRequestDto,
   ChangeTaskGroupRequestDto,
+  FilterTasksDto,
 } from './dto/task-request.dto';
 import { WorkspaceRoleEnum } from '@slack/constants';
 
@@ -499,6 +501,18 @@ export class TaskController {
         targetGroupId: dto.targetGroupId,
         requesterId: user.sub,
       } as ChangeTaskGroupRequestDto,
+      user.sub,
+    );
+  }
+
+  @Get('tasks/filter')
+  @ApiOperation({ summary: 'Filter tasks' })
+  async filterTasks(
+    @Query() queryDto: FilterTasksApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.taskService.filterTasks(
+      { ...queryDto, requesterId: user.sub } as FilterTasksDto,
       user.sub,
     );
   }

@@ -12,7 +12,7 @@ import {
 import { TaskEntity } from '../entity/task.entity';
 import { LabelEntity } from '../entity/label.entity';
 import { TaskMemberEntity } from '../entity/task_member.entity';
-import { ChangeTaskGroupDto, CreateAttachmentDto, CreateTaskDto, DragDropTaskDto, UpdateTaskDto } from '../dto/task.dto';
+import { ChangeTaskGroupDto, CreateAttachmentDto, CreateTaskDto, DragDropTaskDto, FilterTasksDto, UpdateTaskDto } from '../dto/task.dto';
 import { RpcException } from '@nestjs/microservices';
 import { DATABASE_ERROR, TASK_ERROR } from '@slack/constants';
 import { ITaskResponse } from '../type/task.response';
@@ -177,7 +177,7 @@ export class TaskService {
   ): Promise<ITaskResponse> {
     const task = await this.taskRepo.findOne({
       where: { id },
-      relations: ['labels', 'group', 'members', 'attachments', 'checklists'],
+      relations: ['labels', 'group', 'members', 'attachments', 'checklists', 'checklists.items'],
     });
     if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
 
@@ -211,6 +211,9 @@ export class TaskService {
           .createQueryBuilder('task')
           .leftJoinAndSelect('task.labels', 'label')
           .leftJoinAndSelect('task.members', 'member')
+          .leftJoinAndSelect('task.attachments', 'attachment')
+          .leftJoinAndSelect('task.checklists', 'checklist')
+          .leftJoinAndSelect('checklist.items', 'items')
           .where('task.groupId = :groupId', { groupId })
           .orderBy('task.order', 'ASC')
           .skip(skip)
@@ -762,4 +765,58 @@ export class TaskService {
 
     return 'Task moved to new group successfully';
   }
+
+  async filterTasks(dto: FilterTasksDto, requesterId: string): Promise<ITaskResponse[]> {
+
+    const { boardId, name, startDate, dueDate, groupId, memberIds, labelIds } = dto;
+
+    await this.commonService.checkBoardMembership(boardId, requesterId);
+
+    let taskQuery = this.taskRepo
+      .createQueryBuilder('task')
+      .leftJoinAndSelect('task.group', 'group')
+      .leftJoinAndSelect('task.members', 'member')
+      .leftJoinAndSelect('task.labels', 'label')
+      .where('group.boardId = :boardId', { boardId });
+
+    // Filter theo tên (nếu có)
+    if (name) {
+      taskQuery = taskQuery.andWhere('task.title ILIKE :name', { name: `%${name}%` });
+    }
+
+    // Filter theo ngày bắt đầu (nếu có)
+    if (startDate) {
+      taskQuery = taskQuery.andWhere('task.startDate >= :startDate', { startDate });
+    }
+
+    // Filter theo ngày kết thúc (nếu có)
+    if (dueDate) {
+      taskQuery = taskQuery.andWhere('task.dueDate <= :dueDate', { dueDate });
+    }
+
+    // Filter theo group ID (nếu có)
+    if (groupId) {
+      taskQuery = taskQuery.andWhere('task.groupId = :groupId', { groupId });
+    }
+
+    // Filter theo assignee: Dùng innerJoin với alias riêng để không làm lọc mất dữ liệu trả về
+    if (memberIds && memberIds.length > 0) {
+      taskQuery = taskQuery.innerJoin('task.members', 'm_filter', 'm_filter.memberId IN (:...memberIds)', { memberIds });
+    }
+
+    // Filter theo label: Tương tự dùng alias riêng
+    if (labelIds && labelIds.length > 0) {
+      taskQuery = taskQuery.innerJoin('task.labels', 'l_filter', 'l_filter.id IN (:...labelIds)', { labelIds });
+    }
+
+    // Sắp xếp theo order
+    taskQuery = taskQuery.orderBy('task.order', 'ASC');
+
+    // Thực thi query
+    const tasks = await taskQuery.getMany();
+
+    // Format kết quả
+    return tasks.map((task) => this.mapTaskResponse(task));
+  }
+
 }

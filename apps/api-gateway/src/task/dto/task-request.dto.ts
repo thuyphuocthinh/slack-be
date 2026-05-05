@@ -113,6 +113,17 @@ export class ChangeTaskGroupRequestDto {
   requesterId: string;
 }
 
+export class FilterTasksDto {
+  boardId: string;
+  name?: string;
+  startDate?: string;
+  dueDate?: string;
+  groupId?: string;
+  memberIds?: string[];
+  labelIds?: string[];
+  requesterId: string;
+}
+
 export class CreateAttachmentRequestDto {
   taskId: string;
   title: string;

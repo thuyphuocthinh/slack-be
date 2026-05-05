@@ -19,6 +19,7 @@ import {
   UpdateTaskDto,
   CreateAttachmentDto,
   ChangeTaskGroupDto,
+  FilterTasksDto,
 } from './dto/task.dto';
 import { CreateLabelDto, UpdateLabelDto } from './dto/label.dto';
 import {
@@ -290,6 +291,14 @@ export class TaskController {
     { dto, requesterId }: { dto: ChangeTaskGroupDto; requesterId: string },
   ) {
     return this.taskService.changeTaskGroup(dto, requesterId);
+  }
+
+  @MessagePattern(TASK_MSG_PATTERN.TASK.FILTER)
+  async filterTasks(
+    @Payload()
+    { dto, requesterId }: { dto: FilterTasksDto; requesterId: string },
+  ) {
+    return this.taskService.filterTasks(dto, requesterId);
   }
 
   // --- LABEL ---

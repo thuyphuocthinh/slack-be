@@ -30,6 +30,7 @@ export const TASK_MSG_PATTERN = {
     ADD_ATTACHMENT: 'task.add_attachment',
     DELETE_ATTACHMENT: 'task.delete_attachment',
     CHANGE_GROUP: 'task.change_task_group',
+    FILTER: 'task.filter_tasks',
   },
   LABEL: {
     CREATE: 'label.create_new_label',

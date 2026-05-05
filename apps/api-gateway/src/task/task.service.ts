@@ -22,6 +22,7 @@ import {
   DragDropTaskRequestDto,
   CreateAttachmentRequestDto,
   ChangeTaskGroupRequestDto,
+  FilterTasksDto,
 } from './dto/task-request.dto';
 
 @Injectable()
@@ -384,6 +385,20 @@ export class TaskService {
           }),
         ),
       'changeTaskGroup',
+      'TaskGatewayService',
+    );
+  }
+
+  async filterTasks(dto: FilterTasksDto, requesterId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.taskClient.send(TASK_MSG_PATTERN.TASK.FILTER, {
+            dto,
+            requesterId,
+          }),
+        ),
+      'filterTasks',
       'TaskGatewayService',
     );
   }

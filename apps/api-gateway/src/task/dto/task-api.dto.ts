@@ -8,6 +8,7 @@ import {
   IsNumber,
   MaxLength,
   Min,
+  IsArray,
 } from 'class-validator';
 
 export class CreateBoardApiDto {
@@ -235,15 +236,42 @@ export class DragDropTaskApiDto {
 }
 
 export class ChangeTaskGroupApiDto {
-  @ApiProperty({ example: 'task-uuid' })
-  @IsUUID()
-  @IsNotEmpty()
-  taskId: string;
-
   @ApiProperty({ example: 'target-group-uuid' })
   @IsUUID()
   @IsNotEmpty()
   targetGroupId: string;
+}
+
+export class FilterTasksApiDto {
+  @ApiPropertyOptional({ example: 'Task Title' })
+  @IsString()
+  @IsOptional()
+  name?: string;
+
+  @ApiPropertyOptional({ example: '2026-05-05T00:00:00Z' })
+  @IsString()
+  @IsOptional()
+  startDate?: string;
+
+  @ApiPropertyOptional({ example: '2026-05-06T00:00:00Z' })
+  @IsString()
+  @IsOptional()
+  dueDate?: string;
+
+  @ApiPropertyOptional({ example: 'group-uuid' })
+  @IsUUID()
+  @IsOptional()
+  groupId?: string;
+
+  @ApiPropertyOptional({ example: ['member-uuid-1', 'member-uuid-2'] })
+  @IsArray()
+  @IsOptional()
+  memberIds?: string[];
+
+  @ApiPropertyOptional({ example: ['label-uuid-1', 'label-uuid-2'] })
+  @IsArray()
+  @IsOptional()
+  labelIds?: string[];
 }
 
 export class CreateAttachmentApiDto {

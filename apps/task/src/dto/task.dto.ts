@@ -123,3 +123,35 @@ export class ChangeTaskGroupDto {
   @IsNotEmpty()
   targetGroupId: string;
 }
+
+export class FilterTasksDto {
+  @IsUUID()
+  @IsNotEmpty()
+  boardId: string;
+
+  @IsString()
+  @IsOptional()
+  name?: string;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string;
+
+  @IsUUID()
+  @IsOptional()
+  groupId?: string;
+
+  @IsArray()
+  @IsUUID(undefined, { each: true })
+  @IsOptional()
+  memberIds?: string[];
+
+  @IsArray()
+  @IsUUID(undefined, { each: true })
+  @IsOptional()
+  labelIds?: string[];
+}
