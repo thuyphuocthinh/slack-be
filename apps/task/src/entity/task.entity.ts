@@ -42,6 +42,9 @@ export class TaskEntity {
   @Column({ name: 'order', default: 0 })
   order: number;
 
+  @Column({ name: 'is_done', default: false })
+  isDone: boolean;
+
   @ManyToOne(() => TaskGroupEntity, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'group_id' })
   group: TaskGroupEntity;

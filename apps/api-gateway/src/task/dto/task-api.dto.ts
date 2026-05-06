@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import {
   IsNotEmpty,
   IsString,
@@ -243,20 +243,34 @@ export class ChangeTaskGroupApiDto {
 }
 
 export class FilterTasksApiDto {
+  @ApiProperty({ example: 'board-uuid' })
+  @IsUUID()
+  @IsNotEmpty()
+  boardId: string;
+
   @ApiPropertyOptional({ example: 'Task Title' })
   @IsString()
   @IsOptional()
+  @Transform(({ value }) => (value === '' ? undefined : value))
   name?: string;
 
   @ApiPropertyOptional({ example: '2026-05-05T00:00:00Z' })
   @IsString()
   @IsOptional()
+  @Transform(({ value }) => (value === '' ? undefined : value))
   startDate?: string;
 
   @ApiPropertyOptional({ example: '2026-05-06T00:00:00Z' })
   @IsString()
   @IsOptional()
+  @Transform(({ value }) => (value === '' ? undefined : value))
   dueDate?: string;
+
+  @ApiPropertyOptional({ example: 'completed' })
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value === '' ? undefined : value))
+  status?: string;
 
   @ApiPropertyOptional({ example: 'group-uuid' })
   @IsUUID()
@@ -266,11 +280,13 @@ export class FilterTasksApiDto {
   @ApiPropertyOptional({ example: ['member-uuid-1', 'member-uuid-2'] })
   @IsArray()
   @IsOptional()
+  @Transform(({ value }) => (Array.isArray(value) ? value : [value]))
   memberIds?: string[];
 
   @ApiPropertyOptional({ example: ['label-uuid-1', 'label-uuid-2'] })
   @IsArray()
   @IsOptional()
+  @Transform(({ value }) => (Array.isArray(value) ? value : [value]))
   labelIds?: string[];
 }
 

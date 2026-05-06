@@ -419,6 +419,7 @@ export class TaskService {
             : [],
         }))
         : [],
+      isDone: task.isDone,
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
     };
@@ -768,7 +769,7 @@ export class TaskService {
 
   async filterTasks(dto: FilterTasksDto, requesterId: string): Promise<ITaskResponse[]> {
 
-    const { boardId, name, startDate, dueDate, groupId, memberIds, labelIds } = dto;
+    const { boardId, name, startDate, dueDate, groupId, memberIds, labelIds, status } = dto;
 
     await this.commonService.checkBoardMembership(boardId, requesterId);
 
@@ -797,6 +798,12 @@ export class TaskService {
     // Filter theo group ID (nếu có)
     if (groupId) {
       taskQuery = taskQuery.andWhere('task.groupId = :groupId', { groupId });
+    }
+
+    // Filter theo trạng thái hoàn thành (nếu có)
+    if (status) {
+      const isDone = status === 'completed';
+      taskQuery = taskQuery.andWhere('task.isDone = :isDone', { isDone });
     }
 
     // Filter theo assignee: Dùng innerJoin với alias riêng để không làm lọc mất dữ liệu trả về

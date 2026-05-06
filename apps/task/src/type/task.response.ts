@@ -40,6 +40,7 @@ export interface ITaskResponse {
   members: ITaskMemberResponse[];
   attachments: ITaskAttachmentResponse[];
   checklists: IChecklistResponse[];
+  isDone: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

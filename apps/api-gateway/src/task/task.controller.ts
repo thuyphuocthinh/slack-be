@@ -400,6 +400,18 @@ export class TaskController {
     );
   }
 
+  @Patch('tasks/drag-drop')
+  @ApiOperation({ summary: 'Drag and drop task' })
+  async dragDropTask(
+    @Body() dto: DragDropTaskApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.taskService.dragDropTask(
+      { ...dto, requesterId: user.sub } as DragDropTaskRequestDto,
+      user.sub,
+    );
+  }
+
   @Patch('tasks/:id')
   @ApiOperation({ summary: 'Update task details' })
   async updateTask(
@@ -421,6 +433,18 @@ export class TaskController {
     @CurrentUser() user: JwtUser,
   ) {
     return this.taskService.deleteTask(id, user.sub);
+  }
+
+  @Get('tasks/filter')
+  @ApiOperation({ summary: 'Filter tasks' })
+  async filterTasks(
+    @Query() queryDto: FilterTasksApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.taskService.filterTasks(
+      { ...queryDto, requesterId: user.sub } as FilterTasksDto,
+      user.sub,
+    );
   }
 
   @Get('tasks/:id')
@@ -475,17 +499,6 @@ export class TaskController {
     return this.taskService.toggleTaskLabel(taskId, dto.labelId, user.sub);
   }
 
-  @Patch('tasks/drag-drop')
-  @ApiOperation({ summary: 'Drag and drop task' })
-  async dragDropTask(
-    @Body() dto: DragDropTaskApiDto,
-    @CurrentUser() user: JwtUser,
-  ) {
-    return this.taskService.dragDropTask(
-      { ...dto, requesterId: user.sub } as DragDropTaskRequestDto,
-      user.sub,
-    );
-  }
 
   @Post('tasks/:id/change-group')
   @ApiOperation({ summary: 'Change task group (move task)' })
@@ -505,17 +518,6 @@ export class TaskController {
     );
   }
 
-  @Get('tasks/filter')
-  @ApiOperation({ summary: 'Filter tasks' })
-  async filterTasks(
-    @Query() queryDto: FilterTasksApiDto,
-    @CurrentUser() user: JwtUser,
-  ) {
-    return this.taskService.filterTasks(
-      { ...queryDto, requesterId: user.sub } as FilterTasksDto,
-      user.sub,
-    );
-  }
 
   // --- ATTACHMENTS ---
   @Post('tasks/:id/attachments')

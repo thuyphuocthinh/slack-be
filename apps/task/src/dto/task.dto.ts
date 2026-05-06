@@ -65,6 +65,7 @@ export class TaskResponseDto {
   dueDate: Date;
   order: number;
   assigneeIds: string[];
+  isDone: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -140,6 +141,10 @@ export class FilterTasksDto {
   @IsOptional()
   @IsDateString()
   dueDate?: string;
+
+  @IsString()
+  @IsOptional()
+  status?: string;
 
   @IsUUID()
   @IsOptional()
