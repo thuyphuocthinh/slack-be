@@ -174,9 +174,23 @@ export class SocketGateway
         memberId: userId,
       });
 
+      // leave all channels before joining new channel
+      const currentRooms = Array.from(client.rooms);
+      const previousChannelRoom = currentRooms.find(
+        (room) => room !== `user_${userId}`,
+      );
+
+      if (previousChannelRoom) {
+        client.leave(previousChannelRoom);
+        this.logger.debug(
+          `User ${userId} left channel: ${previousChannelRoom}`,
+        );
+      }
+
       client.join(channelId);
       this.logger.debug(`User ${userId} joined channel: ${channelId}`);
       client.emit(ESocketEvent.SUBSCRIBED, { channelId });
+
       return { status: 'success', room: channelId };
     } catch (error) {
       this.logger.warn(
