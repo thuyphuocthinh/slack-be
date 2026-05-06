@@ -94,6 +94,16 @@ export class WorkspaceController {
     return await this.workspaceService.getMembers(id, user.sub);
   }
 
+  @Get(':id/members/:userId/detail')
+  @ApiOperation({ summary: 'Get member detail by ID' })
+  @ApiResponse({ status: 200, description: 'Member detail retrieved successfully' })
+  async getMemberDetail(
+    @Param('id') workspaceId: string,
+    @Param('userId') userId: string,
+  ) {
+    return await this.workspaceService.getMemberDetail(workspaceId, userId);
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a workspace' })
   @ApiResponse({ status: 200, description: 'Workspace deleted successfully' })

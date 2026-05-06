@@ -157,4 +157,9 @@ export class WorkspaceController {
   getMember(@Payload() dto: { workspaceId: string; userId: string }) {
     return this.memberService.getMemberByUserId(dto.workspaceId, dto.userId);
   }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.GET_MEMBER_DETAIL)
+  getMemberDetail(@Payload() dto: { workspaceId: string; userId: string }) {
+    return this.memberService.getMemberDetail(dto.workspaceId, dto.userId);
+  }
 }

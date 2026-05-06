@@ -452,4 +452,19 @@ export class WorkspaceMemberService {
     }
     return member;
   }
+
+  async getMemberDetail(
+    workspaceId: string,
+    userId: string,
+  ): Promise<WorkspaceMemberResponseDto> {
+    const member = await this.getMemberByUserId(workspaceId, userId);
+
+    const user = await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, {
+        id: userId,
+      }),
+    );
+
+    return this.commonService.mapMemberWithUserToDto(member, user);
+  }
 }

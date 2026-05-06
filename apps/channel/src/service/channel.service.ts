@@ -15,11 +15,9 @@ import { ClientProxy, RpcException } from '@nestjs/microservices';
 import {
   CHANNEL_ERROR,
   NAME_SERVICE_TCP,
-  USER_MESSAGE_PATTERNS,
   WORKSPACE_MESSAGE_PATTERNS,
   WorkspaceRoleEnum,
   ChannelTypeEnum,
-  USER_ERROR,
   DATABASE_ERROR,
 } from '@slack/constants';
 import { Inject, Logger } from '@nestjs/common';
@@ -27,7 +25,6 @@ import { firstValueFrom } from 'rxjs';
 import { ChannelResponse } from '../type/channel.response';
 import { CACHE, CachedService, TTL } from '@slack/cached';
 import { IOffsetResponse } from '@slack/common';
-import { MemberType } from '../type/member.type';
 
 @Injectable()
 export class ChannelService {
@@ -41,8 +38,6 @@ export class ChannelService {
     private readonly dataSource: DataSource,
     @Inject(NAME_SERVICE_TCP.WORKSPACE_SERVICE)
     private readonly workspaceClient: ClientProxy,
-    @Inject(NAME_SERVICE_TCP.USER_SERVICE)
-    private readonly userClient: ClientProxy,
     private readonly cachedService: CachedService,
   ) {}
 
@@ -100,28 +95,14 @@ export class ChannelService {
 
     const allMemberIds = [...new Set([memberId, ...targetMemberIds])];
 
-    const users = await firstValueFrom(
-      this.userClient.send(USER_MESSAGE_PATTERNS.GET_BATCH_USER_BY_IDS, {
-        ids: allMemberIds,
-      }),
-    );
-
-    if (!users || users.length !== allMemberIds.length) {
-      throw new RpcException(USER_ERROR.SOME_USER_NOT_FOUND);
-    }
-
     // Determine title: other person's name for 1-on-1, or joined names for group DM
     let title: string;
     if (allMemberIds.length === 2) {
-      const otherUser = users.find((u) => u.id !== memberId);
-      title = `${otherUser.firstName} ${otherUser.lastName}`.trim();
+      title = 'Direct Message'; // Simplified title, FE can resolve names
     } else if (allMemberIds.length === 1) {
-      const currentUser = users[0];
-      title = `${currentUser.firstName} ${currentUser.lastName} (you)`.trim();
+      title = 'Personal Chat';
     } else {
-      title = users
-        .map((u: MemberType) => `${u.firstName} ${u.lastName}`.trim())
-        .join(', ');
+      title = 'Group Message';
     }
 
     return await this.dataSource.transaction(async (manager) => {
@@ -157,17 +138,10 @@ export class ChannelService {
 
       const saved = await manager.save(channel);
 
-      const userMap = new Map(users.map((u: MemberType) => [u.id, u]));
-
       const members = allMemberIds.map((id) => {
-        const user = userMap.get(id) as MemberType;
         return manager.create(ChannelMemberEntity, {
           channelId: saved.id,
           memberId: id,
-          email: user?.email,
-          firstName: user?.firstName,
-          lastName: user?.lastName,
-          avatarUrl: user?.avatarUrl,
         });
       });
 
@@ -207,19 +181,9 @@ export class ChannelService {
 
       const saved = await manager.save(channel);
 
-      const user = await firstValueFrom(
-        this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, {
-          id: memberId,
-        }),
-      );
-
       const member = manager.create(ChannelMemberEntity, {
         channelId: saved.id,
         memberId,
-        email: user?.email,
-        firstName: user?.firstName,
-        lastName: user?.lastName,
-        avatarUrl: user?.avatarUrl,
       });
 
       await manager.save(member);

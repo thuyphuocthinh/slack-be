@@ -22,18 +22,6 @@ export class ChannelMemberEntity {
   @Index()
   memberId: string;
 
-  @Column({ name: 'email', type: 'varchar', length: 255, nullable: false })
-  email: string;
-
-  @Column({ name: 'first_name', type: 'varchar', length: 100, nullable: true })
-  firstName: string | null;
-
-  @Column({ name: 'last_name', type: 'varchar', length: 100, nullable: true })
-  lastName: string | null;
-
-  @Column({ name: 'avatar_url', type: 'text', nullable: true })
-  avatarUrl: string | null;
-
   @CreateDateColumn({
     name: 'created_at',
     type: 'timestamp',

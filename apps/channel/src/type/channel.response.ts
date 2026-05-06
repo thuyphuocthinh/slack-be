@@ -15,8 +15,4 @@ export interface ChannelResponse {
 
 export interface ChannelMemberResponse {
   memberId: string;
-  email: string;
-  firstName: string | null;
-  lastName: string | null;
-  avatarUrl: string | null;
 }

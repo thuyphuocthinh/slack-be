@@ -22,4 +22,5 @@ export const WORKSPACE_MESSAGE_PATTERNS = {
   ADD_BATCH_MEMBERS: 'workspace.add_batch_members',
   CHECK_PERMISSION: 'workspace.check_permission',
   GET_MEMBER: 'workspace.get_member',
+  GET_MEMBER_DETAIL: 'workspace.get_member_detail',
 } as const;

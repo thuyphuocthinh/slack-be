@@ -9,11 +9,9 @@ import { ClientProxy, RpcException } from '@nestjs/microservices';
 import {
   CHANNEL_ERROR,
   NAME_SERVICE_TCP,
-  USER_MESSAGE_PATTERNS,
   WORKSPACE_MESSAGE_PATTERNS,
   WorkspaceRoleEnum,
   ChannelTypeEnum,
-  USER_ERROR,
 } from '@slack/constants';
 import { firstValueFrom } from 'rxjs';
 import { ChannelMemberResponse } from '../type/channel.response';
@@ -32,8 +30,6 @@ export class ChannelMemberService {
     private readonly dataSource: DataSource,
     @Inject(NAME_SERVICE_TCP.WORKSPACE_SERVICE)
     private readonly workspaceClient: ClientProxy,
-    @Inject(NAME_SERVICE_TCP.USER_SERVICE)
-    private readonly userClient: ClientProxy,
     private readonly cachedService: CachedService,
   ) {}
 
@@ -60,27 +56,12 @@ export class ChannelMemberService {
     );
   }
 
-  private async checkUserExist(userId: string) {
-    const user = await firstValueFrom(
-      this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, {
-        id: userId,
-      }),
-    );
-    if (!user) {
-      throw new RpcException(USER_ERROR.USER_NOT_FOUND);
-    }
-    return user;
-  }
 
   private mapMemberToResponse(
     member: ChannelMemberEntity,
   ): ChannelMemberResponse {
     return {
       memberId: member.memberId,
-      email: member.email,
-      firstName: member.firstName ?? null,
-      lastName: member.lastName ?? null,
-      avatarUrl: member.avatarUrl ?? null,
     };
   }
 
@@ -109,8 +90,7 @@ export class ChannelMemberService {
           WorkspaceRoleEnum.ADMIN,
         ]);
 
-        const { memberId, email, firstName, lastName, avatarUrl } =
-          targetMember;
+        const { memberId } = targetMember;
 
         const existingMember = await manager.findOne(ChannelMemberEntity, {
           where: { channelId, memberId },
@@ -123,10 +103,6 @@ export class ChannelMemberService {
         const newMember = manager.create(ChannelMemberEntity, {
           channelId,
           memberId,
-          email,
-          firstName: firstName ?? null,
-          lastName: lastName ?? null,
-          avatarUrl: avatarUrl ?? null,
         });
 
         await manager.save(newMember);
@@ -207,10 +183,6 @@ export class ChannelMemberService {
           manager.create(ChannelMemberEntity, {
             channelId,
             memberId: m.memberId,
-            email: m.email,
-            firstName: m.firstName || null,
-            lastName: m.lastName || null,
-            avatarUrl: m.avatarUrl || null,
           }),
         );
 
