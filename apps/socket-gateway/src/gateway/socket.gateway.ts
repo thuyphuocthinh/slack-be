@@ -8,7 +8,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { Logger, UseFilters, UsePipes, ValidationPipe } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { AuthCacheService } from '@slack/cached';
+import { AuthCacheService, PresenceCacheService } from '@slack/cached';
 import { WebsocketExceptionsFilter } from '../common/filters/ws-exception.filter';
 import { OnModuleInit } from '@nestjs/common';
 import { createBreaker } from '../common/utils/circuit-breaker.util';
@@ -17,11 +17,11 @@ import {
   ESocketEvent,
   NAME_SERVICE_TCP,
   CHANNEL_MESSAGE_PATTERN,
+  MESSAGE_MESSAGE_PATTERNS,
 } from '@slack/constants';
 import { Inject } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
-import { MESSAGE_MESSAGE_PATTERNS } from '@slack/constants';
 
 @WebSocketGateway({
   cors: {
@@ -33,8 +33,7 @@ import { MESSAGE_MESSAGE_PATTERNS } from '@slack/constants';
 @UseFilters(new WebsocketExceptionsFilter())
 @UsePipes(new ValidationPipe({ transform: true }))
 export class SocketGateway
-  implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit
-{
+  implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit {
   @WebSocketServer()
   server: Server;
 
@@ -45,11 +44,12 @@ export class SocketGateway
   constructor(
     private readonly jwtService: JwtService,
     private readonly authCache: AuthCacheService,
+    private readonly presenceCache: PresenceCacheService,
     @Inject(NAME_SERVICE_TCP.CHANNEL_SERVICE)
     private readonly channelClient: ClientProxy,
     @Inject(NAME_SERVICE_TCP.MESSAGE_SERVICE)
     private readonly messageClient: ClientProxy,
-  ) {}
+  ) { }
 
   onModuleInit() {
     // Khởi tạo Circuit Breaker cho Channel Service
@@ -133,6 +133,9 @@ export class SocketGateway
 
       this.logger.log(`User ${userId} connected and joined private room`);
 
+      // Cập nhật trạng thái online ban đầu
+      await this.presenceCache.updateLastSeen(userId);
+
       // Gửi thông báo sẵn sàng
       client.emit(ESocketEvent.SERVER_READY, {
         message: 'Kết nối Socket thành công và đã vào phòng cá nhân!',
@@ -157,6 +160,12 @@ export class SocketGateway
   }
 
   async handleDisconnect(client: Socket) {
+    const userId = client.data?.user?.sub;
+    if (userId) {
+      // Tùy chọn: Xóa ngay lập tức trạng thái để hiện offline nhanh
+      await this.presenceCache.removeStatus(userId);
+      this.logger.log(`User ${userId} disconnected`);
+    }
     this.logger.log(`Client disconnected: ${client.id}`);
   }
 
@@ -214,47 +223,47 @@ export class SocketGateway
     return { status: 'success', room: channelId };
   }
 
-  @SubscribeMessage(ESocketEvent.SUBSCRIBE_THREAD)
-  async handleSubscribeThread(client: Socket, payload: { threadId: string }) {
-    const { threadId } = payload;
-    if (!threadId) return;
+  // @SubscribeMessage(ESocketEvent.SUBSCRIBE_THREAD)
+  // async handleSubscribeThread(client: Socket, payload: { threadId: string }) {
+  //   const { threadId } = payload;
+  //   if (!threadId) return;
 
-    const userId = client.data.user.sub;
+  //   const userId = client.data.user.sub;
 
-    try {
-      // Sử dụng Circuit Breaker cho Thread
-      await this.messageBreaker.fire({
-        id: threadId,
-        userId,
-      });
+  //   try {
+  //     // Sử dụng Circuit Breaker cho Thread
+  //     await this.messageBreaker.fire({
+  //       id: threadId,
+  //       userId,
+  //     });
 
-      const roomName = `thread_${threadId}`;
-      client.join(roomName);
-      this.logger.debug(`User ${userId} joined thread: ${roomName}`);
-      client.emit(ESocketEvent.THREAD_SUBSCRIBED, { threadId });
-      return { status: 'success', room: roomName };
-    } catch (error) {
-      this.logger.warn(
-        `User ${userId} failed to join thread ${threadId}: ${error.message}`,
-      );
-      return {
-        status: 'error',
-        message: 'You do not have access to this thread',
-      };
-    }
-  }
+  //     const roomName = `thread_${threadId}`;
+  //     client.join(roomName);
+  //     this.logger.debug(`User ${userId} joined thread: ${roomName}`);
+  //     client.emit(ESocketEvent.THREAD_SUBSCRIBED, { threadId });
+  //     return { status: 'success', room: roomName };
+  //   } catch (error) {
+  //     this.logger.warn(
+  //       `User ${userId} failed to join thread ${threadId}: ${error.message}`,
+  //     );
+  //     return {
+  //       status: 'error',
+  //       message: 'You do not have access to this thread',
+  //     };
+  //   }
+  // }
 
-  @SubscribeMessage(ESocketEvent.UNSUBSCRIBE_THREAD)
-  handleUnsubscribeThread(client: Socket, payload: { threadId: string }) {
-    const { threadId } = payload;
-    if (!threadId) return;
+  // @SubscribeMessage(ESocketEvent.UNSUBSCRIBE_THREAD)
+  // handleUnsubscribeThread(client: Socket, payload: { threadId: string }) {
+  //   const { threadId } = payload;
+  //   if (!threadId) return;
 
-    const roomName = `thread_${threadId}`;
-    client.leave(roomName);
-    this.logger.debug(`User ${client.id} left thread: ${roomName}`);
-    client.emit(ESocketEvent.THREAD_UNSUBSCRIBED, { threadId });
-    return { status: 'success', room: roomName };
-  }
+  //   const roomName = `thread_${threadId}`;
+  //   client.leave(roomName);
+  //   this.logger.debug(`User ${client.id} left thread: ${roomName}`);
+  //   client.emit(ESocketEvent.THREAD_UNSUBSCRIBED, { threadId });
+  //   return { status: 'success', room: roomName };
+  // }
 
   @SubscribeMessage(ESocketEvent.MESSAGE_READ)
   async handleMessageRead(
@@ -291,5 +300,68 @@ export class SocketGateway
     });
 
     return { status: 'success' };
+  }
+
+  @SubscribeMessage(ESocketEvent.USER_START_TYPING)
+  handleUserStartTyping(client: Socket, payload: { channelId: string }) {
+    try {
+      const { channelId } = payload;
+      if (!channelId) return;
+
+      const userId = client.data.user.sub;
+
+      this.logger.debug(`User ${userId} started typing in channel ${channelId}`);
+
+      client.to(channelId).emit(ESocketEvent.USER_START_TYPING, {
+        userId,
+        channelId,
+      });
+    } catch (error) {
+      this.logger.error(`Error in handleUserStartTyping: ${error.message}`);
+    }
+  }
+
+  @SubscribeMessage(ESocketEvent.USER_STOP_TYPING)
+  handleUserStopTyping(client: Socket, payload: { channelId: string }) {
+    try {
+      const { channelId } = payload;
+      if (!channelId) return;
+
+      const userId = client.data.user.sub;
+
+      this.logger.debug(`User ${userId} stopped typing in channel ${channelId}`);
+
+      client.to(channelId).emit(ESocketEvent.USER_STOP_TYPING, {
+        userId,
+        channelId,
+      });
+    } catch (error) {
+      this.logger.error(`Error in handleUserStopTyping: ${error.message}`);
+    }
+  }
+
+  @SubscribeMessage(ESocketEvent.USER_HEARTBEAT)
+  async handleUserHeartbeat(client: Socket) {
+    try {
+      const userId = client.data.user.sub;
+      await this.presenceCache.updateLastSeen(userId);
+      return { status: 'success' };
+    } catch (error) {
+      this.logger.error(`Error in handleUserHeartbeat: ${error.message}`);
+    }
+  }
+
+  @SubscribeMessage(ESocketEvent.USER_PRESENCE_GET)
+  async handleGetUserPresence(client: Socket, payload: { userIds: string[] }) {
+    try {
+      const { userIds } = payload;
+      if (!userIds || !Array.isArray(userIds)) return { status: 'error', message: 'Invalid payload' };
+
+      const presences = await this.presenceCache.getPresences(userIds.slice(0, 100));
+      return { status: 'success', presences };
+    } catch (error) {
+      this.logger.error(`Error in handleGetUserPresence: ${error.message}`);
+      return { status: 'error', message: 'Failed to fetch presence' };
+    }
   }
 }

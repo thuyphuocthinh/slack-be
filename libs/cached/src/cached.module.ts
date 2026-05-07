@@ -5,11 +5,12 @@ import Redis from 'ioredis';
 import { CachedService } from './cached.service';
 import { RateLimitService } from './rateLimit.service';
 import { AuthCacheService } from './authCached.service';
+import { PresenceCacheService } from './presenceCached.service';
 
 @Global()
 @Module({
-  providers: [CachedService, RateLimitService, AuthCacheService],
-  exports: [CachedService, RateLimitService, AuthCacheService],
+  providers: [CachedService, RateLimitService, AuthCacheService, PresenceCacheService],
+  exports: [CachedService, RateLimitService, AuthCacheService, PresenceCacheService],
 })
 export class CachedModule {
   static forRoot(): DynamicModule {

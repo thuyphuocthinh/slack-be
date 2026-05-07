@@ -30,4 +30,12 @@ export enum ESocketEvent {
 
   // MARK READ MESSAGE
   MESSAGE_READ = 'message_read',
+
+  // TYPING
+  USER_START_TYPING = 'user_start_typing',
+  USER_STOP_TYPING = 'user_stop_typing',
+
+  // PRESENCE
+  USER_PRESENCE_GET = 'user_presence_get',
+  USER_HEARTBEAT = 'user_heartbeat',
 }

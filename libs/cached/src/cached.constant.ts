@@ -175,6 +175,18 @@ export const CACHE = {
         `${GLOBAL_PREFIX}:trackers:tasks:g_${groupId}:version`,
     },
   },
+  PRESENCE: {
+    _VER: 'v1',
+    SETTINGS: {
+      HEARTBEAT_INTERVAL: 600, // 10 phút (Thời gian client nên gửi heartbeat)
+      ONLINE_THRESHOLD: 1800, // 30 phút (Quá thời gian này coi như offline)
+      REDIS_TTL: 3600, // 1 giờ (Thời gian sống của key trong Redis)
+    },
+    KEYS: {
+      USER_STATUS: (userId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:presence:v1:status:${userId}`,
+    },
+  },
 };
 
 /*
