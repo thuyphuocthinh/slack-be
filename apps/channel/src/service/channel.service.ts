@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   DataSource,
+  In,
   OptimisticLockVersionMismatchError,
   Repository,
 } from 'typeorm';
@@ -39,20 +40,22 @@ export class ChannelService {
     @Inject(NAME_SERVICE_TCP.WORKSPACE_SERVICE)
     private readonly workspaceClient: ClientProxy,
     private readonly cachedService: CachedService,
-  ) {}
+  ) { }
 
-  private mapChannelToResponse(
+  public mapChannelToResponse(
     channel: ChannelEntity,
     member?: ChannelMemberEntity,
+    memberIds?: string[],
   ): ChannelResponse {
     return {
       id: channel.id,
-      name: channel.title,
+      name: channel.title ?? null,
       description: channel.description || null,
       type: channel.type,
       createdAt: channel.createdAt,
       isStar: channel.isStar,
       workspaceId: channel.workspaceId,
+      memberIds: memberIds,
       unreadCount: member?.unreadCount ?? 0,
       lastReadAt: member?.lastReadAt,
       lastReadMessageId: member?.lastReadMessageId,
@@ -93,61 +96,77 @@ export class ChannelService {
   ): Promise<ChannelEntity> {
     const { workspaceId, memberId, targetMemberIds = [], description } = dto;
 
-    const allMemberIds = [...new Set([memberId, ...targetMemberIds])];
-
-    // Determine title: other person's name for 1-on-1, or joined names for group DM
-    let title: string;
-    if (allMemberIds.length === 2) {
-      title = 'Direct Message'; // Simplified title, FE can resolve names
-    } else if (allMemberIds.length === 1) {
-      title = 'Personal Chat';
-    } else {
-      title = 'Group Message';
-    }
+    const allMemberIds = [...new Set([memberId, ...targetMemberIds])].filter(Boolean);
+    const memberCount = allMemberIds.length;
 
     return await this.dataSource.transaction(async (manager) => {
-      // Check if a DIRECT channel with these EXACT members already exists in this workspace
-      const existingChannels = await manager
-        .createQueryBuilder(ChannelEntity, 'channel')
-        .innerJoin('channel_members', 'm', 'm.channel_id = channel.id')
-        .where('channel.workspaceId = :workspaceId', { workspaceId })
-        .andWhere('channel.type = :type', { type: ChannelTypeEnum.DIRECT })
-        .andWhere('m.memberId = :memberId', { memberId })
-        .getMany();
+      // Optimized check: Find a DIRECT channel that has EXACTLY these members and no one else
+      const existingChannelResult = await manager
+        .createQueryBuilder(ChannelMemberEntity, 'cm')
+        .select('cm.channel_id', 'channelId')
+        .innerJoin('channels', 'c', 'c.id = cm.channel_id')
+        .where('c.workspace_id = :workspaceId', { workspaceId })
+        .andWhere('c.type = :type', { type: ChannelTypeEnum.DIRECT })
+        .groupBy('cm.channel_id')
+        .having('COUNT(cm.member_id) = :memberCount', { memberCount })
+        .andWhere('cm.member_id IN (:...allMemberIds)', { allMemberIds })
+        .getRawOne<{ channelId: string }>();
 
-      for (const channel of existingChannels) {
-        const members = await manager.find(ChannelMemberEntity, {
-          where: { channelId: channel.id },
+      if (existingChannelResult) {
+        const existingChannel = await manager.findOne(ChannelEntity, {
+          where: { id: existingChannelResult.channelId },
         });
-        const currentMemberIds = members.map((m) => m.memberId).sort();
-        const searchMemberIds = [...allMemberIds].sort();
-
-        if (
-          JSON.stringify(currentMemberIds) === JSON.stringify(searchMemberIds)
-        ) {
-          return channel;
-        }
+        if (existingChannel) return existingChannel;
       }
 
+      // Create new headless DIRECT channel
       const channel = manager.create(ChannelEntity, {
         workspaceId,
-        title,
+        title: null, // Headless
         type: ChannelTypeEnum.DIRECT,
         description,
       });
 
       const saved = await manager.save(channel);
 
-      const members = allMemberIds.map((id) => {
+      const memberEntities = allMemberIds.map((id) => {
         return manager.create(ChannelMemberEntity, {
           channelId: saved.id,
           memberId: id,
         });
       });
 
-      await manager.save(members);
+      await manager.save(memberEntities);
 
       return saved;
+    });
+  }
+
+  async findDirectChannel(
+    workspaceId: string,
+    memberIds: string[],
+  ): Promise<ChannelEntity | null> {
+    const allMemberIds = memberIds.filter((id) => id && id.length > 0);
+    if (allMemberIds.length === 0) return null;
+
+    const memberCount = allMemberIds.length;
+
+    // Find a DIRECT channel that has EXACTLY these members and no one else
+    const result = await this.channelMemberRepository
+      .createQueryBuilder('cm')
+      .select('cm.channel_id', 'channelId')
+      .innerJoin('channels', 'c', 'c.id = cm.channel_id')
+      .where('c.workspace_id = :workspaceId', { workspaceId })
+      .andWhere('c.type = :type', { type: ChannelTypeEnum.DIRECT })
+      .groupBy('cm.channel_id')
+      .having('COUNT(cm.member_id) = :memberCount', { memberCount })
+      .andWhere('cm.member_id IN (:...allMemberIds)', { allMemberIds })
+      .getRawOne<{ channelId: string }>();
+
+    if (!result) return null;
+
+    return await this.channelRepository.findOne({
+      where: { id: result.channelId },
     });
   }
 
@@ -162,6 +181,10 @@ export class ChannelService {
       WorkspaceRoleEnum.ADMIN,
       WorkspaceRoleEnum.MEMBER,
     ]);
+
+    if (!title) {
+      throw new RpcException(CHANNEL_ERROR.TITLE_REQUIRED);
+    }
 
     return await this.dataSource.transaction(async (manager) => {
       const existingChannel = await manager.findOne(ChannelEntity, {
@@ -347,16 +370,30 @@ export class ChannelService {
           .take(limit)
           .getRawAndEntities();
 
+        const channelIds = entities.map((c) => c.id);
+        let allMembers: ChannelMemberEntity[] = [];
+        if (channelIds.length > 0) {
+          allMembers = await this.channelMemberRepository.find({
+            where: { channelId: In(channelIds) },
+            select: ['channelId', 'memberId'],
+          });
+        }
+
         const data = entities.map((channel, index) => {
           const rawItem = raw[index];
+          const memberIds = allMembers
+            .filter((m) => m.channelId === channel.id)
+            .map((m) => m.memberId);
+
           return {
             id: channel.id,
-            name: channel.title,
+            name: channel.title ?? null,
             description: channel.description || null,
             type: channel.type,
             createdAt: channel.createdAt,
             isStar: channel.isStar,
             workspaceId: channel.workspaceId,
+            memberIds,
             unreadCount: rawItem.unreadCount || 0,
             lastReadAt: rawItem.lastReadAt,
             lastReadMessageId: rawItem.lastReadMessageId,
@@ -397,7 +434,16 @@ export class ChannelService {
       throw new RpcException(CHANNEL_ERROR.USER_NOT_MEMBER);
     }
 
-    return this.mapChannelToResponse(channel, isMember);
+    const members = await this.channelMemberRepository.find({
+      where: { channelId },
+      select: ['memberId'],
+    });
+
+    return this.mapChannelToResponse(
+      channel,
+      isMember,
+      members.map((m) => m.memberId),
+    );
   }
 
   async toggleStar(dto: ToggleStarDto): Promise<ChannelResponse> {

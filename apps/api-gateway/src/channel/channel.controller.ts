@@ -63,6 +63,18 @@ export class ChannelController {
     });
   }
 
+  @Get('direct/search')
+  @ApiOperation({ summary: 'Find a direct channel by member IDs' })
+  @ApiResponse({ status: 200, description: 'Channel found or null' })
+  async findDirectChannel(
+    @Param('workspaceId') workspaceId: string,
+    @Query('memberIds') memberIds: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const allMemberIds = [...new Set([user.sub, ...memberIds.split(',')])];
+    return await this.channelService.findDirectChannel(workspaceId, allMemberIds);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get a channel by ID' })
   @ApiResponse({ status: 200, description: 'Channel retrieved successfully' })

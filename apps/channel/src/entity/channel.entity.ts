@@ -11,7 +11,6 @@ import {
 import { ChannelTypeEnum } from '@slack/constants';
 
 @Entity("channels")
-@Unique(['workspaceId', 'title'])
 export class ChannelEntity {
     @PrimaryGeneratedColumn('uuid')
     id: string;
@@ -20,8 +19,8 @@ export class ChannelEntity {
     @Index()
     workspaceId: string;
 
-    @Column({ name: 'title' })
-    title: string;
+    @Column({ name: 'title', type: 'varchar', nullable: true })
+    title?: string | null;
 
     @Column({ name: 'type', type: 'enum', enum: ChannelTypeEnum, default: ChannelTypeEnum.GROUP })
     type: ChannelTypeEnum;

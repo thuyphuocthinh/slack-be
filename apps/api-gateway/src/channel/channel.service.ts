@@ -28,6 +28,15 @@ export class ChannelService {
     );
   }
 
+  async findDirectChannel(workspaceId: string, allMemberIds: string[]) {
+    return await firstValueFrom(
+      this.channelClient.send(CHANNEL_MESSAGE_PATTERN.FIND_DIRECT_CHANNEL, {
+        workspaceId,
+        allMemberIds,
+      }),
+    );
+  }
+
   async updateChannel(dto: UpdateChannelRequestDto) {
     return await firstValueFrom(
       this.channelClient.send(CHANNEL_MESSAGE_PATTERN.UPDATE_CHANNEL, dto),

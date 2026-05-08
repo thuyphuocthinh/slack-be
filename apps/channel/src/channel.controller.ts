@@ -25,6 +25,17 @@ export class ChannelController {
     return await this.channelService.createChannel(dto);
   }
 
+  @MessagePattern(CHANNEL_MESSAGE_PATTERN.FIND_DIRECT_CHANNEL)
+  async findDirectChannel(
+    @Payload() payload: { workspaceId: string; allMemberIds: string[] },
+  ) {
+    const channel = await this.channelService.findDirectChannel(
+      payload.workspaceId,
+      payload.allMemberIds,
+    );
+    return channel ? this.channelService.mapChannelToResponse(channel) : null;
+  }
+
   @MessagePattern(CHANNEL_MESSAGE_PATTERN.UPDATE_CHANNEL)
   async updateChannel(@Payload() dto: UpdateChannelDto) {
     return await this.channelService.updateChannel(dto);

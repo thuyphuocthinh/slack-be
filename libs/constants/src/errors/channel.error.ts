@@ -43,4 +43,8 @@ export const CHANNEL_ERROR = {
         code: 'ERR.CHANNEL.0111',
         message: 'CANNOT REMOVE MEMBER IN DIRECT CHANNEL',
     },
+    TITLE_REQUIRED: {
+        code: 'ERR.CHANNEL.0112',
+        message: 'TITLE IS REQUIRED FOR THIS CHANNEL TYPE',
+    },
 };

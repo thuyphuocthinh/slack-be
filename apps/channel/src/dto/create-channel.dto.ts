@@ -7,8 +7,8 @@ export class CreateChannelDto {
     workspaceId: string;
 
     @IsString()
-    @IsNotEmpty()
-    title: string;
+    @IsOptional()
+    title?: string;
 
     @IsEnum(ChannelTypeEnum)
     @IsOptional()
