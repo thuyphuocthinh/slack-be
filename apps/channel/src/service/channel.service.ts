@@ -145,7 +145,7 @@ export class ChannelService {
   async findDirectChannel(
     workspaceId: string,
     memberIds: string[],
-  ): Promise<ChannelEntity | null> {
+  ): Promise<ChannelResponse | null> {
     const allMemberIds = memberIds.filter((id) => id && id.length > 0);
     if (allMemberIds.length === 0) return null;
 
@@ -165,9 +165,15 @@ export class ChannelService {
 
     if (!result) return null;
 
-    return await this.channelRepository.findOne({
+    const channel = await this.channelRepository.findOne({
       where: { id: result.channelId },
     });
+
+    if (channel) {
+      return this.mapChannelToResponse(channel);
+    }
+
+    return null;
   }
 
   private async createGroupChannel(
