@@ -2,6 +2,7 @@ export class CreateMessageRequestDto {
   channelId: string;
   senderId: string;
   content?: string;
+  mentions?: string[];
   parentId?: string;
   attachments?: any[];
 }
@@ -25,7 +26,8 @@ export class SearchMessagesRequestDto {
 export class UpdateMessageRequestDto {
   messageId: string;
   userId: string;
-  content: string;
+  content: string | Record<string, unknown>[];
+  mentions?: string[];
 }
 
 export class ToggleReactionRequestDto {

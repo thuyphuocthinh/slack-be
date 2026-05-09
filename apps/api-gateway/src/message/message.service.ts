@@ -18,7 +18,7 @@ export class MessageService {
   constructor(
     @Inject(NAME_SERVICE_TCP.MESSAGE_SERVICE)
     private readonly messageClient: ClientProxy,
-  ) {}
+  ) { }
 
   async createMessage(dto: CreateMessageRequestDto) {
     return await firstValueFrom(
@@ -58,7 +58,7 @@ export class MessageService {
       this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.UPDATE, {
         id: dto.messageId,
         userId: dto.userId,
-        updateDto: { content: dto.content },
+        updateDto: dto,
       }),
     );
   }

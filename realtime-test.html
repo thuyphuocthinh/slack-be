@@ -166,14 +166,13 @@
 
             // Giả lập gọi API Gateway (thường chạy ở port 3000 hoặc 3001)
             try {
-                const response = await fetch('http://localhost:3000/api/v1/messages', {
+                const response = await fetch('http://localhost:3000/api/v1/workspaces/57558aac-97ec-43b8-9512-94b76de7455a/channels/' + channelId + '/messages', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${token}`
                     },
                     body: JSON.stringify({
-                        channelId: channelId,
                         content: content
                     })
                 });

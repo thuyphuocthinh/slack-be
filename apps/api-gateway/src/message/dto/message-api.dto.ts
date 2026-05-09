@@ -16,7 +16,6 @@ export class CreateMessageApiDto {
   content: string | Record<string, unknown>[];
 
   @IsArray()
-  @IsUUID('all', { each: true })
   @IsOptional()
   @ApiPropertyOptional()
   mentions?: string[];
@@ -31,6 +30,11 @@ export class UpdateMessageApiDto {
   @IsNotEmpty()
   @ApiProperty()
   content: string | Record<string, unknown>[];
+
+  @IsArray()
+  @IsOptional()
+  @ApiPropertyOptional()
+  mentions?: string[];
 }
 
 export class GetMessagesQueryApiDto {

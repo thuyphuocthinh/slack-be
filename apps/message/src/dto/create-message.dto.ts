@@ -10,7 +10,6 @@ export class CreateMessageDto {
   content: string | Record<string, unknown>[];
 
   @IsArray()
-  @IsUUID('all', { each: true })
   @IsOptional()
   mentions?: string[];
 

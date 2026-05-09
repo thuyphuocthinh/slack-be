@@ -18,7 +18,7 @@ import {
 } from '@slack/constants';
 import { InjectRepository } from '@nestjs/typeorm';
 import { MessageEntity } from '../entity/message.entity';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { MessageMentionEntity } from '../entity/message_mention.entity';
 import { MessageReactionEntity } from '../entity/message_reaction.entity';
 import { firstValueFrom } from 'rxjs';
@@ -38,7 +38,7 @@ export class MessageService {
     private readonly messageRepository: Repository<MessageEntity>,
     private readonly dataSource: DataSource,
     private readonly queueService: QueueService,
-  ) {}
+  ) { }
 
   private async checkChannelExist(channelId: string, senderId: string) {
     try {
@@ -121,7 +121,7 @@ export class MessageService {
             userId,
           }),
         );
-        await manager.save(mentionEntities);
+        savedMessage.mentions = await manager.save(mentionEntities);
       }
 
       // 5. Hydrate and return
@@ -204,7 +204,7 @@ export class MessageService {
             channelId ||
             (parentId
               ? (await messageRepo.findOne({ where: { id: parentId } }))
-                  ?.channelId
+                ?.channelId
               : undefined),
         });
 
@@ -283,14 +283,32 @@ export class MessageService {
         typeof updateDto.content === 'string'
           ? updateDto.content
           : JSON.stringify(updateDto.content);
-      await messageRepo.save(message);
 
-      const response = await this.getMessageById(id, userId);
+      if (updateDto.mentions) {
+        const mentionRepo = manager.getRepository(MessageMentionEntity);
+        await mentionRepo.delete({ messageId: id });
+
+        if (updateDto.mentions.length > 0) {
+          const mentionEntities = updateDto.mentions.map((mentionUserId) =>
+            mentionRepo.create({
+              messageId: id,
+              userId: mentionUserId,
+            }),
+          );
+          await mentionRepo.save(mentionEntities);
+        }
+      }
+      const updatedMessage = await messageRepo.save(message);
+      const freshMessage = await messageRepo.findOne({
+        where: { id: updatedMessage.id },
+        relations: ['reactions', 'mentions'],
+      });
+      const [response] = await this.hydrateMessages([freshMessage!], manager);
 
       // Emit Socket Event
-      const targetRoom = response.parentId
-        ? `thread_${response.parentId}`
-        : response.channelId;
+      const targetRoom = updatedMessage.parentId
+        ? `thread_${updatedMessage.parentId}`
+        : updatedMessage.channelId;
 
       await this.queueService.addJob(
         EQueueName.SOCKET_QUEUE,
@@ -459,7 +477,7 @@ export class MessageService {
    */
   public async hydrateMessages(
     messages: MessageEntity[],
-    manager?: any,
+    manager?: EntityManager,
   ): Promise<MessageResponseDto[]> {
     if (messages.length === 0) return [];
 
@@ -539,7 +557,7 @@ export class MessageService {
     try {
       dto.content =
         typeof message.content === 'string' &&
-        (message.content.startsWith('{') || message.content.startsWith('['))
+          (message.content.startsWith('{') || message.content.startsWith('['))
           ? JSON.parse(message.content)
           : message.content;
     } catch {

@@ -60,9 +60,9 @@ export class MessageEntity {
   @OneToMany(() => MessageMentionEntity, (mention) => mention.message)
   mentions: MessageMentionEntity[];
 
-  @CreateDateColumn({ type: 'timestamp', name: 'created_at' })
+  @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt: Date;
 
-  @UpdateDateColumn({ type: 'timestamp', name: 'updated_at' })
+  @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
   updatedAt: Date;
 }

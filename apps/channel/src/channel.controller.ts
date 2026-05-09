@@ -29,11 +29,10 @@ export class ChannelController {
   async findDirectChannel(
     @Payload() payload: { workspaceId: string; allMemberIds: string[] },
   ) {
-    const channel = await this.channelService.findDirectChannel(
+    return await this.channelService.findDirectChannel(
       payload.workspaceId,
       payload.allMemberIds,
     );
-    return channel ? this.channelService.mapChannelToResponse(channel) : null;
   }
 
   @MessagePattern(CHANNEL_MESSAGE_PATTERN.UPDATE_CHANNEL)
