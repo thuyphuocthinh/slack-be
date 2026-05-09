@@ -14,10 +14,10 @@ import {
 } from 'class-validator';
 
 export class CreateChannelApiDto {
-  @ApiProperty({ example: 'general' })
+  @ApiPropertyOptional({ example: 'general' })
   @IsString()
-  @IsNotEmpty()
-  title: string;
+  @IsOptional()
+  title?: string;
 
   @ApiPropertyOptional({
     enum: ChannelTypeEnum,
@@ -31,6 +31,12 @@ export class CreateChannelApiDto {
   @IsString()
   @IsOptional()
   description?: string;
+
+  @ApiPropertyOptional({ example: ['0bcda63b-d799-4771-bbfb-0c4e8c433e3b'] })
+  @IsArray()
+  @IsUUID('4', { each: true })
+  @IsOptional()
+  targetMemberIds?: string[];
 }
 
 export class UpdateChannelApiDto {

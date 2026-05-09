@@ -3,10 +3,11 @@ import { MemberInfoDto } from './channel-api.dto';
 
 export class CreateChannelRequestDto {
   workspaceId: string;
-  title: string;
+  title?: string;
   type?: ChannelTypeEnum;
   description?: string;
   memberId: string;
+  targetMemberIds?: string[];
 }
 
 export class UpdateChannelRequestDto {
