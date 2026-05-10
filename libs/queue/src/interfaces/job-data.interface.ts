@@ -47,6 +47,12 @@ export interface ITaskDeadlineJobData {
   taskId: string;
 }
 
+export interface IUpdateResourceMetadataJobData {
+  resourceIds: string[];
+  refType: string;
+  refId: string;
+}
+
 export type TJobData = {
   [EJobName.SEND_VERIFICATION_EMAIL]: IEmailJobData;
   [EJobName.SEND_INVITE_EMAIL]: IInviteJobData;
@@ -55,4 +61,5 @@ export type TJobData = {
   [EJobName.EMIT_EVENT]: IEmitEventJobData;
   [EJobName.INCREMENT_UNREAD_COUNT]: IIncrementUnreadJobData;
   [EJobName.TASK_DEADLINE_REMINDER]: ITaskDeadlineJobData;
+  [EJobName.UPDATE_RESOURCE_METADATA]: IUpdateResourceMetadataJobData;
 };

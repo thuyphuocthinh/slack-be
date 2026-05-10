@@ -21,9 +21,11 @@ import { MessageEntity } from '../entity/message.entity';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { MessageMentionEntity } from '../entity/message_mention.entity';
 import { MessageReactionEntity } from '../entity/message_reaction.entity';
+import { MessageAttachmentEntity } from '../entity/message_attachment.entity';
 import { firstValueFrom } from 'rxjs';
 import { v7 as uuidv7 } from 'uuid';
 import { EQueueName, EJobName, QueueService } from '@slack/queue';
+import { IMessageAttachment } from '../types/message-attachment.interface';
 
 @Injectable()
 export class MessageService {
@@ -124,6 +126,27 @@ export class MessageService {
         savedMessage.mentions = await manager.save(mentionEntities);
       }
 
+      // 4.5. Handle attachments
+      if (
+        createMessageDto.attachments &&
+        createMessageDto.attachments.length > 0
+      ) {
+        const attachmentEntities = createMessageDto.attachments.map((a) =>
+          manager.create(MessageAttachmentEntity, {
+            messageId: savedMessage.id,
+            resourceId: a.id,
+            publicId: a.publicId,
+            url: a.url,
+            filename: a.filename,
+            mimeType: a.mimeType,
+            size: a.size,
+            type: a.type,
+            thumbnailUrl: a.thumbnailUrl,
+          }),
+        );
+        savedMessage.attachments = await manager.save(attachmentEntities);
+      }
+
       // 5. Hydrate and return
       const [response] = await this.hydrateMessages([savedMessage], manager);
 
@@ -169,6 +192,21 @@ export class MessageService {
         );
       }
 
+      // 9. Update resource metadata (Background)
+      if (savedMessage.attachments && savedMessage.attachments.length > 0) {
+        await this.queueService.addJob(
+          EQueueName.RESOURCE_QUEUE,
+          EJobName.UPDATE_RESOURCE_METADATA,
+          {
+            resourceIds: savedMessage.attachments.map(
+              (a: IMessageAttachment) => a.id,
+            ),
+            refType: 'message',
+            refId: savedMessage.id,
+          },
+        );
+      }
+
       return response;
     });
   }
@@ -199,6 +237,7 @@ export class MessageService {
         .createQueryBuilder('message')
         .leftJoinAndSelect('message.reactions', 'reaction')
         .leftJoinAndSelect('message.mentions', 'mention')
+        .leftJoinAndSelect('message.attachments', 'attachment')
         .where('message.channelId = :channelId', {
           channelId:
             channelId ||
@@ -244,7 +283,7 @@ export class MessageService {
       const messageRepo = manager.getRepository(MessageEntity);
       const message = await messageRepo.findOne({
         where: { id },
-        relations: ['reactions', 'mentions'],
+        relations: ['reactions', 'mentions', 'attachments'],
       });
 
       if (!message) {
@@ -284,6 +323,28 @@ export class MessageService {
           ? updateDto.content
           : JSON.stringify(updateDto.content);
 
+      if (updateDto.attachments) {
+        const attachmentRepo = manager.getRepository(MessageAttachmentEntity);
+        await attachmentRepo.delete({ messageId: id });
+
+        if (updateDto.attachments.length > 0) {
+          const attachmentEntities = updateDto.attachments.map((a) =>
+            attachmentRepo.create({
+              messageId: id,
+              resourceId: a.id,
+              publicId: a.publicId,
+              url: a.url,
+              filename: a.filename,
+              mimeType: a.mimeType,
+              size: a.size,
+              type: a.type,
+              thumbnailUrl: a.thumbnailUrl,
+            }),
+          );
+          await attachmentRepo.save(attachmentEntities);
+        }
+      }
+
       if (updateDto.mentions) {
         const mentionRepo = manager.getRepository(MessageMentionEntity);
         await mentionRepo.delete({ messageId: id });
@@ -319,6 +380,21 @@ export class MessageService {
           data: response,
         },
       );
+
+      // Update resource metadata if attachments changed
+      if (updateDto.attachments && updateDto.attachments.length > 0) {
+        await this.queueService.addJob(
+          EQueueName.RESOURCE_QUEUE,
+          EJobName.UPDATE_RESOURCE_METADATA,
+          {
+            resourceIds: updateDto.attachments.map(
+              (a: IMessageAttachment) => a.id,
+            ),
+            refType: 'message',
+            refId: updatedMessage.id,
+          },
+        );
+      }
 
       return response;
     });
@@ -457,6 +533,7 @@ export class MessageService {
         .createQueryBuilder('message')
         .leftJoinAndSelect('message.reactions', 'reaction')
         .leftJoinAndSelect('message.mentions', 'mention')
+        .leftJoinAndSelect('message.attachments', 'attachment')
         .where('message.channelId = :channelId', { channelId });
 
       // Use Full Text Search on JSONB content cast to text
@@ -563,6 +640,16 @@ export class MessageService {
     } catch {
       dto.content = message.content;
     }
+    dto.attachments = (message.attachments || []).map((a) => ({
+      id: a.resourceId,
+      publicId: a.publicId, // This might need to be fetched if not stored, but I added it to the entity
+      url: a.url,
+      filename: a.filename,
+      mimeType: a.mimeType,
+      size: a.size,
+      type: a.type,
+      thumbnailUrl: a.thumbnailUrl,
+    }));
     dto.isPinned = message.isPinned;
     dto.parentId = message.parentId;
     dto.createdAt = message.createdAt;

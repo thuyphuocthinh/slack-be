@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 import { MessageReactionEntity } from './message_reaction.entity';
 import { MessageMentionEntity } from './message_mention.entity';
+import { MessageAttachmentEntity } from './message_attachment.entity';
 
 @Entity('messages')
 export class MessageEntity {
@@ -59,6 +60,9 @@ export class MessageEntity {
 
   @OneToMany(() => MessageMentionEntity, (mention) => mention.message)
   mentions: MessageMentionEntity[];
+
+  @OneToMany(() => MessageAttachmentEntity, (attachment) => attachment.message)
+  attachments: MessageAttachmentEntity[];
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt: Date;

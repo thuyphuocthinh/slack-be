@@ -7,6 +7,7 @@ export enum EQueueName {
   AUDIT_QUEUE = 'audit',
   SOCKET_QUEUE = 'socket',
   TASK_QUEUE = 'task',
+  RESOURCE_QUEUE = 'resource',
 }
 
 export enum EJobName {
@@ -26,4 +27,7 @@ export enum EJobName {
 
   // Task
   TASK_DEADLINE_REMINDER = 'task_deadline_reminder',
+
+  // Resource
+  UPDATE_RESOURCE_METADATA = 'update_resource_metadata',
 }

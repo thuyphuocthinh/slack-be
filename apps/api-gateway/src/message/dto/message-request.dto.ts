@@ -1,10 +1,21 @@
+interface MessageAttachment {
+  id: string;
+  publicId: string;
+  url: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  type: string;
+  thumbnailUrl?: string;
+}
+
 export class CreateMessageRequestDto {
   channelId: string;
   senderId: string;
   content?: string;
   mentions?: string[];
   parentId?: string;
-  attachments?: any[];
+  attachments?: MessageAttachment[];
 }
 
 export class GetMessagesRequestDto {
@@ -27,6 +38,7 @@ export class UpdateMessageRequestDto {
   messageId: string;
   userId: string;
   content: string | Record<string, unknown>[];
+  attachments?: MessageAttachment[];
   mentions?: string[];
 }
 

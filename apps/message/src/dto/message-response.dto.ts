@@ -16,11 +16,14 @@ export class UserResponseDto {
   email: string;
 }
 
+import { IMessageAttachment } from '../types/message-attachment.interface';
+
 export class MessageResponseDto {
   id: string;
   channelId: string;
   sender: UserResponseDto;
   content: string | Record<string, unknown>[];
+  attachments: IMessageAttachment[];
   isPinned: boolean;
   parentId: string | null;
   createdAt: Date;

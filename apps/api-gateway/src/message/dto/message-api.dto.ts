@@ -7,13 +7,65 @@ import {
   IsString,
   IsUUID,
   Min,
+  ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class CreateMessageApiDto {
+export class MessageAttachmentApiDto {
+  @IsUUID()
   @IsNotEmpty()
   @ApiProperty()
+  id: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @ApiProperty()
+  publicId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @ApiProperty()
+  url: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @ApiProperty()
+  filename: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @ApiProperty()
+  mimeType: string;
+
+  @IsInt()
+  @IsNotEmpty()
+  @ApiProperty()
+  size: number;
+
+  @IsString()
+  @IsNotEmpty()
+  @ApiProperty()
+  type: string;
+
+  @IsString()
+  @IsOptional()
+  @ApiPropertyOptional()
+  thumbnailUrl?: string;
+}
+
+export class CreateMessageApiDto {
+  @ValidateIf((o) => !o.attachments || o.attachments.length === 0)
+  @IsNotEmpty({ message: 'Content is required when there are no attachments' })
+  @ApiProperty()
   content: string | Record<string, unknown>[];
+
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => MessageAttachmentApiDto)
+  @ApiPropertyOptional({ type: [MessageAttachmentApiDto] })
+  attachments?: MessageAttachmentApiDto[];
 
   @IsArray()
   @IsOptional()
@@ -30,6 +82,13 @@ export class UpdateMessageApiDto {
   @IsNotEmpty()
   @ApiProperty()
   content: string | Record<string, unknown>[];
+
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => MessageAttachmentApiDto)
+  @ApiPropertyOptional({ type: [MessageAttachmentApiDto] })
+  attachments?: MessageAttachmentApiDto[];
 
   @IsArray()
   @IsOptional()
