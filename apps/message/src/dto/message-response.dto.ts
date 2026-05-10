@@ -37,3 +37,9 @@ export class ThreadResponseDto {
   threads: MessageResponseDto[];
   nextCursor?: string;
 }
+
+export class SurroundingMessageResponseDto {
+  messages: MessageResponseDto[];
+  hasMoreBefore: boolean;
+  hasMoreAfter: boolean;
+}

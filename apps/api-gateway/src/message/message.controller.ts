@@ -17,6 +17,8 @@ import {
   UpdateMessageApiDto,
   ToggleReactionApiDto,
   SearchMessagesQueryApiDto,
+  GetPinnedMessagesQueryApiDto,
+  GetSurroundingMessagesQueryApiDto,
 } from './dto/message-api.dto';
 import {
   CreateMessageRequestDto,
@@ -24,6 +26,8 @@ import {
   UpdateMessageRequestDto,
   ToggleReactionRequestDto,
   SearchMessagesRequestDto,
+  GetPinnedMessagesRequestDto,
+  GetSurroundingMessagesRequestDto,
 } from './dto/message-request.dto';
 
 @ApiTags('Messages')
@@ -140,5 +144,37 @@ export class MessageController {
     @CurrentUser() user: JwtUser,
   ) {
     return await this.messageService.togglePin(id, user.sub);
+  }
+
+  @Get('pinned')
+  @ApiOperation({ summary: 'Get pinned messages' })
+  async getPinnedMessages(
+    @Param('workspaceId') workspaceId: string,
+    @Param('channelId') channelId: string,
+    @Query() query: GetPinnedMessagesQueryApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.messageService.getPinnedMessages({
+      ...query,
+      channelId,
+      userId: user.sub,
+    } as GetPinnedMessagesRequestDto);
+  }
+
+  @Get('item/:id/surrounding')
+  @ApiOperation({ summary: 'Get surrounding messages' })
+  async getSurroundingMessages(
+    @Param('workspaceId') workspaceId: string,
+    @Param('channelId') channelId: string,
+    @Param('id') id: string,
+    @Query() query: GetSurroundingMessagesQueryApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.messageService.getSurroundingMessages({
+      ...query,
+      channelId,
+      targetMessageId: id,
+      userId: user.sub,
+    } as GetSurroundingMessagesRequestDto);
   }
 }

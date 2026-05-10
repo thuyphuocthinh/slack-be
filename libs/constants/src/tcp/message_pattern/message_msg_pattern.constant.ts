@@ -8,4 +8,6 @@ export const MESSAGE_MESSAGE_PATTERNS = {
   TOGGLE_PIN: 'message.toggle_pin',
   SEARCH: 'message.search',
   GET_THREADS: 'message.get_threads',
+  GET_PINNED_MESSAGES: 'message.get_pinned_messages',
+  GET_SURROUNDING_MESSAGES: 'message.get_surrounding_messages',
 } as const;

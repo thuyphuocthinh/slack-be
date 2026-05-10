@@ -142,3 +142,41 @@ export class GetThreadQueryApiDto {
   @ApiPropertyOptional()
   cursor?: string;
 }
+
+export class GetPinnedMessagesQueryApiDto {
+  @IsUUID()
+  @IsNotEmpty()
+  @ApiProperty()
+  channelId: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  @ApiPropertyOptional({ default: 20 })
+  limit?: number = 20;
+
+  @IsString()
+  @IsOptional()
+  @ApiPropertyOptional()
+  cursor?: string;
+}
+
+export class GetSurroundingMessagesQueryApiDto {
+  @IsUUID()
+  @IsNotEmpty()
+  @ApiProperty()
+  channelId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  @ApiProperty()
+  targetMessageId: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  @ApiPropertyOptional({ default: 30 })
+  limit?: number = 30;
+}

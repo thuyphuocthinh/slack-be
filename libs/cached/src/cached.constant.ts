@@ -187,6 +187,22 @@ export const CACHE = {
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:presence:v1:status:${userId}`,
     },
   },
+  MESSAGE: {
+    _VER: 'v1',
+    KEYS: {
+      PINNED_LIST: (
+        channelId: string,
+        version: number,
+        limit: number,
+        cursor?: string,
+      ): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:messages:v1:pinned:c_${channelId}:v_${version}:l_${limit}${cursor ? ':cur_' + cursor : ''}`,
+    },
+    TRACKERS: {
+      PINNED_VERSION: (channelId: string): string =>
+        `${GLOBAL_PREFIX}:trackers:messages:pinned:c_${channelId}:version`,
+    },
+  },
 };
 
 /*

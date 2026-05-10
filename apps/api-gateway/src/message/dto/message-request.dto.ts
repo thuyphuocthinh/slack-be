@@ -53,3 +53,17 @@ export class GetThreadRequestDto {
   cursor?: string;
   limit?: number;
 }
+
+export class GetPinnedMessagesRequestDto {
+  channelId: string;
+  userId: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export class GetSurroundingMessagesRequestDto {
+  channelId: string;
+  userId: string;
+  targetMessageId: string;
+  limit?: number;
+}

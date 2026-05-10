@@ -9,6 +9,8 @@ import {
   SearchMessagesRequestDto,
   ToggleReactionRequestDto,
   UpdateMessageRequestDto,
+  GetPinnedMessagesRequestDto,
+  GetSurroundingMessagesRequestDto,
 } from './dto/message-request.dto';
 
 @Injectable()
@@ -35,6 +37,21 @@ export class MessageService {
   async getThreads(dto: GetThreadRequestDto) {
     return await firstValueFrom(
       this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.GET_THREADS, dto),
+    );
+  }
+
+  async getPinnedMessages(dto: GetPinnedMessagesRequestDto) {
+    return await firstValueFrom(
+      this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.GET_PINNED_MESSAGES, dto),
+    );
+  }
+
+  async getSurroundingMessages(dto: GetSurroundingMessagesRequestDto) {
+    return await firstValueFrom(
+      this.messageClient.send(
+        MESSAGE_MESSAGE_PATTERNS.GET_SURROUNDING_MESSAGES,
+        dto,
+      ),
     );
   }
 

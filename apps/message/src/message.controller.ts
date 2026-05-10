@@ -9,6 +9,8 @@ import {
   GetMessagesQueryDto,
   UpdateMessageDto,
   ToggleReactionDto,
+  GetPinnedMessagesQueryDto,
+  GetSurroundingMessagesQueryDto,
 } from './dto';
 import { GetThreadQueryDto } from './dto/get-thread-query.dto';
 
@@ -81,5 +83,15 @@ export class MessageController {
       query.limit,
       query.cursor,
     );
+  }
+
+  @MessagePattern(MESSAGE_MESSAGE_PATTERNS.GET_PINNED_MESSAGES)
+  getPinnedMessages(@Payload() query: GetPinnedMessagesQueryDto) {
+    return this.messageService.getPinnedMessages(query);
+  }
+
+  @MessagePattern(MESSAGE_MESSAGE_PATTERNS.GET_SURROUNDING_MESSAGES)
+  getSurroundingMessages(@Payload() query: GetSurroundingMessagesQueryDto) {
+    return this.messageService.getSurroundingMessages(query);
   }
 }

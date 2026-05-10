@@ -7,6 +7,9 @@ import {
   ToggleReactionDto,
   UserResponseDto,
   ReactionResponseDto,
+  GetPinnedMessagesQueryDto,
+  GetSurroundingMessagesQueryDto,
+  SurroundingMessageResponseDto,
 } from '../dto';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
 import {
@@ -26,6 +29,7 @@ import { firstValueFrom } from 'rxjs';
 import { v7 as uuidv7 } from 'uuid';
 import { EQueueName, EJobName, QueueService } from '@slack/queue';
 import { IMessageAttachment } from '../types/message-attachment.interface';
+import { CACHE, CachedService, TTL } from '@slack/cached';
 
 @Injectable()
 export class MessageService {
@@ -40,6 +44,7 @@ export class MessageService {
     private readonly messageRepository: Repository<MessageEntity>,
     private readonly dataSource: DataSource,
     private readonly queueService: QueueService,
+    private readonly cachedService: CachedService,
   ) { }
 
   private async checkChannelExist(channelId: string, senderId: string) {
@@ -514,6 +519,12 @@ export class MessageService {
 
       message.isPinned = !message.isPinned;
       await messageRepo.save(message);
+
+      // Invalidate pinned list cache
+      await this.cachedService.invalidateList(
+        CACHE.MESSAGE.TRACKERS.PINNED_VERSION(message.channelId),
+      );
+
       return message.isPinned;
     });
   }
@@ -546,6 +557,107 @@ export class MessageService {
 
       const messages = await queryBuilder.getMany();
       return await this.hydrateMessages(messages, manager);
+    });
+  }
+
+  async getPinnedMessages(
+    query: GetPinnedMessagesQueryDto,
+  ): Promise<{ messages: MessageResponseDto[]; nextCursor?: string }> {
+    const { channelId, userId, limit = 20, cursor } = query;
+
+    // Check membership
+    await this.checkChannelExist(channelId, userId);
+
+    return this.cachedService.getOrSetList({
+      trackerKey: CACHE.MESSAGE.TRACKERS.PINNED_VERSION(channelId),
+      keyBuilder: (version) =>
+        CACHE.MESSAGE.KEYS.PINNED_LIST(channelId, version, limit, cursor),
+      ttl: TTL.SHORT,
+      fetcher: async () => {
+        return await this.dataSource.transaction(async (manager) => {
+          const messageRepo = manager.getRepository(MessageEntity);
+
+          const queryBuilder = messageRepo
+            .createQueryBuilder('message')
+            .leftJoinAndSelect('message.reactions', 'reaction')
+            .leftJoinAndSelect('message.mentions', 'mention')
+            .leftJoinAndSelect('message.attachments', 'attachment')
+            .where('message.channelId = :channelId', { channelId })
+            .andWhere('message.isPinned = true');
+
+          if (cursor) {
+            queryBuilder.andWhere('message.id < :cursor', { cursor });
+          }
+
+          queryBuilder.orderBy('message.id', 'DESC').take(limit + 1);
+
+          const messages = await queryBuilder.getMany();
+          const hasMore = messages.length > limit;
+          const resultMessages = hasMore ? messages.slice(0, limit) : messages;
+
+          const response = await this.hydrateMessages(resultMessages, manager);
+
+          return {
+            messages: response,
+            nextCursor: hasMore
+              ? resultMessages[resultMessages.length - 1].id
+              : undefined,
+          };
+        });
+      },
+    });
+  }
+
+  async getSurroundingMessages(
+    query: GetSurroundingMessagesQueryDto,
+  ): Promise<SurroundingMessageResponseDto> {
+    const { channelId, userId, targetMessageId, limit = 30 } = query;
+
+    // Check membership
+    await this.checkChannelExist(channelId, userId);
+
+    return await this.dataSource.transaction(async (manager) => {
+      const messageRepo = manager.getRepository(MessageEntity);
+      const halfLimit = Math.floor(limit / 2);
+
+      // 1. Get messages older than or equal to target (including target)
+      const olderMessages = await messageRepo
+        .createQueryBuilder('message')
+        .where('message.channelId = :channelId', { channelId })
+        .andWhere('message.id <= :targetId', { targetId: targetMessageId })
+        .orderBy('message.id', 'DESC')
+        .take(halfLimit + 1)
+        .getMany();
+
+      // 2. Get messages newer than target
+      const newerMessages = await messageRepo
+        .createQueryBuilder('message')
+        .where('message.channelId = :channelId', { channelId })
+        .andWhere('message.id > :targetId', { targetId: targetMessageId })
+        .orderBy('message.id', 'ASC')
+        .take(halfLimit + 1)
+        .getMany();
+
+      const hasMoreBefore = olderMessages.length > halfLimit;
+      const hasMoreAfter = newerMessages.length > halfLimit;
+
+      const resultOlder = hasMoreBefore
+        ? olderMessages.slice(0, halfLimit)
+        : olderMessages;
+      const resultNewer = hasMoreAfter
+        ? newerMessages.slice(0, halfLimit)
+        : newerMessages;
+
+      // Combine: Newer (reversed to be DESC) + Older (already DESC)
+      const combinedMessages = [...resultNewer.reverse(), ...resultOlder];
+
+      const response = await this.hydrateMessages(combinedMessages, manager);
+
+      return {
+        messages: response,
+        hasMoreBefore,
+        hasMoreAfter,
+      };
     });
   }
 
