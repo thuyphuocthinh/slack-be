@@ -1,13 +1,16 @@
 export interface IUploadResponse {
+  id: string;
   url: string;
   publicId: string;
   mimeType: string;
   size: number;
   filename: string;
+  type: string;
   thumbnailUrl?: string;
 }
 
 export interface IResourceResponse {
+  id: string;
   filename: string;
   publicId: string;
   url: string;

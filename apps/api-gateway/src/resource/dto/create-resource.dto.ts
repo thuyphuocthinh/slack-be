@@ -10,6 +10,10 @@ import { ResourceScope, ResourceType } from '../entity/resource.entity';
 export class CreateResourceDto {
   @IsString()
   @IsNotEmpty()
+  id: string;
+
+  @IsString()
+  @IsNotEmpty()
   filename: string;
 
   @IsString()
@@ -51,4 +55,7 @@ export class CreateResourceDto {
   @IsString()
   @IsOptional()
   refId?: string;
+  @IsString()
+  @IsNotEmpty()
+  uploadedBy: string;
 }

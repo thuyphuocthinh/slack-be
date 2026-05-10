@@ -16,6 +16,10 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { CurrentUser, type JwtUser } from '@slack/common';
+import { ResourceScope, ResourceType } from './entity/resource.entity';
+import { CreateResourceDto } from './dto';
+import { ResourceService } from './services/impl/resource.service';
 
 @ApiTags('Resources')
 @ApiBearerAuth()
@@ -24,7 +28,8 @@ export class ResourceController {
   constructor(
     @Inject('CLOUDINARY_UPLOAD_SERVICE')
     private readonly uploadServce: UploadService,
-  ) {}
+    private readonly resourceService: ResourceService,
+  ) { }
 
   @ApiOperation({ summary: 'Upload single file' })
   @ApiResponse({ status: 201, description: 'File uploaded successfully' })
@@ -33,8 +38,25 @@ export class ResourceController {
   @UseInterceptors(FileInterceptor('file'))
   async uploadFile(
     @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: JwtUser,
   ): Promise<IUploadResponse> {
-    return this.uploadServce.upload(file);
+    const uploadResult = await this.uploadServce.upload(file);
+
+    // Save to database
+    await this.resourceService.createResource({
+      id: uploadResult.id,
+      filename: uploadResult.filename,
+      publicId: uploadResult.publicId,
+      url: uploadResult.url,
+      thumbnailUrl: uploadResult.thumbnailUrl,
+      mimeType: uploadResult.mimeType,
+      size: uploadResult.size,
+      type: uploadResult.type as ResourceType,
+      scope: ResourceScope.GLOBAL,
+      uploadedBy: user.sub,
+    });
+
+    return uploadResult;
   }
 
   @ApiOperation({ summary: 'Upload multiple files' })
@@ -44,7 +66,28 @@ export class ResourceController {
   @UseInterceptors(FilesInterceptor('files'))
   async uploadFiles(
     @UploadedFiles() files: Express.Multer.File[],
+    @CurrentUser() user: JwtUser,
   ): Promise<IUploadResponse[]> {
-    return this.uploadServce.uploadMany(files);
+    const uploadResults = await this.uploadServce.uploadMany(files);
+
+    // Save to database
+    await Promise.all(
+      uploadResults.map((res) =>
+        this.resourceService.createResource({
+          id: res.id,
+          filename: res.filename,
+          publicId: res.publicId,
+          url: res.url,
+          thumbnailUrl: res.thumbnailUrl,
+          mimeType: res.mimeType,
+          size: res.size,
+          type: res.type as ResourceType,
+          scope: ResourceScope.GLOBAL,
+          uploadedBy: user.sub,
+        }),
+      ),
+    );
+
+    return uploadResults;
   }
 }

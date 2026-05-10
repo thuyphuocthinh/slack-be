@@ -14,6 +14,7 @@ export class ResourceService {
 
   private mapToResourceEntity(data: CreateResourceDto): ResourceEntity {
     const resource = new ResourceEntity();
+    resource.id = data.id;
     resource.filename = data.filename;
     resource.publicId = data.publicId;
     resource.url = data.url;
@@ -22,6 +23,7 @@ export class ResourceService {
     resource.size = data.size;
     resource.type = data.type;
     resource.workspaceId = data.workspaceId;
+    resource.uploadedBy = data.uploadedBy;
     resource.refType = data.refType;
     resource.refId = data.refId;
     return resource;
@@ -29,6 +31,7 @@ export class ResourceService {
 
   private mapToResourceResponse(resource: ResourceEntity): IResourceResponse {
     return {
+      id: resource.id,
       filename: resource.filename,
       publicId: resource.publicId,
       url: resource.url,
@@ -90,5 +93,13 @@ export class ResourceService {
   async getResourceByRefId(refId: string): Promise<IResourceResponse[]> {
     const resources = await this.resourceRepository.find({ where: { refId } });
     return resources.map(this.mapToResourceResponse);
+  }
+
+  async updateMetadata(
+    resourceIds: string[],
+    refType: string,
+    refId: string,
+  ): Promise<void> {
+    await this.resourceRepository.update(resourceIds, { refType, refId });
   }
 }

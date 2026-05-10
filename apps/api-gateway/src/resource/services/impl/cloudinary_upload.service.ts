@@ -13,6 +13,7 @@ import {
   UploadApiResponse,
 } from 'cloudinary';
 import { IUploadResponse } from '../../types/upload.response';
+import { v7 as uuidv7 } from 'uuid';
 
 @Injectable()
 export class CloudinaryUploadService implements UploadService {
@@ -56,6 +57,13 @@ export class CloudinaryUploadService implements UploadService {
     }
   }
 
+  private getFileType(mimetype: string): string {
+    if (mimetype.startsWith('image/')) return 'image';
+    if (mimetype.startsWith('video/')) return 'video';
+    if (mimetype.startsWith('audio/')) return 'audio';
+    return 'file';
+  }
+
   async upload(file: Express.Multer.File): Promise<IUploadResponse> {
     this.validateFile(file);
     const result = await new Promise<UploadApiResponse>((resolve, reject) => {
@@ -79,11 +87,13 @@ export class CloudinaryUploadService implements UploadService {
     this.logger.log(`File uploaded successfully: ${result.secure_url}`);
 
     return {
+      id: uuidv7(),
       url: result.secure_url,
       publicId: result.public_id,
       mimeType: file.mimetype,
       size: file.size,
       filename: file.originalname,
+      type: this.getFileType(file.mimetype),
       thumbnailUrl: result.secure_url,
     };
   }
