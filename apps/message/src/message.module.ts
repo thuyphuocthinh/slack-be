@@ -6,6 +6,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { MessageEntity } from './entity/message.entity';
 import { MessageMentionEntity } from './entity/message_mention.entity';
 import { MessageReactionEntity } from './entity/message_reaction.entity';
+import { MessageAttachmentEntity } from './entity/message_attachment.entity';
 import { CachedModule } from '@slack/cached';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
@@ -21,11 +22,13 @@ import { EQueueName, QueueModule } from '@slack/queue';
       EQueueName.SOCKET_QUEUE,
       EQueueName.NOTIFICATION_QUEUE,
       EQueueName.CHANNEL_QUEUE,
+      EQueueName.RESOURCE_QUEUE,
     ]),
     TypeOrmModule.forFeature([
       MessageEntity,
       MessageMentionEntity,
       MessageReactionEntity,
+      MessageAttachmentEntity,
     ]),
     ClientsModule.register([
       {
@@ -57,4 +60,4 @@ import { EQueueName, QueueModule } from '@slack/queue';
   controllers: [MessageController],
   providers: [MessageService, ThreadService],
 })
-export class MessageModule {}
+export class MessageModule { }
