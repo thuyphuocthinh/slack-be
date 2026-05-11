@@ -109,7 +109,10 @@ export class ChannelService {
         .andWhere('c.type = :type', { type: ChannelTypeEnum.DIRECT })
         .groupBy('cm.channel_id')
         .having('COUNT(cm.member_id) = :memberCount', { memberCount })
-        .andWhere('cm.member_id IN (:...allMemberIds)', { allMemberIds })
+        .andHaving(
+          'COUNT(CASE WHEN cm.member_id IN (:...allMemberIds) THEN 1 END) = :memberCount',
+          { allMemberIds, memberCount },
+        )
         .getRawOne<{ channelId: string }>();
 
       if (existingChannelResult) {
@@ -160,7 +163,10 @@ export class ChannelService {
       .andWhere('c.type = :type', { type: ChannelTypeEnum.DIRECT })
       .groupBy('cm.channel_id')
       .having('COUNT(cm.member_id) = :memberCount', { memberCount })
-      .andWhere('cm.member_id IN (:...allMemberIds)', { allMemberIds })
+      .andHaving(
+        'COUNT(CASE WHEN cm.member_id IN (:...allMemberIds) THEN 1 END) = :memberCount',
+        { allMemberIds, memberCount },
+      )
       .getRawOne<{ channelId: string }>();
 
     if (!result) return null;
