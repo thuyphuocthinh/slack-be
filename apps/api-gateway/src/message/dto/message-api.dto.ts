@@ -166,11 +166,6 @@ export class GetSurroundingMessagesQueryApiDto {
   @IsUUID()
   @IsNotEmpty()
   @ApiProperty()
-  channelId: string;
-
-  @IsUUID()
-  @IsNotEmpty()
-  @ApiProperty()
   targetMessageId: string;
 
   @Type(() => Number)

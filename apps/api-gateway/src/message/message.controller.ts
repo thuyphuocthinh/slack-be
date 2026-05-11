@@ -34,7 +34,7 @@ import {
 @Controller('workspaces/:workspaceId/channels/:channelId/messages')
 @ApiBearerAuth()
 export class MessageController {
-  constructor(private readonly messageService: MessageService) {}
+  constructor(private readonly messageService: MessageService) { }
 
   @Post()
   @ApiOperation({ summary: 'Create a new message' })
@@ -164,7 +164,6 @@ export class MessageController {
   @Get('item/:id/surrounding')
   @ApiOperation({ summary: 'Get surrounding messages' })
   async getSurroundingMessages(
-    @Param('workspaceId') workspaceId: string,
     @Param('channelId') channelId: string,
     @Param('id') id: string,
     @Query() query: GetSurroundingMessagesQueryApiDto,

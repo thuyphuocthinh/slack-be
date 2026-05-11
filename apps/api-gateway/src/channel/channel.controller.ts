@@ -71,7 +71,12 @@ export class ChannelController {
     @Query('memberIds') memberIds: string,
     @CurrentUser() user: JwtUser,
   ) {
-    const allMemberIds = [...new Set([user.sub, ...memberIds.split(',')])];
+    // if chat with ifself
+    let memberIdArray = memberIds.split(',')
+    if (memberIdArray.length === 1 && memberIdArray[0] === user.sub) {
+      memberIdArray = [];
+    }
+    const allMemberIds = [...new Set([user.sub, ...memberIdArray])];
     return await this.channelService.findDirectChannel(workspaceId, allMemberIds);
   }
 
