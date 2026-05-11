@@ -24,4 +24,7 @@ export class GetMessagesQueryDto {
   @IsUUID()
   @IsOptional()
   cursor?: string; // For cursor-based pagination (using message id)
+
+  @IsOptional()
+  direction?: 'before' | 'after' = 'before';
 }

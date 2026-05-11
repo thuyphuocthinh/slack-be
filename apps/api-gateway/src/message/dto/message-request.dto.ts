@@ -24,6 +24,7 @@ export class GetMessagesRequestDto {
   cursor?: string;
   limit?: number;
   parentId?: string;
+  direction?: 'before' | 'after' = 'before';
 }
 
 export class SearchMessagesRequestDto {

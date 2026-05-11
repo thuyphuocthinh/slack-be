@@ -220,9 +220,15 @@ export class MessageService {
     query: GetMessagesQueryDto,
   ): Promise<{ messages: MessageResponseDto[]; nextCursor?: string }> {
     // cursor - id of message (uuidv7 is sortable)
-    // cursor mean "old messages" => message id is less than cursor, like "get messages before this cursor"
-    // cursor !== offset that cursor does not start from the beginning and skip "offset" messages
-    const { channelId, userId, parentId, limit = 20, cursor } = query;
+    // direction: 'before' (older) or 'after' (newer)
+    const {
+      channelId,
+      userId,
+      parentId,
+      limit = 20,
+      cursor,
+      direction = 'before',
+    } = query;
 
     // Check channel exist
     if (channelId) {
@@ -259,22 +265,37 @@ export class MessageService {
       }
 
       if (cursor) {
-        // UUIDv7 is sortable, so we can use LessThan for "older" messages
-        queryBuilder.andWhere('message.id < :cursor', { cursor });
+        if (direction === 'after') {
+          queryBuilder.andWhere('message.id > :cursor', { cursor });
+          queryBuilder.orderBy('message.id', 'ASC');
+        } else {
+          queryBuilder.andWhere('message.id < :cursor', { cursor });
+          queryBuilder.orderBy('message.id', 'DESC');
+        }
+      } else {
+        queryBuilder.orderBy('message.id', 'DESC');
       }
 
-      queryBuilder.orderBy('message.id', 'DESC').take(limit + 1);
+      queryBuilder.take(limit + 1);
 
       const messages = await queryBuilder.getMany();
       const hasMore = messages.length > limit;
       const resultMessages = hasMore ? messages.slice(0, limit) : messages;
+
+      // If we fetched 'after', the results are in ASC order.
+      // We want to return them in DESC order (newest first) for UI consistency (flex-col-reverse)
+      if (direction === 'after') {
+        resultMessages.reverse();
+      }
 
       const response = await this.hydrateMessages(resultMessages, manager);
 
       return {
         messages: response,
         nextCursor: hasMore
-          ? resultMessages[resultMessages.length - 1].id
+          ? direction === 'after'
+            ? resultMessages[0].id // Newest is at index 0 after reverse
+            : resultMessages[resultMessages.length - 1].id // Oldest is at end
           : undefined,
       };
     });
@@ -623,6 +644,9 @@ export class MessageService {
       // 1. Get messages older than or equal to target (including target)
       const olderMessages = await messageRepo
         .createQueryBuilder('message')
+        .leftJoinAndSelect('message.reactions', 'reaction')
+        .leftJoinAndSelect('message.mentions', 'mention')
+        .leftJoinAndSelect('message.attachments', 'attachment')
         .where('message.channelId = :channelId', { channelId })
         .andWhere('message.id <= :targetId', { targetId: targetMessageId })
         .orderBy('message.id', 'DESC')
@@ -632,6 +656,9 @@ export class MessageService {
       // 2. Get messages newer than target
       const newerMessages = await messageRepo
         .createQueryBuilder('message')
+        .leftJoinAndSelect('message.reactions', 'reaction')
+        .leftJoinAndSelect('message.mentions', 'mention')
+        .leftJoinAndSelect('message.attachments', 'attachment')
         .where('message.channelId = :channelId', { channelId })
         .andWhere('message.id > :targetId', { targetId: targetMessageId })
         .orderBy('message.id', 'ASC')

@@ -113,6 +113,11 @@ export class GetMessagesQueryApiDto {
   @IsOptional()
   @ApiPropertyOptional()
   cursor?: string;
+
+  @IsString()
+  @IsOptional()
+  @ApiPropertyOptional({ enum: ['before', 'after'], default: 'before' })
+  direction?: 'before' | 'after' = 'before';
 }
 
 export class ToggleReactionApiDto {
@@ -144,11 +149,6 @@ export class GetThreadQueryApiDto {
 }
 
 export class GetPinnedMessagesQueryApiDto {
-  @IsUUID()
-  @IsNotEmpty()
-  @ApiProperty()
-  channelId: string;
-
   @Type(() => Number)
   @IsInt()
   @Min(1)
@@ -163,11 +163,6 @@ export class GetPinnedMessagesQueryApiDto {
 }
 
 export class GetSurroundingMessagesQueryApiDto {
-  @IsUUID()
-  @IsNotEmpty()
-  @ApiProperty()
-  targetMessageId: string;
-
   @Type(() => Number)
   @IsInt()
   @Min(1)
