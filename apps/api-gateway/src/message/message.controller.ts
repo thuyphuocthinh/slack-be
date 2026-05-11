@@ -19,6 +19,7 @@ import {
   SearchMessagesQueryApiDto,
   GetPinnedMessagesQueryApiDto,
   GetSurroundingMessagesQueryApiDto,
+  GetAttachmentsQueryApiDto,
 } from './dto/message-api.dto';
 import {
   CreateMessageRequestDto,
@@ -28,6 +29,7 @@ import {
   SearchMessagesRequestDto,
   GetPinnedMessagesRequestDto,
   GetSurroundingMessagesRequestDto,
+  GetAttachmentsRequestDto,
 } from './dto/message-request.dto';
 
 @ApiTags('Messages')
@@ -175,5 +177,19 @@ export class MessageController {
       targetMessageId: id,
       userId: user.sub,
     } as GetSurroundingMessagesRequestDto);
+  }
+
+  @Get('attachments')
+  @ApiOperation({ summary: 'Get channel attachments' })
+  async getAttachments(
+    @Param('workspaceId') workspaceId: string,
+    @Param('channelId') channelId: string,
+    @Query() query: GetAttachmentsQueryApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.messageService.getAttachments({
+      channelId,
+      query,
+    } as GetAttachmentsRequestDto);
   }
 }

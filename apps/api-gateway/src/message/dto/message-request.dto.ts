@@ -68,3 +68,12 @@ export class GetSurroundingMessagesRequestDto {
   targetMessageId: string;
   limit?: number;
 }
+
+export class GetAttachmentsRequestDto {
+  channelId: string;
+  query: {
+    page?: number;
+    limit?: number;
+    mimeType?: string;
+  };
+}

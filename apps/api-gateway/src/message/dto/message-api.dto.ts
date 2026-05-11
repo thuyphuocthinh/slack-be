@@ -170,3 +170,24 @@ export class GetSurroundingMessagesQueryApiDto {
   @ApiPropertyOptional({ default: 30 })
   limit?: number = 30;
 }
+
+export class GetAttachmentsQueryApiDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  @ApiPropertyOptional({ default: 1 })
+  page?: number = 1;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  @ApiPropertyOptional({ default: 20 })
+  limit?: number = 20;
+
+  @IsString()
+  @IsOptional()
+  @ApiPropertyOptional()
+  mimeType?: string;
+}

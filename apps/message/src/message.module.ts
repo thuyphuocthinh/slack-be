@@ -11,6 +11,7 @@ import { CachedModule } from '@slack/cached';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { ThreadService } from './service/thread.service';
+import { MessageAttachmentService } from './service/message-attachment.service';
 import { EQueueName, QueueModule } from '@slack/queue';
 
 @Module({
@@ -58,6 +59,6 @@ import { EQueueName, QueueModule } from '@slack/queue';
     ]),
   ],
   controllers: [MessageController],
-  providers: [MessageService, ThreadService],
+  providers: [MessageService, ThreadService, MessageAttachmentService],
 })
 export class MessageModule { }

@@ -11,6 +11,7 @@ import {
   UpdateMessageRequestDto,
   GetPinnedMessagesRequestDto,
   GetSurroundingMessagesRequestDto,
+  GetAttachmentsRequestDto,
 } from './dto/message-request.dto';
 
 @Injectable()
@@ -104,6 +105,12 @@ export class MessageService {
         id: messageId,
         userId,
       }),
+    );
+  }
+
+  async getAttachments(dto: GetAttachmentsRequestDto) {
+    return await firstValueFrom(
+      this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.GET_ATTACHMENTS, dto),
     );
   }
 }

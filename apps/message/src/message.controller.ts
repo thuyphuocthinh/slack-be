@@ -1,6 +1,7 @@
 import { Controller } from '@nestjs/common';
 import { MessageService } from './service/message.service';
 import { ThreadService } from './service/thread.service';
+import { MessageAttachmentService } from './service/message-attachment.service';
 
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { MESSAGE_MESSAGE_PATTERNS } from '@slack/constants';
@@ -11,6 +12,7 @@ import {
   ToggleReactionDto,
   GetPinnedMessagesQueryDto,
   GetSurroundingMessagesQueryDto,
+  GetAttachmentsQueryDto,
 } from './dto';
 import { GetThreadQueryDto } from './dto/get-thread-query.dto';
 
@@ -19,7 +21,8 @@ export class MessageController {
   constructor(
     private readonly messageService: MessageService,
     private readonly threadService: ThreadService,
-  ) {}
+    private readonly attachmentService: MessageAttachmentService,
+  ) { }
 
   @MessagePattern(MESSAGE_MESSAGE_PATTERNS.CREATE)
   createMessage(@Payload() createMessageDto: CreateMessageDto) {
@@ -93,5 +96,15 @@ export class MessageController {
   @MessagePattern(MESSAGE_MESSAGE_PATTERNS.GET_SURROUNDING_MESSAGES)
   getSurroundingMessages(@Payload() query: GetSurroundingMessagesQueryDto) {
     return this.messageService.getSurroundingMessages(query);
+  }
+
+  @MessagePattern(MESSAGE_MESSAGE_PATTERNS.GET_ATTACHMENTS)
+  getAttachments(
+    @Payload() data: { channelId: string; query: GetAttachmentsQueryDto },
+  ) {
+    return this.attachmentService.getAttachmentsByChannel(
+      data.channelId,
+      data.query,
+    );
   }
 }
