@@ -21,4 +21,5 @@ export interface IResourceResponse {
   workspaceId?: string;
   refType?: string;
   refId?: string;
+  createdAt: Date;
 }

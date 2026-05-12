@@ -5,6 +5,8 @@ import {
   UploadedFile,
   UploadedFiles,
   UseInterceptors,
+  Get,
+  Query,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { IUploadResponse } from './types/upload.response';
@@ -16,10 +18,11 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { CurrentUser, type JwtUser } from '@slack/common';
+import { CurrentUser, type JwtUser, IOffsetResponse } from '@slack/common';
 import { ResourceScope, ResourceType } from './entity/resource.entity';
-import { CreateResourceDto } from './dto';
+import { GetResourcesQueryDto } from './dto';
 import { ResourceService } from './services/impl/resource.service';
+import { IResourceResponse } from './types/upload.response';
 
 @ApiTags('Resources')
 @ApiBearerAuth()
@@ -89,5 +92,14 @@ export class ResourceController {
     );
 
     return uploadResults;
+  }
+
+  @ApiOperation({ summary: 'Get list of resources with paging' })
+  @ApiResponse({ status: 200, description: 'Return list of resources' })
+  @Get()
+  async getResources(
+    @Query() query: GetResourcesQueryDto,
+  ): Promise<IOffsetResponse<IResourceResponse[]>> {
+    return this.resourceService.getResources(query);
   }
 }

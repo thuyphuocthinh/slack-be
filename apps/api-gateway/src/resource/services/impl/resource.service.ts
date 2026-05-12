@@ -1,16 +1,17 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ResourceEntity } from '../../entity/resource.entity';
-import { Repository } from 'typeorm';
-import { CreateResourceDto } from '../../dto';
+import { Repository, FindOptionsWhere } from 'typeorm';
+import { CreateResourceDto, GetResourcesQueryDto } from '../../dto';
 import { IResourceResponse } from '../../types/upload.response';
+import { IOffsetResponse } from '@slack/common';
 
 @Injectable()
 export class ResourceService {
   constructor(
     @InjectRepository(ResourceEntity)
     private readonly resourceRepository: Repository<ResourceEntity>,
-  ) {}
+  ) { }
 
   private mapToResourceEntity(data: CreateResourceDto): ResourceEntity {
     const resource = new ResourceEntity();
@@ -42,6 +43,7 @@ export class ResourceService {
       workspaceId: resource.workspaceId,
       refType: resource.refType,
       refId: resource.refId,
+      createdAt: resource.createdAt,
     };
   }
 
@@ -101,5 +103,34 @@ export class ResourceService {
     refId: string,
   ): Promise<void> {
     await this.resourceRepository.update(resourceIds, { refType, refId });
+  }
+
+  async getResources(
+    query: GetResourcesQueryDto,
+  ): Promise<IOffsetResponse<IResourceResponse[]>> {
+    const { refType, refId, type, page = 1, limit = 10 } = query;
+    const skip = (page - 1) * limit;
+
+    const where: FindOptionsWhere<ResourceEntity> = {};
+    if (refType) where.refType = refType;
+    if (refId) where.refId = refId;
+    if (type) where.type = type as any;
+
+    const [resources, total] = await this.resourceRepository.findAndCount({
+      where,
+      skip,
+      take: limit,
+      order: { createdAt: 'DESC' },
+    });
+
+    return {
+      data: resources.map((r) => this.mapToResourceResponse(r)),
+      paging: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    } as unknown as IOffsetResponse<IResourceResponse[]>;
   }
 }
