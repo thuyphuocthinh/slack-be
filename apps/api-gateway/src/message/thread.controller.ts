@@ -1,15 +1,15 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, type JwtUser } from '@slack/common';
 import { MessageService } from './message.service';
-import { GetThreadQueryApiDto } from './dto/message-api.dto';
-import { GetThreadRequestDto } from './dto/message-request.dto';
+import { GetFullThreadQueryApiDto, GetThreadQueryApiDto } from './dto/message-api.dto';
+import { GetFullThreadRequestDto, GetThreadRequestDto } from './dto/message-request.dto';
 
 @ApiTags('Threads')
 @Controller('threads')
 @ApiBearerAuth()
 export class ThreadController {
-  constructor(private readonly messageService: MessageService) {}
+  constructor(private readonly messageService: MessageService) { }
 
   @Get()
   @ApiOperation({ summary: 'Get user threads' })
@@ -21,5 +21,17 @@ export class ThreadController {
       ...query,
       userId: user.sub,
     } as GetThreadRequestDto);
+  }
+
+  @Get(':threadId')
+  @ApiOperation({ summary: 'Get full thread' })
+  async getFullThread(
+    @Param('threadId') threadId: string,
+    @Query() query: GetFullThreadQueryApiDto,
+  ) {
+    return await this.messageService.getFullThread({
+      ...query,
+      threadId,
+    } as GetFullThreadRequestDto);
   }
 }

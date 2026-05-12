@@ -55,6 +55,12 @@ export class GetThreadRequestDto {
   limit?: number;
 }
 
+export class GetFullThreadRequestDto {
+  threadId: string;
+  cursor?: string;
+  limit?: number;
+}
+
 export class GetPinnedMessagesRequestDto {
   channelId: string;
   userId: string;

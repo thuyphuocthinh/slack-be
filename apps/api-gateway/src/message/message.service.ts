@@ -12,6 +12,7 @@ import {
   GetPinnedMessagesRequestDto,
   GetSurroundingMessagesRequestDto,
   GetAttachmentsRequestDto,
+  GetFullThreadRequestDto,
 } from './dto/message-request.dto';
 
 @Injectable()
@@ -38,6 +39,12 @@ export class MessageService {
   async getThreads(dto: GetThreadRequestDto) {
     return await firstValueFrom(
       this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.GET_THREADS, dto),
+    );
+  }
+
+  async getFullThread(dto: GetFullThreadRequestDto) {
+    return await firstValueFrom(
+      this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.GET_FULL_THREAD, dto),
     );
   }
 

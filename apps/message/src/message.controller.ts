@@ -13,8 +13,9 @@ import {
   GetPinnedMessagesQueryDto,
   GetSurroundingMessagesQueryDto,
   GetAttachmentsQueryDto,
+  GetFullThreadQueryDto,
+  GetThreadQueryDto
 } from './dto';
-import { GetThreadQueryDto } from './dto/get-thread-query.dto';
 
 @Controller()
 export class MessageController {
@@ -96,6 +97,15 @@ export class MessageController {
   @MessagePattern(MESSAGE_MESSAGE_PATTERNS.GET_SURROUNDING_MESSAGES)
   getSurroundingMessages(@Payload() query: GetSurroundingMessagesQueryDto) {
     return this.messageService.getSurroundingMessages(query);
+  }
+
+  @MessagePattern(MESSAGE_MESSAGE_PATTERNS.GET_FULL_THREAD)
+  getFullThread(@Payload() query: GetFullThreadQueryDto) {
+    return this.threadService.getFullThread(
+      query.threadId,
+      query.limit,
+      query.cursor,
+    );
   }
 
   @MessagePattern(MESSAGE_MESSAGE_PATTERNS.GET_ATTACHMENTS)

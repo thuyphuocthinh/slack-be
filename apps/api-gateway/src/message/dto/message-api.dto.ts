@@ -148,6 +148,20 @@ export class GetThreadQueryApiDto {
   cursor?: string;
 }
 
+export class GetFullThreadQueryApiDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  @ApiPropertyOptional({ default: 10 })
+  limit?: number = 10;
+
+  @IsString()
+  @IsOptional()
+  @ApiPropertyOptional()
+  cursor?: string;
+}
+
 export class GetPinnedMessagesQueryApiDto {
   @Type(() => Number)
   @IsInt()

@@ -15,7 +15,7 @@ export class GetThreadQueryDto {
   @IsOptional()
   cursor?: string;
 
-  @IsUUID('4')
+  @IsUUID()
   @IsNotEmpty()
   userId: string;
 }

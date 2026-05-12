@@ -10,5 +10,6 @@ export const MESSAGE_MESSAGE_PATTERNS = {
   GET_THREADS: 'message.get_threads',
   GET_PINNED_MESSAGES: 'message.get_pinned_messages',
   GET_SURROUNDING_MESSAGES: 'message.get_surrounding_messages',
+  GET_FULL_THREAD: 'message.get_full_thread',
   GET_ATTACHMENTS: 'message.get_attachments',
 } as const;

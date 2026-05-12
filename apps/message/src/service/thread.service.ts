@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { MessageEntity } from '../entity/message.entity';
 import { DataSource, In, Repository } from 'typeorm';
 import { MessageService } from './message.service';
-import { ThreadResponseDto } from '../dto';
+import { MessageResponseDto, ThreadResponseDto } from '../dto';
 
 @Injectable()
 export class ThreadService {
@@ -103,32 +103,66 @@ export class ThreadService {
     });
   }
 
+  async getFullThread(threadId: string, limit: number = 30, cursor?: string):
+    Promise<{ messages: MessageResponseDto[]; nextCursor?: string }> {
+    return await this.dataSource.transaction(async (manager) => {
+      const messageRepo = manager.getRepository(MessageEntity);
+      const threadQueryBuilder = messageRepo
+        .createQueryBuilder('m')
+        .where('m.parentId = :threadId', { threadId })
+        .orderBy('m.createdAt', 'DESC');
+
+      if (cursor) {
+        threadQueryBuilder.andWhere('m.id < :cursor', { cursor });
+      }
+
+      const threadMessages = await threadQueryBuilder
+        .limit(limit + 1)
+        .getMany();
+
+      const hasMore = threadMessages.length > limit;
+      const resultMessages = hasMore
+        ? threadMessages.slice(0, limit)
+        : threadMessages;
+
+      const response = await this.messageService.hydrateMessages(
+        resultMessages,
+        manager,
+      );
+
+      return {
+        messages: response,
+        nextCursor: hasMore
+          ? resultMessages[resultMessages.length - 1].id
+          : undefined,
+      };
+    });
+  }
 }
 
 /*
-
-    1. Đảm bảo
-    - Mới nhất lên đầu
-    - User ở trong thread đó thông qua mention hoặc root của thread
-    - Message đầu + Tổng số reply => bấm xem chi tiết thread thì mới load thread
+  1. Đảm bảo
+  - Mới nhất lên đầu
+  - User ở trong thread đó thông qua mention hoặc root của thread
+  - Message đầu + Tổng số reply => bấm xem chi tiết thread thì mới load thread
+  
+  2. Cách hoạt động
+  - Mỗi lần lấy 10 thread
+  - Lấy các message có parentId khác null và đảm bảo user tồn tại ít nhất trong thread (mention hoặc root thread)
+  - Sort theo parentId (DESC)
+  - Đếm số message có cùng parentId => totalReply
+  
+  3. Xử lí realtime
+  - Thêm mới bên message reply => đồng thời thêm bên thread
+  - Một messsage trong thread bị xóa => đồng thời xóa bên thread
+  - Một messsage trong thread được edit => đồng thời edit bên thread
+  - Một message là root thread bị xóa => tất cả các message trong thread đó bị xóa
+    Xử lý Real-time (Phân tích):
+    - Khi có message reply mới: Gateway sẽ emit event 'message.reply_created' 
+      đến các participants trong thread để update UI local.
+    - Khi xóa root message: TypeORM sẽ cascade delete hoặc ta phải xóa thủ công các con.
+    - Khi edit message: Chỉ cần emit update event.
     
-    2. Cách hoạt động
-    - Mỗi lần lấy 10 thread
-    - Lấy các message có parentId khác null và đảm bảo user tồn tại ít nhất trong thread (mention hoặc root thread)
-    - Sort theo parentId (DESC)
-    - Đếm số message có cùng parentId => totalReply
-    
-    3. Xử lí realtime
-    - Thêm mới bên message reply => đồng thời thêm bên thread
-    - Một messsage trong thread bị xóa => đồng thời xóa bên thread
-    - Một messsage trong thread được edit => đồng thời edit bên thread
-    - Một message là root thread bị xóa => tất cả các message trong thread đó bị xóa
-      Xử lý Real-time (Phân tích):
-      - Khi có message reply mới: Gateway sẽ emit event 'message.reply_created' 
-        đến các participants trong thread để update UI local.
-      - Khi xóa root message: TypeORM sẽ cascade delete hoặc ta phải xóa thủ công các con.
-      - Khi edit message: Chỉ cần emit update event.
-      
 
 Đây là kỹ thuật ** "Plus One" ** thường dùng trong phân trang bằng Cursor(Cursor - based Pagination).
 Mục đích chính là để xác định xem còn dữ liệu ở trang sau hay không mà không cần phải thực hiện một câu lệnh `COUNT(*)` tốn kém.
