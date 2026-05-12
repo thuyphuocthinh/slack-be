@@ -34,7 +34,7 @@ export class MessageResponseDto {
 }
 
 export class ThreadResponseDto {
-  threads: MessageResponseDto[];
+  messages: MessageResponseDto[];
   nextCursor?: string;
 }
 
