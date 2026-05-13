@@ -135,4 +135,14 @@ export class ChannelController {
       payload.memberId,
     );
   }
+
+  @MessagePattern(CHANNEL_MESSAGE_PATTERN.GET_UNREAD_SUMMARY)
+  async getUnreadSummary(
+    @Payload() payload: { workspaceId: string; memberId: string },
+  ) {
+    return await this.channelMemberService.getUnreadSummary(
+      payload.workspaceId,
+      payload.memberId,
+    );
+  }
 }

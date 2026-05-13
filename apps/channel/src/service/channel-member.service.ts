@@ -447,4 +447,36 @@ export class ChannelMemberService {
       `Removed member ${memberId} from all channels in workspace ${workspaceId}`,
     );
   }
+  async getUnreadSummary(
+    workspaceId: string,
+    memberId: string,
+  ): Promise<{ unreadDmCount: number; hasUnreadChannels: boolean }> {
+    const result = await this.channelMemberRepository
+      .createQueryBuilder('member')
+      .innerJoin('channels', 'channel', 'channel.id = member.channel_id')
+      .where('channel.workspace_id = :workspaceId', { workspaceId })
+      .andWhere('member.member_id = :memberId', { memberId })
+      .select([
+        'channel.type as type',
+        'SUM(member.unread_count) as total_unread',
+      ])
+      .groupBy('channel.type')
+      .getRawMany();
+
+    let unreadDmCount = 0;
+    let hasUnreadChannels = false;
+
+    result.forEach((row) => {
+      const count = parseInt(row.total_unread, 10);
+      if (row.type === ChannelTypeEnum.DIRECT) {
+        unreadDmCount = count;
+      } else {
+        if (count > 0) {
+          hasUnreadChannels = true;
+        }
+      }
+    });
+
+    return { unreadDmCount, hasUnreadChannels };
+  }
 }

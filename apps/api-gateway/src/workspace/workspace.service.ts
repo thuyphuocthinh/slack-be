@@ -1,6 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
-import { NAME_SERVICE_TCP, WORKSPACE_MESSAGE_PATTERNS } from '@slack/constants';
+import {
+  CHANNEL_MESSAGE_PATTERN,
+  NAME_SERVICE_TCP,
+  NOTIFICATION_MESSAGE_PATTERNS,
+  WORKSPACE_MESSAGE_PATTERNS,
+} from '@slack/constants';
 import { firstValueFrom } from 'rxjs';
 import { MicroserviceErrorHandler } from '../common/microservice_error.handler';
 import {
@@ -28,7 +33,50 @@ export class WorkspaceService {
   constructor(
     @Inject(NAME_SERVICE_TCP.WORKSPACE_SERVICE)
     private readonly workspaceClient: ClientProxy,
-  ) {}
+    @Inject(NAME_SERVICE_TCP.CHANNEL_SERVICE)
+    private readonly channelClient: ClientProxy,
+    @Inject(NAME_SERVICE_TCP.NOTIFICATION_SERVICE)
+    private readonly notificationClient: ClientProxy,
+  ) { }
+
+  async getSidebarSummary(workspaceId: string, userId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      async () => {
+        const [channelSummary, notificationSummary] = await Promise.all([
+          firstValueFrom(
+            this.channelClient.send(CHANNEL_MESSAGE_PATTERN.GET_UNREAD_SUMMARY, {
+              workspaceId,
+              memberId: userId,
+            }),
+          ),
+          firstValueFrom(
+            this.notificationClient.send(
+              NOTIFICATION_MESSAGE_PATTERNS.GET_UNREAD_SUMMARY,
+              { userId },
+            ),
+          ),
+        ]);
+
+        return {
+          home: {
+            hasUnread: channelSummary.hasUnreadChannels,
+            mentionCount: 0, // Placeholder until mention tracking is implemented
+          },
+          dms: {
+            count: channelSummary.unreadDmCount,
+          },
+          activity: {
+            hasUnread: notificationSummary.unreadAll > 0,
+          },
+          tasks: {
+            hasUnread: false, // Placeholder for tasks
+          },
+        };
+      },
+      'getSidebarSummary',
+      'WorkspaceService',
+    );
+  }
 
   async createWorkspace(data: CreateWorkspaceRequestDto) {
     return MicroserviceErrorHandler.handleAsyncCall(

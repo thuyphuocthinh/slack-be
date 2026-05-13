@@ -15,6 +15,22 @@ import { WorkspaceService } from './workspace.service';
           port: PORT_TCP.WORKSPACE_TCP_PORT,
         },
       },
+      {
+        name: NAME_SERVICE_TCP.CHANNEL_SERVICE,
+        transport: Transport.TCP,
+        options: {
+          host: 'localhost',
+          port: PORT_TCP.CHANNEL_TCP_PORT,
+        },
+      },
+      {
+        name: NAME_SERVICE_TCP.NOTIFICATION_SERVICE,
+        transport: Transport.TCP,
+        options: {
+          host: 'localhost',
+          port: PORT_TCP.NOTIFICATION_TCP_PORT,
+        },
+      },
     ]),
   ],
   controllers: [WorkspaceController],

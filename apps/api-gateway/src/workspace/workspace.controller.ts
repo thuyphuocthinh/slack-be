@@ -94,14 +94,24 @@ export class WorkspaceController {
     return await this.workspaceService.getMembers(id, user.sub);
   }
 
-  @Get(':id/members/:userId/detail')
-  @ApiOperation({ summary: 'Get member detail by ID' })
+  @Get(':id/member-detail')
+  @ApiOperation({ summary: 'Get member detail for current user' })
   @ApiResponse({ status: 200, description: 'Member detail retrieved successfully' })
-  async getMemberDetail(
+  async getCurrentMemberDetail(
     @Param('id') workspaceId: string,
-    @Param('userId') userId: string,
+    @CurrentUser() user: JwtUser,
   ) {
-    return await this.workspaceService.getMemberDetail(workspaceId, userId);
+    return await this.workspaceService.getMemberDetail(workspaceId, user.sub);
+  }
+
+  @Get(':id/sidebar-summary')
+  @ApiOperation({ summary: 'Get sidebar unread summary for a workspace' })
+  @ApiResponse({ status: 200, description: 'Sidebar summary retrieved successfully' })
+  async getSidebarSummary(
+    @Param('id') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.workspaceService.getSidebarSummary(workspaceId, user.sub);
   }
 
   @Delete(':id')
