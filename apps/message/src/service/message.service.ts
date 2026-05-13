@@ -177,11 +177,14 @@ export class MessageService {
         EJobName.CREATE_NOTIFICATION,
         {
           channelId: response.channelId,
+          channelName: channel.name,
           senderId: response.sender.id,
+          senderName: response.sender.firstName + ' ' + response.sender.lastName,
           messageId: response.id,
           mentions: response.mentions,
           parentId: response.parentId || undefined,
           workspaceId: channel.workspaceId,
+          content: JSON.stringify(response.content),
         },
       );
 

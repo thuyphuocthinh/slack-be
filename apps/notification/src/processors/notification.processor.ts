@@ -33,8 +33,17 @@ export class NotificationProcessor extends BaseProcessor<
   async process(
     job: Job<ICreateNotificationJobData, void, EJobName>,
   ): Promise<void> {
-    const { channelId, senderId, messageId, mentions, parentId, workspaceId } =
-      job.data;
+    const {
+      channelId,
+      channelName,
+      senderId,
+      senderName,
+      messageId,
+      mentions,
+      parentId,
+      workspaceId,
+      content,
+    } = job.data;
 
     try {
       // 1. Lấy danh sách thành viên trong channel qua TCP
@@ -50,14 +59,14 @@ export class NotificationProcessor extends BaseProcessor<
       }
 
       // 2. Lọc ra danh sách những người cần nhận thông báo (trừ người gửi)
-      const recipients = members.filter((m) => m.userId !== senderId);
+      const recipients = members.filter((m) => m.memberId !== senderId);
 
       // 3. Xử lý lưu DB và bắn Socket cho từng người
       const promises = recipients.map(async (member) => {
         // Xác định loại thông báo
         let notificationType = NotificationType.MESSAGE_RECEIVED;
 
-        if (mentions?.some((men: any) => men.userId === member.userId)) {
+        if (mentions?.some((men: any) => men.userId === member.memberId)) {
           notificationType = NotificationType.MENTIONED_IN_MESSAGE;
         } else if (parentId) {
           notificationType = NotificationType.REPLY_IN_THREAD;
@@ -65,15 +74,19 @@ export class NotificationProcessor extends BaseProcessor<
 
         // A. Lưu vào Database Notification và Bắn Socket Realtime (đã tích hợp trong Service)
         await this.notificationService.pushNotification({
-          recipientId: member.userId,
+          recipientId: member.memberId,
           type: notificationType,
           templateKey: notificationType,
           objectId: messageId,
-          objectType: 'message',
+          objectType: 'MESSAGE',
           workspaceId,
+          content,
           metadata: {
+            actorId: senderId,
+            actorName: senderName,
+            messageId: messageId,
+            channelName: channelName,
             channelId,
-            senderId,
             parentId,
           },
         });

@@ -25,11 +25,14 @@ export interface IPushNotificationData {
 
 export interface ICreateNotificationJobData {
   channelId: string;
+  channelName: string;
   senderId: string;
+  senderName: string;
   messageId: string;
   mentions?: any[];
   parentId?: string;
   workspaceId: string;
+  content: string;
 }
 
 export interface IEmitEventJobData {
