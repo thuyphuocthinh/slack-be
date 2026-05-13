@@ -7,6 +7,7 @@ import {
   IsUUID,
   IsNumber,
   Min,
+  IsArray,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { NotificationType, NotificationStatus } from '@slack/constants';
@@ -30,6 +31,19 @@ export class FetchNotificationsDto {
   @IsOptional()
   @IsEnum(NotificationStatus)
   status?: NotificationStatus;
+
+  @IsOptional()
+  @IsEnum(NotificationType)
+  type?: NotificationType;
+
+  @IsOptional()
+  @IsArray()
+  @IsEnum(NotificationType, { each: true })
+  types?: NotificationType[];
+
+  @IsOptional()
+  @IsUUID()
+  workspaceId?: string;
 }
 
 export class PushNotificationDto {

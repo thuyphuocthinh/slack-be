@@ -1,6 +1,6 @@
-import { IsEnum, IsOptional, IsNumber, Min } from 'class-validator';
+import { IsEnum, IsOptional, IsNumber, Min, IsArray } from 'class-validator';
 import { Type } from 'class-transformer';
-import { NotificationStatus } from '@slack/constants';
+import { NotificationStatus, NotificationType } from '@slack/constants';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class FetchNotificationsDto {
@@ -8,6 +8,17 @@ export class FetchNotificationsDto {
   @IsOptional()
   @IsEnum(NotificationStatus)
   status?: NotificationStatus;
+
+  @ApiPropertyOptional({ enum: NotificationType })
+  @IsOptional()
+  @IsEnum(NotificationType)
+  type?: NotificationType;
+
+  @ApiPropertyOptional({ enum: NotificationType, isArray: true })
+  @IsOptional()
+  @IsArray()
+  @IsEnum(NotificationType, { each: true })
+  types?: NotificationType[];
 
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
@@ -22,4 +33,8 @@ export class FetchNotificationsDto {
   @IsNumber()
   @Min(1)
   limit?: number = 20;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  workspaceId?: string;
 }

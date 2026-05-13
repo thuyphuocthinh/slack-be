@@ -40,7 +40,7 @@ export class NotificationService {
   async fetchNotifications(
     dto: FetchNotificationsDto,
   ): Promise<IOffsetResponse<NotificationResponse[]>> {
-    const { userId, page = 1, limit = 20, status } = dto;
+    const { userId, page = 1, limit = 20, status, type, types, workspaceId } = dto;
     const skip = (page - 1) * limit;
 
     const query = this.notificationRepo
@@ -49,6 +49,16 @@ export class NotificationService {
 
     if (status) {
       query.andWhere('notification.status = :status', { status });
+    }
+
+    if (workspaceId) {
+      query.andWhere('notification.workspaceId = :workspaceId', { workspaceId });
+    }
+
+    if (type) {
+      query.andWhere('notification.type = :type', { type });
+    } else if (types && types.length > 0) {
+      query.andWhere('notification.type IN (:...types)', { types });
     }
 
     query.orderBy('notification.createdAt', 'DESC');
@@ -212,7 +222,6 @@ export class NotificationService {
       unreadAll: 0,
       unreadMention: 0,
       unreadReaction: 0,
-      unreadThread: 0,
       unreadSystem: 0,
       unreadTask: 0,
     };
@@ -223,23 +232,21 @@ export class NotificationService {
 
       switch (rc.type) {
         case NotificationType.MENTIONED_IN_MESSAGE:
+        case NotificationType.MESSAGE_RECEIVED:
+        case NotificationType.REPLY_IN_THREAD:
           summary.unreadMention += count;
           break;
         case NotificationType.MESSAGE_REACTION_ADDED:
           summary.unreadReaction += count;
           break;
-        case NotificationType.REPLY_IN_THREAD:
-          summary.unreadThread += count;
-          break;
-        case NotificationType.SYSTEM_ANNOUNCEMENT:
-        case NotificationType.WORKSPACE_INVITED:
-        case NotificationType.INVITED_TO_WORKSPACE:
-          summary.unreadSystem += count;
-          break;
         case NotificationType.TASK_ASSIGNED:
         case NotificationType.TASK_UPDATED:
         case NotificationType.TASK_DUE_SOON:
           summary.unreadTask += count;
+          break;
+        default:
+          // channel, workspace, system
+          summary.unreadSystem += count;
           break;
       }
     });
