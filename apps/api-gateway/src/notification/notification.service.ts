@@ -67,4 +67,17 @@ export class NotificationService {
       ),
     );
   }
+
+  async getNotificationById(userId: string, id: string) {
+    return await firstValueFrom(
+      this.notificationClient.send(
+        NOTIFICATION_MESSAGE_PATTERNS.GET_NOTIFICATION_BY_ID,
+        {
+          userId,
+          id,
+        },
+      ),
+    );
+  }
 }
+

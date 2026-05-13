@@ -75,4 +75,10 @@ export class NotificationController {
   async getUnreadSummary(@Payload() payload: { userId: string }) {
     return this.notificationService.getUnreadSummary(payload.userId);
   }
+
+  @MessagePattern(NOTIFICATION_MESSAGE_PATTERNS.GET_NOTIFICATION_BY_ID)
+  async getNotificationById(@Payload() payload: { id: string; userId: string }) {
+    return this.notificationService.getNotificationById(payload.id, payload.userId);
+  }
 }
+

@@ -10,4 +10,5 @@ export const NOTIFICATION_MESSAGE_PATTERNS = {
   UPDATE_SETTINGS: 'notification.update_settings',
   DELETE_NOTIFICATION: 'notification.delete_notification',
   GET_UNREAD_SUMMARY: 'notification.get_unread_summary',
+  GET_NOTIFICATION_BY_ID: 'notification.get_notification_by_id',
 } as const;

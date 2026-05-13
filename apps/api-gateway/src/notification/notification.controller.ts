@@ -35,6 +35,16 @@ export class NotificationController {
     return await this.notificationService.fetchNotifications(user.sub, dto);
   }
 
+  @ApiOperation({ summary: 'Get notification by ID' })
+  @ApiResponse({ status: 200, description: 'Notification retrieved' })
+  @Get(':id')
+  async getNotificationById(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.notificationService.getNotificationById(user.sub, id);
+  }
+
   @ApiOperation({ summary: 'Mark all notifications as read' })
   @ApiResponse({ status: 200, description: 'All notifications marked as read' })
   @Patch('read-all')

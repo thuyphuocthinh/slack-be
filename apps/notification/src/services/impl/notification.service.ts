@@ -253,4 +253,17 @@ export class NotificationService {
 
     return summary;
   }
+
+  async getNotificationById(id: string, userId: string): Promise<NotificationResponse> {
+    const notification = await this.notificationRepo.findOne({
+      where: { id, recipientId: userId },
+    });
+
+    if (!notification) {
+      throw new RpcException(NOTIFICATION_ERROR.NOTIFICATION_NOT_FOUND);
+    }
+
+    return notification as NotificationResponse;
+  }
 }
+
