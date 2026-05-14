@@ -40,7 +40,7 @@ import { RateLimit } from '../common/guards/rate-limit.decorator';
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
 
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @Public()
   @RateLimit({ limit: 3, window: 60 })
@@ -237,7 +237,7 @@ export class AuthController {
       type: 'object',
       properties: {
         email: { type: 'string', example: 'user@example.com' },
-        action: { type: 'string', example: 'VERIFY_EMAIL' },
+        action: { type: 'string', example: 'verify_email' },
       },
     },
   })

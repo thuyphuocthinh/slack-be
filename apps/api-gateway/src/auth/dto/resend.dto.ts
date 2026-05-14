@@ -11,9 +11,9 @@ export class ResendCodeDto {
   email: string;
 
   @IsNotEmpty()
-  @IsEnum(['VERIFY_EMAIL', 'RESET_PASSWORD'])
+  @IsEnum(['verify_email', 'reset_password'])
   @ApiProperty({
-    example: 'VERIFY_EMAIL',
+    example: 'verify_email',
     description: 'Action type',
   })
   action: string;

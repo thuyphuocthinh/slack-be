@@ -48,7 +48,7 @@ export class AuthService {
     private readonly authCacheService: AuthCacheService,
     private readonly dataSource: DataSource,
     private readonly queueService: QueueService,
-  ) {}
+  ) { }
 
   async register(request: RegisterDto): Promise<string> {
     const { email, password } = request;
@@ -145,6 +145,7 @@ export class AuthService {
     return 'We have sent you a verification email. Please check your inbox to verify your account.';
   }
 
+  // verify code for register account
   async verifyEmail(request: VerifyEmailDto): Promise<string> {
     const { code } = request;
 
@@ -576,6 +577,7 @@ export class AuthService {
     return 'Check your email to verify your email.';
   }
 
+  // verify code for forgot password
   async verifyResetPassword(request: VerifyResetPasswordDto): Promise<string> {
     const { code } = request;
     const verification = await this.verificationRepository.findOne({
