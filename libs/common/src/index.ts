@@ -11,7 +11,9 @@ export * from './utils/ttl.util';
 export * from './utils/object.util';
 export * from './filters/rpc-exception.filter';
 export * from './types/metadata.interface';
+export * from './types/audit.type';
 export * from './utils/security.util';
+
 export * from './custom_decorators/public.decorator';
 export * from './custom_decorators/role.decorator';
 export * from './custom_decorators/currentUser.decorator';

@@ -30,4 +30,8 @@ export enum EJobName {
 
   // Resource
   UPDATE_RESOURCE_METADATA = 'update_resource_metadata',
+
+  // Audit
+  SAVE_AUDIT_LOG = 'save_audit_log',
 }
+

@@ -56,6 +56,15 @@ export interface IUpdateResourceMetadataJobData {
   refId: string;
 }
 
+export interface IAuditJobData {
+  action: string;
+  actorId?: string;
+  targetId?: string;
+  entityType: string;
+  entityId: string;
+  metadata?: Record<string, any>;
+}
+
 export type TJobData = {
   [EJobName.SEND_VERIFICATION_EMAIL]: IEmailJobData;
   [EJobName.SEND_INVITE_EMAIL]: IInviteJobData;
@@ -65,4 +74,6 @@ export type TJobData = {
   [EJobName.INCREMENT_UNREAD_COUNT]: IIncrementUnreadJobData;
   [EJobName.TASK_DEADLINE_REMINDER]: ITaskDeadlineJobData;
   [EJobName.UPDATE_RESOURCE_METADATA]: IUpdateResourceMetadataJobData;
+  [EJobName.SAVE_AUDIT_LOG]: IAuditJobData;
 };
+
