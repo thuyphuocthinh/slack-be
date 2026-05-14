@@ -21,7 +21,8 @@ import { EQueueName, QueueModule } from '@slack/queue';
     DatabaseModule,
     CachedModule.forRoot(),
     QueueModule.forRoot(),
-    QueueModule.forFeature([EQueueName.EMAIL_QUEUE]),
+    QueueModule.forFeature([EQueueName.EMAIL_QUEUE, EQueueName.AUDIT_QUEUE]),
+
     TypeOrmModule.forFeature([
       WorkspaceEntity,
       WorkspaceMemberEntity,

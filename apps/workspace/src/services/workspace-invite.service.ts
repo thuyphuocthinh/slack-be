@@ -28,8 +28,9 @@ import { v7 } from 'uuid';
 import { CACHE, CachedService } from '@slack/cached';
 import { firstValueFrom } from 'rxjs';
 import { WorkspaceCommonService } from './workspace-common.service';
-import { buildTTL } from '@slack/common';
+import { buildTTL, AuditAction, AuditEntityType } from '@slack/common';
 import { EJobName, EQueueName, QueueService } from '@slack/queue';
+
 
 @Injectable()
 export class WorkspaceInviteService {
@@ -141,8 +142,17 @@ export class WorkspaceInviteService {
         );
       });
 
+    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+      action: AuditAction.USER_INVITED_TO_WORKSPACE,
+      actorId: dto.invitedBy,
+      entityType: AuditEntityType.WORKSPACE,
+      entityId: dto.workspaceId,
+      metadata: { email: dto.email, role: dto.role },
+    });
+
     this.logger.log('Invite member', savedInvite);
     return this.commonService.mapInviteToDto(savedInvite);
+
   }
 
   async joinWorkspace(
@@ -175,6 +185,14 @@ export class WorkspaceInviteService {
     });
 
     this.logger.log('Join workspace', JSON.stringify({ savedMember }));
+    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+      action: AuditAction.USER_JOINED_WORKSPACE,
+      actorId: dto.userId,
+      entityType: AuditEntityType.WORKSPACE,
+      entityId: savedMember.workspaceId,
+      metadata: { role: savedMember.role },
+    });
+
     await this.cachedService.invalidateList(
       CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(dto.userId),
     );
@@ -183,6 +201,8 @@ export class WorkspaceInviteService {
     );
 
     return this.commonService.mapMemberToDto(savedMember);
+
+
   }
 
   async resendInvite(

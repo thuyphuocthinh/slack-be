@@ -20,7 +20,8 @@ import { BoardMemberEntity } from '../entity/board_member.entity';
 import { TaskCommonService } from './task-common.service';
 import { TaskGroupEntity } from '../entity/task_group.entity';
 import { TaskAttachmentEntity } from '../entity/task_attachment.entity';
-import { IOffsetResponse } from '@slack/common';
+import { IOffsetResponse, AuditAction, AuditEntityType } from '@slack/common';
+
 import { QueryTaskDto } from '../dto/task.dto';
 import { CACHE, CachedService, TTL } from '@slack/cached';
 import { EJobName, EQueueName, QueueService } from '@slack/queue';
@@ -87,7 +88,16 @@ export class TaskService {
       await this.handleTaskDeadlineJob(saved.id, saved.dueDate);
     }
 
+    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+      action: AuditAction.TASK_CREATED,
+      actorId: requesterId,
+      entityType: AuditEntityType.TASK,
+      entityId: result.id,
+      metadata: { groupId: dto.groupId, title: result.title },
+    });
+
     return result;
+
   }
 
   async updateTaskDetails(
@@ -139,7 +149,16 @@ export class TaskService {
 
     await this.handleTaskDeadlineJob(updatedTask.id, updatedTask.dueDate);
 
+    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+      action: AuditAction.TASK_UPDATED,
+      actorId: requesterId,
+      entityType: AuditEntityType.TASK,
+      entityId: id,
+      metadata: { groupId: updatedTask.groupId, title: result.title },
+    });
+
     return result;
+
   }
 
   async removeTask(id: string, requesterId: string): Promise<string> {
@@ -168,7 +187,17 @@ export class TaskService {
 
     await this.handleTaskDeadlineJob(id, null);
 
+    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+      action: AuditAction.TASK_DELETED,
+      actorId: requesterId,
+
+      entityType: AuditEntityType.TASK,
+      entityId: id,
+      metadata: { groupId },
+    });
+
     return `Task with ID ${id} has been deleted`;
+
   }
 
   async getTaskDetails(
@@ -286,7 +315,17 @@ export class TaskService {
       CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
     );
 
+    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+      action: AuditAction.TASK_ASSIGNED,
+      actorId: requesterId,
+      targetId: memberId,
+      entityType: AuditEntityType.TASK,
+      entityId: taskId,
+      metadata: { groupId },
+    });
+
     return 'Assign member to task successfully';
+
   }
 
   async unassignMemberFromTask(
@@ -321,7 +360,17 @@ export class TaskService {
       CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
     );
 
+    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+      action: AuditAction.TASK_UPDATED,
+      actorId: requesterId,
+      targetId: memberId,
+      entityType: AuditEntityType.TASK,
+      entityId: taskId,
+      metadata: { groupId, action: 'unassign' },
+    });
+
     return 'Unassign member from task successfully';
+
   }
 
   async toggleTaskLabel(

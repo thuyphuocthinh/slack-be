@@ -15,8 +15,9 @@ import {
 } from '../dto/workspace-request.dto';
 import { WorkspaceResponseDto } from '../dto/workspace-response.dto';
 import { WorkspaceDto } from '../dto/workspace.dto';
-import { generateSlug, IOffsetResponse } from '@slack/common';
+import { generateSlug, IOffsetResponse, AuditAction, AuditEntityType } from '@slack/common';
 import { WorkspaceCommonService } from './workspace-common.service';
+import { EJobName, EQueueName, QueueService } from '@slack/queue';
 
 @Injectable()
 export class WorkspaceService {
@@ -30,7 +31,9 @@ export class WorkspaceService {
     private readonly dataSource: DataSource,
     private readonly cachedService: CachedService,
     private readonly commonService: WorkspaceCommonService,
+    private readonly queueService: QueueService,
   ) {}
+
 
   // create workspace
   async createWorkspace(
@@ -77,7 +80,16 @@ export class WorkspaceService {
             this.logger.error(`Cache invalidation failed: ${err.message}`),
           );
 
+        this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+          action: AuditAction.WORKSPACE_CREATED,
+          actorId: currentDto.ownerUserId,
+          entityType: AuditEntityType.WORKSPACE,
+          entityId: savedWorkspace.id,
+          metadata: { name: savedWorkspace.name, slug: savedWorkspace.slug },
+        });
+
         return this.commonService.mapWorkspaceToDto(savedWorkspace);
+
       } catch (err) {
         if (err.code === '23505' && retries < maxRetries - 1) {
           retries++;
@@ -129,7 +141,16 @@ export class WorkspaceService {
     );
     await this.cachedService.invalidateListBulk(trackerKeys);
 
+    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+      action: AuditAction.WORKSPACE_RENAMED,
+      actorId: dto.updatedBy,
+      entityType: AuditEntityType.WORKSPACE,
+      entityId: dto.workspaceId,
+      metadata: { name: updatedWorkspace.name },
+    });
+
     return this.commonService.mapWorkspaceToDto(updatedWorkspace);
+
   }
 
   // detail workspace
@@ -194,7 +215,17 @@ export class WorkspaceService {
     this.cachedService.del(CACHE.WORKSPACE.KEYS.DETAIL(workspace.id));
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(workspace.id));
 
+    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+      action: AuditAction.WORKSPACE_DELETED,
+      actorId: dto.ownerUserId,
+      entityType: AuditEntityType.WORKSPACE,
+      entityId: workspace.id,
+      metadata: { name: workspace.name },
+    });
+
+
     return 'Workspace deleted successfully';
+
   }
 
   // get list workspace of user

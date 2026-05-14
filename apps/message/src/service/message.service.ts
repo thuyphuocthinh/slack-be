@@ -30,6 +30,8 @@ import { v7 as uuidv7 } from 'uuid';
 import { EQueueName, EJobName, QueueService } from '@slack/queue';
 import { IMessageAttachment } from '../types/message-attachment.interface';
 import { CACHE, CachedService, TTL } from '@slack/cached';
+import { AuditAction, AuditEntityType } from '@slack/common';
+
 
 @Injectable()
 export class MessageService {
@@ -394,7 +396,6 @@ export class MessageService {
         relations: ['reactions', 'mentions'],
       });
       const [response] = await this.hydrateMessages([freshMessage!], manager);
-
       // Emit Socket Event
       const targetRoom = updatedMessage.parentId
         ? `thread_${updatedMessage.parentId}`
@@ -410,7 +411,17 @@ export class MessageService {
         },
       );
 
+      this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+        action: AuditAction.MESSAGE_EDITED,
+        actorId: userId,
+        entityType: AuditEntityType.MESSAGE,
+        entityId: updatedMessage.id,
+        metadata: { channelId: updatedMessage.channelId },
+      });
+
+
       // Update resource metadata if attachments changed
+
       if (updateDto.attachments && updateDto.attachments.length > 0) {
         await this.queueService.addJob(
           EQueueName.RESOURCE_QUEUE,
@@ -451,7 +462,6 @@ export class MessageService {
       const targetRoom = message.parentId
         ? `thread_${message.parentId}`
         : message.channelId;
-
       await this.queueService.addJob(
         EQueueName.SOCKET_QUEUE,
         EJobName.EMIT_EVENT,
@@ -467,7 +477,17 @@ export class MessageService {
         },
       );
 
+      this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+        action: AuditAction.MESSAGE_DELETED,
+        actorId: userId,
+        entityType: AuditEntityType.MESSAGE,
+        entityId: message.id,
+        metadata: { channelId: message.channelId },
+      });
+
+
       return true;
+
     });
   }
 

@@ -25,7 +25,9 @@ import { Inject, Logger } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import { ChannelResponse } from '../type/channel.response';
 import { CACHE, CachedService, TTL } from '@slack/cached';
-import { IOffsetResponse } from '@slack/common';
+import { IOffsetResponse, AuditAction, AuditEntityType } from '@slack/common';
+import { EJobName, EQueueName, QueueService } from '@slack/queue';
+
 
 @Injectable()
 export class ChannelService {
@@ -40,7 +42,9 @@ export class ChannelService {
     @Inject(NAME_SERVICE_TCP.WORKSPACE_SERVICE)
     private readonly workspaceClient: ClientProxy,
     private readonly cachedService: CachedService,
+    private readonly queueService: QueueService,
   ) { }
+
 
   public mapChannelToResponse(
     channel: ChannelEntity,
@@ -251,7 +255,16 @@ export class ChannelService {
       JSON.stringify(savedChannel, null, 2),
     );
 
+    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+      action: AuditAction.CHANNEL_CREATED,
+      actorId: memberId,
+      entityType: AuditEntityType.CHANNEL,
+      entityId: savedChannel.id,
+      metadata: { title: savedChannel.title, type: savedChannel.type, workspaceId: savedChannel.workspaceId },
+    });
+
     return this.mapChannelToResponse(savedChannel);
+
   }
 
   async updateChannel(dto: UpdateChannelDto): Promise<ChannelResponse> {
@@ -290,7 +303,16 @@ export class ChannelService {
       );
       await this.cachedService.invalidateListBulk(trackerKeys);
 
-      return this.mapChannelToResponse(savedChannel);
+      this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+      action: AuditAction.CHANNEL_RENAMED,
+      actorId: memberId,
+      entityType: AuditEntityType.CHANNEL,
+      entityId: savedChannel.id,
+      metadata: { title: savedChannel.title },
+    });
+
+    return this.mapChannelToResponse(savedChannel);
+
     } catch (error) {
       if (error instanceof OptimisticLockVersionMismatchError) {
         throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
@@ -331,7 +353,16 @@ export class ChannelService {
     );
     await this.cachedService.invalidateListBulk(trackerKeys);
 
+    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+      action: AuditAction.CHANNEL_DELETED,
+      actorId: memberId,
+      entityType: AuditEntityType.CHANNEL,
+      entityId: channelId,
+      metadata: { title: channel.title, workspaceId: channel.workspaceId },
+    });
+
     return 'success';
+
   }
 
   async getChannels(

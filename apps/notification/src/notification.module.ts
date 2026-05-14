@@ -18,6 +18,7 @@ import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { QueueModule, EQueueName } from '@slack/queue';
 import { EmailProcessor } from './processors/email.processor';
 import { NotificationProcessor } from './processors/notification.processor';
+import { AuditProcessor } from './processors/audit.processor';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { NotificationProcessor } from './processors/notification.processor';
       EQueueName.EMAIL_QUEUE,
       EQueueName.NOTIFICATION_QUEUE,
       EQueueName.SOCKET_QUEUE,
+      EQueueName.AUDIT_QUEUE,
     ]),
     DatabaseModule,
     TypeOrmModule.forFeature([Notification, AuditLog]),
@@ -85,10 +87,12 @@ import { NotificationProcessor } from './processors/notification.processor';
     SendgridService,
     EmailProcessor,
     NotificationProcessor,
+    AuditProcessor,
     {
       provide: I_MAIL_SERVICE,
       useClass: NodemailerService,
     },
   ],
 })
+
 export class NotificationModule {}

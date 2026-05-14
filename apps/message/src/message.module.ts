@@ -24,7 +24,9 @@ import { EQueueName, QueueModule } from '@slack/queue';
       EQueueName.NOTIFICATION_QUEUE,
       EQueueName.CHANNEL_QUEUE,
       EQueueName.RESOURCE_QUEUE,
+      EQueueName.AUDIT_QUEUE,
     ]),
+
     TypeOrmModule.forFeature([
       MessageEntity,
       MessageMentionEntity,

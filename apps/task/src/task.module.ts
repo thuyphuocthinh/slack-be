@@ -29,7 +29,8 @@ import { TaskCommonService } from './services/task-common.service';
     DatabaseModule,
     CachedModule.forRoot(),
     QueueModule.forRoot(),
-    QueueModule.forFeature([EQueueName.TASK_QUEUE]),
+    QueueModule.forFeature([EQueueName.TASK_QUEUE, EQueueName.AUDIT_QUEUE]),
+
     TypeOrmModule.forFeature([
       TaskBoardEntity,
       TaskGroupEntity,

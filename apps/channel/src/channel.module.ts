@@ -18,7 +18,12 @@ import { ChannelProcessor } from './processors/channel.processor';
     CachedModule.forRoot(),
     TypeOrmModule.forFeature([ChannelEntity, ChannelMemberEntity]),
     QueueModule.forRoot(),
-    QueueModule.forFeature([EQueueName.CHANNEL_QUEUE, EQueueName.SOCKET_QUEUE]),
+    QueueModule.forFeature([
+      EQueueName.CHANNEL_QUEUE,
+      EQueueName.SOCKET_QUEUE,
+      EQueueName.AUDIT_QUEUE,
+    ]),
+
     ClientsModule.register([
       {
         name: NAME_SERVICE_TCP.WORKSPACE_SERVICE,
