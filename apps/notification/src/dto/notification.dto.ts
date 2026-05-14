@@ -9,7 +9,7 @@ import {
   Min,
   IsArray,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { NotificationType, NotificationStatus } from '@slack/constants';
 
 export class FetchNotificationsDto {
@@ -37,6 +37,7 @@ export class FetchNotificationsDto {
   type?: NotificationType;
 
   @IsOptional()
+  @Transform(({ value }) => (Array.isArray(value) ? value : [value]))
   @IsArray()
   @IsEnum(NotificationType, { each: true })
   types?: NotificationType[];
