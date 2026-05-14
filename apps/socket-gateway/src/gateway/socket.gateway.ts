@@ -223,48 +223,6 @@ export class SocketGateway
     return { status: 'success', room: channelId };
   }
 
-  // @SubscribeMessage(ESocketEvent.SUBSCRIBE_THREAD)
-  // async handleSubscribeThread(client: Socket, payload: { threadId: string }) {
-  //   const { threadId } = payload;
-  //   if (!threadId) return;
-
-  //   const userId = client.data.user.sub;
-
-  //   try {
-  //     // Sử dụng Circuit Breaker cho Thread
-  //     await this.messageBreaker.fire({
-  //       id: threadId,
-  //       userId,
-  //     });
-
-  //     const roomName = `thread_${threadId}`;
-  //     client.join(roomName);
-  //     this.logger.debug(`User ${userId} joined thread: ${roomName}`);
-  //     client.emit(ESocketEvent.THREAD_SUBSCRIBED, { threadId });
-  //     return { status: 'success', room: roomName };
-  //   } catch (error) {
-  //     this.logger.warn(
-  //       `User ${userId} failed to join thread ${threadId}: ${error.message}`,
-  //     );
-  //     return {
-  //       status: 'error',
-  //       message: 'You do not have access to this thread',
-  //     };
-  //   }
-  // }
-
-  // @SubscribeMessage(ESocketEvent.UNSUBSCRIBE_THREAD)
-  // handleUnsubscribeThread(client: Socket, payload: { threadId: string }) {
-  //   const { threadId } = payload;
-  //   if (!threadId) return;
-
-  //   const roomName = `thread_${threadId}`;
-  //   client.leave(roomName);
-  //   this.logger.debug(`User ${client.id} left thread: ${roomName}`);
-  //   client.emit(ESocketEvent.THREAD_UNSUBSCRIBED, { threadId });
-  //   return { status: 'success', room: roomName };
-  // }
-
   @SubscribeMessage(ESocketEvent.MESSAGE_READ)
   async handleMessageRead(
     client: Socket,
@@ -364,4 +322,46 @@ export class SocketGateway
       return { status: 'error', message: 'Failed to fetch presence' };
     }
   }
+
+  // @SubscribeMessage(ESocketEvent.SUBSCRIBE_THREAD)
+  // async handleSubscribeThread(client: Socket, payload: { threadId: string }) {
+  //   const { threadId } = payload;
+  //   if (!threadId) return;
+
+  //   const userId = client.data.user.sub;
+
+  //   try {
+  //     // Sử dụng Circuit Breaker cho Thread
+  //     await this.messageBreaker.fire({
+  //       id: threadId,
+  //       userId,
+  //     });
+
+  //     const roomName = `thread_${threadId}`;
+  //     client.join(roomName);
+  //     this.logger.debug(`User ${userId} joined thread: ${roomName}`);
+  //     client.emit(ESocketEvent.THREAD_SUBSCRIBED, { threadId });
+  //     return { status: 'success', room: roomName };
+  //   } catch (error) {
+  //     this.logger.warn(
+  //       `User ${userId} failed to join thread ${threadId}: ${error.message}`,
+  //     );
+  //     return {
+  //       status: 'error',
+  //       message: 'You do not have access to this thread',
+  //     };
+  //   }
+  // }
+
+  // @SubscribeMessage(ESocketEvent.UNSUBSCRIBE_THREAD)
+  // handleUnsubscribeThread(client: Socket, payload: { threadId: string }) {
+  //   const { threadId } = payload;
+  //   if (!threadId) return;
+
+  //   const roomName = `thread_${threadId}`;
+  //   client.leave(roomName);
+  //   this.logger.debug(`User ${client.id} left thread: ${roomName}`);
+  //   client.emit(ESocketEvent.THREAD_UNSUBSCRIBED, { threadId });
+  //   return { status: 'success', room: roomName };
+  // }
 }
