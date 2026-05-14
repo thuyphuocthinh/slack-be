@@ -132,6 +132,18 @@ export class SearchMessagesQueryApiDto {
   @IsNotEmpty()
   @ApiProperty()
   keyword: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  @ApiPropertyOptional({ default: 20 })
+  limit?: number = 20;
+
+  @IsString()
+  @IsOptional()
+  @ApiPropertyOptional()
+  cursor?: string;
 }
 
 export class GetThreadQueryApiDto {

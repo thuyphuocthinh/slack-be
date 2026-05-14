@@ -77,7 +77,9 @@ export class MessageController {
     @CurrentUser() user: JwtUser,
   ) {
     return await this.messageService.searchMessages({
-      query: query.keyword,
+      keyword: query.keyword,
+      limit: query.limit,
+      cursor: query.cursor,
       channelId,
       senderId: user.sub,
     } as SearchMessagesRequestDto);

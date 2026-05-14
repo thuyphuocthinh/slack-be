@@ -10,6 +10,7 @@ import {
   GetPinnedMessagesQueryDto,
   GetSurroundingMessagesQueryDto,
   SurroundingMessageResponseDto,
+  SearchMessagesQueryDto,
 } from '../dto';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
 import {
@@ -573,12 +574,10 @@ export class MessageService {
     });
   }
 
-  async searchMessages(query: {
-    keyword: string;
-    channelId: string;
-    senderId: string;
-  }) {
-    const { keyword, channelId, senderId } = query;
+  async searchMessages(
+    query: SearchMessagesQueryDto,
+  ): Promise<{ messages: MessageResponseDto[]; nextCursor?: string }> {
+    const { keyword, channelId, senderId, limit = 20, cursor } = query;
     // Check channel permission
     await this.checkChannelExist(channelId, senderId);
 
@@ -591,16 +590,43 @@ export class MessageService {
         .leftJoinAndSelect('message.attachments', 'attachment')
         .where('message.channelId = :channelId', { channelId });
 
-      // Use Full Text Search on JSONB content cast to text
+      // 1. Prepare keyword for prefix matching
+      // Replace spaces with ' & ' and add ':*' to each word
+      const formattedKeyword = keyword
+        .trim()
+        .replace(/[&|!():*]/g, '') // Remove characters with special meaning in tsquery
+        .split(/\s+/)
+        .filter(word => word.length > 0)
+        .map(word => `${word}:*`)
+        .join(' & ');
+
+      if (!formattedKeyword) {
+        return { messages: [], nextCursor: undefined };
+      }
+
+      // 2. Use to_tsvector on jsonb directly to only search values, not keys
       queryBuilder.andWhere(
-        "to_tsvector('simple', message.content::text) @@ plainto_tsquery('simple', :keyword)",
-        { keyword },
+        "to_tsvector('simple', message.content) @@ to_tsquery('simple', :formattedKeyword)",
+        { formattedKeyword },
       );
 
-      queryBuilder.orderBy('message.id', 'DESC').take(50);
+      if (cursor) {
+        queryBuilder.andWhere('message.id < :cursor', { cursor });
+      }
+
+      queryBuilder.orderBy('message.id', 'DESC').take(limit + 1);
 
       const messages = await queryBuilder.getMany();
-      return await this.hydrateMessages(messages, manager);
+      const hasMore = messages.length > limit;
+      const resultMessages = hasMore ? messages.slice(0, limit) : messages;
+
+      const response = await this.hydrateMessages(resultMessages, manager);
+      return {
+        messages: response,
+        nextCursor: hasMore
+          ? resultMessages[resultMessages.length - 1].id
+          : undefined,
+      };
     });
   }
 

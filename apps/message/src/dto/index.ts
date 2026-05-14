@@ -9,3 +9,4 @@ export * from './get-pinned-messages-query.dto';
 export * from './get-surrounding-messages-query.dto';
 export * from './get-full-thread-query.dto';
 export * from './get-thread-query.dto';
+export * from './search-messages-query.dto';

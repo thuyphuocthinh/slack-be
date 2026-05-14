@@ -30,8 +30,8 @@ export class GetMessagesRequestDto {
 export class SearchMessagesRequestDto {
   channelId: string;
   senderId: string;
-  query: string;
-  page?: number;
+  keyword: string;
+  cursor?: string;
   limit?: number;
 }
 
