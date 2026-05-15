@@ -35,7 +35,7 @@ export class ChannelMemberService {
     private readonly workspaceClient: ClientProxy,
     private readonly cachedService: CachedService,
     private readonly queueService: QueueService,
-  ) {}
+  ) { }
 
 
   private async checkWorkspacePermission(
@@ -435,7 +435,7 @@ export class ChannelMemberService {
     channelId: string,
     memberId: string,
     lastReadMessageId: string,
-  ): Promise<void> {
+  ): Promise<string> {
     await this.channelMemberRepository.update(
       { channelId, memberId },
       {
@@ -444,6 +444,24 @@ export class ChannelMemberService {
         lastReadAt: new Date(),
       },
     );
+
+    // Invalidate cache for the user's channel list in this workspace
+    const channel = await this.channelRepository.findOne({
+      where: { id: channelId },
+      select: ['workspaceId'],
+    });
+
+    if (channel) {
+      this.cachedService
+        .invalidateList(
+          CACHE.CHANNEL.TRACKERS.LIST_VERSION(channel.workspaceId, memberId),
+        )
+        .catch((err) =>
+          this.logger.error(`Cache invalidation failed: ${err.message}`),
+        );
+    }
+
+    return 'success';
   }
 
   async removeMemberFromAllChannels(
@@ -495,6 +513,7 @@ export class ChannelMemberService {
       `Removed member ${memberId} from all channels in workspace ${workspaceId}`,
     );
   }
+
   async getUnreadSummary(
     workspaceId: string,
     memberId: string,

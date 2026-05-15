@@ -239,7 +239,7 @@ export class SocketGateway
         this.channelClient.send(CHANNEL_MESSAGE_PATTERN.MARK_AS_READ, {
           channelId,
           memberId: userId,
-          lastMessageId,
+          lastReadMessageId: lastMessageId,
         }),
       );
     } catch (error) {
