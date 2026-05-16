@@ -446,7 +446,7 @@ export class MessageService {
       const updatedMessage = await messageRepo.save(message);
       const freshMessage = await messageRepo.findOne({
         where: { id: updatedMessage.id },
-        relations: ['reactions', 'mentions'],
+        relations: ['reactions', 'mentions', 'attachments'],
       });
       const [response] = await this.hydrateMessages([freshMessage!], manager);
       // Emit Socket Event
