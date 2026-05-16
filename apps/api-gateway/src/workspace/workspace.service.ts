@@ -391,7 +391,7 @@ export class WorkspaceService {
     );
   }
 
-  async getMemberDetail(workspaceId: string, userId: string) {
+  async getMemberDetail(workspaceId: string, memberId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -399,7 +399,7 @@ export class WorkspaceService {
             WORKSPACE_MESSAGE_PATTERNS.GET_MEMBER_DETAIL,
             {
               workspaceId,
-              userId,
+              userId: memberId,
             },
           ),
         ),

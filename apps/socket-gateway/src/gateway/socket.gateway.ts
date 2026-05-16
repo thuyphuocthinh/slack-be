@@ -261,18 +261,30 @@ export class SocketGateway
   }
 
   @SubscribeMessage(ESocketEvent.USER_START_TYPING)
-  handleUserStartTyping(client: Socket, payload: { channelId: string }) {
+  handleUserStartTyping(
+    client: Socket,
+    payload: { channelId?: string; threadId?: string },
+  ) {
     try {
-      const { channelId } = payload;
-      if (!channelId) return;
+      const { channelId, threadId } = payload;
+      if (!channelId && !threadId) return;
 
-      const userId = client.data.user.sub;
+      const user = client.data.user;
+      const userId = user.sub;
 
-      this.logger.debug(`User ${userId} started typing in channel ${channelId}`);
+      const targetRoom = threadId ? `thread_${threadId}` : channelId;
 
-      client.to(channelId).emit(ESocketEvent.USER_START_TYPING, {
+      this.logger.debug(
+        `User ${userId} started typing in ${threadId ? 'thread' : 'channel'} ${targetRoom}`,
+      );
+
+      client.to(targetRoom!).emit(ESocketEvent.USER_START_TYPING, {
         userId,
+        firstName: user.firstName || '',
+        lastName: user.lastName || '',
+        email: user.email || '',
         channelId,
+        threadId,
       });
     } catch (error) {
       this.logger.error(`Error in handleUserStartTyping: ${error.message}`);
@@ -280,18 +292,25 @@ export class SocketGateway
   }
 
   @SubscribeMessage(ESocketEvent.USER_STOP_TYPING)
-  handleUserStopTyping(client: Socket, payload: { channelId: string }) {
+  handleUserStopTyping(
+    client: Socket,
+    payload: { channelId?: string; threadId?: string },
+  ) {
     try {
-      const { channelId } = payload;
-      if (!channelId) return;
+      const { channelId, threadId } = payload;
+      if (!channelId && !threadId) return;
 
       const userId = client.data.user.sub;
+      const targetRoom = threadId ? `thread_${threadId}` : channelId;
 
-      this.logger.debug(`User ${userId} stopped typing in channel ${channelId}`);
+      this.logger.debug(
+        `User ${userId} stopped typing in ${threadId ? 'thread' : 'channel'} ${targetRoom}`,
+      );
 
-      client.to(channelId).emit(ESocketEvent.USER_STOP_TYPING, {
+      client.to(targetRoom!).emit(ESocketEvent.USER_STOP_TYPING, {
         userId,
         channelId,
+        threadId,
       });
     } catch (error) {
       this.logger.error(`Error in handleUserStopTyping: ${error.message}`);
@@ -323,45 +342,50 @@ export class SocketGateway
     }
   }
 
-  // @SubscribeMessage(ESocketEvent.SUBSCRIBE_THREAD)
-  // async handleSubscribeThread(client: Socket, payload: { threadId: string }) {
-  //   const { threadId } = payload;
-  //   if (!threadId) return;
+  @SubscribeMessage(ESocketEvent.SUBSCRIBE_THREAD)
+  async handleSubscribeThread(client: Socket, payload: { threadId: string }) {
+    const { threadId } = payload;
+    if (!threadId) return;
 
-  //   const userId = client.data.user.sub;
+    const userId = client.data.user.sub;
 
-  //   try {
-  //     // Sử dụng Circuit Breaker cho Thread
-  //     await this.messageBreaker.fire({
-  //       id: threadId,
-  //       userId,
-  //     });
+    try {
+      // Sử dụng Circuit Breaker cho Thread (Kiểm tra quyền truy cập nếu cần)
+      await this.messageBreaker.fire({
+        id: threadId,
+        userId,
+      });
 
-  //     const roomName = `thread_${threadId}`;
-  //     client.join(roomName);
-  //     this.logger.debug(`User ${userId} joined thread: ${roomName}`);
-  //     client.emit(ESocketEvent.THREAD_SUBSCRIBED, { threadId });
-  //     return { status: 'success', room: roomName };
-  //   } catch (error) {
-  //     this.logger.warn(
-  //       `User ${userId} failed to join thread ${threadId}: ${error.message}`,
-  //     );
-  //     return {
-  //       status: 'error',
-  //       message: 'You do not have access to this thread',
-  //     };
-  //   }
-  // }
+      const roomName = `thread_${threadId}`;
+      client.join(roomName);
+      this.logger.debug(`User ${userId} joined thread: ${roomName}`);
+      client.emit(ESocketEvent.THREAD_SUBSCRIBED, { threadId });
+      return { status: 'success', room: roomName };
+    } catch (error) {
+      this.logger.warn(
+        `User ${userId} failed to join thread ${threadId}: ${error.message}`,
+      );
+      return {
+        status: 'error',
+        message: 'You do not have access to this thread',
+      };
+    }
+  }
 
-  // @SubscribeMessage(ESocketEvent.UNSUBSCRIBE_THREAD)
-  // handleUnsubscribeThread(client: Socket, payload: { threadId: string }) {
-  //   const { threadId } = payload;
-  //   if (!threadId) return;
+  @SubscribeMessage(ESocketEvent.UNSUBSCRIBE_THREAD)
+  handleUnsubscribeThread(client: Socket, payload: { threadId: string }) {
+    try {
+      const { threadId } = payload;
+      if (!threadId) return;
 
-  //   const roomName = `thread_${threadId}`;
-  //   client.leave(roomName);
-  //   this.logger.debug(`User ${client.id} left thread: ${roomName}`);
-  //   client.emit(ESocketEvent.THREAD_UNSUBSCRIBED, { threadId });
-  //   return { status: 'success', room: roomName };
-  // }
+      const roomName = `thread_${threadId}`;
+      client.leave(roomName);
+      this.logger.debug(`User ${client.id} left thread: ${roomName}`);
+      client.emit(ESocketEvent.THREAD_UNSUBSCRIBED, { threadId });
+      return { status: 'success', room: roomName };
+    } catch (error) {
+      this.logger.error(`Error in handleUnsubscribeThread: ${error.message}`);
+      return { status: 'error', message: 'Failed to unsubscribe thread' };
+    }
+  }
 }

@@ -34,7 +34,7 @@ import { CurrentUser, type JwtUser } from '@slack/common';
 @ApiBearerAuth()
 export class WorkspaceController {
   private readonly logger = new Logger(WorkspaceController.name);
-  constructor(private readonly workspaceService: WorkspaceService) {}
+  constructor(private readonly workspaceService: WorkspaceService) { }
 
   @Post()
   @ApiOperation({ summary: 'Create a new workspace' })
@@ -94,14 +94,14 @@ export class WorkspaceController {
     return await this.workspaceService.getMembers(id, user.sub);
   }
 
-  @Get(':id/member-detail')
+  @Get(':id/members/:memberId/detail')
   @ApiOperation({ summary: 'Get member detail for current user' })
   @ApiResponse({ status: 200, description: 'Member detail retrieved successfully' })
   async getCurrentMemberDetail(
     @Param('id') workspaceId: string,
-    @CurrentUser() user: JwtUser,
+    @Param('memberId') memberId: string,
   ) {
-    return await this.workspaceService.getMemberDetail(workspaceId, user.sub);
+    return await this.workspaceService.getMemberDetail(workspaceId, memberId);
   }
 
   @Get(':id/sidebar-summary')
