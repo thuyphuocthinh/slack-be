@@ -681,7 +681,7 @@ export class MessageService {
   async getSurroundingMessages(
     query: GetSurroundingMessagesQueryDto,
   ): Promise<SurroundingMessageResponseDto> {
-    const { channelId, userId, targetMessageId, limit = 30 } = query;
+    const { channelId, userId, targetMessageId, limit = 20 } = query;
 
     // Check membership
     await this.checkChannelExist(channelId, userId);
