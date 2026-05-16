@@ -115,6 +115,31 @@ export class TaskCommonService {
     }
   }
 
+  async getWorkspaceMember(
+    workspaceId: string,
+    userId: string,
+  ): Promise<any> {
+    try {
+      const member = await this.cachedService.getOrSetDetail(
+        CACHE.WORKSPACE.KEYS.IS_MEMBER(workspaceId, userId),
+        TTL.SHORT,
+        async () => {
+          return await firstValueFrom(
+            this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.GET_MEMBER, {
+              workspaceId,
+              userId,
+            }),
+          );
+        },
+      );
+      if (!member) throw new Error('Member not found');
+      return member;
+    } catch (error) {
+      this.logger.error('Get member detail failed', error);
+      throw new RpcException(TASK_ERROR.NOT_MEMBER_OF_WORKSPACE);
+    }
+  }
+
   async getWorkspaceMemberRole(
     workspaceId: string,
     userId: string,

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   Repository,
@@ -13,14 +13,15 @@ import { TaskEntity } from '../entity/task.entity';
 import { LabelEntity } from '../entity/label.entity';
 import { TaskMemberEntity } from '../entity/task_member.entity';
 import { ChangeTaskGroupDto, CreateAttachmentDto, CreateTaskDto, DragDropTaskDto, FilterTasksDto, UpdateTaskDto } from '../dto/task.dto';
-import { RpcException } from '@nestjs/microservices';
-import { DATABASE_ERROR, TASK_ERROR } from '@slack/constants';
+import { ClientProxy, RpcException } from '@nestjs/microservices';
+import { DATABASE_ERROR, TASK_ERROR, NAME_SERVICE_TCP, NOTIFICATION_MESSAGE_PATTERNS, NotificationType } from '@slack/constants';
 import { ITaskResponse } from '../type/task.response';
 import { BoardMemberEntity } from '../entity/board_member.entity';
 import { TaskCommonService } from './task-common.service';
 import { TaskGroupEntity } from '../entity/task_group.entity';
 import { TaskAttachmentEntity } from '../entity/task_attachment.entity';
 import { IOffsetResponse, AuditAction, AuditEntityType } from '@slack/common';
+import { firstValueFrom } from 'rxjs';
 
 import { QueryTaskDto } from '../dto/task.dto';
 import { CACHE, CachedService, TTL } from '@slack/cached';
@@ -45,13 +46,15 @@ export class TaskService {
     private readonly commonService: TaskCommonService,
     private readonly cachedService: CachedService,
     private readonly queueService: QueueService,
+    @Inject(NAME_SERVICE_TCP.NOTIFICATION_SERVICE)
+    private readonly notificationClient: ClientProxy,
   ) { }
 
   async createNewTask(
     dto: CreateTaskDto,
     requesterId: string,
   ): Promise<ITaskResponse> {
-    const { result, saved } = await this.dataSource.transaction(
+    const { result, saved, boardId } = await this.dataSource.transaction(
       async (manager) => {
         const group = await manager.findOne(TaskGroupEntity, {
           where: { id: dto.groupId },
@@ -76,7 +79,7 @@ export class TaskService {
         const saved = await manager.save(task);
         const result = this.mapTaskResponse(saved);
 
-        return { result, saved };
+        return { result, saved, boardId: group.boardId };
       },
     );
 
@@ -85,7 +88,12 @@ export class TaskService {
     );
 
     if (saved.dueDate) {
-      await this.handleTaskDeadlineJob(saved.id, saved.dueDate);
+      await this.handleTaskDeadlineJob(
+        saved.id,
+        saved.groupId,
+        boardId,
+        saved.dueDate,
+      );
     }
 
     this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
@@ -107,7 +115,7 @@ export class TaskService {
   ): Promise<ITaskResponse> {
     const { labelIds, ...updateData } = dto;
 
-    const { result, updatedTask } = await this.dataSource.transaction(
+    const { result, updatedTask, boardId } = await this.dataSource.transaction(
       async (manager) => {
         const task = await manager.findOne(TaskEntity, {
           where: { id },
@@ -133,7 +141,7 @@ export class TaskService {
           const updatedTask = await manager.save(task);
           const result = this.mapTaskResponse(updatedTask);
 
-          return { result, updatedTask };
+          return { result, updatedTask, boardId: task.group.boardId };
         } catch (error) {
           if (error instanceof OptimisticLockVersionMismatchError) {
             throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
@@ -147,7 +155,12 @@ export class TaskService {
       CACHE.TASK.TRACKERS.TASK_LIST_VERSION(updatedTask.groupId),
     );
 
-    await this.handleTaskDeadlineJob(updatedTask.id, updatedTask.dueDate);
+    await this.handleTaskDeadlineJob(
+      updatedTask.id,
+      updatedTask.groupId,
+      boardId,
+      updatedTask.dueDate,
+    );
 
     this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
       action: AuditAction.TASK_UPDATED,
@@ -162,30 +175,33 @@ export class TaskService {
   }
 
   async removeTask(id: string, requesterId: string): Promise<string> {
-    const { groupId } = await this.dataSource.transaction(async (manager) => {
-      const task = await manager.findOne(TaskEntity, {
-        where: { id },
-        relations: ['group'],
-      });
-      if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
+    const { groupId, boardId } = await this.dataSource.transaction(
+      async (manager) => {
+        const task = await manager.findOne(TaskEntity, {
+          where: { id },
+          relations: ['group'],
+        });
+        if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
 
-      await this.commonService.checkBoardMembership(
-        task.group.boardId,
-        requesterId,
-        manager,
-      );
+        await this.commonService.checkBoardMembership(
+          task.group.boardId,
+          requesterId,
+          manager,
+        );
 
-      const groupId = task.groupId;
-      await manager.remove(task);
+        const groupId = task.groupId;
+        const boardId = task.group.boardId;
+        await manager.remove(task);
 
-      return { groupId };
-    });
+        return { groupId, boardId };
+      },
+    );
 
     await this.cachedService.invalidateList(
       CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
     );
 
-    await this.handleTaskDeadlineJob(id, null);
+    await this.handleTaskDeadlineJob(id, groupId, boardId, null);
 
     this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
       action: AuditAction.TASK_DELETED,
@@ -270,46 +286,52 @@ export class TaskService {
     memberId: string,
     requesterId: string,
   ): Promise<string> {
-    const { groupId } = await this.dataSource.transaction(async (manager) => {
-      const task = await manager.findOne(TaskEntity, {
-        where: { id: taskId },
-        relations: ['group', 'group.board'],
-      });
-      if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
-
-      await this.commonService.checkBoardMembership(
-        task.group.boardId,
-        requesterId,
-        manager,
-      );
-
-      const boardMembers = await manager.find(BoardMemberEntity, {
-        where: { boardId: task.group.boardId },
-      });
-      if (!boardMembers.some((m) => m.memberId === memberId))
-        throw new RpcException(TASK_ERROR.MEMBER_NOT_IN_BOARD);
-
-      const existing = await manager.findOne(TaskMemberEntity, {
-        where: { taskId, memberId },
-      });
-      if (existing)
-        throw new RpcException(TASK_ERROR.MEMBER_ALREADY_ASSIGNED_TO_TASK);
-
-      try {
-        const taskMember = manager.create(TaskMemberEntity, {
-          taskId,
-          memberId,
+    const { groupId, taskTitle, workspaceId, boardId } =
+      await this.dataSource.transaction(async (manager) => {
+        const task = await manager.findOne(TaskEntity, {
+          where: { id: taskId },
+          relations: ['group', 'group.board'],
         });
-        await manager.save(taskMember);
+        if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
 
-        return { groupId: task.groupId };
-      } catch (error) {
-        if (error instanceof OptimisticLockVersionMismatchError) {
-          throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+        await this.commonService.checkBoardMembership(
+          task.group.boardId,
+          requesterId,
+          manager,
+        );
+
+        const boardMembers = await manager.find(BoardMemberEntity, {
+          where: { boardId: task.group.boardId },
+        });
+        if (!boardMembers.some((m) => m.memberId === memberId))
+          throw new RpcException(TASK_ERROR.MEMBER_NOT_IN_BOARD);
+
+        const existing = await manager.findOne(TaskMemberEntity, {
+          where: { taskId, memberId },
+        });
+        if (existing)
+          throw new RpcException(TASK_ERROR.MEMBER_ALREADY_ASSIGNED_TO_TASK);
+
+        try {
+          const taskMember = manager.create(TaskMemberEntity, {
+            taskId,
+            memberId,
+          });
+          await manager.save(taskMember);
+
+          return {
+            groupId: task.groupId,
+            taskTitle: task.title,
+            workspaceId: task.group.board.workspaceId,
+            boardId: task.group.boardId,
+          };
+        } catch (error) {
+          if (error instanceof OptimisticLockVersionMismatchError) {
+            throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
+          }
+          throw error;
         }
-        throw error;
-      }
-    });
+      });
 
     await this.cachedService.invalidateList(
       CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
@@ -323,6 +345,47 @@ export class TaskService {
       entityId: taskId,
       metadata: { groupId },
     });
+
+    try {
+      const assigner = await this.commonService
+        .getWorkspaceMember(workspaceId, requesterId)
+        .catch(() => null);
+      const assignerName = assigner
+        ? `${assigner.firstName || ''} ${assigner.lastName || ''}`.trim() ||
+          'User'
+        : 'User';
+
+      firstValueFrom(
+        this.notificationClient.send(
+          NOTIFICATION_MESSAGE_PATTERNS.PUSH_NOTIFICATION,
+          {
+            recipientId: memberId,
+            type: NotificationType.TASK_ASSIGNED,
+            templateKey: NotificationType.TASK_ASSIGNED,
+            content: `Bạn đã được phân công vào nhiệm vụ "${taskTitle}"`,
+            objectId: taskId,
+            objectType: 'task',
+            workspaceId,
+            metadata: {
+              actorId: requesterId,
+              actorName: assignerName,
+              taskId,
+              taskTitle,
+              groupId,
+              boardId,
+            },
+          },
+        ),
+      ).catch((err) =>
+        this.logger.error(
+          `Failed to push task assigned notification: ${err.message}`,
+        ),
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to handle task assigned notification: ${error.message}`,
+      );
+    }
 
     return 'Assign member to task successfully';
 
@@ -597,7 +660,12 @@ export class TaskService {
     );
   }
 
-  private async handleTaskDeadlineJob(taskId: string, dueDate: Date | null) {
+  private async handleTaskDeadlineJob(
+    taskId: string,
+    groupId: string,
+    boardId: string,
+    dueDate: Date | null,
+  ) {
     const jobId = `task_deadline_${taskId}`;
 
     try {
@@ -627,7 +695,7 @@ export class TaskService {
       await this.queueService.addJob(
         EQueueName.TASK_QUEUE,
         EJobName.TASK_DEADLINE_REMINDER,
-        { taskId },
+        { taskId, groupId, boardId },
         { delay, jobId }, // Dùng jobId cố định để ghi đè (overwrite) job cũ nếu có
       );
     } catch (error) {

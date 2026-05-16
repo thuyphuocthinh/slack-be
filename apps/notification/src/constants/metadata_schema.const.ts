@@ -100,7 +100,7 @@ export const NotificationMetadataSchema = {
     actorName: z.string(),
     taskId: z.string(),
     taskTitle: z.string(),
-  }),
+  }).passthrough(),
 
   [NotificationType.TASK_UPDATED]: z.object({
     actorId: z.string(),
@@ -108,7 +108,11 @@ export const NotificationMetadataSchema = {
     taskId: z.string(),
     taskTitle: z.string(),
     changes: z.record(z.string(), z.any()).optional(), // flexible
-  }),
+  }).passthrough(),
+
+  [NotificationType.TASK_DUE_SOON]: z.object({
+    groupId: z.string().optional(),
+  }).passthrough(),
 
   // ======================
   // SYSTEM

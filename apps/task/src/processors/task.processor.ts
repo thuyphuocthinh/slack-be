@@ -45,7 +45,7 @@ export class TaskProcessor extends BaseProcessor<
   async process(
     job: Job<ITaskDeadlineJobData, ITaskProcessResult, EJobName>,
   ): Promise<ITaskProcessResult> {
-    const { taskId } = job.data;
+    const { taskId, groupId, boardId } = job.data;
 
     if (job.name === EJobName.TASK_DEADLINE_REMINDER) {
       try {
@@ -87,7 +87,9 @@ export class TaskProcessor extends BaseProcessor<
                 objectType: 'task',
                 workspaceId: task.group.board.workspaceId,
                 metadata: {
-                  groupId: task.groupId,
+                  groupId: task.groupId || groupId,
+                  boardId: task.group?.boardId || boardId,
+                  taskTitle: task.title,
                 },
               },
             ),

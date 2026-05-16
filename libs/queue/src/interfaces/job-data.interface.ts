@@ -56,6 +56,8 @@ export interface IIncrementUnreadJobData {
 
 export interface ITaskDeadlineJobData {
   taskId: string;
+  groupId: string;
+  boardId: string;
 }
 
 export interface IUpdateResourceMetadataJobData {
