@@ -23,6 +23,7 @@ export enum ESocketEvent {
   UNSUBSCRIBE_THREAD = 'unsubscribe_thread',
   THREAD_SUBSCRIBED = 'thread_subscribed',
   THREAD_UNSUBSCRIBED = 'thread_unsubscribed',
+  THREAD_MESSAGE_RECEIVED = 'thread_message_received',
 
   // Notification / Unread
   UNREAD_COUNT_UPDATED = 'unread_count_updated',

@@ -21,6 +21,7 @@ export enum EJobName {
 
   // Socket
   EMIT_EVENT = 'emit_event',
+  EMIT_TO_USERS = 'emit_to_users',
 
   // Channel
   INCREMENT_UNREAD_COUNT = 'increment_unread_count',

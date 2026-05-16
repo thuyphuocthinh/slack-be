@@ -35,7 +35,7 @@ export class NotificationService {
     @Inject(NAME_SERVICE_TCP.USER_SERVICE)
     private readonly userClient: ClientProxy,
     private readonly queueService: QueueService,
-  ) {}
+  ) { }
 
   async fetchNotifications(
     dto: FetchNotificationsDto,

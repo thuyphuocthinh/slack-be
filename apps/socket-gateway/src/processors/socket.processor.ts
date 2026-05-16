@@ -5,12 +5,13 @@ import {
   BaseProcessor,
   EJobName,
   IEmitEventJobData,
+  IEmitToUsersJobData,
 } from '@slack/queue';
 import { SocketGateway } from '../gateway/socket.gateway';
 
 @Processor(EQueueName.SOCKET_QUEUE)
 export class SocketProcessor extends BaseProcessor<
-  IEmitEventJobData,
+  IEmitEventJobData | IEmitToUsersJobData,
   string,
   EJobName
 > {
@@ -19,27 +20,37 @@ export class SocketProcessor extends BaseProcessor<
   }
 
   async process(
-    job: Job<IEmitEventJobData, string, EJobName>,
+    job: Job<IEmitEventJobData | IEmitToUsersJobData, string, EJobName>,
   ): Promise<string> {
-    if (job.name !== EJobName.EMIT_EVENT) {
-      this.logger.warn(`Unknown job name: ${job.name}`);
-      return 'Ignored';
+    if (job.name === EJobName.EMIT_EVENT) {
+      this.logger.log(`Processing socket job: ${job.name} (ID: ${job.id})`);
+      const { event, room, data } = job.data as IEmitEventJobData;
+
+      if (event && room) {
+        // Emit to specific room (channel)
+        this.socketGateway.server.to(room).emit(event, data);
+        this.logger.debug(`Emitted event [${event}] to room [${room}]`);
+      } else if (event && !room) {
+        // Broadcast to all
+        this.socketGateway.server.emit(event, data);
+        this.logger.debug(`Broadcasted event [${event}] to everyone`);
+      }
+      return 'Success';
+    } else if (job.name === EJobName.EMIT_TO_USERS) {
+      this.logger.log(`Processing socket job: ${job.name} (ID: ${job.id})`);
+      const { event, userIds, data } = job.data as IEmitToUsersJobData;
+
+      if (event && userIds && Array.isArray(userIds)) {
+        userIds.forEach((userId: string) => {
+          this.socketGateway.server.to(`user_${userId}`).emit(event, data);
+        });
+        this.logger.debug(`Emitted event [${event}] to ${userIds.length} users`);
+      }
+      return 'Success';
     }
-    this.logger.log(`Processing socket job: ${job.name} (ID: ${job.id})`);
 
-    const { event, room, data } = job.data;
-
-    if (event && room) {
-      // Emit to specific room (channel)
-      this.socketGateway.server.to(room).emit(event, data);
-      this.logger.debug(`Emitted event [${event}] to room [${room}]`);
-    } else if (event && !room) {
-      // Broadcast to all
-      this.socketGateway.server.emit(event, data);
-      this.logger.debug(`Broadcasted event [${event}] to everyone`);
-    }
-
-    return 'Success';
+    this.logger.warn(`Unknown job name: ${job.name}`);
+    return 'Ignored';
   }
 }
 

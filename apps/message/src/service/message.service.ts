@@ -91,11 +91,149 @@ export class MessageService {
     }
   }
 
+  private async handleMentionsAndAttachments(
+    savedMessage: MessageEntity,
+    createMessageDto: CreateMessageDto,
+    manager: EntityManager,
+  ) {
+    // 4. Handle mentions
+    if (createMessageDto.mentions && createMessageDto.mentions.length > 0) {
+      const mentionEntities = createMessageDto.mentions.map((userId) =>
+        manager.create(MessageMentionEntity, {
+          messageId: savedMessage.id,
+          userId,
+        }),
+      );
+      savedMessage.mentions = await manager.save(mentionEntities);
+    }
+
+    // 4.5. Handle attachments
+    if (
+      createMessageDto.attachments &&
+      createMessageDto.attachments.length > 0
+    ) {
+      const attachmentEntities = createMessageDto.attachments.map((a) =>
+        manager.create(MessageAttachmentEntity, {
+          messageId: savedMessage.id,
+          resourceId: a.id,
+          publicId: a.publicId,
+          url: a.url,
+          filename: a.filename,
+          mimeType: a.mimeType,
+          size: a.size,
+          type: a.type,
+          thumbnailUrl: a.thumbnailUrl,
+        }),
+      );
+      savedMessage.attachments = await manager.save(attachmentEntities);
+    }
+  }
+
+  private async broadcastMessageEvents(
+    response: MessageResponseDto,
+    channel: { name: string; workspaceId: string },
+    savedMessage: MessageEntity,
+    manager: EntityManager,
+  ) {
+    // 6. Emit Socket Event (Background)
+    const targetRoom = response.parentId
+      ? `thread_${response.parentId}`
+      : response.channelId;
+
+    await this.queueService.addJob(
+      EQueueName.SOCKET_QUEUE,
+      EJobName.EMIT_EVENT,
+      {
+        event: ESocketEvent.MESSAGE_RECEIVED,
+        room: targetRoom,
+        data: response,
+      },
+    );
+
+    // 6.5. Emit Thread Event to User Private Rooms if it's a thread reply
+    if (response.parentId) {
+      const rawParticipants = await manager.query(
+        `
+        SELECT DISTINCT "userId" FROM (
+          SELECT user_id AS "userId" FROM messages 
+          WHERE id = $1 OR parent_id = $1
+
+          UNION
+
+          SELECT m.user_id AS "userId" FROM message_mentions m
+          INNER JOIN messages msg ON m.message_id = msg.id
+          WHERE msg.id = $1 OR msg.parent_id = $1
+        ) t
+        `,
+        [response.parentId],
+      );
+
+      const userIds = rawParticipants
+        .map((p: { userId: string }) => p.userId)
+        .filter((id: string) => id !== response.sender.id);
+
+      if (userIds.length > 0) {
+        await this.queueService.addJob(
+          EQueueName.SOCKET_QUEUE,
+          EJobName.EMIT_TO_USERS,
+          {
+            event: ESocketEvent.THREAD_MESSAGE_RECEIVED,
+            userIds,
+            data: response as unknown as Record<string, unknown>,
+          },
+        );
+      }
+    }
+
+    // 7. Push to Notification Queue (Background)
+    await this.queueService.addJob(
+      EQueueName.NOTIFICATION_QUEUE,
+      EJobName.CREATE_NOTIFICATION,
+      {
+        channelId: response.channelId,
+        channelName: channel.name,
+        senderId: response.sender.id,
+        senderName: response.sender.firstName + ' ' + response.sender.lastName,
+        messageId: response.id,
+        mentions: response.mentions,
+        parentId: response.parentId || undefined,
+        workspaceId: channel.workspaceId,
+        content: JSON.stringify(response.content),
+      },
+    );
+
+    // 8. Push to Channel Queue (Background) - For unread count
+    if (!response.parentId) {
+      await this.queueService.addJob(
+        EQueueName.CHANNEL_QUEUE,
+        EJobName.INCREMENT_UNREAD_COUNT,
+        {
+          channelId: response.channelId,
+          senderId: response.sender.id,
+        },
+      );
+    }
+
+    // 9. Update resource metadata (Background)
+    if (savedMessage.attachments && savedMessage.attachments.length > 0) {
+      await this.queueService.addJob(
+        EQueueName.RESOURCE_QUEUE,
+        EJobName.UPDATE_RESOURCE_METADATA,
+        {
+          resourceIds: savedMessage.attachments.map(
+            (a: IMessageAttachment) => a.id,
+          ),
+          refType: 'message',
+          refId: savedMessage.id,
+        },
+      );
+    }
+  }
+
   async createMessage(
     createMessageDto: CreateMessageDto,
   ): Promise<MessageResponseDto> {
-    const { channelId, senderId, content, parentId, mentions } =
-      createMessageDto;
+    const { channelId, senderId, content, parentId } = createMessageDto;
 
     // check channel exist
     const channel = await this.checkChannelExist(channelId, senderId);
@@ -123,100 +261,14 @@ export class MessageService {
 
       const savedMessage = await manager.save(message);
 
-      // 4. Handle mentions
-      if (mentions && mentions.length > 0) {
-        const mentionEntities = mentions.map((userId) =>
-          manager.create(MessageMentionEntity, {
-            messageId: savedMessage.id,
-            userId,
-          }),
-        );
-        savedMessage.mentions = await manager.save(mentionEntities);
-      }
-
-      // 4.5. Handle attachments
-      if (
-        createMessageDto.attachments &&
-        createMessageDto.attachments.length > 0
-      ) {
-        const attachmentEntities = createMessageDto.attachments.map((a) =>
-          manager.create(MessageAttachmentEntity, {
-            messageId: savedMessage.id,
-            resourceId: a.id,
-            publicId: a.publicId,
-            url: a.url,
-            filename: a.filename,
-            mimeType: a.mimeType,
-            size: a.size,
-            type: a.type,
-            thumbnailUrl: a.thumbnailUrl,
-          }),
-        );
-        savedMessage.attachments = await manager.save(attachmentEntities);
-      }
+      // 4. Handle mentions and attachments
+      await this.handleMentionsAndAttachments(savedMessage, createMessageDto, manager);
 
       // 5. Hydrate and return
       const [response] = await this.hydrateMessages([savedMessage], manager);
 
-      // 6. Emit Socket Event (Background)
-      const targetRoom = response.parentId
-        ? `thread_${response.parentId}`
-        : response.channelId;
-
-      await this.queueService.addJob(
-        EQueueName.SOCKET_QUEUE,
-        EJobName.EMIT_EVENT,
-        {
-          event: ESocketEvent.MESSAGE_RECEIVED,
-          room: targetRoom,
-          data: response,
-        },
-      );
-
-      // 7. Push to Notification Queue (Background)
-      // This will handle saving to DB and push notifications
-      await this.queueService.addJob(
-        EQueueName.NOTIFICATION_QUEUE,
-        EJobName.CREATE_NOTIFICATION,
-        {
-          channelId: response.channelId,
-          channelName: channel.name,
-          senderId: response.sender.id,
-          senderName: response.sender.firstName + ' ' + response.sender.lastName,
-          messageId: response.id,
-          mentions: response.mentions,
-          parentId: response.parentId || undefined,
-          workspaceId: channel.workspaceId,
-          content: JSON.stringify(response.content),
-        },
-      );
-
-      // 8. Push to Channel Queue (Background) - For unread count
-      if (!response.parentId) {
-        await this.queueService.addJob(
-          EQueueName.CHANNEL_QUEUE,
-          EJobName.INCREMENT_UNREAD_COUNT,
-          {
-            channelId: response.channelId,
-            senderId: response.sender.id,
-          },
-        );
-      }
-
-      // 9. Update resource metadata (Background)
-      if (savedMessage.attachments && savedMessage.attachments.length > 0) {
-        await this.queueService.addJob(
-          EQueueName.RESOURCE_QUEUE,
-          EJobName.UPDATE_RESOURCE_METADATA,
-          {
-            resourceIds: savedMessage.attachments.map(
-              (a: IMessageAttachment) => a.id,
-            ),
-            refType: 'message',
-            refId: savedMessage.id,
-          },
-        );
-      }
+      // 6. Broadcast events and queues
+      await this.broadcastMessageEvents(response, channel, savedMessage, manager);
 
       return response;
     });

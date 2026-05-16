@@ -41,6 +41,12 @@ export interface IEmitEventJobData {
   data: any;
 }
 
+export interface IEmitToUsersJobData {
+  event: string;
+  userIds: string[];
+  data: Record<string, unknown>;
+}
+
 export interface IIncrementUnreadJobData {
   channelId: string;
   senderId: string;
@@ -71,6 +77,7 @@ export type TJobData = {
   [EJobName.SEND_PASSWORD_RESET_EMAIL]: IEmailJobData;
   [EJobName.CREATE_NOTIFICATION]: ICreateNotificationJobData;
   [EJobName.EMIT_EVENT]: IEmitEventJobData;
+  [EJobName.EMIT_TO_USERS]: IEmitToUsersJobData;
   [EJobName.INCREMENT_UNREAD_COUNT]: IIncrementUnreadJobData;
   [EJobName.TASK_DEADLINE_REMINDER]: ITaskDeadlineJobData;
   [EJobName.UPDATE_RESOURCE_METADATA]: IUpdateResourceMetadataJobData;
