@@ -134,15 +134,17 @@ export class NotificationService {
     // Đưa vào try-catch để nếu socket lỗi cũng không làm fail transaction chính
     try {
       const unreadNotiCount = await this.getUnreadCount(saved.recipientId);
+      const unreadSummary = await this.getUnreadSummary(saved.recipientId);
       await this.queueService.addJob(
         EQueueName.SOCKET_QUEUE,
         EJobName.EMIT_EVENT,
         {
-          event: ESocketEvent.UNREAD_COUNT_UPDATED,
+          event: ESocketEvent.UNREAD_ACTIVITY_COUNT_UPDATED,
           room: `user_${saved.recipientId}`,
           data: {
             ...saved,
             unreadNotiCount,
+            unreadSummary,
           },
         },
       );

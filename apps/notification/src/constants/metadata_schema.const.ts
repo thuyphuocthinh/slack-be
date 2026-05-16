@@ -10,33 +10,36 @@ export const NotificationMetadataSchema = {
     actorName: z.string(),
     messageId: z.string(),
     channelId: z.string(),
-    channelName: z.string(),
+    channelName: z.string().nullable().optional(),
     snippet: z.string().optional(),
-  }),
+  }).passthrough(),
 
   [NotificationType.MENTIONED_IN_MESSAGE]: z.object({
     actorId: z.string(),
     actorName: z.string(),
     messageId: z.string(),
     channelId: z.string(),
-    channelName: z.string(),
-    snippet: z.string(),
-  }),
+    channelName: z.string().nullable().optional(),
+    snippet: z.string().optional(),
+  }).passthrough(),
 
   [NotificationType.REPLY_IN_THREAD]: z.object({
     actorId: z.string(),
     actorName: z.string(),
     messageId: z.string(),
-    threadId: z.string(),
+    threadId: z.string().optional(),
+    parentId: z.string().optional(),
+    channelId: z.string().optional(),
+    channelName: z.string().nullable().optional(),
     snippet: z.string().optional(),
-  }),
+  }).passthrough(),
 
   [NotificationType.MESSAGE_REACTION_ADDED]: z.object({
     actorId: z.string(),
     actorName: z.string(),
     messageId: z.string(),
     reaction: z.string(), // 👍 ❤️ 😂
-  }),
+  }).passthrough(),
 
   // ======================
   // CHANNEL

@@ -601,6 +601,30 @@ export class MessageService {
         },
       );
 
+      // Bắn thông báo tới Activity khi có Reaction mới
+      if (isAdded && updatedMessage.sender.id !== userId) {
+        const channel = await this.checkChannelExist(updatedMessage.channelId, userId);
+        const userMap = await this.getUsersInfo([userId]);
+        const reactor = userMap.get(userId);
+        const reactorName = reactor ? `${reactor.firstName} ${reactor.lastName}` : 'User';
+
+        await this.queueService.addJob(
+          EQueueName.NOTIFICATION_QUEUE,
+          EJobName.CREATE_NOTIFICATION,
+          {
+            channelId: updatedMessage.channelId,
+            channelName: channel.name || 'Direct Message',
+            senderId: userId,
+            senderName: reactorName,
+            messageId: updatedMessage.id,
+            workspaceId: channel.workspaceId,
+            content: JSON.stringify(updatedMessage.content),
+            reaction: emoji,
+            recipientId: updatedMessage.sender.id,
+          },
+        );
+      }
+
       return isAdded;
     });
   }

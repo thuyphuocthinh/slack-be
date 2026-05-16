@@ -43,6 +43,8 @@ export class NotificationProcessor extends BaseProcessor<
       parentId,
       workspaceId,
       content,
+      reaction,
+      recipientId,
     } = job.data;
 
     try {
@@ -58,18 +60,29 @@ export class NotificationProcessor extends BaseProcessor<
         return;
       }
 
-      // 2. Lọc ra danh sách những người cần nhận thông báo (trừ người gửi)
-      const recipients = members.filter((m) => m.memberId !== senderId);
+      // 2. Lọc ra danh sách những người cần nhận thông báo (trừ người gửi và lọc theo recipientId nếu có)
+      const recipients = members.filter((m) => {
+        if (m.memberId === senderId) return false;
+        if (recipientId && m.memberId !== recipientId) return false;
+        return true;
+      });
 
       // 3. Xử lý lưu DB và bắn Socket cho từng người
       const promises = recipients.map(async (member) => {
         // Xác định loại thông báo
         let notificationType = NotificationType.MESSAGE_RECEIVED;
 
-        if (mentions?.some((men: any) => men.userId === member.memberId)) {
+        if (reaction) {
+          notificationType = NotificationType.MESSAGE_REACTION_ADDED;
+        } else if (mentions?.some((men: any) => men.userId === member.memberId)) {
           notificationType = NotificationType.MENTIONED_IN_MESSAGE;
         } else if (parentId) {
           notificationType = NotificationType.REPLY_IN_THREAD;
+        }
+
+        // Bỏ qua tin nhắn thông thường, không lưu vào DB Notification và không bắn socket realtime về Activity
+        if (notificationType === NotificationType.MESSAGE_RECEIVED) {
+          return;
         }
 
         // A. Lưu vào Database Notification và Bắn Socket Realtime (đã tích hợp trong Service)
@@ -85,9 +98,12 @@ export class NotificationProcessor extends BaseProcessor<
             actorId: senderId,
             actorName: senderName,
             messageId: messageId,
-            channelName: channelName,
+            channelName: channelName || 'Direct Message',
             channelId,
             parentId,
+            threadId: parentId,
+            snippet: content,
+            reaction,
           },
         });
       });

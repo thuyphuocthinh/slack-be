@@ -33,6 +33,8 @@ export interface ICreateNotificationJobData {
   parentId?: string;
   workspaceId: string;
   content: string;
+  reaction?: string;
+  recipientId?: string;
 }
 
 export interface IEmitEventJobData {

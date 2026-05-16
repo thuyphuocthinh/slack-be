@@ -26,7 +26,7 @@ export enum ESocketEvent {
   THREAD_MESSAGE_RECEIVED = 'thread_message_received',
 
   // Notification / Unread
-  UNREAD_COUNT_UPDATED = 'unread_count_updated',
+  UNREAD_ACTIVITY_COUNT_UPDATED = 'unread_activity_count_updated',
   CHANNEL_UNREAD_UPDATED = 'channel_unread_updated',
 
   // MARK READ MESSAGE
