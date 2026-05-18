@@ -18,6 +18,7 @@ import { getDataSourceOptions } from './database.config';
         DB_USER: Joi.string().required(),
         DB_PASS: Joi.string().required(),
         DB_NAME: Joi.string().optional(),
+        DB_POOL_SIZE: Joi.number().default(50),
         GATEWAY_PORT: Joi.number().default(3000),
         MAIL_HOST: Joi.string().required(),
         MAIL_PORT: Joi.number().required(),
