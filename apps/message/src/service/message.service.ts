@@ -98,13 +98,18 @@ export class MessageService {
   ) {
     // 4. Handle mentions
     if (createMessageDto.mentions && createMessageDto.mentions.length > 0) {
-      const mentionEntities = createMessageDto.mentions.map((userId) =>
-        manager.create(MessageMentionEntity, {
-          messageId: savedMessage.id,
-          userId,
-        }),
-      );
-      savedMessage.mentions = await manager.save(mentionEntities);
+      const actualMentions = createMessageDto.mentions.filter((id) => id !== 'all');
+      if (actualMentions.length > 0) {
+        const mentionEntities = actualMentions.map((userId) =>
+          manager.create(MessageMentionEntity, {
+            messageId: savedMessage.id,
+            userId,
+          }),
+        );
+        savedMessage.mentions = await manager.save(mentionEntities);
+      } else {
+        savedMessage.mentions = [];
+      }
     }
 
     // 4.5. Handle attachments
@@ -433,8 +438,9 @@ export class MessageService {
         const mentionRepo = manager.getRepository(MessageMentionEntity);
         await mentionRepo.delete({ messageId: id });
 
-        if (updateDto.mentions.length > 0) {
-          const mentionEntities = updateDto.mentions.map((mentionUserId) =>
+        const actualMentions = updateDto.mentions.filter((id) => id !== 'all');
+        if (actualMentions.length > 0) {
+          const mentionEntities = actualMentions.map((mentionUserId) =>
             mentionRepo.create({
               messageId: id,
               userId: mentionUserId,
@@ -826,7 +832,11 @@ export class MessageService {
     const userIds = new Set<string>();
     messages.forEach((m) => {
       userIds.add(m.userId);
-      m.mentions?.forEach((men) => userIds.add(men.userId));
+      m.mentions?.forEach((men) => {
+        if (men.userId !== 'all') {
+          userIds.add(men.userId);
+        }
+      });
     });
 
     const userMap = await this.getUsersInfo(Array.from(userIds));
@@ -926,7 +936,14 @@ export class MessageService {
       email: '',
     };
     dto.reactions = reactions;
-    dto.mentions = mentions.map((m) => ({ userId: m.userId }));
+    const allMentions = mentions.map((m) => ({ userId: m.userId }));
+    const isMentionAll = typeof message.content === 'string'
+      ? message.content.includes('"id":"all"')
+      : JSON.stringify(message.content).includes('"id":"all"');
+    if (isMentionAll && !allMentions.some((m) => m.userId === 'all')) {
+      allMentions.push({ userId: 'all' });
+    }
+    dto.mentions = allMentions;
     dto.replyCount = 0;
     return dto;
   }

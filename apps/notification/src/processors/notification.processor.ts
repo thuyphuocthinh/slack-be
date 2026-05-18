@@ -74,7 +74,7 @@ export class NotificationProcessor extends BaseProcessor<
 
         if (reaction) {
           notificationType = NotificationType.MESSAGE_REACTION_ADDED;
-        } else if (mentions?.some((men: any) => men.userId === member.memberId)) {
+        } else if (mentions?.some((men: any) => men.userId === member.memberId || men.userId === 'all')) {
           notificationType = NotificationType.MENTIONED_IN_MESSAGE;
         } else if (parentId) {
           notificationType = NotificationType.REPLY_IN_THREAD;
