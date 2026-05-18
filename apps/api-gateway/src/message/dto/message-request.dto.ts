@@ -51,6 +51,7 @@ export class ToggleReactionRequestDto {
 
 export class GetThreadRequestDto {
   userId: string;
+  workspaceId: string;
   cursor?: string;
   limit?: number;
 }

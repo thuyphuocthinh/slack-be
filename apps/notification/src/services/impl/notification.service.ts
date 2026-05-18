@@ -208,17 +208,22 @@ export class NotificationService {
 
   async getUnreadSummary(
     userId: string,
+    workspaceId?: string,
   ): Promise<NotificationUnreadSummaryResponse> {
-    const rawCounts = await this.notificationRepo
+    const query = this.notificationRepo
       .createQueryBuilder('notification')
       .select('notification.type', 'type')
       .addSelect('COUNT(*)', 'count')
       .where('notification.recipient_id = :userId', { userId })
       .andWhere('notification.status = :status', {
         status: NotificationStatus.UNREAD,
-      })
-      .groupBy('notification.type')
-      .getRawMany();
+      });
+
+    if (workspaceId) {
+      query.andWhere('notification.workspace_id = :workspaceId', { workspaceId });
+    }
+
+    const rawCounts = await query.groupBy('notification.type').getRawMany();
 
     const summary: NotificationUnreadSummaryResponse = {
       unreadAll: 0,

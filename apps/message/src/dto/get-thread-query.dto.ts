@@ -18,4 +18,8 @@ export class GetThreadQueryDto {
   @IsUUID()
   @IsNotEmpty()
   userId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
 }

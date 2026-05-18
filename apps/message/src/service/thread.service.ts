@@ -1,9 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { MessageEntity } from '../entity/message.entity';
 import { DataSource, In, Repository } from 'typeorm';
 import { MessageService } from './message.service';
 import { MessageResponseDto, ThreadResponseDto } from '../dto';
+import { ClientProxy } from '@nestjs/microservices';
+import { CHANNEL_MESSAGE_PATTERN, NAME_SERVICE_TCP } from '@slack/constants';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class ThreadService {
@@ -14,6 +17,8 @@ export class ThreadService {
     private readonly messageRepository: Repository<MessageEntity>,
     private readonly messageService: MessageService,
     private readonly dataSource: DataSource,
+    @Inject(NAME_SERVICE_TCP.CHANNEL_SERVICE)
+    private readonly channelService: ClientProxy,
   ) { }
 
   /**
@@ -25,17 +30,34 @@ export class ThreadService {
    */
   async getUserThreads(
     userId: string,
+    workspaceId: string,
     limit: number = 10,
     cursor?: string,
   ): Promise<ThreadResponseDto> {
+    const channelsRes = await firstValueFrom(
+      this.channelService.send(CHANNEL_MESSAGE_PATTERN.GET_CHANNELS, {
+        workspaceId,
+        memberId: userId,
+        limit: 1000,
+      }),
+    );
+    const channelIds = channelsRes?.data?.map((c: { id: string }) => c.id) || [];
+
+    if (channelIds.length === 0) {
+      return {
+        messages: [],
+        nextCursor: undefined,
+      };
+    }
+
     return await this.dataSource.transaction(async (manager) => {
       const messageRepo = manager.getRepository(MessageEntity);
       const involvedRootsQuery = messageRepo
         .createQueryBuilder('m')
         .select('DISTINCT COALESCE(m.parent_id, m.id)', 'rootId')
         .leftJoin('m.mentions', 'mention')
-        .where('m.userId = :userId', { userId })
-        .orWhere('mention.userId = :userId', { userId });
+        .where('m.channelId IN (:...channelIds)', { channelIds })
+        .andWhere('(m.userId = :userId OR mention.userId = :userId)', { userId });
 
       // Query chính lấy danh sách ID của các root message
       const idsQueryBuilder = messageRepo

@@ -72,8 +72,8 @@ export class NotificationController {
   }
 
   @MessagePattern(NOTIFICATION_MESSAGE_PATTERNS.GET_UNREAD_SUMMARY)
-  async getUnreadSummary(@Payload() payload: { userId: string }) {
-    return this.notificationService.getUnreadSummary(payload.userId);
+  async getUnreadSummary(@Payload() payload: { userId: string; workspaceId?: string }) {
+    return this.notificationService.getUnreadSummary(payload.userId, payload.workspaceId);
   }
 
   @MessagePattern(NOTIFICATION_MESSAGE_PATTERNS.GET_NOTIFICATION_BY_ID)

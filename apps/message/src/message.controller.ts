@@ -84,6 +84,7 @@ export class MessageController {
   getThreads(@Payload() query: GetThreadQueryDto) {
     return this.threadService.getUserThreads(
       query.userId,
+      query.workspaceId,
       query.limit,
       query.cursor,
     );

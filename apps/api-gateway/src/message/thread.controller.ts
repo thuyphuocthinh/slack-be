@@ -6,7 +6,7 @@ import { GetFullThreadQueryApiDto, GetThreadQueryApiDto } from './dto/message-ap
 import { GetFullThreadRequestDto, GetThreadRequestDto } from './dto/message-request.dto';
 
 @ApiTags('Threads')
-@Controller('threads')
+@Controller('workspaces/:workspaceId/threads')
 @ApiBearerAuth()
 export class ThreadController {
   constructor(private readonly messageService: MessageService) { }
@@ -14,13 +14,15 @@ export class ThreadController {
   @Get()
   @ApiOperation({ summary: 'Get user threads' })
   async getThreads(
+    @Param('workspaceId') workspaceId: string,
     @Query() query: GetThreadQueryApiDto,
     @CurrentUser() user: JwtUser,
   ) {
     return await this.messageService.getThreads({
       ...query,
       userId: user.sub,
-    } as GetThreadRequestDto);
+      workspaceId
+    });
   }
 
   @Get(':threadId')

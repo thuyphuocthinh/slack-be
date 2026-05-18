@@ -53,7 +53,7 @@ export class WorkspaceService {
           firstValueFrom(
             this.notificationClient.send(
               NOTIFICATION_MESSAGE_PATTERNS.GET_UNREAD_SUMMARY,
-              { userId },
+              { userId, workspaceId },
             ),
           ),
         ]);
