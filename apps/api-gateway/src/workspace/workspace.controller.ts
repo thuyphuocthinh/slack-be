@@ -294,7 +294,20 @@ export class WorkspaceController {
     return await this.workspaceService.getLinks(user.sub, id);
   }
 
-  @Delete(':id/links/:linkId')
+  @Post('links/join')
+  @ApiOperation({ summary: 'Join a workspace via public link' })
+  @ApiResponse({ status: 200, description: 'Joined workspace successfully' })
+  async joinLink(
+    @Query('token') token: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.workspaceService.joinLink({
+      token,
+      userId: user.sub,
+    });
+  }
+
+  @Patch(':id/links/:linkId/disable')
   @ApiOperation({ summary: 'Disable a public invite link' })
   @ApiResponse({ status: 200, description: 'Link disabled successfully' })
   async disableLink(

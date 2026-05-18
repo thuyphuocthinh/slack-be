@@ -23,4 +23,5 @@ export const WORKSPACE_MESSAGE_PATTERNS = {
   CHECK_PERMISSION: 'workspace.check_permission',
   GET_MEMBER: 'workspace.get_member',
   GET_MEMBER_DETAIL: 'workspace.get_member_detail',
+  JOIN_LINK: 'workspace.join_link',
 } as const;

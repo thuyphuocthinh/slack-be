@@ -18,6 +18,7 @@ import {
   ResendInviteRequestDto,
   RevokeInviteRequestDto,
   GenerateLinkRequestDto,
+  JoinLinkRequestDto,
   DisableLinkRequestDto,
   DeleteLinkRequestDto,
   UpdateWorkspaceRequestDto,
@@ -134,6 +135,11 @@ export class WorkspaceController {
   @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.GET_LINKS)
   getLinks(@Payload() dto: { workspaceId: string; userId: string }) {
     return this.linkService.getLinks(dto.userId, dto.workspaceId);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.JOIN_LINK)
+  joinLink(@Payload() dto: JoinLinkRequestDto) {
+    return this.linkService.joinLink(dto);
   }
 
   @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.ADD_BATCH_MEMBERS)

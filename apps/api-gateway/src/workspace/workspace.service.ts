@@ -21,6 +21,7 @@ import {
   ResendInviteRequestDto,
   RevokeInviteRequestDto,
   GenerateLinkRequestDto,
+  JoinLinkRequestDto,
   DisableLinkRequestDto,
   DeleteLinkRequestDto,
   UpdateWorkspaceRequestDto,
@@ -309,6 +310,20 @@ export class WorkspaceService {
           }),
         ),
       'getLinks',
+      'WorkspaceService',
+    );
+  }
+
+  async joinLink(data: JoinLinkRequestDto) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.workspaceClient.send(
+            WORKSPACE_MESSAGE_PATTERNS.JOIN_LINK,
+            data,
+          ),
+        ),
+      'joinLink',
       'WorkspaceService',
     );
   }
