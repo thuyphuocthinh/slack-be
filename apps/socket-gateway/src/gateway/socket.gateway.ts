@@ -118,6 +118,7 @@ export class SocketGateway
 
     // 5. Lưu payload vào socket để dùng cho các event sau
     client.data.user = payload;
+    client.data.token = token;
     this.logger.log(
       `Client authenticated: ${client.id} (User: ${payload.sub})`,
     );
@@ -320,11 +321,32 @@ export class SocketGateway
   @SubscribeMessage(ESocketEvent.USER_HEARTBEAT)
   async handleUserHeartbeat(client: Socket) {
     try {
-      const userId = client.data.user.sub;
-      await this.presenceCache.updateLastSeen(userId);
+      const user = client.data?.user;
+      const token = client.data?.token;
+      if (!user || !token) {
+        client.disconnect();
+        return { status: 'error', message: 'Unauthorized' };
+      }
+
+      if (await this.authCache.isBlacklisted(token)) {
+        this.logger.warn(`Heartbeat rejected: Token blacklisted for user ${user.sub}`);
+        client.disconnect();
+        return { status: 'error', message: 'Token blacklisted' };
+      }
+
+      const currentVersion = await this.authCache.getUserTokenVersion(user.sub);
+      if (user.tokenVersion !== currentVersion) {
+        this.logger.warn(`Heartbeat rejected: Token version mismatch for user ${user.sub}`);
+        client.disconnect();
+        return { status: 'error', message: 'Token version mismatch' };
+      }
+
+      await this.presenceCache.updateLastSeen(user.sub);
       return { status: 'success' };
     } catch (error) {
       this.logger.error(`Error in handleUserHeartbeat: ${error.message}`);
+      client.disconnect();
+      return { status: 'error', message: 'Internal server error' };
     }
   }
 
@@ -335,9 +357,11 @@ export class SocketGateway
       if (!userIds || !Array.isArray(userIds)) return { status: 'error', message: 'Invalid payload' };
 
       const presences = await this.presenceCache.getPresences(userIds.slice(0, 100));
+      client.emit(ESocketEvent.USER_PRESENCE_GET, { status: 'success', presences });
       return { status: 'success', presences };
     } catch (error) {
       this.logger.error(`Error in handleGetUserPresence: ${error.message}`);
+      client.emit(ESocketEvent.USER_PRESENCE_GET, { status: 'error', message: 'Failed to fetch presence' });
       return { status: 'error', message: 'Failed to fetch presence' };
     }
   }

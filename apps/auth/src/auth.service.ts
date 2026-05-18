@@ -29,7 +29,7 @@ import { v7 } from 'uuid';
 import { firstValueFrom } from 'rxjs';
 import { ITokenResponse, ITwoFactorResponse } from './types/auth.response';
 import { buildTTL, hashToken, IRequestMetadata } from '@slack/common';
-import { AuthCacheService } from '@slack/cached';
+import { AuthCacheService, PresenceCacheService } from '@slack/cached';
 import { EJobName, EQueueName, QueueService } from '@slack/queue';
 @Injectable()
 export class AuthService {
@@ -46,6 +46,7 @@ export class AuthService {
     private readonly userClient: ClientProxy,
     private readonly jwtService: JwtService,
     private readonly authCacheService: AuthCacheService,
+    private readonly presenceCacheService: PresenceCacheService,
     private readonly dataSource: DataSource,
     private readonly queueService: QueueService,
   ) { }
@@ -505,6 +506,15 @@ export class AuthService {
       accessToken,
       buildTTL('MINUTE', 30),
     );
+
+    try {
+      const payload = await this.jwtService.verifyAsync(accessToken);
+      const userId = payload.sub;
+      await this.presenceCacheService.removeStatus(userId);
+    } catch (err) {
+      this.logger.warn(`Failed to remove presence status on logout: ${err.message}`);
+    }
+
     return 'Logout successfully.';
   }
 
@@ -527,6 +537,7 @@ export class AuthService {
         { isRevoked: true },
       );
       await this.authCacheService.bumpUserTokenVersion(userId);
+      await this.presenceCacheService.removeStatus(userId);
       return 'Logout all successfully.';
     } catch (error) {
       this.logger.error(`Logout all failed: ${error.message}`);
