@@ -133,6 +133,15 @@
         "tsConfigPath": "apps/user/tsconfig.app.json"
       }
     },
+    "video-call": {
+      "type": "application",
+      "root": "apps/video-call",
+      "entryFile": "main",
+      "sourceRoot": "apps/video-call/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/video-call/tsconfig.app.json"
+      }
+    },
     "workspace": {
       "type": "application",
       "root": "apps/workspace",
