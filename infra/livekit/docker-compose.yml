@@ -1,0 +1,30 @@
+version: "3.8"
+
+services:
+  livekit:
+    image: livekit/livekit-server:v1.8.0
+    container_name: slack-livekit-server
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "7880:7880"       # HTTP API và WebSocket Signaling
+      - "7881:7881"       # WebRTC TCP (dự phòng khi UDP bị chặn)
+      - "7882:7882/udp"   # WebRTC UDP (Single port mode qua UDP Mux)
+    
+    # Nạp file cấu hình môi trường chung từ thư mục gốc của slack-be
+    env_file:
+      - ../../.env
+      
+    # Nạp động các giá trị cấu hình từ .env vào LiveKit container
+    environment:
+      # Định dạng của LIVEKIT_KEYS là: "api_key: api_secret"
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+      LIVEKIT_REDIS_ADDRESS: "host.docker.internal:${REDIS_PORT}"
+      LIVEKIT_REDIS_USERNAME: "${REDIS_USERNAME}"
+      LIVEKIT_REDIS_PASSWORD: "${REDIS_PASSWORD}"
+      
+    restart: unless-stopped
+    # Hỗ trợ container kết nối tới các service chạy ở host máy tính (ví dụ: Redis)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

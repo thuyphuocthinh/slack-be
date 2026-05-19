@@ -1,0 +1,24 @@
+# Cấu hình LiveKit Server cho môi trường phát triển local (Slack Huddle)
+port: 7880
+bind_addresses:
+  - ''
+
+# Cấu hình WebRTC Media Engine
+rtc:
+  tcp_port: 7881
+  # Sử dụng chế độ Single Port UDP (UDP Mux) thay vì port range
+  # Điều này giúp dễ dàng expose/port-forward trên môi trường Docker của Windows/Mac
+  udp_port: 7882
+  use_external_ip: false # Tắt external IP checks khi chạy ở localhost
+
+  # Cấu hình STUN servers phục vụ việc bắt tay ICE của clients
+  stun_servers:
+    - 'stun.l.google.com:19302'
+    - 'stun1.l.google.com:19302'
+
+  # Cấu hình TURN Server (Comment lại phục vụ khi lên môi trường Staging/Production thực tế)
+  # turn:
+  #   enabled: true
+  #   domain: livekit.tpt.io.vn
+  #   tls_port: 3478
+  #   udp_port: 3478
