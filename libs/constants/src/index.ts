@@ -24,6 +24,7 @@ export * from './tcp/message_pattern/audit_msg_pattern.constant';
 export * from './tcp/message_pattern/task_msg_pattern.constant';
 export * from './tcp/message_pattern/channel_msg_pattern.constant';
 export * from './tcp/message_pattern/message_msg_pattern.constant';
+export * from './tcp/message_pattern/video_call_msg_pattern.constant';
 
 export * from './const/regex.constant';
 

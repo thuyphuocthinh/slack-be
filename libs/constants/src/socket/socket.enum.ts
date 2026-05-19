@@ -39,4 +39,10 @@ export enum ESocketEvent {
   // PRESENCE
   USER_PRESENCE_GET = 'user_presence_get',
   USER_HEARTBEAT = 'user_heartbeat',
+
+  // HUDDLE (VIDEO CALL)
+  HUDDLE_STARTED = 'huddle_started',
+  HUDDLE_ENDED = 'huddle_ended',
+  HUDDLE_PARTICIPANT_JOINED = 'huddle_participant_joined',
+  HUDDLE_PARTICIPANT_LEFT = 'huddle_participant_left',
 }

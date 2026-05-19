@@ -1,10 +1,7 @@
-version: "3.8"
-
 services:
   livekit:
     image: livekit/livekit-server:v1.8.0
     container_name: slack-livekit-server
-    command: --config /etc/livekit.yaml
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml:ro
     ports:
@@ -16,13 +13,30 @@ services:
     env_file:
       - ../../.env
       
-    # Nạp động các giá trị cấu hình từ .env vào LiveKit container
-    environment:
-      # Định dạng của LIVEKIT_KEYS là: "api_key: api_secret"
-      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
-      LIVEKIT_REDIS_ADDRESS: "host.docker.internal:${REDIS_PORT}"
-      LIVEKIT_REDIS_USERNAME: "${REDIS_USERNAME}"
-      LIVEKIT_REDIS_PASSWORD: "${REDIS_PASSWORD}"
+    # Sử dụng entrypoint để sinh động các biến môi trường cấu hình tại runtime
+    # Tránh việc docker-compose cảnh báo thiếu biến trên máy Host và loại bỏ xung đột cổng Redis
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        export LIVEKIT_KEYS="$${LIVEKIT_API_KEY}: $${LIVEKIT_API_SECRET}"
+        export LIVEKIT_REDIS_ADDRESS="host.docker.internal:$${REDIS_PORT}"
+        export LIVEKIT_REDIS_USERNAME="$${REDIS_USERNAME}"
+        export LIVEKIT_REDIS_PASSWORD="$${REDIS_PASSWORD}"
+        
+        # Trích xuất IP/Host tự động
+        LIVEKIT_HOST=$$(echo "$$LIVEKIT_URL" | sed -e 's/ws:\/\///' -e 's/:.*//')
+        
+        # NẾU LÀ LOCALHOST HOẶC RỖNG, DÙNG 127.0.0.1 ĐỂ BASS QUA LỖI UDP VM
+        if [ "$$LIVEKIT_HOST" = "localhost" ] || [ -z "$$LIVEKIT_HOST" ]; then
+          LIVEKIT_HOST="127.0.0.1"
+        fi
+        
+        unset REDIS_HOST
+        unset REDIS_PORT
+        echo "--> LiveKit Server starting with Node IP: $$LIVEKIT_HOST"
+        exec /livekit-server --config /etc/livekit.yaml --node-ip "$$LIVEKIT_HOST"
+
       
     restart: unless-stopped
     # Hỗ trợ container kết nối tới các service chạy ở host máy tính (ví dụ: Redis)

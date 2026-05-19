@@ -15,6 +15,7 @@ import { NotificationModule } from './notification/notification.module';
 import { TaskModule } from './task/task.module';
 import { ChannelModule } from './channel/channel.module';
 import { MessageModule } from './message/message.module';
+import { VideoCallModule } from './video-call/video-call.module';
 import { RateLimitGuard } from './common/guards/rate-limit.guard';
 
 @Module({
@@ -30,6 +31,7 @@ import { RateLimitGuard } from './common/guards/rate-limit.guard';
     TaskModule,
     ChannelModule,
     MessageModule,
+    VideoCallModule,
 
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'fallback_secret',

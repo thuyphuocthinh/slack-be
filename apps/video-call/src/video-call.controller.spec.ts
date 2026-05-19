@@ -5,18 +5,26 @@ import { VideoCallService } from './video-call.service';
 describe('VideoCallController', () => {
   let videoCallController: VideoCallController;
 
+  const mockVideoCallService = {
+    joinHuddle: jest.fn(),
+    leaveHuddle: jest.fn(),
+  };
+
   beforeEach(async () => {
     const app: TestingModule = await Test.createTestingModule({
       controllers: [VideoCallController],
-      providers: [VideoCallService],
+      providers: [
+        {
+          provide: VideoCallService,
+          useValue: mockVideoCallService,
+        },
+      ],
     }).compile();
 
     videoCallController = app.get<VideoCallController>(VideoCallController);
   });
 
-  describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(videoCallController.getHello()).toBe('Hello World!');
-    });
+  it('should be defined', () => {
+    expect(videoCallController).toBeDefined();
   });
 });
