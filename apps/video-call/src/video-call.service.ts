@@ -40,7 +40,7 @@ export class VideoCallService {
 
     @Inject(NAME_SERVICE_TCP.CHANNEL_SERVICE)
     private readonly channelClient: ClientProxy,
-  ) {}
+  ) { }
 
   async joinHuddle(dto: JoinHuddleRequestDto): Promise<JoinHuddleResponseDto> {
     try {
@@ -50,6 +50,8 @@ export class VideoCallService {
       let huddle = await this.huddleRepository.findOne({
         where: { channelId, isActive: true },
       });
+
+      const isNewHuddle = !huddle;
 
       // 2. Nếu chưa có huddle nào đang active, tạo mới phiên huddle
       if (!huddle) {
@@ -68,6 +70,8 @@ export class VideoCallService {
         where: { huddleId: huddle.id, userId },
       });
 
+      const isNewParticipant = !participant || participant.leftAt !== null;
+
       if (!participant) {
         participant = this.huddleParticipantRepository.create({
           huddleId: huddle.id,
@@ -81,6 +85,54 @@ export class VideoCallService {
         participant.leftAt = null;
       }
       await this.huddleParticipantRepository.save(participant);
+
+      // Fetch channel members to emit socket events
+      let userIds: string[] = [];
+      try {
+        const members = await firstValueFrom(
+          this.channelClient.send<ChannelMemberInfo[]>(CHANNEL_MESSAGE_PATTERN.GET_MEMBERS, { channelId }),
+        );
+        userIds = members.map((m) => m.memberId);
+      } catch (err) {
+        this.logger.error(`Failed to fetch members for channel ${channelId}: ${err.message}`);
+      }
+
+      if (userIds.length > 0) {
+        // Emit HUDDLE_STARTED if new huddle session
+        if (isNewHuddle) {
+          this.logger.log(`[joinHuddle] Emitting HUDDLE_STARTED to users: [${userIds.join(', ')}]`);
+          await this.queueService.addJob(
+            EQueueName.SOCKET_QUEUE,
+            EJobName.EMIT_TO_USERS,
+            {
+              event: ESocketEvent.HUDDLE_STARTED,
+              userIds,
+              data: {
+                huddleId: huddle.id,
+                channelId,
+              },
+            },
+          );
+        }
+
+        // Emit HUDDLE_PARTICIPANT_JOINED if participant is joining or re-joining
+        if (isNewParticipant) {
+          this.logger.log(`[joinHuddle] Emitting HUDDLE_PARTICIPANT_JOINED for user ${userId} to users: [${userIds.join(', ')}]`);
+          await this.queueService.addJob(
+            EQueueName.SOCKET_QUEUE,
+            EJobName.EMIT_TO_USERS,
+            {
+              event: ESocketEvent.HUDDLE_PARTICIPANT_JOINED,
+              userIds,
+              data: {
+                huddleId: huddle.id,
+                channelId,
+                userId,
+              },
+            },
+          );
+        }
+      }
 
       // 4. Tạo LiveKit AccessToken
       const apiKey = this.configService.get<string>('LIVEKIT_API_KEY');
@@ -97,6 +149,12 @@ export class VideoCallService {
       const at = new AccessToken(apiKey, apiSecret, {
         identity: identity,
         name: name,
+        metadata: JSON.stringify({
+          userId,
+          channelId,
+          workspaceId: dto.workspaceId,
+        }),
+        ttl: 6 * 60 * 60, // 6 hours in seconds
       });
 
       // Cấp quyền tham gia phòng, truyền và nhận media stream
@@ -125,15 +183,28 @@ export class VideoCallService {
     try {
       const { huddleId, userId } = dto;
 
+      const huddle = await this.huddleRepository.findOne({
+        where: { id: huddleId },
+      });
+
+      if (!huddle) {
+        this.logger.warn(`No huddle found in database with ID: ${huddleId}`);
+        return { success: false, huddleId };
+      }
+
+      const channelId = huddle.channelId;
+
       // 1. Cập nhật thời gian rời phòng của participant
       const participant = await this.huddleParticipantRepository.findOne({
         where: { huddleId, userId, leftAt: IsNull() },
       });
 
+      let wasParticipantActive = false;
       if (participant) {
         participant.leftAt = new Date();
         await this.huddleParticipantRepository.save(participant);
         this.logger.log(`Participant ${userId} left huddle ${huddleId}`);
+        wasParticipantActive = true;
       }
 
       // 2. Đếm số lượng participant còn lại đang hoạt động trong huddle này
@@ -141,17 +212,63 @@ export class VideoCallService {
         where: { huddleId, leftAt: IsNull() },
       });
 
+      const huddleEnded = activeCount === 0 && huddle.isActive;
+
       // 3. Nếu không còn ai, đánh dấu huddle kết thúc
       if (activeCount === 0) {
-        const huddle = await this.huddleRepository.findOne({
-          where: { id: huddleId, isActive: true },
-        });
-
-        if (huddle) {
+        if (huddle.isActive) {
           huddle.isActive = false;
           huddle.endedAt = new Date();
           await this.huddleRepository.save(huddle);
           this.logger.log(`Huddle ${huddleId} has ended because all participants left`);
+        }
+      }
+
+      // Fetch channel members to emit socket events
+      let userIds: string[] = [];
+      try {
+        const members = await firstValueFrom(
+          this.channelClient.send<ChannelMemberInfo[]>(CHANNEL_MESSAGE_PATTERN.GET_MEMBERS, { channelId }),
+        );
+        userIds = members.map((m) => m.memberId);
+      } catch (err) {
+        this.logger.error(`Failed to fetch members for channel ${channelId}: ${err.message}`);
+      }
+
+      if (userIds.length > 0) {
+        // Emit HUDDLE_PARTICIPANT_LEFT if participant was active
+        if (wasParticipantActive) {
+          this.logger.log(`[leaveHuddle] Emitting HUDDLE_PARTICIPANT_LEFT for user ${userId} to users: [${userIds.join(', ')}]`);
+          await this.queueService.addJob(
+            EQueueName.SOCKET_QUEUE,
+            EJobName.EMIT_TO_USERS,
+            {
+              event: ESocketEvent.HUDDLE_PARTICIPANT_LEFT,
+              userIds,
+              data: {
+                huddleId,
+                channelId,
+                userId,
+              },
+            },
+          );
+        }
+
+        // Emit HUDDLE_ENDED if huddle ended
+        if (huddleEnded) {
+          this.logger.log(`[leaveHuddle] Emitting HUDDLE_ENDED to users: [${userIds.join(', ')}]`);
+          await this.queueService.addJob(
+            EQueueName.SOCKET_QUEUE,
+            EJobName.EMIT_TO_USERS,
+            {
+              event: ESocketEvent.HUDDLE_ENDED,
+              userIds,
+              data: {
+                huddleId,
+                channelId,
+              },
+            },
+          );
         }
       }
 
@@ -177,14 +294,14 @@ export class VideoCallService {
       }
 
       const receiver = new WebhookReceiver(apiKey, apiSecret);
-      
+
       // LiveKit webhook receiver yêu cầu raw string payload để check signature
       const rawBody = typeof body === 'string' ? body : JSON.stringify(body);
       const skipAuth = this.configService.get<string>('LIVEKIT_SKIP_WEBHOOK_AUTH') === 'true' || this.configService.get<string>('NODE_ENV') === 'development';
       const event = await receiver.receive(rawBody, authHeader, skipAuth);
-      
+
       this.logger.log(`Received verified LiveKit Webhook event: ${event.event} (skipAuth: ${skipAuth})`);
-      
+
       const roomName = event.room?.name; // roomName chính là huddleId (UUID)
       if (!roomName) {
         this.logger.warn(`Webhook event ${event.event} has no room name`);
@@ -221,7 +338,7 @@ export class VideoCallService {
           huddle.isActive = true;
           await this.huddleRepository.save(huddle);
           this.logger.log(`Huddle ${huddle.id} started. Broadcasting to channel members: [${userIds.join(', ')}]`);
-          
+
           if (userIds.length > 0) {
             await this.queueService.addJob(
               EQueueName.SOCKET_QUEUE,
