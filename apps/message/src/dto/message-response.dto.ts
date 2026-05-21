@@ -22,7 +22,7 @@ export class MessageResponseDto {
   id: string;
   channelId: string;
   sender: UserResponseDto;
-  content: string | Record<string, unknown>[];
+  content: string | Record<string, unknown> | Record<string, unknown>[];
   attachments: IMessageAttachment[];
   isPinned: boolean;
   parentId: string | null;

@@ -14,6 +14,7 @@ import { MessageMentionEntity } from './message_mention.entity';
 import { MessageAttachmentEntity } from './message_attachment.entity';
 
 @Entity('messages')
+@Index(['channelId', 'id'])
 export class MessageEntity {
   @PrimaryColumn({ type: 'uuid' })
   id: string; // uuid v7
@@ -31,7 +32,7 @@ export class MessageEntity {
   userId: string;
 
   @Column({ nullable: false, type: 'jsonb', name: 'content' })
-  content: string;
+  content: string | Record<string, unknown> | Record<string, unknown>[];
 
   @Column({
     nullable: false,

@@ -15,7 +15,7 @@ export class CreateMessageDto {
 
   @ValidateIf((o) => !o.attachments || o.attachments.length === 0)
   @IsNotEmpty({ message: 'Content is required when there are no attachments' })
-  content: string | Record<string, unknown>[];
+  content: string | Record<string, unknown> | Record<string, unknown>[];
 
   @IsArray()
   @IsOptional()

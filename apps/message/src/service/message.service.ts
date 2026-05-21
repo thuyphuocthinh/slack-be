@@ -259,8 +259,7 @@ export class MessageService {
         id: uuidv7(), // uuid v7 => time-based for sorting
         channelId,
         userId: senderId,
-        content:
-          typeof content === 'string' ? content : JSON.stringify(content),
+        content,
         parentId,
       });
 
@@ -407,10 +406,7 @@ export class MessageService {
       // Check membership
       await this.checkChannelExist(message.channelId, userId);
 
-      message.content =
-        typeof updateDto.content === 'string'
-          ? updateDto.content
-          : JSON.stringify(updateDto.content);
+      message.content = updateDto.content;
 
       if (updateDto.attachments) {
         const attachmentRepo = manager.getRepository(MessageAttachmentEntity);

@@ -76,10 +76,10 @@ export default function () {
           if (eventName === 'subscribed') {
             const sendMessage = () => {
               const payload = JSON.stringify({
-                content: JSON.stringify({
+                content: {
                   text: `Hello from VU ${__VU} at ${new Date().toISOString()}`,
                   clientTimestamp: Date.now(), // Đính kèm mốc thời gian để đo E2E Latency
-                }),
+                },
               });
 
               // Gửi request gửi tin nhắn mới lên Gateway
@@ -109,12 +109,9 @@ export default function () {
           }
 
           if (eventName === 'message_received') {
-            let contentObj;
-            try {
-              contentObj = JSON.parse(payload.content);
-            } catch (e) {
-              contentObj = payload.content;
-            }
+            const contentObj = typeof payload.content === 'string'
+              ? JSON.parse(payload.content)
+              : payload.content;
 
             if (contentObj && contentObj.clientTimestamp) {
               // Tính toán độ trễ E2E từ lúc client gửi đến lúc nhận lại qua Socket

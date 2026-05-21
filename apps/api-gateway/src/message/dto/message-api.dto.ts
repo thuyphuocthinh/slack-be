@@ -58,7 +58,7 @@ export class CreateMessageApiDto {
   @ValidateIf((o) => !o.attachments || o.attachments.length === 0)
   @IsNotEmpty({ message: 'Content is required when there are no attachments' })
   @ApiProperty()
-  content: string | Record<string, unknown>[];
+  content: string | Record<string, unknown> | Record<string, unknown>[];
 
   @IsArray()
   @IsOptional()
@@ -81,7 +81,7 @@ export class CreateMessageApiDto {
 export class UpdateMessageApiDto {
   @IsNotEmpty()
   @ApiProperty()
-  content: string | Record<string, unknown>[];
+  content: string | Record<string, unknown> | Record<string, unknown>[];
 
   @IsArray()
   @IsOptional()

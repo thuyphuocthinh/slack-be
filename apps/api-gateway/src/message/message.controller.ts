@@ -32,6 +32,8 @@ import {
   GetAttachmentsRequestDto,
 } from './dto/message-request.dto';
 
+import { RateLimit } from '../common/guards/rate-limit.decorator';
+
 @ApiTags('Messages')
 @Controller('workspaces/:workspaceId/channels/:channelId/messages')
 @ApiBearerAuth()
@@ -39,6 +41,7 @@ export class MessageController {
   constructor(private readonly messageService: MessageService) { }
 
   @Post()
+  @RateLimit({ limit: 10, window: 10 })
   @ApiOperation({ summary: 'Create a new message' })
   async createMessage(
     @Param('workspaceId') workspaceId: string,
