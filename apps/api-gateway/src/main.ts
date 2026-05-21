@@ -30,6 +30,7 @@ async function bootstrap() {
     const app = await NestFactory.create(ApiGatewayModule, {
       logger: WinstonModule.createLogger(getLoggerConfig('GATEWAY')),
     });
+    app.enableShutdownHooks();
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,

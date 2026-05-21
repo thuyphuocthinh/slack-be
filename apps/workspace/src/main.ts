@@ -20,6 +20,7 @@ async function bootstrap() {
       logger: WinstonModule.createLogger(getLoggerConfig('WORKSPACE')),
     },
   );
+  app.enableShutdownHooks();
 
   app.useGlobalFilters(new AllRpcExceptionFilter());
   app.useGlobalPipes(

@@ -9,6 +9,7 @@ async function bootstrap() {
   const app = await NestFactory.create(SocketGatewayModule, {
     logger: WinstonModule.createLogger(getLoggerConfig('SOCKET_GATEWAY')),
   });
+  app.enableShutdownHooks();
 
   const configService = app.get(ConfigService);
   const redisIoAdapter = new RedisIoAdapter(app, configService);

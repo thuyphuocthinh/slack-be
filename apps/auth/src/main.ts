@@ -21,6 +21,7 @@ async function bootstrap() {
       logger: WinstonModule.createLogger(getLoggerConfig('AUTH')),
     },
   );
+  app.enableShutdownHooks();
   app.useGlobalFilters(new AllRpcExceptionFilter());
   app.useGlobalPipes(
     new ValidationPipe({
