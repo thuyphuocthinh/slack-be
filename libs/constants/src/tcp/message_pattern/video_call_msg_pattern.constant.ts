@@ -4,4 +4,5 @@ export const VIDEO_CALL_MESSAGE_PATTERN = {
   HANDLE_WEBHOOK: 'video_call.handle_webhook',
   START_RECORDING: 'video_call.start_recording',
   STOP_RECORDING: 'video_call.stop_recording',
+  GET_RECORDINGS: 'video_call.get_recordings',
 };

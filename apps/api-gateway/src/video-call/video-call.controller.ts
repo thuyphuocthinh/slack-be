@@ -1,10 +1,10 @@
-import { Body, Controller, Post, Param, HttpCode, HttpStatus, Headers } from '@nestjs/common';
+import { Body, Controller, Post, Param, HttpCode, HttpStatus, Headers, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { VideoCallService } from './video-call.service';
 import { JoinHuddleApiDto, LeaveHuddleApiDto } from './dto/video-call-api.dto';
 import { CurrentUser, type JwtUser, Public } from '@slack/common';
-import { JoinHuddleResponseDto, LeaveHuddleResponseDto, WebhookResponseDto, StartRecordingResponseDto, StopRecordingResponseDto } from './dto/video-call-response.dto';
-import { LiveKitWebhookPayload } from './dto/video-call-request.dto';
+import { JoinHuddleResponseDto, LeaveHuddleResponseDto, WebhookResponseDto, StartRecordingResponseDto, StopRecordingResponseDto, HuddleRecordingsResponseDto } from './dto/video-call-response.dto';
+import { LiveKitWebhookPayload, GetRecordingsQueryDto } from './dto/video-call-request.dto';
 
 @ApiTags('Video Call / Huddle')
 @Controller('video-call')
@@ -86,5 +86,17 @@ export class VideoCallController {
     return await this.videoCallService.stopRecording({
       huddleId,
     });
+  }
+
+  @Get('channels/:channelId/recordings')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get list huddle recordings for a channel' })
+  @ApiResponse({ status: 200, type: HuddleRecordingsResponseDto, description: 'Successfully retrieved recordings list' })
+  async getRecordings(
+    @Param('channelId') channelId: string,
+    @Query() query: GetRecordingsQueryDto,
+  ): Promise<HuddleRecordingsResponseDto> {
+    return await this.videoCallService.getRecordings(channelId, query);
   }
 }

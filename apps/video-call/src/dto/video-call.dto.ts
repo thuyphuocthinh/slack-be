@@ -76,3 +76,32 @@ export class StopRecordingResponseDto {
   videoUrl: string;
 }
 
+export class GetRecordingsQueryDto {
+  page?: number;
+  limit?: number;
+}
+
+export class GetRecordingsRequestDto {
+  channelId: string;
+  query: GetRecordingsQueryDto;
+}
+
+export class HuddleRecordingResponseDto {
+  id: string;
+  channelId: string;
+  isActive: boolean;
+  startedAt: Date;
+  endedAt?: Date | null;
+  isRecording: boolean;
+  videoRecordUrl?: string | null;
+}
+
+export class HuddleRecordingsResponseDto {
+  data: HuddleRecordingResponseDto[];
+  paging: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}

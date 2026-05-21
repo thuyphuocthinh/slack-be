@@ -13,6 +13,8 @@ import {
   StartRecordingResponseDto,
   StopRecordingRequestDto,
   StopRecordingResponseDto,
+  GetRecordingsRequestDto,
+  HuddleRecordingsResponseDto,
 } from './dto/video-call.dto';
 
 @Controller()
@@ -49,5 +51,11 @@ export class VideoCallController {
   async stopRecording(@Payload() data: StopRecordingRequestDto): Promise<StopRecordingResponseDto> {
     this.logger.log(`Received STOP_RECORDING pattern for huddle: ${data.huddleId}`);
     return await this.videoCallService.stopRecording(data);
+  }
+
+  @MessagePattern(VIDEO_CALL_MESSAGE_PATTERN.GET_RECORDINGS)
+  async getRecordings(@Payload() data: GetRecordingsRequestDto): Promise<HuddleRecordingsResponseDto> {
+    this.logger.log(`Received GET_RECORDINGS pattern for channel: ${data.channelId}`);
+    return await this.videoCallService.getRecordings(data);
   }
 }

@@ -2,8 +2,8 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, VIDEO_CALL_MESSAGE_PATTERN } from '@slack/constants';
 import { firstValueFrom } from 'rxjs';
-import { JoinHuddleRequestDto, LeaveHuddleRequestDto, HandleWebhookRequestDto, StartRecordingRequestDto, StopRecordingRequestDto } from './dto/video-call-request.dto';
-import { JoinHuddleResponseDto, LeaveHuddleResponseDto, WebhookResponseDto, StartRecordingResponseDto, StopRecordingResponseDto } from './dto/video-call-response.dto';
+import { JoinHuddleRequestDto, LeaveHuddleRequestDto, HandleWebhookRequestDto, StartRecordingRequestDto, StopRecordingRequestDto, GetRecordingsQueryDto } from './dto/video-call-request.dto';
+import { JoinHuddleResponseDto, LeaveHuddleResponseDto, WebhookResponseDto, StartRecordingResponseDto, StopRecordingResponseDto, HuddleRecordingsResponseDto } from './dto/video-call-response.dto';
 
 @Injectable()
 export class VideoCallService {
@@ -46,6 +46,16 @@ export class VideoCallService {
     this.logger.log(`Forwarding stop recording request to video-call microservice for huddle ${dto.huddleId}`);
     return await firstValueFrom(
       this.videoCallClient.send<StopRecordingResponseDto>(VIDEO_CALL_MESSAGE_PATTERN.STOP_RECORDING, dto),
+    );
+  }
+
+  async getRecordings(channelId: string, query: GetRecordingsQueryDto): Promise<HuddleRecordingsResponseDto> {
+    this.logger.log(`Forwarding get recordings request to video-call microservice for channel ${channelId}`);
+    return await firstValueFrom(
+      this.videoCallClient.send<HuddleRecordingsResponseDto>(VIDEO_CALL_MESSAGE_PATTERN.GET_RECORDINGS, {
+        channelId,
+        query,
+      }),
     );
   }
 }

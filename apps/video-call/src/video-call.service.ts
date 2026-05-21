@@ -1,9 +1,9 @@
 import { Injectable, Logger, InternalServerErrorException, Inject, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { Repository, IsNull, Not } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { ClientProxy } from '@nestjs/microservices';
-import { AccessToken, WebhookReceiver, EgressClient, EncodedFileType, EncodingOptionsPreset } from 'livekit-server-sdk';
+import { AccessToken, WebhookReceiver, EgressClient, EncodedFileType, EncodingOptionsPreset, EncodedFileOutput, S3Upload } from 'livekit-server-sdk';
 import { firstValueFrom } from 'rxjs';
 import {
   ESocketEvent,
@@ -25,6 +25,8 @@ import {
   StartRecordingResponseDto,
   StopRecordingRequestDto,
   StopRecordingResponseDto,
+  GetRecordingsRequestDto,
+  HuddleRecordingsResponseDto,
 } from './dto/video-call.dto';
 
 @Injectable()
@@ -484,33 +486,33 @@ export class VideoCallService {
       throw new BadRequestException('Huddle session not found or inactive');
     }
 
-    const bucket = this.configService.get<string>('R2_BUCKET');
-    const endpoint = this.configService.get<string>('R2_ENDPOINT');
-    const accessKey = this.configService.get<string>('R2_ACCESS_KEY');
-    const secret = this.configService.get<string>('R2_SECRET');
+    const bucket = this.configService.get<string>('R2_BUCKET_NAME');
+    const endpoint = this.configService.get<string>('R2_ENDPOINT_URL');
+    const accessKey = this.configService.get<string>('R2_ACCESS_KEY_ID');
+    const secret = this.configService.get<string>('R2_SECRET_ACCESS_KEY');
 
     const outputFilePath = `huddles/${huddleId}-${Date.now()}.mp4`;
 
     try {
-      const fileOptions: any = {
+      const fileOutput = new EncodedFileOutput({
         filepath: outputFilePath,
         fileType: EncodedFileType.MP4,
-      };
-
-      if (bucket && endpoint && accessKey && secret) {
-        fileOptions.s3 = {
-          bucket,
-          endpoint,
-          accessKey,
-          secret,
-        };
-      }
+        ...(bucket && endpoint && accessKey && secret ? {
+          output: {
+            case: 's3',
+            value: new S3Upload({
+              bucket,
+              endpoint,
+              accessKey,
+              secret,
+            }),
+          }
+        } : {})
+      });
 
       const egressInfo = await this.egressClient.startRoomCompositeEgress(
         roomName,
-        {
-          file: fileOptions,
-        },
+        fileOutput,
         {
           layout: 'grid',
           encodingOptions: EncodingOptionsPreset.H264_720P_30,
@@ -569,8 +571,9 @@ export class VideoCallService {
     try {
       const egressInfo = await this.egressClient.stopEgress(huddle.egressId);
 
-      const bucket = this.configService.get<string>('R2_BUCKET');
-      const endpoint = this.configService.get<string>('R2_ENDPOINT');
+      const bucket = this.configService.get<string>('R2_BUCKET_NAME');
+      const endpoint = this.configService.get<string>('R2_ENDPOINT_URL');
+      const publicDomain = this.configService.get<string>('R2_PUBLIC_DOMAIN');
 
       // Build videoUrl
       let videoUrl = '';
@@ -579,7 +582,8 @@ export class VideoCallService {
         if (fileResult.location) {
           videoUrl = fileResult.location;
         } else if (bucket && endpoint && fileResult.filename) {
-          videoUrl = `${endpoint}/${bucket}/${fileResult.filename}`;
+          // videoUrl = `${endpoint}/${bucket}/${fileResult.filename}`;
+          videoUrl = `${publicDomain}/${fileResult.filename}`;
         }
       }
 
@@ -619,6 +623,49 @@ export class VideoCallService {
     } catch (err) {
       this.logger.error(`[Recording] Failed to stop room egress: ${err.message}`, err.stack);
       throw new InternalServerErrorException(`Failed to stop egress recording: ${err.message}`);
+    }
+  }
+
+  async getRecordings(dto: GetRecordingsRequestDto): Promise<HuddleRecordingsResponseDto> {
+    try {
+      const { channelId, query } = dto;
+      const { page = 1, limit = 20 } = query || {};
+      const skip = (page - 1) * limit;
+
+      const [items, total] = await this.huddleRepository.findAndCount({
+        where: {
+          channelId,
+          videoRecordUrl: Not(IsNull()),
+        },
+        order: {
+          startedAt: 'DESC',
+        },
+        skip,
+        take: limit,
+      });
+
+      const data = items.map((item) => ({
+        id: item.id,
+        channelId: item.channelId,
+        isActive: item.isActive,
+        startedAt: item.startedAt,
+        endedAt: item.endedAt,
+        isRecording: item.isRecording,
+        videoRecordUrl: item.videoRecordUrl,
+      }));
+
+      return {
+        data,
+        paging: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    } catch (err) {
+      this.logger.error(`[Recording] Failed to get huddle recordings: ${err.message}`, err.stack);
+      throw new InternalServerErrorException(`Failed to get huddle recordings: ${err.message}`);
     }
   }
 }
