@@ -15,3 +15,12 @@ export class WebhookResponseDto {
   message?: string;
   error?: string;
 }
+
+export class StartRecordingResponseDto {
+  egressId: string;
+}
+
+export class StopRecordingResponseDto {
+  videoUrl: string;
+}
+

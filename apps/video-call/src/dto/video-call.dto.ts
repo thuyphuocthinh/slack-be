@@ -58,3 +58,21 @@ export class WebhookResponseDto {
 export interface ChannelMemberInfo {
   memberId: string;
 }
+
+export class StartRecordingRequestDto {
+  huddleId: string;
+  roomName: string;
+}
+
+export class StartRecordingResponseDto {
+  egressId: string;
+}
+
+export class StopRecordingRequestDto {
+  huddleId: string;
+}
+
+export class StopRecordingResponseDto {
+  videoUrl: string;
+}
+

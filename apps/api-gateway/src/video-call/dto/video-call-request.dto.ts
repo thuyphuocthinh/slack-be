@@ -36,3 +36,13 @@ export class HandleWebhookRequestDto {
   authHeader: string;
   body: LiveKitWebhookPayload;
 }
+
+export class StartRecordingRequestDto {
+  huddleId: string;
+  roomName: string;
+}
+
+export class StopRecordingRequestDto {
+  huddleId: string;
+}
+

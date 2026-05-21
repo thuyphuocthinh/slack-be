@@ -1,9 +1,9 @@
-import { Injectable, Logger, InternalServerErrorException, Inject } from '@nestjs/common';
+import { Injectable, Logger, InternalServerErrorException, Inject, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { ClientProxy } from '@nestjs/microservices';
-import { AccessToken, WebhookReceiver } from 'livekit-server-sdk';
+import { AccessToken, WebhookReceiver, EgressClient, EncodedFileType, EncodingOptionsPreset } from 'livekit-server-sdk';
 import { firstValueFrom } from 'rxjs';
 import {
   ESocketEvent,
@@ -21,11 +21,16 @@ import {
   HandleWebhookRequestDto,
   WebhookResponseDto,
   ChannelMemberInfo,
+  StartRecordingRequestDto,
+  StartRecordingResponseDto,
+  StopRecordingRequestDto,
+  StopRecordingResponseDto,
 } from './dto/video-call.dto';
 
 @Injectable()
 export class VideoCallService {
   private readonly logger = new Logger(VideoCallService.name);
+  private egressClient: EgressClient;
 
   constructor(
     @InjectRepository(HuddleEntity)
@@ -40,7 +45,12 @@ export class VideoCallService {
 
     @Inject(NAME_SERVICE_TCP.CHANNEL_SERVICE)
     private readonly channelClient: ClientProxy,
-  ) { }
+  ) {
+    const livekitUrl = this.configService.get<string>('LIVEKIT_URL') || 'http://localhost:7880';
+    const apiKey = this.configService.get<string>('LIVEKIT_API_KEY');
+    const apiSecret = this.configService.get<string>('LIVEKIT_API_SECRET');
+    this.egressClient = new EgressClient(livekitUrl, apiKey, apiSecret);
+  }
 
   async joinHuddle(dto: JoinHuddleRequestDto): Promise<JoinHuddleResponseDto> {
     try {
@@ -459,6 +469,156 @@ export class VideoCallService {
     } catch (error) {
       this.logger.error(`Error processing Webhook: ${error.message}`, error.stack);
       return { success: false, error: error.message };
+    }
+  }
+
+  async startRecording(dto: StartRecordingRequestDto): Promise<StartRecordingResponseDto> {
+    const { huddleId, roomName } = dto;
+    this.logger.log(`[Recording] Starting egress recording for room: ${roomName}, huddleId: ${huddleId}`);
+
+    const huddle = await this.huddleRepository.findOne({
+      where: { id: huddleId, isActive: true },
+    });
+
+    if (!huddle) {
+      throw new BadRequestException('Huddle session not found or inactive');
+    }
+
+    const bucket = this.configService.get<string>('R2_BUCKET');
+    const endpoint = this.configService.get<string>('R2_ENDPOINT');
+    const accessKey = this.configService.get<string>('R2_ACCESS_KEY');
+    const secret = this.configService.get<string>('R2_SECRET');
+
+    const outputFilePath = `huddles/${huddleId}-${Date.now()}.mp4`;
+
+    try {
+      const fileOptions: any = {
+        filepath: outputFilePath,
+        fileType: EncodedFileType.MP4,
+      };
+
+      if (bucket && endpoint && accessKey && secret) {
+        fileOptions.s3 = {
+          bucket,
+          endpoint,
+          accessKey,
+          secret,
+        };
+      }
+
+      const egressInfo = await this.egressClient.startRoomCompositeEgress(
+        roomName,
+        {
+          file: fileOptions,
+        },
+        {
+          layout: 'grid',
+          encodingOptions: EncodingOptionsPreset.H264_720P_30,
+        }
+      );
+
+      huddle.egressId = egressInfo.egressId;
+      huddle.isRecording = true;
+      await this.huddleRepository.save(huddle);
+
+      // Emit recording started event
+      let userIds: string[] = [];
+      try {
+        const members = await firstValueFrom(
+          this.channelClient.send<ChannelMemberInfo[]>(CHANNEL_MESSAGE_PATTERN.GET_MEMBERS, { channelId: huddle.channelId }),
+        );
+        userIds = members.map((m) => m.memberId);
+      } catch (err) {
+        this.logger.error(`Failed to fetch members for channel ${huddle.channelId}: ${err.message}`);
+      }
+
+      if (userIds.length > 0) {
+        await this.queueService.addJob(
+          EQueueName.SOCKET_QUEUE,
+          EJobName.EMIT_TO_USERS,
+          {
+            event: ESocketEvent.HUDDLE_RECORDING_STARTED,
+            userIds,
+            data: {
+              huddleId: huddle.id,
+              channelId: huddle.channelId,
+            },
+          },
+        );
+      }
+
+      return { egressId: egressInfo.egressId };
+    } catch (err) {
+      this.logger.error(`[Recording] Failed to start room egress: ${err.message}`, err.stack);
+      throw new InternalServerErrorException(`Failed to start egress recording: ${err.message}`);
+    }
+  }
+
+  async stopRecording(dto: StopRecordingRequestDto): Promise<StopRecordingResponseDto> {
+    const { huddleId } = dto;
+    this.logger.log(`[Recording] Stopping egress recording for huddleId: ${huddleId}`);
+
+    const huddle = await this.huddleRepository.findOne({
+      where: { id: huddleId },
+    });
+
+    if (!huddle || !huddle.egressId) {
+      throw new BadRequestException('Huddle recording not found or already stopped');
+    }
+
+    try {
+      const egressInfo = await this.egressClient.stopEgress(huddle.egressId);
+
+      const bucket = this.configService.get<string>('R2_BUCKET');
+      const endpoint = this.configService.get<string>('R2_ENDPOINT');
+
+      // Build videoUrl
+      let videoUrl = '';
+      const fileResult = egressInfo.fileResults?.[0];
+      if (fileResult) {
+        if (fileResult.location) {
+          videoUrl = fileResult.location;
+        } else if (bucket && endpoint && fileResult.filename) {
+          videoUrl = `${endpoint}/${bucket}/${fileResult.filename}`;
+        }
+      }
+
+      huddle.egressId = null;
+      huddle.isRecording = false;
+      huddle.videoRecordUrl = videoUrl;
+      await this.huddleRepository.save(huddle);
+
+      // Emit recording stopped event
+      let userIds: string[] = [];
+      try {
+        const members = await firstValueFrom(
+          this.channelClient.send<ChannelMemberInfo[]>(CHANNEL_MESSAGE_PATTERN.GET_MEMBERS, { channelId: huddle.channelId }),
+        );
+        userIds = members.map((m) => m.memberId);
+      } catch (err) {
+        this.logger.error(`Failed to fetch members for channel ${huddle.channelId}: ${err.message}`);
+      }
+
+      if (userIds.length > 0) {
+        await this.queueService.addJob(
+          EQueueName.SOCKET_QUEUE,
+          EJobName.EMIT_TO_USERS,
+          {
+            event: ESocketEvent.HUDDLE_RECORDING_STOPPED,
+            userIds,
+            data: {
+              huddleId: huddle.id,
+              channelId: huddle.channelId,
+              videoUrl,
+            },
+          },
+        );
+      }
+
+      return { videoUrl };
+    } catch (err) {
+      this.logger.error(`[Recording] Failed to stop room egress: ${err.message}`, err.stack);
+      throw new InternalServerErrorException(`Failed to stop egress recording: ${err.message}`);
     }
   }
 }

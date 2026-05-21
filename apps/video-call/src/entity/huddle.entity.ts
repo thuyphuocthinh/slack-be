@@ -29,6 +29,15 @@ export class HuddleEntity {
   @Column({ name: 'ended_at', type: 'timestamp', nullable: true })
   endedAt?: Date | null;
 
+  @Column({ name: 'egress_id', type: 'varchar', length: 255, nullable: true })
+  egressId?: string | null;
+
+  @Column({ name: 'is_recording', type: 'boolean', default: false })
+  isRecording: boolean;
+
+  @Column({ name: 'video_record_url', type: 'text', nullable: true })
+  videoRecordUrl?: string | null;
+
   @UpdateDateColumn({
     name: 'updated_at',
     type: 'timestamp',

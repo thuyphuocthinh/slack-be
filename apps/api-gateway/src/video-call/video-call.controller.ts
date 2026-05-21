@@ -3,7 +3,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { VideoCallService } from './video-call.service';
 import { JoinHuddleApiDto, LeaveHuddleApiDto } from './dto/video-call-api.dto';
 import { CurrentUser, type JwtUser, Public } from '@slack/common';
-import { JoinHuddleResponseDto, LeaveHuddleResponseDto, WebhookResponseDto } from './dto/video-call-response.dto';
+import { JoinHuddleResponseDto, LeaveHuddleResponseDto, WebhookResponseDto, StartRecordingResponseDto, StopRecordingResponseDto } from './dto/video-call-response.dto';
 import { LiveKitWebhookPayload } from './dto/video-call-request.dto';
 
 @ApiTags('Video Call / Huddle')
@@ -58,6 +58,33 @@ export class VideoCallController {
     return await this.videoCallService.handleWebhook({
       authHeader,
       body,
+    });
+  }
+
+  @Post('huddles/:huddleId/start-recording')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Start recording a Huddle call using LiveKit Egress' })
+  @ApiResponse({ status: 200, type: StartRecordingResponseDto, description: 'Successfully started egress recording' })
+  async startRecording(
+    @Param('huddleId') huddleId: string,
+  ): Promise<StartRecordingResponseDto> {
+    return await this.videoCallService.startRecording({
+      huddleId,
+      roomName: huddleId,
+    });
+  }
+
+  @Post('huddles/:huddleId/stop-recording')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Stop recording a Huddle call' })
+  @ApiResponse({ status: 200, type: StopRecordingResponseDto, description: 'Successfully stopped egress recording' })
+  async stopRecording(
+    @Param('huddleId') huddleId: string,
+  ): Promise<StopRecordingResponseDto> {
+    return await this.videoCallService.stopRecording({
+      huddleId,
     });
   }
 }

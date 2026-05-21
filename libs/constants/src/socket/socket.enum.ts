@@ -45,4 +45,6 @@ export enum ESocketEvent {
   HUDDLE_ENDED = 'huddle_ended',
   HUDDLE_PARTICIPANT_JOINED = 'huddle_participant_joined',
   HUDDLE_PARTICIPANT_LEFT = 'huddle_participant_left',
+  HUDDLE_RECORDING_STARTED = 'huddle_recording_started',
+  HUDDLE_RECORDING_STOPPED = 'huddle_recording_stopped',
 }
