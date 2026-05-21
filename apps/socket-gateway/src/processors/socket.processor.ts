@@ -9,7 +9,7 @@ import {
 } from '@slack/queue';
 import { SocketGateway } from '../gateway/socket.gateway';
 
-@Processor(EQueueName.SOCKET_QUEUE)
+@Processor(EQueueName.SOCKET_QUEUE, { concurrency: 20 })
 export class SocketProcessor extends BaseProcessor<
   IEmitEventJobData | IEmitToUsersJobData,
   string,

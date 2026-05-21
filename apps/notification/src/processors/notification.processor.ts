@@ -16,7 +16,7 @@ import { ClientProxy } from '@nestjs/microservices';
 import { lastValueFrom } from 'rxjs';
 import { NotificationService } from '../services/impl/notification.service';
 
-@Processor(EQueueName.NOTIFICATION_QUEUE)
+@Processor(EQueueName.NOTIFICATION_QUEUE, { concurrency: 10 })
 export class NotificationProcessor extends BaseProcessor<
   ICreateNotificationJobData,
   void,

@@ -131,6 +131,8 @@ export const CACHE = {
         type?: string,
       ): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:channels:v1:ws_${workspaceId}:m_${memberId}:v_${version}:p_${page}:l_${limit}${type ? ':t_' + type : ''}`,
+      ACCESS: (channelId: string, memberId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:channels:${CACHE.CHANNEL._VER}:access:c_${channelId}:m_${memberId}`,
       DETAIL: (id: string): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:channels:v1:detail:id_${id}`,
       MEMBERS: (channelId: string, version: number): string =>

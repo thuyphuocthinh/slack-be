@@ -8,7 +8,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { Logger, UseFilters, UsePipes, ValidationPipe } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { AuthCacheService, PresenceCacheService } from '@slack/cached';
+import { AuthCacheService, PresenceCacheService, CachedService, CACHE } from '@slack/cached';
 import { WebsocketExceptionsFilter } from '../common/filters/ws-exception.filter';
 import { OnModuleInit } from '@nestjs/common';
 import { createBreaker } from '../common/utils/circuit-breaker.util';
@@ -45,6 +45,7 @@ export class SocketGateway
     private readonly jwtService: JwtService,
     private readonly authCache: AuthCacheService,
     private readonly presenceCache: PresenceCacheService,
+    private readonly cachedService: CachedService,
     @Inject(NAME_SERVICE_TCP.CHANNEL_SERVICE)
     private readonly channelClient: ClientProxy,
     @Inject(NAME_SERVICE_TCP.MESSAGE_SERVICE)
@@ -178,11 +179,18 @@ export class SocketGateway
     const userId = client.data.user.sub;
 
     try {
-      // Sử dụng Circuit Breaker thay vì gọi trực tiếp
-      await this.channelBreaker.fire({
-        channelId,
-        memberId: userId,
-      });
+      // Dùng cachedService để lưu cache quyền truy cập kênh trong 5 phút (300 giây)
+      // tránh spam request TCP sang channel-service dưới tải cao
+      const cacheKey = CACHE.CHANNEL.KEYS.ACCESS(channelId, userId);
+      await this.cachedService.getOrSetDetail(
+        cacheKey,
+        300,
+        () =>
+          this.channelBreaker.fire({
+            channelId,
+            memberId: userId,
+          }),
+      );
 
       // leave all channels before joining new channel
       const currentRooms = Array.from(client.rooms);

@@ -10,7 +10,7 @@ import { Job } from 'bullmq';
 import { Inject } from '@nestjs/common';
 import { I_MAIL_SERVICE, type IMailService } from '../services/mail.interface';
 
-@Processor(EQueueName.EMAIL_QUEUE)
+@Processor(EQueueName.EMAIL_QUEUE, { concurrency: 5 })
 export class EmailProcessor extends BaseProcessor<
   IEmailJobData | IInviteJobData,
   void,

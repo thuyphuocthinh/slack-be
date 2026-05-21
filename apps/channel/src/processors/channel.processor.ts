@@ -15,7 +15,7 @@ export interface IChannelProcessResult {
   recipients: number;
 }
 
-@Processor(EQueueName.CHANNEL_QUEUE)
+@Processor(EQueueName.CHANNEL_QUEUE, { concurrency: 15 })
 export class ChannelProcessor extends BaseProcessor<
   IIncrementUnreadJobData,
   IChannelProcessResult,
