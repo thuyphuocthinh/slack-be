@@ -18,6 +18,7 @@ import {
   IChecklistResponse,
   IChecklistItemResponse,
 } from '../type/task.response';
+import { CACHE, CachedService } from '@slack/cached';
 
 @Injectable()
 export class ChecklistService {
@@ -30,13 +31,14 @@ export class ChecklistService {
     private readonly taskRepo: Repository<TaskEntity>,
     private readonly commonService: TaskCommonService,
     private readonly dataSource: DataSource,
+    private readonly cachedService: CachedService,
   ) {}
 
   async createChecklist(
     dto: CreateChecklistDto,
     requesterId: string,
   ): Promise<IChecklistResponse> {
-    return await this.dataSource.transaction(async (manager) => {
+    const { result, groupId } = await this.dataSource.transaction(async (manager) => {
       const task = await manager.findOne(TaskEntity, {
         where: { id: dto.taskId },
         relations: ['group'],
@@ -52,8 +54,15 @@ export class ChecklistService {
 
       const checklist = manager.create(ChecklistEntity, dto);
       const saved = await manager.save(checklist);
-      return this.mapChecklistResponse(saved);
+      const result = this.mapChecklistResponse(saved);
+      return { result, groupId: task.groupId };
     });
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+    );
+
+    return result;
   }
 
   async updateChecklist(
@@ -61,7 +70,7 @@ export class ChecklistService {
     dto: UpdateChecklistDto,
     requesterId: string,
   ): Promise<IChecklistResponse> {
-    return await this.dataSource.transaction(async (manager) => {
+    const { result, groupId } = await this.dataSource.transaction(async (manager) => {
       const checklist = await manager.findOne(ChecklistEntity, {
         where: { id },
         relations: ['task', 'task.group', 'items'],
@@ -79,7 +88,8 @@ export class ChecklistService {
       Object.assign(checklist, dto);
       try {
         const saved = await manager.save(checklist);
-        return this.mapChecklistResponse(saved);
+        const result = this.mapChecklistResponse(saved);
+        return { result, groupId: checklist.task.groupId };
       } catch (error) {
         if (error instanceof OptimisticLockVersionMismatchError) {
           throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
@@ -87,10 +97,16 @@ export class ChecklistService {
         throw error;
       }
     });
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+    );
+
+    return result;
   }
 
   async deleteChecklist(id: string, requesterId: string): Promise<string> {
-    return await this.dataSource.transaction(async (manager) => {
+    const { msg, groupId } = await this.dataSource.transaction(async (manager) => {
       const checklist = await manager.findOne(ChecklistEntity, {
         where: { id },
         relations: ['task', 'task.group'],
@@ -105,9 +121,17 @@ export class ChecklistService {
         manager,
       );
 
+      const groupId = checklist.task.groupId;
       await manager.remove(checklist);
-      return `Checklist with ID ${id} has been deleted`;
+      const msg = `Checklist with ID ${id} has been deleted`;
+      return { msg, groupId };
     });
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+    );
+
+    return msg;
   }
 
   async getChecklistsInTask(
@@ -137,7 +161,7 @@ export class ChecklistService {
     dto: AddChecklistItemDto,
     requesterId: string,
   ): Promise<IChecklistItemResponse> {
-    return await this.dataSource.transaction(async (manager) => {
+    const { result, groupId } = await this.dataSource.transaction(async (manager) => {
       const checklist = await manager.findOne(ChecklistEntity, {
         where: { id: dto.checklistId },
         relations: ['task', 'task.group'],
@@ -154,8 +178,15 @@ export class ChecklistService {
 
       const item = manager.create(ChecklistItemEntity, dto);
       const saved = await manager.save(item);
-      return this.mapChecklistItemResponse(saved);
+      const result = this.mapChecklistItemResponse(saved);
+      return { result, groupId: checklist.task.groupId };
     });
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+    );
+
+    return result;
   }
 
   async updateChecklistItem(
@@ -163,7 +194,7 @@ export class ChecklistService {
     dto: UpdateChecklistItemDto,
     requesterId: string,
   ): Promise<IChecklistItemResponse> {
-    return await this.dataSource.transaction(async (manager) => {
+    const { result, groupId } = await this.dataSource.transaction(async (manager) => {
       const item = await manager.findOne(ChecklistItemEntity, {
         where: { id },
         relations: ['checklist', 'checklist.task', 'checklist.task.group'],
@@ -186,7 +217,8 @@ export class ChecklistService {
       Object.assign(item, dto);
       try {
         const saved = await manager.save(item);
-        return this.mapChecklistItemResponse(saved);
+        const result = this.mapChecklistItemResponse(saved);
+        return { result, groupId: item.checklist.task.groupId };
       } catch (error) {
         if (error instanceof OptimisticLockVersionMismatchError) {
           throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
@@ -194,10 +226,16 @@ export class ChecklistService {
         throw error;
       }
     });
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+    );
+
+    return result;
   }
 
   async deleteChecklistItem(id: string, requesterId: string): Promise<string> {
-    return await this.dataSource.transaction(async (manager) => {
+    const { msg, groupId } = await this.dataSource.transaction(async (manager) => {
       const item = await manager.findOne(ChecklistItemEntity, {
         where: { id },
         relations: ['checklist', 'checklist.task', 'checklist.task.group'],
@@ -217,16 +255,24 @@ export class ChecklistService {
         manager,
       );
 
+      const groupId = item.checklist.task.groupId;
       await manager.remove(item);
-      return `Checklist item with ID ${id} has been deleted`;
+      const msg = `Checklist item with ID ${id} has been deleted`;
+      return { msg, groupId };
     });
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+    );
+
+    return msg;
   }
 
   async toggleChecklistItem(
     id: string,
     requesterId: string,
   ): Promise<IChecklistItemResponse> {
-    return await this.dataSource.transaction(async (manager) => {
+    const { result, groupId } = await this.dataSource.transaction(async (manager) => {
       const item = await manager.findOne(ChecklistItemEntity, {
         where: { id },
         relations: ['checklist', 'checklist.task', 'checklist.task.group'],
@@ -249,7 +295,8 @@ export class ChecklistService {
       item.isCompleted = !item.isCompleted;
       try {
         const saved = await manager.save(item);
-        return this.mapChecklistItemResponse(saved);
+        const result = this.mapChecklistItemResponse(saved);
+        return { result, groupId: item.checklist.task.groupId };
       } catch (error) {
         if (error instanceof OptimisticLockVersionMismatchError) {
           throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
@@ -257,6 +304,12 @@ export class ChecklistService {
         throw error;
       }
     });
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+    );
+
+    return result;
   }
 
   private mapChecklistResponse(checklist: ChecklistEntity): IChecklistResponse {

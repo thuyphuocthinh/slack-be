@@ -7,6 +7,8 @@ import { RpcException } from '@nestjs/microservices';
 import { TASK_ERROR } from '@slack/constants';
 import { ILabelResponse } from '../type/task.response';
 import { TaskCommonService } from './task-common.service';
+import { CACHE, CachedService } from '@slack/cached';
+import { TaskGroupEntity } from '../entity/task_group.entity';
 
 @Injectable()
 export class LabelService {
@@ -17,6 +19,7 @@ export class LabelService {
     private readonly labelRepo: Repository<LabelEntity>,
     private readonly dataSource: DataSource,
     private readonly commonService: TaskCommonService,
+    private readonly cachedService: CachedService,
   ) {}
 
   async createNewLabel(
@@ -34,7 +37,7 @@ export class LabelService {
     dto: UpdateLabelDto,
     requesterId: string,
   ): Promise<ILabelResponse> {
-    return await this.dataSource.transaction(async (manager) => {
+    const { result, groupIds } = await this.dataSource.transaction(async (manager) => {
       const label = await manager.findOne(LabelEntity, {
         where: { id },
         lock: { mode: 'pessimistic_write' },
@@ -49,12 +52,27 @@ export class LabelService {
 
       Object.assign(label, dto);
       const saved = await manager.save(label);
-      return this.mapLabelResponse(saved);
+      const result = this.mapLabelResponse(saved);
+
+      const groups = await manager.find(TaskGroupEntity, {
+        where: { boardId: label.boardId },
+        select: ['id'],
+      });
+      const groupIds = groups.map((g) => g.id);
+
+      return { result, groupIds };
     });
+
+    const trackerKeys = groupIds.map((groupId) =>
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+    );
+    await this.cachedService.invalidateListBulk(trackerKeys);
+
+    return result;
   }
 
   async deleteLabel(id: string, requesterId: string): Promise<string> {
-    return await this.dataSource.transaction(async (manager) => {
+    const { msg, groupIds } = await this.dataSource.transaction(async (manager) => {
       const label = await manager.findOne(LabelEntity, { where: { id } });
       if (!label) throw new RpcException(TASK_ERROR.LABEL_NOT_FOUND);
 
@@ -64,9 +82,25 @@ export class LabelService {
         manager,
       );
 
+      const boardId = label.boardId;
       await manager.remove(label);
-      return `Label with ID ${id} has been deleted`;
+      const msg = `Label with ID ${id} has been deleted`;
+
+      const groups = await manager.find(TaskGroupEntity, {
+        where: { boardId },
+        select: ['id'],
+      });
+      const groupIds = groups.map((g) => g.id);
+
+      return { msg, groupIds };
     });
+
+    const trackerKeys = groupIds.map((groupId) =>
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(groupId),
+    );
+    await this.cachedService.invalidateListBulk(trackerKeys);
+
+    return msg;
   }
 
   async getLabelsInBoard(

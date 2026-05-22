@@ -11,6 +11,7 @@ import { RpcException } from '@nestjs/microservices';
 import { TASK_ERROR } from '@slack/constants';
 import { IGroupResponse } from '../type/task.response';
 import { TaskCommonService } from './task-common.service';
+import { CACHE, CachedService } from '@slack/cached';
 
 @Injectable()
 export class GroupService {
@@ -19,6 +20,7 @@ export class GroupService {
     private readonly groupRepo: Repository<TaskGroupEntity>,
     private readonly commonService: TaskCommonService,
     private readonly dataSource: DataSource,
+    private readonly cachedService: CachedService,
   ) {}
 
   async addGroupToBoard(
@@ -72,7 +74,7 @@ export class GroupService {
   }
 
   async removeGroupFromBoard(id: string, requesterId: string): Promise<string> {
-    return await this.dataSource.transaction(async (manager) => {
+    const msg = await this.dataSource.transaction(async (manager) => {
       const group = await manager.findOne(TaskGroupEntity, { where: { id } });
       if (!group) throw new RpcException(TASK_ERROR.GROUP_NOT_FOUND);
 
@@ -85,6 +87,12 @@ export class GroupService {
       await manager.remove(group);
       return `Group with ID ${id} has been deleted`;
     });
+
+    await this.cachedService.invalidateList(
+      CACHE.TASK.TRACKERS.TASK_LIST_VERSION(id),
+    );
+
+    return msg;
   }
 
   async getGroupsByBoardId(
