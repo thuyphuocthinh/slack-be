@@ -119,7 +119,7 @@ export class TaskService {
       async (manager) => {
         const task = await manager.findOne(TaskEntity, {
           where: { id },
-          relations: ['labels', 'group', 'members'],
+          relations: ['labels', 'group', 'members', 'attachments', 'checklists', 'checklists.items'],
         });
 
         if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
@@ -352,7 +352,7 @@ export class TaskService {
         .catch(() => null);
       const assignerName = assigner
         ? `${assigner.firstName || ''} ${assigner.lastName || ''}`.trim() ||
-          'User'
+        'User'
         : 'User';
 
       firstValueFrom(
