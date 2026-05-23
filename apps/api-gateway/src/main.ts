@@ -50,7 +50,9 @@ async function bootstrap() {
     app.useGlobalFilters(new HttpExceptionFilter());
     app.useGlobalInterceptors(new ResponseInterceptor());
     app.enableCors();
-    app.setGlobalPrefix('api/v1');
+    app.setGlobalPrefix('api/v1', {
+      exclude: ['metrics'],
+    });
 
     const config = new DocumentBuilder()
       .setTitle('Slack API')

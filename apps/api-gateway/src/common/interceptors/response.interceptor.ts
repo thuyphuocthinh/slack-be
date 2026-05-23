@@ -22,6 +22,10 @@ export class ResponseInterceptor<T> implements NestInterceptor<
     const request = ctx.getRequest<Request>();
     const statusCode = response.statusCode;
 
+    if (request.url.includes('/metrics')) {
+      return next.handle();
+    }
+
     return next.handle().pipe(
       map((data: any) => {
         const commonResponse = {
