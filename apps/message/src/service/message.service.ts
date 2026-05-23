@@ -466,16 +466,19 @@ export class MessageService {
       });
       const [response] = await this.hydrateMessages([freshMessage!], manager);
       // Emit Socket Event
-      const targetRoom = updatedMessage.parentId
-        ? `thread_${updatedMessage.parentId}`
-        : updatedMessage.channelId;
+      const targetRooms = [updatedMessage.channelId];
+      if (updatedMessage.parentId) {
+        targetRooms.push(`thread_${updatedMessage.parentId}`);
+      } else {
+        targetRooms.push(`thread_${updatedMessage.id}`);
+      }
 
       await this.queueService.addJob(
         EQueueName.SOCKET_QUEUE,
         EJobName.EMIT_EVENT,
         {
           event: ESocketEvent.MESSAGE_UPDATED,
-          room: targetRoom,
+          room: targetRooms,
           data: response,
         },
       );
@@ -554,7 +557,7 @@ export class MessageService {
           EJobName.EMIT_EVENT,
           {
             event: ESocketEvent.MESSAGE_DELETED,
-            room: channelId,
+            room: [channelId, `thread_${messageId}`], // Phát đồng thời tới channel và room thread của chính nó
             data: {
               messageId,
               userId,
@@ -620,12 +623,19 @@ export class MessageService {
         userId,
       );
 
+      const reactionRooms = [updatedMessage.channelId];
+      if (updatedMessage.parentId) {
+        reactionRooms.push(`thread_${updatedMessage.parentId}`);
+      } else {
+        reactionRooms.push(`thread_${updatedMessage.id}`);
+      }
+
       await this.queueService.addJob(
         EQueueName.SOCKET_QUEUE,
         EJobName.EMIT_EVENT,
         {
           event: ESocketEvent.REACTION_UPDATED,
-          room: updatedMessage.channelId, // Reaction luôn bắn về channel để update UI
+          room: reactionRooms, // Reaction bắn về cả channel và thread tương ứng
           data: {
             messageId: updatedMessage.id,
             reactions: updatedMessage.reactions,
