@@ -141,19 +141,40 @@ export class MessageService {
     manager: EntityManager,
   ) {
     // 6. Emit Socket Event (Background)
-    const targetRoom = response.parentId
-      ? `thread_${response.parentId}`
-      : response.channelId;
+    if (response.parentId) {
+      // Emit to thread room for users currently viewing the thread
+      await this.queueService.addJob(
+        EQueueName.SOCKET_QUEUE,
+        EJobName.EMIT_EVENT,
+        {
+          event: ESocketEvent.MESSAGE_RECEIVED,
+          room: `thread_${response.parentId}`,
+          data: response,
+        },
+      );
 
-    await this.queueService.addJob(
-      EQueueName.SOCKET_QUEUE,
-      EJobName.EMIT_EVENT,
-      {
-        event: ESocketEvent.MESSAGE_RECEIVED,
-        room: targetRoom,
-        data: response,
-      },
-    );
+      // Emit to channel room so everyone in the channel gets updated reply counts in real-time
+      await this.queueService.addJob(
+        EQueueName.SOCKET_QUEUE,
+        EJobName.EMIT_EVENT,
+        {
+          event: ESocketEvent.MESSAGE_RECEIVED,
+          room: response.channelId,
+          data: response,
+        },
+      );
+    } else {
+      // Normal message, emit only to channel room
+      await this.queueService.addJob(
+        EQueueName.SOCKET_QUEUE,
+        EJobName.EMIT_EVENT,
+        {
+          event: ESocketEvent.MESSAGE_RECEIVED,
+          room: response.channelId,
+          data: response,
+        },
+      );
+    }
 
     // 6.5. Emit Thread Event to User Private Rooms if it's a thread reply
     if (response.parentId) {
@@ -187,25 +208,30 @@ export class MessageService {
             data: response as unknown as Record<string, unknown>,
           },
         );
+
+        // 7. Push to Notification Queue (Background) - Notify only mentioned users
+        const userIdsWithoutSender = userIds.filter(
+          (id: string) => id !== response.sender.id,
+        );
+        if (userIdsWithoutSender.length > 0) {
+          await this.queueService.addJob(
+            EQueueName.NOTIFICATION_QUEUE,
+            EJobName.CREATE_NOTIFICATION,
+            {
+              channelId: response.channelId,
+              channelName: channel.name,
+              senderId: response.sender.id,
+              senderName: response.sender.firstName + ' ' + response.sender.lastName,
+              messageId: response.id,
+              mentions: response.mentions,
+              parentId: response.parentId || undefined,
+              workspaceId: channel.workspaceId,
+              content: JSON.stringify(response.content),
+            },
+          );
+        }
       }
     }
-
-    // 7. Push to Notification Queue (Background)
-    await this.queueService.addJob(
-      EQueueName.NOTIFICATION_QUEUE,
-      EJobName.CREATE_NOTIFICATION,
-      {
-        channelId: response.channelId,
-        channelName: channel.name,
-        senderId: response.sender.id,
-        senderName: response.sender.firstName + ' ' + response.sender.lastName,
-        messageId: response.id,
-        mentions: response.mentions,
-        parentId: response.parentId || undefined,
-        workspaceId: channel.workspaceId,
-        content: JSON.stringify(response.content),
-      },
-    );
 
     // 8. Push to Channel Queue (Background) - For unread count
     if (!response.parentId) {
@@ -514,23 +540,55 @@ export class MessageService {
       await messageRepo.remove(message);
 
       // Emit Socket Event
-      const targetRoom = message.parentId
-        ? `thread_${message.parentId}`
-        : message.channelId;
-      await this.queueService.addJob(
-        EQueueName.SOCKET_QUEUE,
-        EJobName.EMIT_EVENT,
-        {
-          event: ESocketEvent.MESSAGE_DELETED,
-          room: targetRoom,
-          data: {
-            messageId: message.id,
-            userId,
-            channelId: message.channelId,
-            parentId: message.parentId,
+      if (message.parentId) {
+        // Emit deletion to thread room
+        await this.queueService.addJob(
+          EQueueName.SOCKET_QUEUE,
+          EJobName.EMIT_EVENT,
+          {
+            event: ESocketEvent.MESSAGE_DELETED,
+            room: `thread_${message.parentId}`,
+            data: {
+              messageId: message.id,
+              userId,
+              channelId: message.channelId,
+              parentId: message.parentId,
+            },
           },
-        },
-      );
+        );
+
+        // Emit deletion to channel room to update reply count of the parent message
+        await this.queueService.addJob(
+          EQueueName.SOCKET_QUEUE,
+          EJobName.EMIT_EVENT,
+          {
+            event: ESocketEvent.MESSAGE_DELETED,
+            room: message.channelId,
+            data: {
+              messageId: message.id,
+              userId,
+              channelId: message.channelId,
+              parentId: message.parentId,
+            },
+          },
+        );
+      } else {
+        // Normal message deletion
+        await this.queueService.addJob(
+          EQueueName.SOCKET_QUEUE,
+          EJobName.EMIT_EVENT,
+          {
+            event: ESocketEvent.MESSAGE_DELETED,
+            room: message.channelId,
+            data: {
+              messageId: message.id,
+              userId,
+              channelId: message.channelId,
+              parentId: message.parentId,
+            },
+          },
+        );
+      }
 
       this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
         action: AuditAction.MESSAGE_DELETED,
