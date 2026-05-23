@@ -142,24 +142,12 @@ export class MessageService {
   ) {
     // 6. Emit Socket Event (Background)
     if (response.parentId) {
-      // Emit to thread room for users currently viewing the thread
       await this.queueService.addJob(
         EQueueName.SOCKET_QUEUE,
         EJobName.EMIT_EVENT,
         {
           event: ESocketEvent.MESSAGE_RECEIVED,
-          room: `thread_${response.parentId}`,
-          data: response,
-        },
-      );
-
-      // Emit to channel room so everyone in the channel gets updated reply counts in real-time
-      await this.queueService.addJob(
-        EQueueName.SOCKET_QUEUE,
-        EJobName.EMIT_EVENT,
-        {
-          event: ESocketEvent.MESSAGE_RECEIVED,
-          room: response.channelId,
+          room: [`thread_${response.parentId}`, response.channelId], // Phát đồng thời tới cả 2 phòng
           data: response,
         },
       );
@@ -537,38 +525,25 @@ export class MessageService {
       // Check membership
       await this.checkChannelExist(message.channelId, userId);
 
+      const messageId = message.id;
+      const channelId = message.channelId;
+      const parentId = message.parentId;
+
       await messageRepo.remove(message);
 
       // Emit Socket Event
-      if (message.parentId) {
-        // Emit deletion to thread room
+      if (parentId) {
         await this.queueService.addJob(
           EQueueName.SOCKET_QUEUE,
           EJobName.EMIT_EVENT,
           {
             event: ESocketEvent.MESSAGE_DELETED,
-            room: `thread_${message.parentId}`,
+            room: [`thread_${parentId}`, channelId], // Phát đồng thời tới cả 2 phòng
             data: {
-              messageId: message.id,
+              messageId,
               userId,
-              channelId: message.channelId,
-              parentId: message.parentId,
-            },
-          },
-        );
-
-        // Emit deletion to channel room to update reply count of the parent message
-        await this.queueService.addJob(
-          EQueueName.SOCKET_QUEUE,
-          EJobName.EMIT_EVENT,
-          {
-            event: ESocketEvent.MESSAGE_DELETED,
-            room: message.channelId,
-            data: {
-              messageId: message.id,
-              userId,
-              channelId: message.channelId,
-              parentId: message.parentId,
+              channelId,
+              parentId,
             },
           },
         );
@@ -579,12 +554,12 @@ export class MessageService {
           EJobName.EMIT_EVENT,
           {
             event: ESocketEvent.MESSAGE_DELETED,
-            room: message.channelId,
+            room: channelId,
             data: {
-              messageId: message.id,
+              messageId,
               userId,
-              channelId: message.channelId,
-              parentId: message.parentId,
+              channelId,
+              parentId,
             },
           },
         );
@@ -594,8 +569,8 @@ export class MessageService {
         action: AuditAction.MESSAGE_DELETED,
         actorId: userId,
         entityType: AuditEntityType.MESSAGE,
-        entityId: message.id,
-        metadata: { channelId: message.channelId },
+        entityId: messageId,
+        metadata: { channelId },
       });
 
 
