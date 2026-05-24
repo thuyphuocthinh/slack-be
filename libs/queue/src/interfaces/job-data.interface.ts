@@ -75,6 +75,16 @@ export interface IAuditJobData {
   metadata?: Record<string, any>;
 }
 
+export interface IProcessWebhookMessageJobData {
+  channelId: string;
+  workspaceId: string;
+  webhookId: string;
+  customName?: string;
+  customAvatarUrl?: string;
+  content: string;
+  attachments?: Record<string, unknown>[];
+}
+
 export type TJobData = {
   [EJobName.SEND_VERIFICATION_EMAIL]: IEmailJobData;
   [EJobName.SEND_INVITE_EMAIL]: IInviteJobData;
@@ -86,5 +96,6 @@ export type TJobData = {
   [EJobName.TASK_DEADLINE_REMINDER]: ITaskDeadlineJobData;
   [EJobName.UPDATE_RESOURCE_METADATA]: IUpdateResourceMetadataJobData;
   [EJobName.SAVE_AUDIT_LOG]: IAuditJobData;
+  [EJobName.PROCESS_WEBHOOK_MESSAGE]: IProcessWebhookMessageJobData;
 };
 

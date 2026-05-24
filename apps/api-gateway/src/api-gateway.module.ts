@@ -17,6 +17,7 @@ import { ChannelModule } from './channel/channel.module';
 import { MessageModule } from './message/message.module';
 import { VideoCallModule } from './video-call/video-call.module';
 import { RateLimitGuard } from './common/guards/rate-limit.guard';
+import { WebhookReceiverModule } from './webhook-receiver/webhook-receiver.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { RateLimitGuard } from './common/guards/rate-limit.guard';
     ChannelModule,
     MessageModule,
     VideoCallModule,
+    WebhookReceiverModule,
 
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'fallback_secret',

@@ -129,6 +129,18 @@ export class WebhookService {
     return this.mapToResponseDto(saved);
   }
 
+  async verifyWebhook(workspaceId: string, channelId: string, token: string): Promise<WebhookResponseDto> {
+    const webhook = await this.webhookRepo.findOne({
+      where: { workspaceId, channelId, token },
+    });
+
+    if (!webhook) {
+      throw new RpcException(WEBHOOK_ERROR.WEBHOOK_NOT_FOUND);
+    }
+
+    return this.mapToResponseDto(webhook);
+  }
+
   async deleteWebhook(dto: DeleteWebhookDto): Promise<boolean> {
     const isMember = await this.channelMemberService.checkMemberInChannel(
       dto.channelId,

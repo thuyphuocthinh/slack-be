@@ -20,4 +20,5 @@ export const CHANNEL_MESSAGE_PATTERN = {
   WEBHOOK_LIST: 'channel.webhook_list',
   WEBHOOK_UPDATE: 'channel.webhook_update',
   WEBHOOK_DELETE: 'channel.webhook_delete',
+  WEBHOOK_VERIFY: 'channel.webhook_verify',
 };

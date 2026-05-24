@@ -34,5 +34,8 @@ export enum EJobName {
 
   // Audit
   SAVE_AUDIT_LOG = 'save_audit_log',
+
+  // Webhook
+  PROCESS_WEBHOOK_MESSAGE = 'process_webhook_message',
 }
 

@@ -168,4 +168,9 @@ export class ChannelController {
   async deleteWebhook(@Payload() dto: DeleteWebhookDto) {
     return await this.webhookService.deleteWebhook(dto);
   }
+
+  @MessagePattern(CHANNEL_MESSAGE_PATTERN.WEBHOOK_VERIFY)
+  async verifyWebhook(@Payload() payload: { workspaceId: string; channelId: string; token: string }) {
+    return await this.webhookService.verifyWebhook(payload.workspaceId, payload.channelId, payload.token);
+  }
 }
