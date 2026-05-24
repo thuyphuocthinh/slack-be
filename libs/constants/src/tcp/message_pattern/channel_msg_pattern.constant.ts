@@ -1,5 +1,6 @@
 export const CHANNEL_MESSAGE_PATTERN = {
   GET_CHANNEL: 'channel.get_channel',
+  GET_CHANNEL_BASIC_INFO: 'channel.get_channel_basic_info',
   GET_CHANNELS: 'channel.get_channels',
   CREATE_CHANNEL: 'channel.create_channel',
   UPDATE_CHANNEL: 'channel.update_channel',

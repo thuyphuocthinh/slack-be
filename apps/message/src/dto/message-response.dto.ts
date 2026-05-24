@@ -14,6 +14,7 @@ export class UserResponseDto {
   lastName: string;
   avatarUrl: string;
   email: string;
+  isApp?: boolean;
 }
 
 import { IMessageAttachment } from '../types/message-attachment.interface';

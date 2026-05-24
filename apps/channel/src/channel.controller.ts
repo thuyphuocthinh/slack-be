@@ -68,6 +68,13 @@ export class ChannelController {
     );
   }
 
+  @MessagePattern(CHANNEL_MESSAGE_PATTERN.GET_CHANNEL_BASIC_INFO)
+  async getChannelBasicInfo(
+    @Payload() payload: { channelId: string },
+  ) {
+    return await this.channelService.getChannelBasicInfo(payload.channelId);
+  }
+
   @MessagePattern(CHANNEL_MESSAGE_PATTERN.TOGGLE_STAR)
   async toggleStar(@Payload() dto: ToggleStarDto) {
     return await this.channelService.toggleStar(dto);

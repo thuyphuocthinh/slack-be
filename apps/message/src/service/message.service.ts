@@ -28,7 +28,7 @@ import { MessageReactionEntity } from '../entity/message_reaction.entity';
 import { MessageAttachmentEntity } from '../entity/message_attachment.entity';
 import { firstValueFrom } from 'rxjs';
 import { v7 as uuidv7 } from 'uuid';
-import { EQueueName, EJobName, QueueService } from '@slack/queue';
+import { EQueueName, EJobName, QueueService, IProcessWebhookMessageJobData } from '@slack/queue';
 import { IMessageAttachment } from '../types/message-attachment.interface';
 import { CACHE, CachedService, TTL } from '@slack/cached';
 import { AuditAction, AuditEntityType } from '@slack/common';
@@ -286,6 +286,45 @@ export class MessageService {
       const [response] = await this.hydrateMessages([savedMessage], manager);
 
       // 6. Broadcast events and queues
+      await this.broadcastMessageEvents(response, channel, savedMessage, manager);
+
+      return response;
+    });
+  }
+
+  async createWebhookMessage(
+    data: IProcessWebhookMessageJobData,
+  ): Promise<MessageResponseDto> {
+    const { channelId, workspaceId, webhookId, customName, customAvatarUrl, content, attachments } = data;
+
+    // We don't check checkChannelExist because webhooks are pre-verified
+
+    return await this.dataSource.transaction(async (manager) => {
+      // Create message
+      const message = manager.create(MessageEntity, {
+        id: uuidv7(),
+        channelId,
+        userId: null as any, // nullable
+        webhookId,
+        customName,
+        customAvatarUrl,
+        content: attachments && attachments.length > 0 ? { text: content, attachments } : content,
+      });
+
+      const savedMessage = await manager.save(message);
+
+      // We skip attachments for webhooks as they are not standard uploaded resources
+      // but rather rich-text content or slack-format attachments
+
+      const [response] = await this.hydrateMessages([savedMessage], manager);
+
+      // Get real channel info via TCP
+      const channel = await firstValueFrom(
+        this.channelService.send(CHANNEL_MESSAGE_PATTERN.GET_CHANNEL_BASIC_INFO, {
+          channelId,
+        }),
+      );
+
       await this.broadcastMessageEvents(response, channel, savedMessage, manager);
 
       return response;
@@ -870,7 +909,9 @@ export class MessageService {
     // 1. Get all user IDs involved (senders + mention users)
     const userIds = new Set<string>();
     messages.forEach((m) => {
-      userIds.add(m.userId);
+      if (m.userId) {
+        userIds.add(m.userId);
+      }
       m.mentions?.forEach((men) => {
         if (men.userId !== 'all') {
           userIds.add(men.userId);
@@ -903,7 +944,7 @@ export class MessageService {
       const reactions = this.groupReactions(m.reactions || []);
       const dto = this.mapToResponseDto(
         m,
-        userMap.get(m.userId),
+        m.userId ? userMap.get(m.userId) : undefined,
         reactions,
         m.mentions || [],
       );
@@ -967,13 +1008,26 @@ export class MessageService {
     dto.parentId = message.parentId;
     dto.createdAt = message.createdAt;
     dto.updatedAt = message.updatedAt;
-    dto.sender = sender || {
-      id: message.userId,
-      firstName: 'Unknown',
-      lastName: 'User',
-      avatarUrl: '',
-      email: '',
-    };
+
+    if (message.webhookId) {
+      dto.sender = {
+        id: message.webhookId,
+        firstName: message.customName || 'APP',
+        lastName: '',
+        avatarUrl: message.customAvatarUrl || '',
+        email: '',
+        isApp: true,
+      };
+    } else {
+      dto.sender = sender || {
+        id: message.userId,
+        firstName: 'Unknown',
+        lastName: 'User',
+        avatarUrl: '',
+        email: '',
+      };
+    }
+
     dto.reactions = reactions;
     const allMentions = mentions.map((m) => ({ userId: m.userId }));
     const isMentionAll = typeof message.content === 'string'
