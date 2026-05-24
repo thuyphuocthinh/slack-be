@@ -5,6 +5,7 @@ import { AppEntity, AppStatus } from '../entity/app.entity';
 import { AppEventSubscriptionEntity } from '../entity/app-event-subscription.entity';
 import { WorkspaceEntity } from '../entity/workspace.entity';
 import { WorkspaceCommonService } from './workspace-common.service';
+import { CACHE, CachedService } from '@slack/cached';
 import {
   CreateAppRequestDto,
   UpdateAppRequestDto,
@@ -28,6 +29,7 @@ export class AppService {
     private readonly appSubscriptionRepository: Repository<AppEventSubscriptionEntity>,
     private readonly workspaceCommonService: WorkspaceCommonService,
     private readonly dataSource: DataSource,
+    private readonly cachedService: CachedService,
   ) {}
 
   private generateSigningSecret(): string {
@@ -79,6 +81,10 @@ export class AppService {
             sub.appId = savedApp.id;
             sub.workspaceId = dto.workspaceId;
             sub.eventType = eventType;
+            
+            // Invalidate cache
+            this.cachedService.del(CACHE.APP.KEYS.EVENT_SUBSCRIPTIONS(dto.workspaceId, eventType));
+            
             return sub;
           });
           await manager.save(subscriptions);
@@ -144,6 +150,14 @@ export class AppService {
         }
 
         if (dto.eventTypes) {
+          // Get old subscriptions to invalidate their cache
+          const oldSubscriptions = await manager.find(AppEventSubscriptionEntity, {
+            where: { appId: dto.appId }
+          });
+          oldSubscriptions.forEach(sub => {
+            this.cachedService.del(CACHE.APP.KEYS.EVENT_SUBSCRIPTIONS(dto.workspaceId, sub.eventType));
+          });
+
           await manager.delete(AppEventSubscriptionEntity, {
             appId: dto.appId,
           });
@@ -154,6 +168,10 @@ export class AppService {
               sub.appId = dto.appId;
               sub.workspaceId = dto.workspaceId;
               sub.eventType = eventType;
+              
+              // Invalidate cache for new events
+              this.cachedService.del(CACHE.APP.KEYS.EVENT_SUBSCRIPTIONS(dto.workspaceId, eventType));
+              
               return sub;
             });
             await manager.save(subscriptions);
@@ -186,6 +204,14 @@ export class AppService {
 
     try {
       await this.dataSource.transaction(async (manager) => {
+        // Get old subscriptions to invalidate their cache
+        const oldSubscriptions = await manager.find(AppEventSubscriptionEntity, {
+          where: { appId: dto.appId }
+        });
+        oldSubscriptions.forEach(sub => {
+          this.cachedService.del(CACHE.APP.KEYS.EVENT_SUBSCRIPTIONS(dto.workspaceId, sub.eventType));
+        });
+
         await manager.delete(AppEventSubscriptionEntity, {
           appId: dto.appId,
         });

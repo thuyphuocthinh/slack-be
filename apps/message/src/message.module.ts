@@ -26,6 +26,7 @@ import { WebhookProcessor } from './processor/webhook.processor';
       EQueueName.CHANNEL_QUEUE,
       EQueueName.RESOURCE_QUEUE,
       EQueueName.AUDIT_QUEUE,
+      EQueueName.OUTBOUND_WEBHOOK_QUEUE,
     ]),
 
     TypeOrmModule.forFeature([

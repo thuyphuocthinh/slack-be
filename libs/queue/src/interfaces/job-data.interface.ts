@@ -85,6 +85,13 @@ export interface IProcessWebhookMessageJobData {
   attachments?: Record<string, unknown>[];
 }
 
+export interface IDispatchOutboundWebhookJobData {
+  appId: string;
+  eventType: string;
+  workspaceId: string;
+  payload: Record<string, unknown>;
+}
+
 export type TJobData = {
   [EJobName.SEND_VERIFICATION_EMAIL]: IEmailJobData;
   [EJobName.SEND_INVITE_EMAIL]: IInviteJobData;
@@ -97,5 +104,6 @@ export type TJobData = {
   [EJobName.UPDATE_RESOURCE_METADATA]: IUpdateResourceMetadataJobData;
   [EJobName.SAVE_AUDIT_LOG]: IAuditJobData;
   [EJobName.PROCESS_WEBHOOK_MESSAGE]: IProcessWebhookMessageJobData;
+  [EJobName.DISPATCH_OUTBOUND_WEBHOOK]: IDispatchOutboundWebhookJobData;
 };
 

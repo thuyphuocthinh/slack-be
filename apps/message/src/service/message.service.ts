@@ -249,6 +249,40 @@ export class MessageService {
     }
   }
 
+  private async dispatchWebhookEvents(
+    response: MessageResponseDto,
+    channel: { name: string; workspaceId: string },
+  ) {
+    const eventType = 'message.channels';
+
+    const subscribedAppIds = await this.cachedService.getOrSetDetail(
+      CACHE.APP.KEYS.EVENT_SUBSCRIPTIONS(channel.workspaceId, eventType),
+      TTL.LONG,
+      async () => {
+        const rawResult = await this.dataSource.query(
+          `SELECT app_id as "appId" FROM app_event_subscriptions WHERE workspace_id = $1 AND event_type = $2`,
+          [channel.workspaceId, eventType]
+        );
+        return rawResult.map((r: { appId: string }) => r.appId) as string[];
+      }
+    );
+
+    if (Array.isArray(subscribedAppIds) && subscribedAppIds.length > 0) {
+      for (const appId of subscribedAppIds) {
+        await this.queueService.addJob(
+          EQueueName.OUTBOUND_WEBHOOK_QUEUE,
+          EJobName.DISPATCH_OUTBOUND_WEBHOOK,
+          {
+            appId,
+            eventType,
+            workspaceId: channel.workspaceId,
+            payload: response as unknown as Record<string, unknown>,
+          }
+        );
+      }
+    }
+  }
+
   async createMessage(
     createMessageDto: CreateMessageDto,
   ): Promise<MessageResponseDto> {
@@ -288,6 +322,9 @@ export class MessageService {
       // 6. Broadcast events and queues
       await this.broadcastMessageEvents(response, channel, savedMessage, manager);
 
+      // 7. Dispatch Webhook Events to Bot Servers
+      await this.dispatchWebhookEvents(response, channel);
+
       return response;
     });
   }
@@ -313,7 +350,7 @@ export class MessageService {
 
       const savedMessage = await manager.save(message);
 
-      // We skip attachments for webhooks as they are not standard uploaded resources
+      // skip attachments for webhooks as they are not standard uploaded resources
       // but rather rich-text content or slack-format attachments
 
       const [response] = await this.hydrateMessages([savedMessage], manager);
