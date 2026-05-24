@@ -23,6 +23,7 @@ import {
   AddMemberApiDto,
   AddBatchMembersApiDto,
 } from './dto/channel-api.dto';
+import { CreateWebhookApiDto, UpdateWebhookApiDto } from './dto/webhook-api.dto';
 import { CurrentUser, type JwtUser } from '@slack/common';
 
 @ApiTags('Channels')
@@ -199,5 +200,77 @@ export class ChannelController {
     @CurrentUser() user: JwtUser,
   ) {
     return await this.channelService.leaveChannel(id, user.sub);
+  }
+
+  // --- WEBHOOKS ---
+
+  @Post(':id/webhooks')
+  @ApiOperation({ summary: 'Create a new incoming webhook' })
+  @ApiResponse({ status: 201, description: 'Webhook created successfully' })
+  async createWebhook(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') channelId: string,
+    @Body() data: CreateWebhookApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.channelService.createWebhook({
+      workspaceId,
+      channelId,
+      userId: user.sub,
+      name: data.name,
+      avatarUrl: data.avatarUrl,
+    });
+  }
+
+  @Get(':id/webhooks')
+  @ApiOperation({ summary: 'Get all webhooks for a channel' })
+  @ApiResponse({ status: 200, description: 'Webhooks retrieved successfully' })
+  async getWebhooks(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') channelId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.channelService.getWebhooks({
+      workspaceId,
+      channelId,
+      userId: user.sub,
+    });
+  }
+
+  @Patch(':id/webhooks/:webhookId')
+  @ApiOperation({ summary: 'Update a webhook' })
+  @ApiResponse({ status: 200, description: 'Webhook updated successfully' })
+  async updateWebhook(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') channelId: string,
+    @Param('webhookId') webhookId: string,
+    @Body() data: UpdateWebhookApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.channelService.updateWebhook({
+      workspaceId,
+      channelId,
+      webhookId,
+      userId: user.sub,
+      name: data.name,
+      avatarUrl: data.avatarUrl,
+    });
+  }
+
+  @Delete(':id/webhooks/:webhookId')
+  @ApiOperation({ summary: 'Delete a webhook' })
+  @ApiResponse({ status: 200, description: 'Webhook deleted successfully' })
+  async deleteWebhook(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') channelId: string,
+    @Param('webhookId') webhookId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.channelService.deleteWebhook({
+      workspaceId,
+      channelId,
+      webhookId,
+      userId: user.sub,
+    });
   }
 }

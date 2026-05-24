@@ -13,6 +13,7 @@ export * from './errors/channel.error';
 export * from './errors/system.error';
 export * from './errors/message.error';
 export * from './errors/resource.error';
+export * from './errors/webhook.error';
 
 export * from './tcp/tcp.constant';
 export * from './tcp/message_pattern/notification_msg_pattern.constant';
