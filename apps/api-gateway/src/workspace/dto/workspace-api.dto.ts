@@ -118,3 +118,72 @@ export class GetWorkspacesApiDto {
   @Type(() => Number)
   limit?: number;
 }
+
+export class CreateAppApiDto {
+  @ApiProperty({ example: 'My Custom App' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  name: string;
+
+  @ApiPropertyOptional({ example: 'A brief description of the app' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  description?: string;
+
+  @ApiPropertyOptional({ example: 'https://example.com/avatar.png' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(512)
+  avatarUrl?: string;
+
+  @ApiPropertyOptional({ example: 'https://my-app.com/slack/events' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(512)
+  requestUrl?: string;
+
+  @ApiPropertyOptional({ example: ['app_mention', 'message.channels'] })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  eventTypes?: string[];
+}
+
+export class UpdateAppApiDto {
+  @ApiPropertyOptional({ example: 'Updated App Name' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  name?: string;
+
+  @ApiPropertyOptional({ example: 'Updated description' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  description?: string;
+
+  @ApiPropertyOptional({ example: 'https://example.com/avatar.png' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(512)
+  avatarUrl?: string;
+
+  @ApiPropertyOptional({ example: 'https://my-app.com/slack/events' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(512)
+  requestUrl?: string;
+
+  @ApiPropertyOptional({ example: ['app_mention'] })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  eventTypes?: string[];
+
+  @ApiPropertyOptional({ example: 'ACTIVE' })
+  @IsString()
+  @IsOptional()
+  status?: string;
+}

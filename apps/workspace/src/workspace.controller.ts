@@ -26,6 +26,13 @@ import {
   GetWorkspacesRequestDto,
 } from './dto/workspace-request.dto';
 import { WorkspaceRoleEnum } from './types/workspace.enum';
+import { AppService } from './services/app.service';
+import {
+  CreateAppRequestDto,
+  UpdateAppRequestDto,
+  DeleteAppRequestDto,
+  GetAppsRequestDto,
+} from './dto/app-request.dto';
 
 @Controller()
 export class WorkspaceController {
@@ -34,6 +41,7 @@ export class WorkspaceController {
     private readonly memberService: WorkspaceMemberService,
     private readonly inviteService: WorkspaceInviteService,
     private readonly linkService: WorkspaceLinkService,
+    private readonly appService: AppService,
   ) {}
 
   @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.CREATE_WORKSPACE)
@@ -167,5 +175,25 @@ export class WorkspaceController {
   @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.GET_MEMBER_DETAIL)
   getMemberDetail(@Payload() dto: { workspaceId: string; userId: string }) {
     return this.memberService.getMemberDetail(dto.workspaceId, dto.userId);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.CREATE_APP)
+  createApp(@Payload() dto: CreateAppRequestDto) {
+    return this.appService.createApp(dto);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.UPDATE_APP)
+  updateApp(@Payload() dto: UpdateAppRequestDto) {
+    return this.appService.updateApp(dto);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.DELETE_APP)
+  deleteApp(@Payload() dto: DeleteAppRequestDto) {
+    return this.appService.deleteApp(dto);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.GET_APPS)
+  getApps(@Payload() dto: GetAppsRequestDto) {
+    return this.appService.getApps(dto);
   }
 }
