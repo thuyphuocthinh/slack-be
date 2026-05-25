@@ -1,0 +1,18 @@
+export const CHANNEL_MESSAGE_PATTERN = {
+  GET_CHANNEL: 'channel.get_channel',
+  GET_CHANNELS: 'channel.get_channels',
+  CREATE_CHANNEL: 'channel.create_channel',
+  UPDATE_CHANNEL: 'channel.update_channel',
+  DELETE_CHANNEL: 'channel.delete_channel',
+  TOGGLE_STAR: 'channel.toggle_star',
+  ADD_MEMBER: 'channel.add_member',
+  ADD_BATCH_MEMBERS: 'channel.add_batch_members',
+  REMOVE_MEMBER: 'channel.remove_member',
+  GET_MEMBERS: 'channel.get_members',
+  LEAVE_CHANNEL: 'channel.leave_channel',
+  INCREMENT_UNREAD_COUNT: 'channel.increment_unread_count',
+  MARK_AS_READ: 'channel.mark_as_read',
+  REMOVE_MEMBER_FROM_ALL_CHANNELS: 'channel.remove_member_from_all_channels',
+  GET_UNREAD_SUMMARY: 'channel.get_unread_summary',
+  FIND_DIRECT_CHANNEL: 'channel.find_direct_channel',
+};

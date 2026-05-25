@@ -22,11 +22,35 @@
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false,
     "paths": {
+      "@slack/cached": [
+        "libs/cached/src"
+      ],
+      "@slack/cached/*": [
+        "libs/cached/src/*"
+      ],
       "@slack/common": [
         "libs/common/src"
       ],
       "@slack/common/*": [
         "libs/common/src/*"
+      ],
+      "@slack/constants": [
+        "libs/constants/src"
+      ],
+      "@slack/constants/*": [
+        "libs/constants/src/*"
+      ],
+      "@slack/database": [
+        "libs/database/src"
+      ],
+      "@slack/database/*": [
+        "libs/database/src/*"
+      ],
+      "@slack/queue": [
+        "libs/queue/src"
+      ],
+      "@slack/queue/*": [
+        "libs/queue/src/*"
       ]
     }
   }

@@ -1,0 +1,15 @@
+export const USER_MESSAGE_PATTERNS = {
+  CREATE_USER: 'user.create',
+  CHANGE_USER_STATUS: 'user.change_status',
+  GET_USER_BY_ID: 'user.get_by_id',
+  GET_USER_BY_EMAIL: 'user.get_by_email',
+  IS_USER_ENABLE_TWO_FACTOR: 'user.is_enable_two_factor',
+  CHANGE_AVATAR: 'user.change_avatar',
+  UPDATE_INFO: 'user.update_info',
+  CHANGE_PASSWORD: 'user.change_password',
+  GET_USER_PREFERENCE: 'user.get_preference',
+  GET_BATCH_USER_BY_IDS: 'user.get_batch_by_ids',
+  UPDATE_USER_PREFERENCE: 'user.update_preference',
+  FIND_USERS_BY_EMAIL: 'user.find_users_by_emails',
+  DELETE_USER: 'user.delete',
+} as const;

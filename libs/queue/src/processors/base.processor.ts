@@ -1,0 +1,36 @@
+import { OnWorkerEvent, WorkerHost } from '@nestjs/bullmq';
+import { Logger } from '@nestjs/common';
+import { Job } from 'bullmq';
+
+export abstract class BaseProcessor<
+  T = any,
+  R = any,
+  N extends string = string,
+> extends WorkerHost {
+  protected readonly logger = new Logger(this.constructor.name);
+
+  abstract process(job: Job<T, R, N>): Promise<R>;
+
+  @OnWorkerEvent('error')
+  onError(error: Error) {
+    this.logger.error(`Error in worker: ${error.message}`, error.stack);
+  }
+
+  @OnWorkerEvent('active')
+  onActive(job: Job) {
+    this.logger.log(`Processing job ${job.id} of type ${job.name}...`);
+  }
+
+  @OnWorkerEvent('completed')
+  onCompleted(job: Job) {
+    this.logger.log(`Completed job ${job.id} of type ${job.name}`);
+  }
+
+  @OnWorkerEvent('failed')
+  onFailed(job: Job, error: Error) {
+    this.logger.error(
+      `Failed job ${job.id} of type ${job.name}: ${error.message}`,
+      error.stack,
+    );
+  }
+}

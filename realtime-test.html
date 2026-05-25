@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Slack Realtime Test</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f4f7f6;
+            padding: 20px;
+        }
+
+        .container {
+            display: flex;
+            gap: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            flex: 1;
+        }
+
+        input,
+        button {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        button {
+            background: #4a154b;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background: #611f69;
+        }
+
+        #logs {
+            height: 400px;
+            overflow-y: auto;
+            background: #1a1d21;
+            color: #d1d2d3;
+            padding: 10px;
+            font-family: monospace;
+            border-radius: 4px;
+        }
+
+        .event {
+            margin-bottom: 5px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+        }
+
+        .event-name {
+            color: #2eb67d;
+            font-weight: bold;
+        }
+
+        .status-online {
+            color: #2eb67d;
+        }
+
+        .status-offline {
+            color: #e01e5a;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Slack Realtime Test Dashboard</h1>
+    <div class="container">
+        <div class="panel">
+            <h3>Configuration</h3>
+            <input type="text" id="token" placeholder="Paste your JWT Token here">
+            <input type="text" id="socketUrl" value="http://localhost:3008" placeholder="Socket URL">
+            <button onclick="connect()">Connect Socket</button>
+            <div id="connectionStatus" class="status-offline">Status: Disconnected</div>
+            <hr>
+            <input type="text" id="channelId" placeholder="Channel ID to join">
+            <button onclick="joinChannel()">Join Channel Room</button>
+            <hr>
+            <input type="text" id="messageContent" placeholder="Message content">
+            <button onclick="sendMessage()">Send Message (via API)</button>
+        </div>
+
+        <div class="panel">
+            <h3>Realtime Logs</h3>
+            <div id="logs"></div>
+            <button onclick="clearLogs()" style="background: #555; width: auto; padding: 5px 15px;">Clear Logs</button>
+        </div>
+    </div>
+
+    <script>
+        let socket;
+
+        function log(event, data) {
+            const logsDiv = document.getElementById('logs');
+            const entry = document.createElement('div');
+            entry.className = 'event';
+            entry.innerHTML = `<span class="event-name">[${new Date().toLocaleTimeString()}] ${event}:</span> <pre>${JSON.stringify(data, null, 2)}</pre>`;
+            logsDiv.prepend(entry);
+        }
+
+        function connect() {
+            const token = document.getElementById('token').value;
+            const url = document.getElementById('socketUrl').value;
+
+            if (!token) return alert('Please enter a token');
+
+            socket = io(url, {
+                auth: { token: token },
+                transports: ['websocket']
+            });
+
+            socket.on('connect', () => {
+                document.getElementById('connectionStatus').innerText = 'Status: Connected';
+                document.getElementById('connectionStatus').className = 'status-online';
+                log('SYSTEM', 'Connected to Socket Server');
+            });
+
+            socket.on('disconnect', () => {
+                document.getElementById('connectionStatus').innerText = 'Status: Disconnected';
+                document.getElementById('connectionStatus').className = 'status-offline';
+                log('SYSTEM', 'Disconnected from Socket Server');
+            });
+
+            // Listen to all events we implemented
+            socket.on('server_ready', (data) => log('SERVER_READY', data));
+            socket.on('message_received', (data) => log('MESSAGE_RECEIVED', data));
+            socket.on('channel_unread_updated', (data) => log('CHANNEL_UNREAD_UPDATED', data));
+            socket.on('unread_count_updated', (data) => log('UNREAD_NOTI_COUNT_UPDATED', data));
+            socket.on('subscribed', (data) => log('SUBSCRIBED', data));
+
+            socket.on('connect_error', (err) => {
+                log('ERROR', err.message);
+            });
+        }
+
+        function joinChannel() {
+            const channelId = document.getElementById('channelId').value;
+            if (!socket || !channelId) return alert('Connect first and enter Channel ID');
+            socket.emit('subscribe_channel', { channelId });
+        }
+
+        async function sendMessage() {
+            const token = document.getElementById('token').value;
+            const channelId = document.getElementById('channelId').value;
+            const content = document.getElementById('messageContent').value;
+
+            if (!content) return;
+
+            // Giả lập gọi API Gateway (thường chạy ở port 3000 hoặc 3001)
+            try {
+                const response = await fetch('http://localhost:3000/api/v1/workspaces/57558aac-97ec-43b8-9512-94b76de7455a/channels/' + channelId + '/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        content: content
+                    })
+                });
+                const result = await response.json();
+                log('API_RESPONSE', result);
+            } catch (err) {
+                log('API_ERROR', err.message);
+            }
+        }
+
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+        }
+    </script>
+</body>
+
+</html>
+
+<!--
+Data test: 
+channelId
+ee1623e3-2523-4712-94e3-60d15b0465f4
+workspaceId:
+88df8dd5-082a-4ce7-974a-82c1a35fd8a1
+thuyphuocthinhtpt+4@gmail.com
+thuyphuocthinhtpt+5@gmail.com
+thuyphuocthinhtpt+6@gmail.com
+Problems
+1. How to auto connect when add member to group channel or disconnec user leave group?
+2. Test group channel
+3. Test direct channel
+4. Test reply, thread
+5. Test mention @all, @user, reaction
+6. Test remove, edit...
+-->

@@ -1,0 +1,18 @@
+export const NOTIFICATION_ERROR = {
+  SEND_EMAIL_FAILED: {
+    code: 'ERR.NOTI.0100',
+    message: 'FAILED TO SEND EMAIL',
+  },
+  SEND_VERIFICATION_EMAIL_FAILED: {
+    code: 'ERR.NOTI.0101',
+    message: 'FAILED TO SEND VERIFICATION EMAIL',
+  },
+  SEND_RESET_PASSWORD_EMAIL_FAILED: {
+    code: 'ERR.NOTI.0102',
+    message: 'FAILED TO SEND RESET PASSWORD EMAIL',
+  },
+  NOTIFICATION_NOT_FOUND: {
+    code: 'ERR.NOTI.0103',
+    message: 'NOTIFICATION NOT FOUND',
+  },
+};

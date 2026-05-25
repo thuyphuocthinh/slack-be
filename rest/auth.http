@@ -1,0 +1,22 @@
+# ========== CONFIGURATION ==========
+@baseUrl = http://localhost:3000/api/v1
+@contentType = application/json
+@accessToken=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwYmNkYTYzYi1kNzk5LTQ3NzEtYmJmYi0wYzRlOGM0MzNlM2IiLCJlbWFpbCI6InRodXlwaHVvY3RoaW5odHB0KzVAZ21haWwuY29tIiwidG9rZW5WZXJzaW9uIjoxLCJpYXQiOjE3NzYzMzI2NTIsImV4cCI6MTc3NjMzMzU1Mn0.o_EDa7Z6zYcM63dVMVrQ-agn6AkIwR9jYoTgNKlr7TM
+
+### Register
+POST {{baseUrl}}/auth/register
+Content-Type: {{contentType}}
+
+{
+  "email": "thuyphuocthinhtpt+6@gmail.com",
+  "password": "123456Aa"
+}
+
+### Login
+POST {{baseUrl}}/auth/login
+Content-Type: {{contentType}}
+
+{
+  "email": "thuyphuocthinhtpt+5@gmail.com",
+  "password": "123456Aa"
+}

@@ -1,14 +1,14 @@
 {
   "$schema": "https://json.schemastore.org/nest-cli",
   "collection": "@nestjs/schematics",
-  "sourceRoot": "apps/slack-be/src",
+  "sourceRoot": "apps/api-gateway/src",
   "compilerOptions": {
     "deleteOutDir": true,
     "webpack": true,
-    "tsConfigPath": "apps/slack-be/tsconfig.app.json"
+    "tsConfigPath": "tsconfig.json"
   },
   "monorepo": true,
-  "root": "apps/slack-be",
+  "root": "apps/api-gateway",
   "projects": {
     "api-gateway": {
       "type": "application",
@@ -28,6 +28,24 @@
         "tsConfigPath": "apps/auth/tsconfig.app.json"
       }
     },
+    "cached": {
+      "type": "library",
+      "root": "libs/cached",
+      "entryFile": "index",
+      "sourceRoot": "libs/cached/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/cached/tsconfig.lib.json"
+      }
+    },
+    "channel": {
+      "type": "application",
+      "root": "apps/channel",
+      "entryFile": "main",
+      "sourceRoot": "apps/channel/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/channel/tsconfig.app.json"
+      }
+    },
     "common": {
       "type": "library",
       "root": "libs/common",
@@ -37,13 +55,100 @@
         "tsConfigPath": "libs/common/tsconfig.lib.json"
       }
     },
-    "slack-be": {
-      "type": "application",
-      "root": "apps/slack-be",
-      "entryFile": "main",
-      "sourceRoot": "apps/slack-be/src",
+    "constants": {
+      "type": "library",
+      "root": "libs/constants",
+      "entryFile": "index",
+      "sourceRoot": "libs/constants/src",
       "compilerOptions": {
-        "tsConfigPath": "apps/slack-be/tsconfig.app.json"
+        "tsConfigPath": "libs/constants/tsconfig.lib.json"
+      }
+    },
+    "database": {
+      "type": "library",
+      "root": "libs/database",
+      "entryFile": "index",
+      "sourceRoot": "libs/database/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/database/tsconfig.lib.json"
+      }
+    },
+    "message": {
+      "type": "application",
+      "root": "apps/message",
+      "entryFile": "main",
+      "sourceRoot": "apps/message/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/message/tsconfig.app.json"
+      }
+    },
+    "notification": {
+      "type": "application",
+      "root": "apps/notification",
+      "entryFile": "main",
+      "sourceRoot": "apps/notification/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/notification/tsconfig.app.json",
+        "assets": [
+          {
+            "include": "**/*.hbs",
+            "watchAssets": true
+          }
+        ]
+      }
+    },
+    "queue": {
+      "type": "library",
+      "root": "libs/queue",
+      "entryFile": "index",
+      "sourceRoot": "libs/queue/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/queue/tsconfig.lib.json"
+      }
+    },
+    "socket-gateway": {
+      "type": "application",
+      "root": "apps/socket-gateway",
+      "entryFile": "main",
+      "sourceRoot": "apps/socket-gateway/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/socket-gateway/tsconfig.app.json"
+      }
+    },
+    "task": {
+      "type": "application",
+      "root": "apps/task",
+      "entryFile": "main",
+      "sourceRoot": "apps/task/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/task/tsconfig.app.json"
+      }
+    },
+    "user": {
+      "type": "application",
+      "root": "apps/user",
+      "entryFile": "main",
+      "sourceRoot": "apps/user/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/user/tsconfig.app.json"
+      }
+    },
+    "video-call": {
+      "type": "application",
+      "root": "apps/video-call",
+      "entryFile": "main",
+      "sourceRoot": "apps/video-call/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/video-call/tsconfig.app.json"
+      }
+    },
+    "workspace": {
+      "type": "application",
+      "root": "apps/workspace",
+      "entryFile": "main",
+      "sourceRoot": "apps/workspace/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/workspace/tsconfig.app.json"
       }
     }
   }

@@ -2,7 +2,11 @@ import { Injectable } from '@nestjs/common';
 
 @Injectable()
 export class ApiGatewayService {
-  getHello(): string {
-    return 'Hello World!';
+  checkHealth(): { message: string } {
+    return { message: 'API Gateway is running' };
+  }
+
+  checkProtected(): { message: string } {
+    return { message: 'API Gateway is running' };
   }
 }

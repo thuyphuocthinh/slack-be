@@ -1,0 +1,42 @@
+export const AUTH_ERROR = {
+  ACCOUNT_ALREADY_EXIST: {
+    code: 'ERR.AUTH.0101',
+    message: 'ACCOUNT ALREADY EXISTS',
+  },
+  ACCOUNT_NOT_FOUND: {
+    code: 'ERR.AUTH.0102',
+    message: 'WRONG CREDENTIALS',
+  },
+  ACCOUNT_INVALID_VERIFICATION_CODE: {
+    code: 'ERR.AUTH.0103',
+    message: 'INVALID VERIFICATION CODE',
+  },
+  ACCOUNT_VERIFICATION_CODE_EXPIRED: {
+    code: 'ERR.AUTH.0104',
+    message: 'VERIFICATION CODE EXPIRED',
+  },
+  INVALID_CREDENTIALS: {
+    code: 'ERR.AUTH.0105',
+    message: 'WRONG CREDENTIALS',
+  },
+  INVALID_REFRESH_TOKEN: {
+    code: 'ERR.AUTH.0106',
+    message: 'INVALID OR EXPIRED REFRESH TOKEN',
+  },
+  ACCOUNT_NOT_VERIFIED: {
+    code: 'ERR.AUTH.0107',
+    message: 'ACCOUNT NOT VERIFIED',
+  },
+  UNAUTHORIZED: {
+    code: 'ERR.AUTH.0108',
+    message: 'UNAUTHORIZED TO ACCESS THIS RESOURCE',
+  },
+  FORBIDDEN: {
+    code: 'ERR.AUTH.0109',
+    message: 'FORBIDDEN',
+  },
+  INVALID_ACCESS_TOKEN: {
+    code: 'ERR.AUTH.0110',
+    message: 'INVALID ACCESS TOKEN',
+  },
+};

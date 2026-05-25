@@ -1,0 +1,247 @@
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Query,
+  Ip,
+  Headers,
+  Res,
+  Req,
+  Logger,
+  UseGuards,
+} from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBody,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
+import { AuthService } from './auth.service';
+import {
+  LoginDto,
+  RegisterDto,
+  VerifyEmailDto,
+  RefreshTokenDto,
+  VerifyResetPasswordDto,
+  ResetPasswordDto,
+  VerifyOtpFromAuthenticatorDto,
+  LogoutDto,
+  LogoutAllDto,
+  ResendCodeDto,
+} from './dto';
+import { Public } from '@slack/common';
+import { RateLimit } from '../common/guards/rate-limit.decorator';
+
+@ApiTags('Auth')
+@Controller('auth')
+export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
+  constructor(private readonly authService: AuthService) { }
+
+  @Public()
+  @RateLimit({ limit: 3, window: 60 })
+  @Post('register')
+  @ApiOperation({ summary: 'Register a new user' })
+  @ApiResponse({ status: 201, description: 'User successfully registered' })
+  register(@Body() data: RegisterDto) {
+    return this.authService.register(data);
+  }
+
+  @Public()
+  @Get('verify-email')
+  @ApiOperation({ summary: 'Verify user email' })
+  @ApiResponse({ status: 200, description: 'Email successfully verified' })
+  verifyEmail(@Query() data: VerifyEmailDto) {
+    return this.authService.verifyEmail(data);
+  }
+
+  @Public()
+  @RateLimit({ limit: 5, window: 60 })
+  @Post('login')
+  @ApiOperation({ summary: 'Login user' })
+  @ApiResponse({
+    status: 200,
+    description: 'User successfully logged in, returns tokens',
+  })
+  login(
+    @Body() data: LoginDto,
+    @Ip() ipAddress: string,
+    @Headers('user-agent') userAgent: string,
+  ) {
+    return this.authService.login(data, {
+      ipAddress,
+      userAgent,
+      device: userAgent,
+    });
+  }
+
+  @Post('refresh')
+  @Public()
+  @ApiOperation({ summary: 'Refresh access token' })
+  @ApiResponse({ status: 200, description: 'Tokens successfully refreshed' })
+  refresh(
+    @Body() data: RefreshTokenDto,
+    @Ip() ipAddress: string,
+    @Headers('user-agent') userAgent: string,
+  ) {
+    return this.authService.refresh(data, {
+      ipAddress,
+      userAgent,
+      device: userAgent,
+    });
+  }
+
+  @Post('logout')
+  @ApiOperation({ summary: 'Logout user' })
+  @ApiBody({ type: LogoutDto })
+  @ApiResponse({ status: 200, description: 'User successfully logged out' })
+  @ApiBearerAuth()
+  logout(@Body() data: LogoutDto) {
+    return this.authService.logout({
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
+    });
+  }
+
+  @Post('logout-all')
+  @ApiOperation({ summary: 'Logout user from all devices' })
+  @ApiResponse({
+    status: 200,
+    description: 'User successfully logged out from all devices',
+  })
+  @ApiBearerAuth()
+  logoutAll(@Body() data: LogoutAllDto) {
+    return this.authService.logoutAll({
+      accessToken: data.accessToken,
+    });
+  }
+
+  @Public()
+  @UseGuards(AuthGuard('google'))
+  @Get('google')
+  @ApiOperation({ summary: 'Initiate Google OAuth login' })
+  async googleLogin() {
+    // passport tự redirect → không cần code gì ở đây
+  }
+
+  @Public()
+  @UseGuards(AuthGuard('google'))
+  @Get('google/callback')
+  @ApiOperation({ summary: 'Google OAuth callback' })
+  @ApiResponse({
+    status: 200,
+    description: 'Google login successful, returns tokens',
+  })
+  async googleCallback(
+    @Req() req: any,
+    @Res() res: any,
+    @Ip() ipAddress: string,
+    @Headers('user-agent') userAgent: string,
+  ) {
+    const { profile } = req.user;
+
+    const email = profile?.emails?.[0]?.value;
+
+    if (!email) {
+      // Handle the case where Google didn't return an email
+      return res
+        .status(400)
+        .json({ message: 'No email found from Google profile' });
+    }
+
+    const tokens = await this.authService.loginGoogle(
+      { email },
+      { ipAddress, userAgent, device: userAgent },
+    );
+
+    const html = `
+      <html>
+        <body>
+          <script>
+            window.opener.postMessage(
+              { 
+                type: 'GOOGLE_LOGIN_SUCCESS', 
+                tokens: ${JSON.stringify(tokens)} 
+              }, 
+              '*'
+            );
+            window.close();
+          </script>
+        </body>
+      </html>
+    `;
+    res.setHeader('Content-Type', 'text/html');
+    return res.send(html);
+  }
+
+  @Public()
+  @RateLimit({ limit: 3, window: 60 })
+  @Post('forgot-password')
+  @ApiOperation({ summary: 'Request password reset email' })
+  @ApiResponse({ status: 200, description: 'Password reset email sent' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { email: { type: 'string', example: 'user@example.com' } },
+    },
+  })
+  forgotPassword(@Body() data: { email: string }) {
+    return this.authService.forgotPassword(data);
+  }
+
+  @Public()
+  @Get('verify-reset-password')
+  @ApiOperation({ summary: 'Verify reset password code' })
+  @ApiResponse({ status: 200, description: 'Reset password code is valid' })
+  verifyResetPassword(@Query() data: VerifyResetPasswordDto) {
+    return this.authService.verifyResetPassword(data);
+  }
+
+  @Public()
+  @RateLimit({ limit: 3, window: 60 })
+  @Post('reset-password')
+  @ApiOperation({ summary: 'Reset user password' })
+  @ApiResponse({ status: 200, description: 'Password successfully reset' })
+  resetPassword(@Body() data: ResetPasswordDto) {
+    return this.authService.resetPassword(data);
+  }
+
+  @Public()
+  @RateLimit({ limit: 5, window: 60 })
+  @Post('verify-otp-from-authenticator')
+  @ApiOperation({ summary: 'Verify OTP from authenticator' })
+  @ApiResponse({ status: 200, description: 'OTP verified successfully' })
+  verifyOtpFromAuthenticator(
+    @Body() data: VerifyOtpFromAuthenticatorDto,
+    @Ip() ipAddress: string,
+    @Headers('user-agent') userAgent: string,
+  ) {
+    return this.authService.verifyOtpFromAuthenticator(data, {
+      ipAddress,
+      userAgent,
+      device: userAgent,
+    });
+  }
+
+  @Public()
+  @RateLimit({ limit: 3, window: 60 })
+  @Post('resend-code')
+  @ApiOperation({ summary: 'Resend code' })
+  @ApiResponse({ status: 200, description: 'Code resent successfully' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        email: { type: 'string', example: 'user@example.com' },
+        action: { type: 'string', example: 'verify_email' },
+      },
+    },
+  })
+  resendCode(@Body() data: ResendCodeDto) {
+    return this.authService.resendCode(data);
+  }
+}

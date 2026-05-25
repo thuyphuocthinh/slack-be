@@ -1,0 +1,5 @@
+describe('VideoCallController (e2e)', () => {
+  it('should pass placeholder', () => {
+    expect(true).toBe(true);
+  });
+});
