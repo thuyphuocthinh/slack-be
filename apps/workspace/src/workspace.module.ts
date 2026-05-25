@@ -18,13 +18,18 @@ import { WorkspaceInviteService } from './services/workspace-invite.service';
 import { WorkspaceLinkService } from './services/workspace-link.service';
 import { AppService } from './services/app.service';
 import { EQueueName, QueueModule } from '@slack/queue';
+import { OutboundWebhookProcessor } from './processor/outbound-webhook.processor';
 
 @Module({
   imports: [
     DatabaseModule,
     CachedModule.forRoot(),
     QueueModule.forRoot(),
-    QueueModule.forFeature([EQueueName.EMAIL_QUEUE, EQueueName.AUDIT_QUEUE]),
+    QueueModule.forFeature([
+      EQueueName.EMAIL_QUEUE, 
+      EQueueName.AUDIT_QUEUE,
+      EQueueName.OUTBOUND_WEBHOOK_QUEUE,
+    ]),
 
     TypeOrmModule.forFeature([
       WorkspaceEntity,
@@ -69,6 +74,7 @@ import { EQueueName, QueueModule } from '@slack/queue';
     WorkspaceInviteService,
     WorkspaceLinkService,
     AppService,
+    OutboundWebhookProcessor,
   ],
 })
 export class WorkspaceModule {}
