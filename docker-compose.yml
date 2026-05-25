@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  slack-be:
+    image: ${DOCKER_USERNAME}/slack-be:latest
+    container_name: slack-be
+    restart: always
+    ports:
+      - "3000:3000"
+      - "3008:3008"
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_started
+      redis-cache:
+        condition: service_started
+      redis-bullmq:
+        condition: service_started
+      loki:
+        condition: service_started
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: slack-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: 123456
+      POSTGRES_DB: slack_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: slack-pgbouncer
+    restart: always
+    environment:
+      DB_USER: dev
+      DB_PASSWORD: 123456
+      DB_HOST: postgres
+      DB_PORT: 5432
+      LISTEN_PORT: 6432
+      AUTH_TYPE: md5
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 50
+    ports:
+      - "6432:6432"
+    depends_on:
+      - postgres
+
+  redis-cache:
+    image: redis:7-alpine
+    container_name: slack-redis-cache
+    restart: always
+    command: redis-server --requirepass 123456
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_cache_data:/data
+
+  redis-bullmq:
+    image: redis:7-alpine
+    container_name: slack-redis-bullmq
+    restart: always
+    command: redis-server --requirepass 123456
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_bullmq_data:/data
+
+  loki:
+    image: grafana/loki:latest
+    container_name: slack-loki
+    restart: always
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki_data:/loki
+
+volumes:
+  postgres_data:
+  redis_cache_data:
+  redis_bullmq_data:
+  loki_data:
