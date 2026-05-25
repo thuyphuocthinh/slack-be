@@ -5,7 +5,9 @@ WORKDIR /app
 RUN npm install -g pnpm
 
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN npm pkg delete scripts.prepare && \
+    pnpm config set strict-dep-builds false && \
+    pnpm install --frozen-lockfile
 
 COPY . .
 
@@ -29,7 +31,9 @@ WORKDIR /app
 RUN npm install -g pnpm pm2
 
 COPY --from=builder /app/package.json /app/pnpm-lock.yaml ./
-RUN pnpm install --prod --frozen-lockfile
+RUN npm pkg delete scripts.prepare && \
+    pnpm config set strict-dep-builds false && \
+    pnpm install --prod --frozen-lockfile
 
 COPY --from=builder /app/dist ./dist
 COPY ecosystem.config.js ./
