@@ -261,14 +261,31 @@ export class WorkspaceService {
           } as unknown as IOffsetResponse<WorkspaceResponseDto[]>;
         }
 
-        const workspaces = await this.workspaceRepository.find({
-          where: { id: In(workspaceIds) },
-        });
+        const [workspaces, membersCounts] = await Promise.all([
+          this.workspaceRepository.find({
+            where: { id: In(workspaceIds) },
+          }),
+          this.memberRepository
+            .createQueryBuilder('member')
+            .select('member.workspaceId', 'workspaceId')
+            .addSelect('COUNT(member.id)', 'count')
+            .where('member.workspaceId IN (:...workspaceIds)', { workspaceIds })
+            .andWhere('member.status = :status', { status: MembershipStatus.ACTIVE })
+            .groupBy('member.workspaceId')
+            .getRawMany(),
+        ]);
+
+        const countMap = new Map<string, number>(
+          membersCounts.map((m) => [m.workspaceId, Number(m.count)]),
+        );
 
         const workspaceDtos = workspaceIds
           .map((id) => {
             const w = workspaces.find((ws) => ws.id === id);
-            return w ? this.commonService.mapWorkspaceToDto(w) : null;
+            if (!w) return null;
+            const dto = this.commonService.mapWorkspaceToDto(w);
+            dto.members_count = countMap.get(id) || 0;
+            return dto;
           })
           .filter((w) => w !== null);
 
