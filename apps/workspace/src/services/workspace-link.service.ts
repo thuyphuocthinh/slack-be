@@ -52,7 +52,7 @@ export class WorkspaceLinkService {
       tokenHash: v7(),
       expiresAt: new Date(Date.now() + buildTTL('DAY', 7)),
       status: WorkspaceLinkStatus.ACTIVE,
-      maxUsage: dto.maxUsage,
+      maxUsage: dto.maxUsage ?? 50,
     });
 
     this.logger.log('Generate link', link);
@@ -97,15 +97,17 @@ export class WorkspaceLinkService {
 
       if (
         link.status === WorkspaceLinkStatus.EXPIRED ||
-        link.expiresAt < new Date()
+        (link.expiresAt && new Date(link.expiresAt).getTime() < Date.now())
       ) {
         throw new RpcException({
           statusCode: HttpStatus.BAD_REQUEST,
           ...WORKSPACE_ERROR.LINK_EXPIRED,
+          isExpired: true,
         });
       }
 
-      if (link.usedCount >= link.maxUsage) {
+      const maxUsage = link.maxUsage ?? 50;
+      if (link.usedCount >= maxUsage) {
         throw new RpcException({
           statusCode: HttpStatus.BAD_REQUEST,
           ...WORKSPACE_ERROR.LINK_MAX_USAGE,
