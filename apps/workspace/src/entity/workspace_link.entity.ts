@@ -44,7 +44,7 @@ export class WorkspaceLinkEntity {
   })
   status: WorkspaceLinkStatus;
 
-  @Column({ name: 'max_usage', nullable: true })
+  @Column({ name: 'max_usage', default: 50 })
   maxUsage: number;
 
   @Column({ name: 'used_count', default: 0 })
