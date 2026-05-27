@@ -23,12 +23,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let error: string = 'UnknownError';
     let code: string | undefined = undefined;
 
-    // Log the raw exception for debugging
-    this.logger.error(
-      `Raw exception caught: ${JSON.stringify(exception)}`,
-      exception instanceof Error ? exception.stack : undefined,
-      `${request.method} ${request.url}`,
-    );
+    // Đoạn này gây spam Telegram vì mọi lỗi (kể cả 404) đều bị ép thành logger.error
+    // Đã chuyển phần log chi tiết xuống phía dưới (Unified logging) để phân loại theo status code.
 
     if (exception instanceof HttpException) {
       // Handle NestJS HTTP exceptions
