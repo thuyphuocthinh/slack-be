@@ -64,8 +64,25 @@ export class CloudinaryUploadService implements UploadService {
     return 'file';
   }
 
+  // Sửa lỗi Multer tự động parse filename UTF-8 thành chuỗi Latin1 (ISO-8859-1) gây lỗi font tiếng Việt
+  private fixUtf8Name(name: string): string {
+    if (!name) return name;
+    // Nếu string có chứa ký tự > 255 (đã là unicode đúng) thì không cần fix
+    for (let i = 0; i < name.length; i++) {
+      if (name.charCodeAt(i) > 255) return name; 
+    }
+    try {
+      return Buffer.from(name, 'latin1').toString('utf8');
+    } catch {
+      return name;
+    }
+  }
+
   async upload(file: Express.Multer.File): Promise<IUploadResponse> {
     this.validateFile(file);
+    
+    // Sửa tên file bị mã hóa sai
+    const originalname = this.fixUtf8Name(file.originalname);
     
     // Cloudinary mặc định coi PDF là image, dẫn đến lỗi 401 khi xem inline do chính sách bảo mật.
     // Phải set resource_type là 'raw' cho các file document.
@@ -102,7 +119,7 @@ export class CloudinaryUploadService implements UploadService {
       publicId: result.public_id,
       mimeType: file.mimetype,
       size: file.size,
-      filename: file.originalname,
+      filename: originalname,
       type: this.getFileType(file.mimetype),
       thumbnailUrl: result.secure_url,
     };
