@@ -82,8 +82,22 @@ services:
     volumes:
       - loki_data:/loki
 
+  grafana:
+    image: grafana/grafana:latest
+    container_name: slack-grafana
+    restart: always
+    ports:
+      - "3005:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - loki
+    volumes:
+      - grafana_data:/var/lib/grafana
+
 volumes:
   postgres_data:
   redis_cache_data:
   redis_bullmq_data:
   loki_data:
+  grafana_data:
