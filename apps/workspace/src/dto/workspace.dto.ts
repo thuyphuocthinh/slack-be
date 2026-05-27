@@ -12,6 +12,7 @@ export class WorkspaceDto {
   slug: string;
   description?: string;
   logo?: string;
+  members_count?: number;
   createdAt: Date;
   updatedAt: Date;
 }
