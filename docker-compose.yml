@@ -90,6 +90,9 @@ services:
       - "3005:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SERVER_DOMAIN=api.tpt.io.vn
+      - GF_SERVER_ROOT_URL=https://api.tpt.io.vn/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
     depends_on:
       - loki
     volumes:
