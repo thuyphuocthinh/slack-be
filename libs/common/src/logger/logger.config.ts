@@ -4,6 +4,7 @@ import {
 } from 'nest-winston';
 import * as winston from 'winston';
 import LokiTransport from 'winston-loki';
+import { TelegramTransport } from './telegram-transport';
 
 export const getLoggerConfig = (appName: string): WinstonModuleOptions => {
   const transports: winston.transport[] = [
@@ -36,6 +37,22 @@ export const getLoggerConfig = (appName: string): WinstonModuleOptions => {
           console.error(`[Winston Loki] Connection error for ${appName}:`, err);
         },
       }),
+    );
+  }
+
+  if (process.env.TELEGRAM_ALERT_ENABLED === 'true') {
+    transports.push(
+      new TelegramTransport({
+        botToken: process.env.TELEGRAM_BOT_TOKEN || '',
+        chatId: process.env.TELEGRAM_CHAT_ID || '',
+        format: winston.format.combine(
+          winston.format.timestamp(),
+          winston.format((info) => {
+            info.appName = appName;
+            return info;
+          })(),
+        ),
+      }) as any,
     );
   }
 
