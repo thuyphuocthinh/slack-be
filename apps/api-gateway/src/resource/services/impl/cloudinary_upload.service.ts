@@ -66,10 +66,20 @@ export class CloudinaryUploadService implements UploadService {
 
   async upload(file: Express.Multer.File): Promise<IUploadResponse> {
     this.validateFile(file);
+    
+    // Cloudinary mặc định coi PDF là image, dẫn đến lỗi 401 khi xem inline do chính sách bảo mật.
+    // Phải set resource_type là 'raw' cho các file document.
+    const isRawFile = file.mimetype === 'application/pdf' || 
+                      file.mimetype.includes('officedocument') || 
+                      file.mimetype.includes('msword') ||
+                      file.mimetype.includes('zip');
+                      
+    const resourceType = isRawFile ? 'raw' : 'auto';
+
     const result = await new Promise<UploadApiResponse>((resolve, reject) => {
       const stream = this.cloudinary.uploader.upload_stream(
         {
-          resource_type: 'auto',
+          resource_type: resourceType,
         },
         (
           error: UploadApiErrorResponse | undefined,
