@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { AppEntity, AppStatus } from '../entity/app.entity';
+import { AppEntity } from '../entity/app.entity';
+import { AppStatus } from '../types/app.enum';
 import { AppEventSubscriptionEntity } from '../entity/app-event-subscription.entity';
 import { WorkspaceEntity } from '../entity/workspace.entity';
 import { WorkspaceCommonService } from './workspace-common.service';
@@ -17,6 +18,7 @@ import { RpcException } from '@nestjs/microservices';
 import * as crypto from 'crypto';
 import { WorkspaceRoleEnum } from '../types/workspace.enum';
 import { APP_ERROR } from '@slack/constants';
+import axios from 'axios';
 
 @Injectable()
 export class AppService {
@@ -40,12 +42,46 @@ export class AppService {
     return `xoxb-${crypto.randomBytes(4).toString('hex')}-${crypto.randomBytes(12).toString('hex')}`;
   }
 
+  private async verifyRequestUrl(requestUrl: string): Promise<void> {
+    if (!requestUrl) return;
+
+    const challenge = crypto.randomBytes(16).toString('hex');
+    try {
+      const response = await axios.post(
+        requestUrl,
+        {
+          type: 'url_verification',
+          challenge: challenge,
+        },
+        {
+          timeout: 3000,
+        },
+      );
+
+      const isValid =
+        response.status === 200 &&
+        (response.data === challenge || response.data?.challenge === challenge);
+
+      if (!isValid) {
+        throw new RpcException(APP_ERROR.URL_VERIFICATION_FAILED);
+      }
+    } catch (error) {
+      if (error instanceof RpcException) throw error;
+      this.logger.error(`URL Verification failed for ${requestUrl}: ${error.message}`);
+      throw new RpcException(APP_ERROR.URL_VERIFICATION_FAILED);
+    }
+  }
+
   async createApp(dto: CreateAppRequestDto) {
     await this.workspaceCommonService.checkPermission(
       dto.workspaceId,
       dto.userId,
       [WorkspaceRoleEnum.OWNER, WorkspaceRoleEnum.ADMIN],
     );
+
+    if (dto.requestUrl) {
+      await this.verifyRequestUrl(dto.requestUrl);
+    }
 
     try {
       return await this.dataSource.transaction(async (manager) => {
@@ -120,6 +156,10 @@ export class AppService {
       dto.userId,
       [WorkspaceRoleEnum.OWNER, WorkspaceRoleEnum.ADMIN],
     );
+
+    if (dto.requestUrl) {
+      await this.verifyRequestUrl(dto.requestUrl);
+    }
 
     try {
       await this.dataSource.transaction(async (manager) => {

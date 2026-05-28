@@ -19,4 +19,8 @@ export const APP_ERROR = {
     code: 'ERR.APP.0305',
     message: 'WORKSPACE APP LIMIT EXCEEDED (MAX 5)',
   },
+  URL_VERIFICATION_FAILED: {
+    code: 'ERR.APP.0306',
+    message: 'URL VERIFICATION FAILED',
+  },
 };

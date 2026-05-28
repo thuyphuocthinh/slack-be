@@ -1,4 +1,5 @@
-import { AppEntity, AppStatus } from '../entity/app.entity';
+import { AppEntity } from '../entity/app.entity';
+import { AppStatus } from '../types/app.enum';
 
 export class AppResponseDto {
   id: string;
