@@ -28,4 +28,5 @@ export const WORKSPACE_MESSAGE_PATTERNS = {
   UPDATE_APP: 'workspace.update_app',
   DELETE_APP: 'workspace.delete_app',
   GET_APPS: 'workspace.get_apps',
+  GET_APP_COMMANDS: 'workspace.get_app_commands',
 } as const;

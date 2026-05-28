@@ -8,6 +8,7 @@ export class AppResponseDto {
   description: string;
   avatarUrl: string;
   requestUrl: string;
+  slashCommands?: Array<{ command: string; description: string }>;
   status: AppStatus;
   signingSecret?: string;
   botToken?: string;
@@ -23,6 +24,7 @@ export function mapAppToDto(app: AppEntity): AppResponseDto {
     description: app.description,
     avatarUrl: app.avatarUrl,
     requestUrl: app.requestUrl,
+    slashCommands: app.slashCommands,
     status: app.status,
     signingSecret: app.signingSecret,
     botToken: app.botToken,

@@ -41,6 +41,9 @@ export class AppEntity {
   })
   status: AppStatus;
 
+  @Column({ type: 'jsonb', nullable: true, name: 'slash_commands' })
+  slashCommands: Array<{ command: string; description: string }>;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 

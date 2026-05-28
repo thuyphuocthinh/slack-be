@@ -260,7 +260,14 @@ export class MessageService {
       TTL.LONG,
       async () => {
         const rawResult = await this.dataSource.query(
-          `SELECT app_id as "appId" FROM app_event_subscriptions WHERE workspace_id = $1 AND event_type = $2`,
+          `SELECT sub.app_id as "appId" 
+           FROM app_event_subscriptions sub
+           INNER JOIN apps a ON a.id = sub.app_id
+           WHERE sub.workspace_id = $1 
+             AND sub.event_type = $2 
+             AND a.status = 'ACTIVE' 
+             AND a.request_url IS NOT NULL 
+             AND a.request_url != ''`,
           [channel.workspaceId, eventType]
         );
         return rawResult.map((r: { appId: string }) => r.appId) as string[];

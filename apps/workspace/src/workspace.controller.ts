@@ -42,7 +42,7 @@ export class WorkspaceController {
     private readonly inviteService: WorkspaceInviteService,
     private readonly linkService: WorkspaceLinkService,
     private readonly appService: AppService,
-  ) {}
+  ) { }
 
   @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.CREATE_WORKSPACE)
   createWorkspace(@Payload() dto: CreateWorkspaceRequestDto) {
@@ -195,5 +195,10 @@ export class WorkspaceController {
   @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.GET_APPS)
   getApps(@Payload() dto: GetAppsRequestDto) {
     return this.appService.getApps(dto);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.GET_APP_COMMANDS)
+  getAppCommands(@Payload() dto: GetAppsRequestDto) {
+    return this.appService.getAppCommands(dto);
   }
 }

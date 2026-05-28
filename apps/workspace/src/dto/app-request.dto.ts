@@ -4,6 +4,7 @@ export class CreateAppRequestDto {
   description?: string;
   avatarUrl?: string;
   requestUrl?: string;
+  slashCommands?: Array<{ command: string; description: string }>;
   eventTypes?: string[];
   userId: string;
 }
@@ -15,6 +16,7 @@ export class UpdateAppRequestDto {
   description?: string;
   avatarUrl?: string;
   requestUrl?: string;
+  slashCommands?: Array<{ command: string; description: string }>;
   eventTypes?: string[];
   status?: string;
   userId: string;

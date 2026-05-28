@@ -105,6 +105,7 @@ export class AppService {
         app.description = dto.description || '';
         app.avatarUrl = dto.avatarUrl || '';
         app.requestUrl = dto.requestUrl || '';
+        app.slashCommands = dto.slashCommands || [];
         app.signingSecret = this.generateSigningSecret();
         app.botToken = this.generateBotToken();
         app.status = AppStatus.ACTIVE;
@@ -150,6 +151,34 @@ export class AppService {
     return apps.map(mapAppToDto);
   }
 
+  async getAppCommands(dto: GetAppsRequestDto) {
+    await this.workspaceCommonService.checkPermission(
+      dto.workspaceId,
+      dto.userId,
+      [WorkspaceRoleEnum.OWNER, WorkspaceRoleEnum.ADMIN, WorkspaceRoleEnum.MEMBER],
+    );
+
+    const apps = await this.appRepository.find({
+      where: { workspaceId: dto.workspaceId, status: AppStatus.ACTIVE },
+    });
+
+    const commands: Array<{ appId: string; appName: string; appAvatar: string; command: string; description: string; }> = [];
+    for (const app of apps) {
+      if (app.slashCommands && app.slashCommands.length > 0) {
+        for (const cmd of app.slashCommands) {
+          commands.push({
+            appId: app.id,
+            appName: app.name,
+            appAvatar: app.avatarUrl,
+            command: cmd.command,
+            description: cmd.description,
+          });
+        }
+      }
+    }
+    return commands;
+  }
+
   async updateApp(dto: UpdateAppRequestDto) {
     await this.workspaceCommonService.checkPermission(
       dto.workspaceId,
@@ -168,7 +197,16 @@ export class AppService {
         if (dto.description !== undefined) updateData.description = dto.description || '';
         if (dto.avatarUrl !== undefined) updateData.avatarUrl = dto.avatarUrl || '';
         if (dto.requestUrl !== undefined) updateData.requestUrl = dto.requestUrl || '';
+        if (dto.slashCommands !== undefined) updateData.slashCommands = dto.slashCommands;
         if (dto.status) updateData.status = dto.status as AppStatus;
+
+        // Invalidate cache for existing subscriptions if anything changes
+        const existingSubscriptions = await manager.find(AppEventSubscriptionEntity, {
+          where: { appId: dto.appId }
+        });
+        existingSubscriptions.forEach(sub => {
+          this.cachedService.del(CACHE.APP.KEYS.EVENT_SUBSCRIPTIONS(dto.workspaceId, sub.eventType));
+        });
 
         if (Object.keys(updateData).length > 0) {
           const updateResult = await manager.update(
@@ -190,14 +228,6 @@ export class AppService {
         }
 
         if (dto.eventTypes) {
-          // Get old subscriptions to invalidate their cache
-          const oldSubscriptions = await manager.find(AppEventSubscriptionEntity, {
-            where: { appId: dto.appId }
-          });
-          oldSubscriptions.forEach(sub => {
-            this.cachedService.del(CACHE.APP.KEYS.EVENT_SUBSCRIPTIONS(dto.workspaceId, sub.eventType));
-          });
-
           await manager.delete(AppEventSubscriptionEntity, {
             appId: dto.appId,
           });
