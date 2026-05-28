@@ -6,12 +6,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-
-export enum AppStatus {
-  ACTIVE = 'ACTIVE',
-  INACTIVE = 'INACTIVE',
-}
-
+import { AppStatus } from '../types/app.enum';
 @Entity('apps')
 export class AppEntity {
   @PrimaryGeneratedColumn('uuid')
