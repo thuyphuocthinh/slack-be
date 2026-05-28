@@ -1,5 +1,5 @@
 import { Body, Controller, HttpCode, Param, Post } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { RateLimit } from '../common/guards/rate-limit.decorator';
 import { Public } from '@slack/common';
 import { WebhookPayloadDto } from './dto/webhook-payload.dto';
@@ -17,11 +17,12 @@ export class WebhookReceiverController {
   @ApiOperation({ summary: 'Receive incoming webhook payload from external services' })
   @ApiResponse({ status: 200, description: 'Payload received and queued successfully' })
   @ApiResponse({ status: 401, description: 'Invalid webhook token or not found' })
+  @ApiBody({ type: WebhookPayloadDto })
   async receiveWebhook(
     @Param('workspaceId') workspaceId: string,
     @Param('channelId') channelId: string,
     @Param('token') token: string,
-    @Body() payload: WebhookPayloadDto,
+    @Body() payload: Record<string, string>,
   ) {
     return this.webhookReceiverService.processWebhook(workspaceId, channelId, token, payload);
   }

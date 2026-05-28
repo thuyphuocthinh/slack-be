@@ -33,7 +33,7 @@ export class WebhookReceiverService {
 
       const messageContent = payload.text || payload.content || JSON.stringify(payload);
       const customName = payload.username || webhook.name;
-      const customAvatarUrl = payload.icon_url || webhook.avatarUrl;
+      const customAvatarUrl = payload.icon_url || payload.iconUrl || webhook.avatarUrl;
 
       await this.queueService.addJob(EQueueName.MESSAGE_QUEUE, EJobName.PROCESS_WEBHOOK_MESSAGE, {
         channelId: webhook.channelId,
@@ -69,7 +69,7 @@ export class WebhookReceiverService {
         workspaceId: commandData.workspaceId,
         webhookId: commandData.appId,
         customName: payload.username || commandData.appName,
-        customAvatarUrl: payload.icon_url || commandData.appAvatarUrl,
+        customAvatarUrl: payload.icon_url || payload.iconUrl || commandData.appAvatarUrl,
         content: messageContent,
         attachments: payload.attachments || [],
       });

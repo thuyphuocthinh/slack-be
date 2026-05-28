@@ -35,7 +35,7 @@ export class AppService {
     private readonly dataSource: DataSource,
     private readonly cachedService: CachedService,
     private readonly queueService: QueueService,
-  ) {}
+  ) { }
 
   private generateSigningSecret(): string {
     return crypto.randomBytes(32).toString('hex');
@@ -121,10 +121,10 @@ export class AppService {
             sub.appId = savedApp.id;
             sub.workspaceId = dto.workspaceId;
             sub.eventType = eventType;
-            
+
             // Invalidate cache
             this.cachedService.del(CACHE.APP.KEYS.EVENT_SUBSCRIPTIONS(dto.workspaceId, eventType));
-            
+
             return sub;
           });
           await manager.save(subscriptions);
@@ -241,10 +241,10 @@ export class AppService {
               sub.appId = dto.appId;
               sub.workspaceId = dto.workspaceId;
               sub.eventType = eventType;
-              
+
               // Invalidate cache for new events
               this.cachedService.del(CACHE.APP.KEYS.EVENT_SUBSCRIPTIONS(dto.workspaceId, eventType));
-              
+
               return sub;
             });
             await manager.save(subscriptions);
@@ -288,10 +288,10 @@ export class AppService {
         await manager.delete(AppEventSubscriptionEntity, {
           appId: dto.appId,
         });
-        
-        const deleteResult = await manager.delete(AppEntity, { 
-          id: dto.appId, 
-          workspaceId: dto.workspaceId 
+
+        const deleteResult = await manager.delete(AppEntity, {
+          id: dto.appId,
+          workspaceId: dto.workspaceId
         });
 
         if (deleteResult.affected === 0) {
@@ -325,7 +325,7 @@ export class AppService {
     const { v4: uuidv4 } = require('uuid');
     const responseToken = uuidv4();
     const CACHE_KEY = CACHE.APP.KEYS.COMMAND_RESPONSE(responseToken);
-    
+
     await this.cachedService.set(CACHE_KEY, {
       appId: app.id,
       workspaceId: dto.workspaceId,

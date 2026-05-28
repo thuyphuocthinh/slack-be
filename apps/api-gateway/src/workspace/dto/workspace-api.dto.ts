@@ -11,6 +11,7 @@ import {
   IsString,
   IsUUID,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
 
 export class CreateWorkspaceApiDto {
@@ -119,6 +120,18 @@ export class GetWorkspacesApiDto {
   limit?: number;
 }
 
+export class SlashCommandApiDto {
+  @ApiProperty({ example: '/weather' })
+  @IsString()
+  @IsNotEmpty()
+  command: string;
+
+  @ApiProperty({ example: 'Get the current weather' })
+  @IsString()
+  @IsNotEmpty()
+  description: string;
+}
+
 export class CreateAppApiDto {
   @ApiProperty({ example: 'My Custom App' })
   @IsString()
@@ -149,6 +162,13 @@ export class CreateAppApiDto {
   @IsString({ each: true })
   @IsOptional()
   eventTypes?: string[];
+
+  @ApiPropertyOptional({ type: [SlashCommandApiDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SlashCommandApiDto)
+  @IsOptional()
+  slashCommands?: SlashCommandApiDto[];
 }
 
 export class UpdateAppApiDto {
@@ -186,4 +206,11 @@ export class UpdateAppApiDto {
   @IsString()
   @IsOptional()
   status?: string;
+
+  @ApiPropertyOptional({ type: [SlashCommandApiDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SlashCommandApiDto)
+  @IsOptional()
+  slashCommands?: SlashCommandApiDto[];
 }
