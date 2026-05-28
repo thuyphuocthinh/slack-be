@@ -277,6 +277,11 @@ export class MessageService {
             eventType,
             workspaceId: channel.workspaceId,
             payload: response as unknown as Record<string, unknown>,
+          },
+          {
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 1000 },
+            removeOnComplete: true,
           }
         );
       }
@@ -323,7 +328,11 @@ export class MessageService {
       await this.broadcastMessageEvents(response, channel, savedMessage, manager);
 
       // 7. Dispatch Webhook Events to Bot Servers
-      await this.dispatchWebhookEvents(response, channel);
+      process.nextTick(() => {
+        this.dispatchWebhookEvents(response, channel).catch((err) => {
+          this.logger.error(`Error dispatching webhook: ${err.message}`);
+        });
+      });
 
       return response;
     });

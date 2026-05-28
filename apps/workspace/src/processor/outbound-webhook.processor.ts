@@ -11,6 +11,7 @@ import { AppEntity } from '../entity/app.entity';
 import { Repository } from 'typeorm';
 import axios from 'axios';
 import * as crypto from 'crypto';
+import { v4 } from 'uuid';
 
 @Processor(EQueueName.OUTBOUND_WEBHOOK_QUEUE, { concurrency: 5 })
 export class OutboundWebhookProcessor extends BaseProcessor<
@@ -46,8 +47,14 @@ export class OutboundWebhookProcessor extends BaseProcessor<
           }
 
           const timestamp = Math.floor(Date.now() / 1000).toString();
+          const event_id = job.id || v4();
 
-          const payloadObj = { eventType, payload };
+          const payloadObj = {
+            type: 'event_callback',
+            event_id,
+            event_time: Number(timestamp),
+            event: { type: eventType, ...payload },
+          };
           const payloadStr = JSON.stringify(payloadObj);
 
           // Slack standard: v0:timestamp:payload
