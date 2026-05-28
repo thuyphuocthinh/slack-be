@@ -23,6 +23,11 @@ export class WebhookPayloadDto {
   icon_url?: string;
 
   @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  iconUrl?: string;
+
+  @ApiPropertyOptional()
   @IsArray()
   @IsOptional()
   attachments?: Record<string, unknown>[];
