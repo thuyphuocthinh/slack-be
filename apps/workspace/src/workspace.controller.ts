@@ -32,6 +32,7 @@ import {
   UpdateAppRequestDto,
   DeleteAppRequestDto,
   GetAppsRequestDto,
+  InvokeCommandRequestDto,
 } from './dto/app-request.dto';
 
 @Controller()
@@ -200,5 +201,15 @@ export class WorkspaceController {
   @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.GET_APP_COMMANDS)
   getAppCommands(@Payload() dto: GetAppsRequestDto) {
     return this.appService.getAppCommands(dto);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.INVOKE_APP_COMMAND)
+  invokeAppCommand(@Payload() dto: InvokeCommandRequestDto) {
+    return this.appService.invokeCommand(dto);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.VERIFY_COMMAND_RESPONSE)
+  verifyCommandResponse(@Payload() token: string) {
+    return this.appService.verifyCommandResponse(token);
   }
 }

@@ -12,6 +12,7 @@ import {
   UpdateAppRequestDto,
   DeleteAppRequestDto,
   GetAppsRequestDto,
+  InvokeCommandRequestDto,
 } from '../dto/app-request.dto';
 import { AppResponseDto, mapAppToDto } from '../dto/app-response.dto';
 import { RpcException } from '@nestjs/microservices';
@@ -19,6 +20,7 @@ import * as crypto from 'crypto';
 import { WorkspaceRoleEnum } from '../types/workspace.enum';
 import { APP_ERROR } from '@slack/constants';
 import axios from 'axios';
+import { EQueueName, EJobName, QueueService } from '@slack/queue';
 
 @Injectable()
 export class AppService {
@@ -32,6 +34,7 @@ export class AppService {
     private readonly workspaceCommonService: WorkspaceCommonService,
     private readonly dataSource: DataSource,
     private readonly cachedService: CachedService,
+    private readonly queueService: QueueService,
   ) {}
 
   private generateSigningSecret(): string {
@@ -302,5 +305,69 @@ export class AppService {
       this.logger.error(`Error deleting app: ${error.message}`);
       throw new RpcException(APP_ERROR.FAILED_TO_DELETE_APP);
     }
+  }
+
+  async invokeCommand(dto: InvokeCommandRequestDto) {
+    await this.workspaceCommonService.checkPermission(
+      dto.workspaceId,
+      dto.userId,
+      [WorkspaceRoleEnum.OWNER, WorkspaceRoleEnum.ADMIN, WorkspaceRoleEnum.MEMBER],
+    );
+
+    const app = await this.appRepository.findOne({
+      where: { id: dto.appId, workspaceId: dto.workspaceId, status: AppStatus.ACTIVE },
+    });
+
+    if (!app || !app.requestUrl) {
+      throw new RpcException(APP_ERROR.APP_NOT_FOUND);
+    }
+
+    const { v4: uuidv4 } = require('uuid');
+    const responseToken = uuidv4();
+    const CACHE_KEY = CACHE.APP.KEYS.COMMAND_RESPONSE(responseToken);
+    
+    await this.cachedService.set(CACHE_KEY, {
+      appId: app.id,
+      workspaceId: dto.workspaceId,
+      channelId: dto.channelId,
+      appName: app.name,
+      appAvatarUrl: app.avatarUrl
+    }, 30 * 60); // 30 minutes TTL
+
+    const apiUrl = process.env.API_GATEWAY_URL || 'http://localhost:3000';
+    const responseUrl = `${apiUrl}/services/commands/response/${responseToken}`;
+
+    await this.queueService.addJob(
+      EQueueName.OUTBOUND_WEBHOOK_QUEUE,
+      EJobName.DISPATCH_OUTBOUND_WEBHOOK,
+      {
+        appId: dto.appId,
+        eventType: 'slash_commands',
+        workspaceId: dto.workspaceId,
+        payload: {
+          command: dto.command,
+          text: dto.text || '',
+          channelId: dto.channelId,
+          userId: dto.userId,
+          response_url: responseUrl,
+        },
+      },
+      {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 1000 },
+        removeOnComplete: true,
+      }
+    );
+
+    return { success: true };
+  }
+
+  async verifyCommandResponse(token: string) {
+    const CACHE_KEY = CACHE.APP.KEYS.COMMAND_RESPONSE(token);
+    const data = await this.cachedService.get(CACHE_KEY);
+    if (!data) {
+      return null;
+    }
+    return data;
   }
 }

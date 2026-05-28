@@ -32,3 +32,12 @@ export class GetAppsRequestDto {
   workspaceId: string;
   userId: string;
 }
+
+export class InvokeCommandRequestDto {
+  appId: string;
+  workspaceId: string;
+  channelId: string;
+  userId: string;
+  command: string;
+  text?: string;
+}
