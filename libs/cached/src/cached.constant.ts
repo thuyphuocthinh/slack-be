@@ -205,6 +205,15 @@ export const CACHE = {
         `${GLOBAL_PREFIX}:trackers:messages:pinned:c_${channelId}:version`,
     },
   },
+  APP: {
+    _VER: 'v1',
+    KEYS: {
+      EVENT_SUBSCRIPTIONS: (workspaceId: string, eventType: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:apps:v1:events:ws_${workspaceId}:event_${eventType}`,
+      COMMAND_RESPONSE: (token: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:apps:v1:commands:response:${token}`,
+    },
+  },
 };
 
 /*

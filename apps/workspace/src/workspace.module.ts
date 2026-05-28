@@ -6,6 +6,8 @@ import { WorkspaceEntity } from './entity/workspace.entity';
 import { WorkspaceMemberEntity } from './entity/workspace_member.entity';
 import { WorkspaceInviteEntity } from './entity/workspace_invite.entity';
 import { WorkspaceLinkEntity } from './entity/workspace_link.entity';
+import { AppEntity } from './entity/app.entity';
+import { AppEventSubscriptionEntity } from './entity/app-event-subscription.entity';
 import { DatabaseModule } from '@slack/database';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
@@ -14,20 +16,28 @@ import { WorkspaceCommonService } from './services/workspace-common.service';
 import { WorkspaceMemberService } from './services/workspace-member.service';
 import { WorkspaceInviteService } from './services/workspace-invite.service';
 import { WorkspaceLinkService } from './services/workspace-link.service';
+import { AppService } from './services/app.service';
 import { EQueueName, QueueModule } from '@slack/queue';
+import { OutboundWebhookProcessor } from './processor/outbound-webhook.processor';
 
 @Module({
   imports: [
     DatabaseModule,
     CachedModule.forRoot(),
     QueueModule.forRoot(),
-    QueueModule.forFeature([EQueueName.EMAIL_QUEUE, EQueueName.AUDIT_QUEUE]),
+    QueueModule.forFeature([
+      EQueueName.EMAIL_QUEUE, 
+      EQueueName.AUDIT_QUEUE,
+      EQueueName.OUTBOUND_WEBHOOK_QUEUE,
+    ]),
 
     TypeOrmModule.forFeature([
       WorkspaceEntity,
       WorkspaceMemberEntity,
       WorkspaceInviteEntity,
       WorkspaceLinkEntity,
+      AppEntity,
+      AppEventSubscriptionEntity,
     ]),
     ClientsModule.register([
       {
@@ -63,6 +73,8 @@ import { EQueueName, QueueModule } from '@slack/queue';
     WorkspaceMemberService,
     WorkspaceInviteService,
     WorkspaceLinkService,
+    AppService,
+    OutboundWebhookProcessor,
   ],
 })
 export class WorkspaceModule {}

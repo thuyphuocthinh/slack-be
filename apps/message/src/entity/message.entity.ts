@@ -27,9 +27,19 @@ export class MessageEntity {
   @Index()
   channelId: string;
 
-  @Column({ nullable: false, type: 'uuid', name: 'user_id' })
+  @Column({ nullable: true, type: 'uuid', name: 'user_id' })
   @Index()
   userId: string;
+
+  @Column({ nullable: true, type: 'uuid', name: 'webhook_id' })
+  @Index()
+  webhookId: string;
+
+  @Column({ nullable: true, type: 'varchar', name: 'custom_name' })
+  customName: string;
+
+  @Column({ nullable: true, type: 'varchar', name: 'custom_avatar_url' })
+  customAvatarUrl: string;
 
   @Column({ nullable: false, type: 'jsonb', name: 'content' })
   content: string | Record<string, unknown> | Record<string, unknown>[];

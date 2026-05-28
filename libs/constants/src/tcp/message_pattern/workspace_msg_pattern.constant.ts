@@ -24,4 +24,11 @@ export const WORKSPACE_MESSAGE_PATTERNS = {
   GET_MEMBER: 'workspace.get_member',
   GET_MEMBER_DETAIL: 'workspace.get_member_detail',
   JOIN_LINK: 'workspace.join_link',
+  CREATE_APP: 'workspace.create_app',
+  UPDATE_APP: 'workspace.update_app',
+  DELETE_APP: 'workspace.delete_app',
+  GET_APPS: 'workspace.get_apps',
+  GET_APP_COMMANDS: 'workspace.get_app_commands',
+  INVOKE_APP_COMMAND: 'workspace.invoke_app_command',
+  VERIFY_COMMAND_RESPONSE: 'workspace.verify_command_response',
 } as const;

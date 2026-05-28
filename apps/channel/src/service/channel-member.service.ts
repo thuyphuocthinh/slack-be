@@ -70,6 +70,13 @@ export class ChannelMemberService {
     };
   }
 
+  async checkMemberInChannel(channelId: string, memberId: string): Promise<boolean> {
+    const member = await this.channelMemberRepository.findOne({
+      where: { channelId, memberId },
+    });
+    return !!member;
+  }
+
   async addMember(dto: ChannelMemberDto): Promise<string> {
     const { channelId, targetMember, performerId } = dto;
 

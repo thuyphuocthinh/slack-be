@@ -489,6 +489,19 @@ export class ChannelService {
     );
   }
 
+  async getChannelBasicInfo(channelId: string): Promise<ChannelResponse> {
+    const channel = await this.channelRepository.findOne({
+      where: { id: channelId },
+    });
+
+    if (!channel) {
+      throw new RpcException(CHANNEL_ERROR.CHANNEL_NOT_FOUND);
+    }
+
+    // Just map basic info without unread metadata
+    return this.mapChannelToResponse(channel);
+  }
+
   async toggleStar(dto: ToggleStarDto): Promise<ChannelResponse> {
     const { channelId } = dto;
     const updatedChannel = await this.dataSource.transaction(

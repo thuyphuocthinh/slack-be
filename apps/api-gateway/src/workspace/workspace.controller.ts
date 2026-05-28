@@ -26,6 +26,8 @@ import {
   UpdateWorkspaceApiDto,
   AddBatchMembersApiDto,
   GetWorkspacesApiDto,
+  CreateAppApiDto,
+  UpdateAppApiDto,
 } from './dto/workspace-api.dto';
 import { CurrentUser, type JwtUser } from '@slack/common';
 
@@ -334,6 +336,63 @@ export class WorkspaceController {
       workspaceId: id,
       linkId,
       adminUserId: user.sub,
+    });
+  }
+
+  @Post(':id/apps')
+  @ApiOperation({ summary: 'Create a new app/bot for a workspace' })
+  @ApiResponse({ status: 201, description: 'App created successfully' })
+  async createApp(
+    @Param('id') id: string,
+    @Body() data: CreateAppApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.workspaceService.createApp({
+      workspaceId: id,
+      ...data,
+      userId: user.sub,
+    });
+  }
+
+  @Get(':id/apps')
+  @ApiOperation({ summary: 'Get all apps/bots for a workspace' })
+  @ApiResponse({ status: 200, description: 'Apps retrieved successfully' })
+  async getApps(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return await this.workspaceService.getApps({
+      workspaceId: id,
+      userId: user.sub,
+    });
+  }
+
+  @Patch(':id/apps/:appId')
+  @ApiOperation({ summary: 'Update an app/bot' })
+  @ApiResponse({ status: 200, description: 'App updated successfully' })
+  async updateApp(
+    @Param('id') id: string,
+    @Param('appId') appId: string,
+    @Body() data: UpdateAppApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.workspaceService.updateApp({
+      workspaceId: id,
+      appId,
+      ...data,
+      userId: user.sub,
+    });
+  }
+
+  @Delete(':id/apps/:appId')
+  @ApiOperation({ summary: 'Delete an app/bot' })
+  @ApiResponse({ status: 200, description: 'App deleted successfully' })
+  async deleteApp(
+    @Param('id') id: string,
+    @Param('appId') appId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.workspaceService.deleteApp({
+      workspaceId: id,
+      appId,
+      userId: user.sub,
     });
   }
 }

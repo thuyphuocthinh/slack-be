@@ -11,6 +11,12 @@ import {
   ToggleStarRequestDto,
   UpdateChannelRequestDto,
 } from './dto/channel-request.dto';
+import {
+  CreateWebhookRequestDto,
+  UpdateWebhookRequestDto,
+  GetWebhooksRequestDto,
+  DeleteWebhookRequestDto,
+} from './dto/webhook-request.dto';
 
 @Injectable()
 export class ChannelService {
@@ -124,5 +130,28 @@ export class ChannelService {
       }),
     );
   }
-}
 
+  async createWebhook(dto: CreateWebhookRequestDto) {
+    return await firstValueFrom(
+      this.channelClient.send(CHANNEL_MESSAGE_PATTERN.WEBHOOK_CREATE, dto),
+    );
+  }
+
+  async getWebhooks(dto: GetWebhooksRequestDto) {
+    return await firstValueFrom(
+      this.channelClient.send(CHANNEL_MESSAGE_PATTERN.WEBHOOK_LIST, dto),
+    );
+  }
+
+  async updateWebhook(dto: UpdateWebhookRequestDto) {
+    return await firstValueFrom(
+      this.channelClient.send(CHANNEL_MESSAGE_PATTERN.WEBHOOK_UPDATE, dto),
+    );
+  }
+
+  async deleteWebhook(dto: DeleteWebhookRequestDto) {
+    return await firstValueFrom(
+      this.channelClient.send(CHANNEL_MESSAGE_PATTERN.WEBHOOK_DELETE, dto),
+    );
+  }
+}

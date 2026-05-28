@@ -1,5 +1,6 @@
 export const CHANNEL_MESSAGE_PATTERN = {
   GET_CHANNEL: 'channel.get_channel',
+  GET_CHANNEL_BASIC_INFO: 'channel.get_channel_basic_info',
   GET_CHANNELS: 'channel.get_channels',
   CREATE_CHANNEL: 'channel.create_channel',
   UPDATE_CHANNEL: 'channel.update_channel',
@@ -15,4 +16,10 @@ export const CHANNEL_MESSAGE_PATTERN = {
   REMOVE_MEMBER_FROM_ALL_CHANNELS: 'channel.remove_member_from_all_channels',
   GET_UNREAD_SUMMARY: 'channel.get_unread_summary',
   FIND_DIRECT_CHANNEL: 'channel.find_direct_channel',
+
+  WEBHOOK_CREATE: 'channel.webhook_create',
+  WEBHOOK_LIST: 'channel.webhook_list',
+  WEBHOOK_UPDATE: 'channel.webhook_update',
+  WEBHOOK_DELETE: 'channel.webhook_delete',
+  WEBHOOK_VERIFY: 'channel.webhook_verify',
 };

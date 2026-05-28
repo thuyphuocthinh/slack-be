@@ -5,18 +5,20 @@ import { DatabaseModule } from '@slack/database';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ChannelEntity } from './entity/channel.entity';
 import { ChannelMemberEntity } from './entity/channel_member.entity';
+import { IncomingWebhookEntity } from './entity/incoming-webhook.entity';
 import { CachedModule } from '@slack/cached';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { QueueModule, EQueueName } from '@slack/queue';
 import { ChannelMemberService } from './service/channel-member.service';
 import { ChannelProcessor } from './processors/channel.processor';
+import { WebhookService } from './service/webhook.service';
 
 @Module({
   imports: [
     DatabaseModule,
     CachedModule.forRoot(),
-    TypeOrmModule.forFeature([ChannelEntity, ChannelMemberEntity]),
+    TypeOrmModule.forFeature([ChannelEntity, ChannelMemberEntity, IncomingWebhookEntity]),
     QueueModule.forRoot(),
     QueueModule.forFeature([
       EQueueName.CHANNEL_QUEUE,
@@ -44,6 +46,6 @@ import { ChannelProcessor } from './processors/channel.processor';
     ]),
   ],
   controllers: [ChannelController],
-  providers: [ChannelService, ChannelMemberService, ChannelProcessor],
+  providers: [ChannelService, ChannelMemberService, ChannelProcessor, WebhookService],
 })
 export class ChannelModule {}

@@ -27,6 +27,10 @@ import {
   UpdateWorkspaceRequestDto,
   AddBatchMembersRequestDto,
   GetWorkspacesRequestDto,
+  CreateAppRequestDto,
+  UpdateAppRequestDto,
+  DeleteAppRequestDto,
+  GetAppsRequestDto,
 } from './dto/workspace-request.dto';
 
 @Injectable()
@@ -419,6 +423,50 @@ export class WorkspaceService {
           ),
         ),
       'getMemberDetail',
+      'WorkspaceService',
+    );
+  }
+
+  async createApp(data: CreateAppRequestDto) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.CREATE_APP, data),
+        ),
+      'createApp',
+      'WorkspaceService',
+    );
+  }
+
+  async updateApp(data: UpdateAppRequestDto) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.UPDATE_APP, data),
+        ),
+      'updateApp',
+      'WorkspaceService',
+    );
+  }
+
+  async deleteApp(data: DeleteAppRequestDto) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.DELETE_APP, data),
+        ),
+      'deleteApp',
+      'WorkspaceService',
+    );
+  }
+
+  async getApps(data: GetAppsRequestDto) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.GET_APPS, data),
+        ),
+      'getApps',
       'WorkspaceService',
     );
   }

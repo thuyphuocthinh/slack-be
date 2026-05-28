@@ -12,12 +12,15 @@ import { AddBatchMembersDto } from './dto/add-batch-members.dto';
 
 import { ChannelMemberService } from './service/channel-member.service';
 import { RemoveMemberDto } from './dto/remove-member.dto';
+import { WebhookService } from './service/webhook.service';
+import { CreateWebhookDto, UpdateWebhookDto, GetWebhooksDto, DeleteWebhookDto } from './dto/webhook.dto';
 
 @Controller()
 export class ChannelController {
   constructor(
     private readonly channelService: ChannelService,
     private readonly channelMemberService: ChannelMemberService,
+    private readonly webhookService: WebhookService,
   ) {}
 
   @MessagePattern(CHANNEL_MESSAGE_PATTERN.CREATE_CHANNEL)
@@ -63,6 +66,13 @@ export class ChannelController {
       payload.channelId,
       payload.memberId,
     );
+  }
+
+  @MessagePattern(CHANNEL_MESSAGE_PATTERN.GET_CHANNEL_BASIC_INFO)
+  async getChannelBasicInfo(
+    @Payload() payload: { channelId: string },
+  ) {
+    return await this.channelService.getChannelBasicInfo(payload.channelId);
   }
 
   @MessagePattern(CHANNEL_MESSAGE_PATTERN.TOGGLE_STAR)
@@ -144,5 +154,30 @@ export class ChannelController {
       payload.workspaceId,
       payload.memberId,
     );
+  }
+
+  @MessagePattern(CHANNEL_MESSAGE_PATTERN.WEBHOOK_CREATE)
+  async createWebhook(@Payload() dto: CreateWebhookDto) {
+    return await this.webhookService.createWebhook(dto);
+  }
+
+  @MessagePattern(CHANNEL_MESSAGE_PATTERN.WEBHOOK_LIST)
+  async getWebhooks(@Payload() dto: GetWebhooksDto) {
+    return await this.webhookService.getWebhooks(dto);
+  }
+
+  @MessagePattern(CHANNEL_MESSAGE_PATTERN.WEBHOOK_UPDATE)
+  async updateWebhook(@Payload() dto: UpdateWebhookDto) {
+    return await this.webhookService.updateWebhook(dto);
+  }
+
+  @MessagePattern(CHANNEL_MESSAGE_PATTERN.WEBHOOK_DELETE)
+  async deleteWebhook(@Payload() dto: DeleteWebhookDto) {
+    return await this.webhookService.deleteWebhook(dto);
+  }
+
+  @MessagePattern(CHANNEL_MESSAGE_PATTERN.WEBHOOK_VERIFY)
+  async verifyWebhook(@Payload() payload: { workspaceId: string; channelId: string; token: string }) {
+    return await this.webhookService.verifyWebhook(payload.workspaceId, payload.channelId, payload.token);
   }
 }
