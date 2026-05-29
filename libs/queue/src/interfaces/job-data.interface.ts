@@ -17,6 +17,7 @@ export interface IUnrecognizedDeviceEmailJobData {
   ipAddress?: string;
   userAgent?: string;
   time: string;
+  secureToken: string;
 }
 
 export interface IPushNotificationData {

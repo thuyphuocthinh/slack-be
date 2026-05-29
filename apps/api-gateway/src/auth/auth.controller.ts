@@ -248,4 +248,20 @@ export class AuthController {
   resendCode(@Body() data: ResendCodeDto) {
     return this.authService.resendCode(data);
   }
+
+  @Public()
+  @Post('secure-account')
+  @ApiOperation({ summary: 'Secure account from unrecognized device email' })
+  @ApiResponse({ status: 200, description: 'Account secured and sessions terminated' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        token: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsIn...' },
+      },
+    },
+  })
+  secureAccount(@Body('token') token: string) {
+    return this.authService.secureAccount(token);
+  }
 }

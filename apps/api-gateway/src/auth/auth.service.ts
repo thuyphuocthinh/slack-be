@@ -185,4 +185,17 @@ export class AuthService {
       'AuthService',
     );
   }
+
+  async secureAccount(token: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.authClient.send(AUTH_MESSAGE_PATTERNS.SECURE_ACCOUNT, {
+            data: { token },
+          }),
+        ),
+      'secureAccount',
+      'AuthService',
+    );
+  }
 }

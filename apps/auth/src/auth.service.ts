@@ -255,6 +255,12 @@ export class AuthService {
       });
       await this.userDeviceRepository.save(newDevice);
 
+      // Generate secure token
+      const secureToken = await this.jwtService.signAsync(
+        { sub: userId, deviceId: metadata.device, type: 'SECURE_ACCOUNT' },
+        { expiresIn: '1h' },
+      );
+
       // 2. Queue Email Alert
       this.queueService
         .addJob(EQueueName.EMAIL_QUEUE, EJobName.SEND_UNRECOGNIZED_DEVICE_EMAIL, {
@@ -262,6 +268,7 @@ export class AuthService {
           ipAddress: metadata.ipAddress,
           userAgent: metadata.userAgent,
           time: new Date().toISOString(),
+          secureToken,
         })
         .catch((err) => {
           this.logger.error(`Failed to push device alert email for ${email}: ${err.message}`);
@@ -801,5 +808,69 @@ export class AuthService {
     }
 
     return 'Resend code successfully.';
+  }
+
+  async secureAccount(token: string): Promise<string> {
+    let payload;
+    try {
+      payload = await this.jwtService.verifyAsync(token);
+    } catch {
+      throw new RpcException(AUTH_ERROR.INVALID_ACCESS_TOKEN);
+    }
+
+    if (payload.type !== 'SECURE_ACCOUNT') {
+      throw new RpcException(AUTH_ERROR.INVALID_ACCESS_TOKEN);
+    }
+
+    const userId = payload.sub;
+    const deviceId = payload.deviceId;
+
+    // 1. Revoke all sessions for user
+    await this.sessionRepository.update(
+      { userId, isRevoked: false },
+      { isRevoked: true },
+    );
+    await this.authCacheService.bumpUserTokenVersion(userId);
+    await this.presenceCacheService.removeStatus(userId);
+
+    // 2. Mark device as untrusted
+    await this.userDeviceRepository.update(
+      { userId, deviceId },
+      { isTrusted: false },
+    );
+
+    // 3. Force password reset
+    const auth = await this.authRepository.findOne({
+      where: { userId, providerType: ProviderType.LOCAL },
+    });
+
+    if (auth) {
+      const verification = this.verificationRepository.create({
+        userId: auth.userId,
+        expiresAt: new Date(Date.now() + buildTTL('MINUTE', 60)),
+        code: v7(),
+        action: VerificationAction.RESET_PASSWORD,
+      });
+      await this.verificationRepository.save(verification);
+
+      const user = await firstValueFrom(
+        this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, {
+          id: userId,
+        }),
+      ).catch(() => null);
+
+      if (user && user.email) {
+        this.queueService
+          .addJob(EQueueName.EMAIL_QUEUE, EJobName.SEND_PASSWORD_RESET_EMAIL, {
+            email: user.email,
+            code: verification.code,
+          })
+          .catch((err) => {
+            this.logger.error(`Failed to push password reset email: ${err.message}`);
+          });
+      }
+    }
+
+    return 'Your account has been secured. All active sessions were terminated. Please check your email to reset your password.';
   }
 }

@@ -51,13 +51,14 @@ export class EmailProcessor extends BaseProcessor<
       }
 
       case EJobName.SEND_UNRECOGNIZED_DEVICE_EMAIL: {
-        const { email, ipAddress, userAgent, time } = job.data as IUnrecognizedDeviceEmailJobData;
+        const { email, ipAddress, userAgent, time, secureToken } = job.data as IUnrecognizedDeviceEmailJobData;
         this.logger.log(`Handling unrecognized device email for ${email}`);
         return await this.mailerService.sendUnrecognizedDeviceEmail(
           email,
           ipAddress,
           userAgent,
           time,
+          secureToken,
         );
       }
 

@@ -80,6 +80,7 @@ export class SendgridService implements IMailService {
     ipAddress?: string,
     userAgent?: string,
     time?: string,
+    secureToken?: string,
   ): Promise<void> {
     try {
       await this.sendEmail(
@@ -90,6 +91,7 @@ export class SendgridService implements IMailService {
           ipAddress: ipAddress || 'Unknown',
           userAgent: userAgent || 'Unknown',
           time: time || new Date().toISOString(),
+          secureLink: `${process.env.FRONTEND_URL || 'https://slack-fe.tpt.io.vn'}/secure-account?token=${secureToken}`,
         },
       );
     } catch (error) {

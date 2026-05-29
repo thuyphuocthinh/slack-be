@@ -17,5 +17,6 @@ export interface IMailService {
     ipAddress?: string,
     userAgent?: string,
     time?: string,
+    secureToken?: string,
   ): Promise<void>;
 }
