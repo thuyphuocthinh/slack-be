@@ -83,9 +83,11 @@ export class WebhookReceiverService {
 
   async openView(triggerId: string, view: any) {
     try {
+      this.logger.log(`Open view called for trigger_id ${triggerId}`);
       const triggerData = await firstValueFrom(
         this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.VERIFY_MODAL_TRIGGER, triggerId),
       );
+      this.logger.log(`Trigger data: ${JSON.stringify(triggerData)}`);
 
       if (!triggerData) {
         throw new UnauthorizedException('Invalid or expired trigger_id');
