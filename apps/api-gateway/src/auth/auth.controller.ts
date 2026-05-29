@@ -71,11 +71,12 @@ export class AuthController {
     @Body() data: LoginDto,
     @Ip() ipAddress: string,
     @Headers('user-agent') userAgent: string,
+    @Headers('x-device-id') deviceId: string,
   ) {
     return this.authService.login(data, {
       ipAddress,
       userAgent,
-      device: userAgent,
+      device: deviceId || userAgent,
     });
   }
 
@@ -87,11 +88,12 @@ export class AuthController {
     @Body() data: RefreshTokenDto,
     @Ip() ipAddress: string,
     @Headers('user-agent') userAgent: string,
+    @Headers('x-device-id') deviceId: string,
   ) {
     return this.authService.refresh(data, {
       ipAddress,
       userAgent,
-      device: userAgent,
+      device: deviceId || userAgent,
     });
   }
 
@@ -141,6 +143,7 @@ export class AuthController {
     @Res() res: any,
     @Ip() ipAddress: string,
     @Headers('user-agent') userAgent: string,
+    @Headers('x-device-id') deviceId: string,
   ) {
     const { profile } = req.user;
 
@@ -155,7 +158,7 @@ export class AuthController {
 
     const tokens = await this.authService.loginGoogle(
       { email },
-      { ipAddress, userAgent, device: userAgent },
+      { ipAddress, userAgent, device: deviceId || userAgent },
     );
 
     const html = `
@@ -219,11 +222,12 @@ export class AuthController {
     @Body() data: VerifyOtpFromAuthenticatorDto,
     @Ip() ipAddress: string,
     @Headers('user-agent') userAgent: string,
+    @Headers('x-device-id') deviceId: string,
   ) {
     return this.authService.verifyOtpFromAuthenticator(data, {
       ipAddress,
       userAgent,
-      device: userAgent,
+      device: deviceId || userAgent,
     });
   }
 

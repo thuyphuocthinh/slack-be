@@ -3,6 +3,7 @@ import { DataSource, MoreThan, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { AuthEntity, ProviderType } from './entity/auth.entity';
 import { SessionEntity } from './entity/session.entity';
+import { UserDeviceEntity } from './entity/user-device.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   LoginDto,
@@ -42,6 +43,8 @@ export class AuthService {
     private readonly sessionRepository: Repository<SessionEntity>,
     @InjectRepository(VerificationEntity)
     private readonly verificationRepository: Repository<VerificationEntity>,
+    @InjectRepository(UserDeviceEntity)
+    private readonly userDeviceRepository: Repository<UserDeviceEntity>,
     @Inject(NAME_SERVICE_TCP.USER_SERVICE)
     private readonly userClient: ClientProxy,
     private readonly jwtService: JwtService,
@@ -234,6 +237,44 @@ export class AuthService {
     await this.sessionRepository.save(session);
   }
 
+  private async handleDeviceTracking(userId: string, email: string, metadata?: IRequestMetadata) {
+    if (!metadata?.device) return;
+
+    const existingDevice = await this.userDeviceRepository.findOne({
+      where: { userId, deviceId: metadata.device },
+    });
+
+    if (!existingDevice) {
+      // 1. New device! Save it.
+      const newDevice = this.userDeviceRepository.create({
+        userId,
+        deviceId: metadata.device,
+        ipAddress: metadata.ipAddress,
+        userAgent: metadata.userAgent,
+        isTrusted: false,
+      });
+      await this.userDeviceRepository.save(newDevice);
+
+      // 2. Queue Email Alert
+      this.queueService
+        .addJob(EQueueName.EMAIL_QUEUE, EJobName.SEND_UNRECOGNIZED_DEVICE_EMAIL, {
+          email,
+          ipAddress: metadata.ipAddress,
+          userAgent: metadata.userAgent,
+          time: new Date().toISOString(),
+        })
+        .catch((err) => {
+          this.logger.error(`Failed to push device alert email for ${email}: ${err.message}`);
+        });
+    } else {
+      // Update last login info
+      existingDevice.lastLoginAt = new Date();
+      if (metadata.ipAddress) existingDevice.ipAddress = metadata.ipAddress;
+      if (metadata.userAgent) existingDevice.userAgent = metadata.userAgent;
+      await this.userDeviceRepository.save(existingDevice);
+    }
+  }
+
   private async generateTempToken(
     userId: string,
     email: string,
@@ -325,6 +366,9 @@ export class AuthService {
         tempToken: await this.generateTempToken(auth.userId, email),
       };
     }
+
+    // 4. device tracking
+    await this.handleDeviceTracking(auth.userId, email, metadata);
 
     // 5. generate access token + refresh token
     const { accessToken, refreshToken } = await this.generateTokens(
@@ -461,6 +505,9 @@ export class AuthService {
         tempToken: await this.generateTempToken(auth.userId, email),
       };
     }
+
+    // 4. device tracking
+    await this.handleDeviceTracking(auth.userId, email, metadata);
 
     const { accessToken, refreshToken } = await this.generateTokens(
       auth.userId,

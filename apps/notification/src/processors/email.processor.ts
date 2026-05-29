@@ -5,6 +5,7 @@ import {
   EJobName,
   IEmailJobData,
   IInviteJobData,
+  IUnrecognizedDeviceEmailJobData,
 } from '@slack/queue';
 import { Job } from 'bullmq';
 import { Inject } from '@nestjs/common';
@@ -12,7 +13,7 @@ import { I_MAIL_SERVICE, type IMailService } from '../services/mail.interface';
 
 @Processor(EQueueName.EMAIL_QUEUE, { concurrency: 5 })
 export class EmailProcessor extends BaseProcessor<
-  IEmailJobData | IInviteJobData,
+  IEmailJobData | IInviteJobData | IUnrecognizedDeviceEmailJobData,
   void,
   EJobName
 > {
@@ -23,7 +24,7 @@ export class EmailProcessor extends BaseProcessor<
   }
 
   async process(
-    job: Job<IEmailJobData | IInviteJobData, void, EJobName>,
+    job: Job<IEmailJobData | IInviteJobData | IUnrecognizedDeviceEmailJobData, void, EJobName>,
   ): Promise<void> {
     switch (job.name) {
       case EJobName.SEND_VERIFICATION_EMAIL: {
@@ -46,6 +47,17 @@ export class EmailProcessor extends BaseProcessor<
           subject,
           template,
           context,
+        );
+      }
+
+      case EJobName.SEND_UNRECOGNIZED_DEVICE_EMAIL: {
+        const { email, ipAddress, userAgent, time } = job.data as IUnrecognizedDeviceEmailJobData;
+        this.logger.log(`Handling unrecognized device email for ${email}`);
+        return await this.mailerService.sendUnrecognizedDeviceEmail(
+          email,
+          ipAddress,
+          userAgent,
+          time,
         );
       }
 

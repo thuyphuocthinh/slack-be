@@ -13,13 +13,15 @@ import { GoogleStrategy } from './strategy/google.strategy';
 import { CachedModule } from '@slack/cached';
 import { QueueModule, EQueueName } from '@slack/queue';
 
+import { UserDeviceEntity } from './entity/user-device.entity';
+
 @Module({
   imports: [
     DatabaseModule,
     QueueModule.forRoot(),
     QueueModule.forFeature([EQueueName.EMAIL_QUEUE]),
     CachedModule.forRoot(),
-    TypeOrmModule.forFeature([AuthEntity, SessionEntity, VerificationEntity]),
+    TypeOrmModule.forFeature([AuthEntity, SessionEntity, VerificationEntity, UserDeviceEntity]),
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'fallback_secret',
     }),
