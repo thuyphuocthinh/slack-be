@@ -16,6 +16,7 @@ export enum EJobName {
   SEND_VERIFICATION_EMAIL = 'send_verification_email',
   SEND_PASSWORD_RESET_EMAIL = 'send_password_reset_email',
   SEND_INVITE_EMAIL = 'send_invite_email',
+  SEND_UNRECOGNIZED_DEVICE_EMAIL = 'send_unrecognized_device_email',
 
   // Notification
   CREATE_NOTIFICATION = 'create_notification',

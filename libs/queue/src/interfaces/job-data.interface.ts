@@ -12,6 +12,13 @@ export interface IEmailJobData {
   code: string;
 }
 
+export interface IUnrecognizedDeviceEmailJobData {
+  email: string;
+  ipAddress?: string;
+  userAgent?: string;
+  time: string;
+}
+
 export interface IPushNotificationData {
   recipientId: string;
   type: string;
@@ -105,5 +112,6 @@ export type TJobData = {
   [EJobName.SAVE_AUDIT_LOG]: IAuditJobData;
   [EJobName.PROCESS_WEBHOOK_MESSAGE]: IProcessWebhookMessageJobData;
   [EJobName.DISPATCH_OUTBOUND_WEBHOOK]: IDispatchOutboundWebhookJobData;
+  [EJobName.SEND_UNRECOGNIZED_DEVICE_EMAIL]: IUnrecognizedDeviceEmailJobData;
 };
 

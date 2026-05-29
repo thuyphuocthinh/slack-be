@@ -62,4 +62,27 @@ export class NodemailerService implements IMailService {
       );
     }
   }
+
+  async sendUnrecognizedDeviceEmail(
+    email: string,
+    ipAddress?: string,
+    userAgent?: string,
+    time?: string,
+  ): Promise<void> {
+    try {
+      await this.sendEmail(
+        email,
+        'New Login from Unrecognized Device',
+        'unrecognized_device',
+        {
+          ipAddress: ipAddress || 'Unknown',
+          userAgent: userAgent || 'Unknown',
+          time: time || new Date().toISOString(),
+        },
+      );
+    } catch (error) {
+      this.logger.error('Failed to send unrecognized device email', error);
+      throw new RpcException(NOTIFICATION_ERROR.SEND_EMAIL_FAILED);
+    }
+  }
 }

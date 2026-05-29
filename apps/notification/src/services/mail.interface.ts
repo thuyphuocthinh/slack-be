@@ -11,4 +11,11 @@ export interface IMailService {
   sendVerificationEmail(email: string, code: string): Promise<void>;
 
   sendResetPasswordEmail(email: string, code: string): Promise<void>;
+
+  sendUnrecognizedDeviceEmail(
+    email: string,
+    ipAddress?: string,
+    userAgent?: string,
+    time?: string,
+  ): Promise<void>;
 }
