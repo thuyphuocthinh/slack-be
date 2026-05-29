@@ -212,6 +212,8 @@ export const CACHE = {
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:apps:v1:events:ws_${workspaceId}:event_${eventType}`,
       COMMAND_RESPONSE: (token: string): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:apps:v1:commands:response:${token}`,
+      MODAL_TRIGGER: (triggerId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:apps:v1:modals:trigger:${triggerId}`,
     },
   },
 };

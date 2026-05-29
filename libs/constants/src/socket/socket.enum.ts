@@ -47,4 +47,7 @@ export enum ESocketEvent {
   HUDDLE_PARTICIPANT_LEFT = 'huddle_participant_left',
   HUDDLE_RECORDING_STARTED = 'huddle_recording_started',
   HUDDLE_RECORDING_STOPPED = 'huddle_recording_stopped',
+
+  // Interactive Modals
+  VIEW_OPENED = 'view_opened',
 }

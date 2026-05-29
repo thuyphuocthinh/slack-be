@@ -4,6 +4,7 @@ import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { QueueModule, EQueueName } from '@slack/queue';
 import { WebhookReceiverController } from './webhook-receiver.controller';
 import { CommandReceiverController } from './command-receiver.controller';
+import { ViewsController } from './views.controller';
 import { WebhookReceiverService } from './webhook-receiver.service';
 
 @Module({
@@ -29,7 +30,7 @@ import { WebhookReceiverService } from './webhook-receiver.service';
       },
     ]),
   ],
-  controllers: [WebhookReceiverController, CommandReceiverController],
+  controllers: [WebhookReceiverController, CommandReceiverController, ViewsController],
   providers: [WebhookReceiverService],
 })
 export class WebhookReceiverModule {}

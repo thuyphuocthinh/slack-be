@@ -324,7 +324,9 @@ export class AppService {
 
     const { v4: uuidv4 } = require('uuid');
     const responseToken = uuidv4();
+    const triggerId = uuidv4();
     const CACHE_KEY = CACHE.APP.KEYS.COMMAND_RESPONSE(responseToken);
+    const TRIGGER_CACHE_KEY = CACHE.APP.KEYS.MODAL_TRIGGER(triggerId);
 
     await this.cachedService.set(CACHE_KEY, {
       appId: app.id,
@@ -334,8 +336,16 @@ export class AppService {
       appAvatarUrl: app.avatarUrl
     }, 30 * 60); // 30 minutes TTL
 
-    const apiUrl = process.env.API_GATEWAY_URL || 'http://localhost:3000';
+    await this.cachedService.set(TRIGGER_CACHE_KEY, {
+      userId: dto.userId,
+      workspaceId: dto.workspaceId,
+      appId: app.id,
+    }, 30); // 30 seconds TTL
+
+    const apiUrl = process.env.API_GATEWAY_URL || 'http://localhost:3000/api/v1';
     const responseUrl = `${apiUrl}/services/commands/response/${responseToken}`;
+
+    this.logger.log(`Dispatching outbound webhook for app ${dto.appId}`);
 
     await this.queueService.addJob(
       EQueueName.OUTBOUND_WEBHOOK_QUEUE,
@@ -350,6 +360,7 @@ export class AppService {
           channelId: dto.channelId,
           userId: dto.userId,
           response_url: responseUrl,
+          trigger_id: triggerId,
         },
       },
       {
@@ -369,5 +380,58 @@ export class AppService {
       return null;
     }
     return data;
+  }
+
+  async verifyModalTrigger(triggerId: string) {
+    const CACHE_KEY = CACHE.APP.KEYS.MODAL_TRIGGER(triggerId);
+    const data = await this.cachedService.get(CACHE_KEY);
+    if (!data) {
+      return null;
+    }
+    return data;
+  }
+
+  async submitView(dto: { workspaceId: string; userId: string; viewId: string; appId: string; values: any }) {
+    await this.workspaceCommonService.checkPermission(
+      dto.workspaceId,
+      dto.userId,
+      [WorkspaceRoleEnum.OWNER, WorkspaceRoleEnum.ADMIN, WorkspaceRoleEnum.MEMBER],
+    );
+
+    const app = await this.appRepository.findOne({
+      where: {
+        id: dto.appId,
+        workspaceId: dto.workspaceId,
+        status: AppStatus.ACTIVE,
+      },
+    });
+
+    if (!app || !app.requestUrl) {
+      throw new RpcException(APP_ERROR.APP_NOT_FOUND);
+    }
+
+    this.logger.log(`Submitting view ${dto.viewId} to app ${dto.appId}`);
+
+    await this.queueService.addJob(
+      EQueueName.OUTBOUND_WEBHOOK_QUEUE,
+      EJobName.DISPATCH_OUTBOUND_WEBHOOK,
+      {
+        appId: dto.appId,
+        eventType: 'view_submission',
+        workspaceId: dto.workspaceId,
+        payload: {
+          type: 'view_submission',
+          view: { id: dto.viewId, state: { values: dto.values } },
+          userId: dto.userId,
+        },
+      },
+      {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 1000 },
+        removeOnComplete: true,
+      }
+    );
+
+    return { success: true };
   }
 }

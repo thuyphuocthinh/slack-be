@@ -7,6 +7,7 @@ import {
   IsEnum,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -230,4 +231,21 @@ export class InvokeCommandApiDto {
   @IsString()
   @IsOptional()
   text?: string;
+}
+
+export class SubmitViewApiDto {
+  @ApiProperty()
+  @IsNotEmpty()
+  @IsString()
+  viewId: string;
+
+  @ApiProperty()
+  @IsNotEmpty()
+  @IsString()
+  appId: string;
+
+  @ApiProperty()
+  @IsNotEmpty()
+  @IsObject()
+  values: Record<string, any>;
 }
