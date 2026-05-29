@@ -2,6 +2,7 @@ import { Body, Controller, HttpCode, Post, BadRequestException } from '@nestjs/c
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Public } from '@slack/common';
 import { WebhookReceiverService } from './webhook-receiver.service';
+import { ViewsOpenDto } from './dto/views-open.dto';
 
 @ApiTags('Views')
 @Controller('views')
@@ -13,12 +14,11 @@ export class ViewsController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Open a modal view for a user (called by external bot)' })
   async openView(
-    @Body('trigger_id') triggerId: string,
-    @Body('view') view: any,
+    @Body() dto: ViewsOpenDto,
   ) {
-    if (!triggerId || !view) {
+    if (!dto.trigger_id || !dto.view) {
       throw new BadRequestException('Missing trigger_id or view');
     }
-    return this.webhookReceiverService.openView(triggerId, view);
+    return this.webhookReceiverService.openView(dto.trigger_id, dto.view);
   }
 }
