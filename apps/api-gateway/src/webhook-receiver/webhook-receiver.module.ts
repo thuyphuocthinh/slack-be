@@ -10,7 +10,7 @@ import { WebhookReceiverService } from './webhook-receiver.service';
 @Module({
   imports: [
     QueueModule.forRoot(),
-    QueueModule.forFeature([EQueueName.MESSAGE_QUEUE]),
+    QueueModule.forFeature([EQueueName.MESSAGE_QUEUE, EQueueName.SOCKET_QUEUE]),
     ClientsModule.register([
       {
         name: NAME_SERVICE_TCP.CHANNEL_SERVICE,
