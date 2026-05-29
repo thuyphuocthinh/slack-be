@@ -106,4 +106,9 @@ export class AuthController {
   resendCode(@Payload() payload: { data: ResendCodeDto }) {
     return this.authService.resendCode(payload.data);
   }
+
+  @MessagePattern(AUTH_MESSAGE_PATTERNS.SECURE_ACCOUNT)
+  secureAccount(@Payload() payload: { data: { token: string } }) {
+    return this.authService.secureAccount(payload.data.token);
+  }
 }
