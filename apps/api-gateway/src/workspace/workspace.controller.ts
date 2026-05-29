@@ -28,6 +28,7 @@ import {
   GetWorkspacesApiDto,
   CreateAppApiDto,
   UpdateAppApiDto,
+  InvokeCommandApiDto,
 } from './dto/workspace-api.dto';
 import { CurrentUser, type JwtUser } from '@slack/common';
 
@@ -393,6 +394,23 @@ export class WorkspaceController {
       workspaceId: id,
       appId,
       userId: user.sub,
+    });
+  }
+
+  @Post(':id/apps/:appId/invoke')
+  @ApiOperation({ summary: 'Invoke an app slash command' })
+  @ApiResponse({ status: 200, description: 'Command invoked successfully' })
+  async invokeAppCommand(
+    @Param('id') workspaceId: string,
+    @Param('appId') appId: string,
+    @Body() data: InvokeCommandApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.workspaceService.invokeAppCommand({
+      workspaceId,
+      appId,
+      userId: user.sub,
+      ...data,
     });
   }
 }

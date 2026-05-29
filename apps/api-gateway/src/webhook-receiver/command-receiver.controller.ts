@@ -8,11 +8,11 @@ import { WebhookReceiverService } from './webhook-receiver.service';
 @ApiTags('Incoming Webhooks')
 @Controller('services/commands')
 export class CommandReceiverController {
-  constructor(private readonly webhookReceiverService: WebhookReceiverService) {}
+  constructor(private readonly webhookReceiverService: WebhookReceiverService) { }
 
   @Post('response/:token')
   @Public()
-  @RateLimit({ limit: 5, window: 1000 })
+  @RateLimit({ limit: 1, window: 1 })
   @HttpCode(200)
   @ApiOperation({ summary: 'Receive command response from external bots' })
   async receiveCommandResponse(
