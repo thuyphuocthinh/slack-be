@@ -5,7 +5,7 @@ export class ViewsOpenDto {
   @ApiProperty({ description: 'The trigger ID to verify the modal request' })
   @IsString()
   @IsNotEmpty()
-  trigger_id: string;
+  triggerId: string;
 
   @ApiProperty({ description: 'The view object to open' })
   @IsObject()

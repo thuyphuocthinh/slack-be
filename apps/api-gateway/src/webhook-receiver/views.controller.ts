@@ -16,9 +16,9 @@ export class ViewsController {
   async openView(
     @Body() dto: ViewsOpenDto,
   ) {
-    if (!dto.trigger_id || !dto.view) {
+    if (!dto.triggerId || !dto.view) {
       throw new BadRequestException('Missing trigger_id or view');
     }
-    return this.webhookReceiverService.openView(dto.trigger_id, dto.view);
+    return this.webhookReceiverService.openView(dto.triggerId, dto.view);
   }
 }
