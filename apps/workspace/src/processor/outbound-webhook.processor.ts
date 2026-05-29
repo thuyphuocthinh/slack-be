@@ -77,6 +77,7 @@ export class OutboundWebhookProcessor extends BaseProcessor<
                 'X-Slack-Request-Timestamp': timestamp,
                 'X-Slack-Signature': slackSignature,
                 'Content-Type': 'application/json',
+                'Bypass-Tunnel-Reminder': 'true'
               },
               timeout: 3000,
             },
