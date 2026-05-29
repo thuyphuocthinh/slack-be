@@ -31,4 +31,6 @@ export const WORKSPACE_MESSAGE_PATTERNS = {
   GET_APP_COMMANDS: 'workspace.get_app_commands',
   INVOKE_APP_COMMAND: 'workspace.invoke_app_command',
   VERIFY_COMMAND_RESPONSE: 'workspace.verify_command_response',
+  VERIFY_MODAL_TRIGGER: 'workspace.verify_modal_trigger',
+  SUBMIT_VIEW: 'workspace.submit_view',
 } as const;

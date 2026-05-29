@@ -149,3 +149,11 @@ export class InvokeCommandRequestDto {
   command: string;
   text?: string;
 }
+
+export class SubmitViewRequestDto {
+  userId: string;
+  workspaceId: string;
+  appId: string;
+  viewId: string;
+  values: Record<string, any>;
+}

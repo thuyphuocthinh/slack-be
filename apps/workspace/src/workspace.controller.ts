@@ -212,4 +212,14 @@ export class WorkspaceController {
   verifyCommandResponse(@Payload() token: string) {
     return this.appService.verifyCommandResponse(token);
   }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.VERIFY_MODAL_TRIGGER)
+  verifyModalTrigger(@Payload() triggerId: string) {
+    return this.appService.verifyModalTrigger(triggerId);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.SUBMIT_VIEW)
+  submitView(@Payload() dto: { workspaceId: string; userId: string; viewId: string; appId: string; values: any }) {
+    return this.appService.submitView(dto);
+  }
 }

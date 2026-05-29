@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
-import { CHANNEL_MESSAGE_PATTERN, NAME_SERVICE_TCP, WORKSPACE_MESSAGE_PATTERNS } from '@slack/constants';
+import { CHANNEL_MESSAGE_PATTERN, ESocketEvent, NAME_SERVICE_TCP, WORKSPACE_MESSAGE_PATTERNS } from '@slack/constants';
 import { EJobName, EQueueName, QueueService } from '@slack/queue';
 import { WebhookPayloadDto } from './dto/webhook-payload.dto';
 
@@ -78,6 +78,44 @@ export class WebhookReceiverService {
     } catch (error) {
       this.logger.error(`Command response failed for token ${token}:`, error.message);
       throw new UnauthorizedException('Invalid token or service unavailable');
+    }
+  }
+
+  async openView(triggerId: string, view: any) {
+    try {
+      const triggerData = await firstValueFrom(
+        this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.VERIFY_MODAL_TRIGGER, triggerId),
+      );
+
+      if (!triggerData) {
+        throw new UnauthorizedException('Invalid or expired trigger_id');
+      }
+
+      const { userId, workspaceId, appId } = triggerData;
+
+      // Ensure the view has an ID so FE and BE can track it
+      const viewId = view.id || require('uuid').v4();
+      view.id = viewId;
+      view.appId = appId;
+      view.workspaceId = workspaceId;
+
+      await this.queueService.addJob(
+        EQueueName.SOCKET_QUEUE,
+        EJobName.EMIT_TO_USERS,
+        {
+          event: ESocketEvent.VIEW_OPENED,
+          userIds: [userId],
+          data: {
+            triggerId,
+            view,
+          },
+        },
+      );
+
+      return { ok: true, view: { id: viewId } };
+    } catch (error) {
+      this.logger.error(`Open view failed for trigger_id ${triggerId}:`, error.message);
+      throw new UnauthorizedException('Invalid trigger_id or service unavailable');
     }
   }
 }

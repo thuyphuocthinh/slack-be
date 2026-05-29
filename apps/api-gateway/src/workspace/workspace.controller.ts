@@ -29,6 +29,7 @@ import {
   CreateAppApiDto,
   UpdateAppApiDto,
   InvokeCommandApiDto,
+  SubmitViewApiDto,
 } from './dto/workspace-api.dto';
 import { CurrentUser, type JwtUser } from '@slack/common';
 
@@ -411,6 +412,23 @@ export class WorkspaceController {
       appId,
       userId: user.sub,
       ...data,
+    });
+  }
+
+  @Post(':id/views/submit')
+  @ApiOperation({ summary: 'Submit an interactive modal view' })
+  @ApiResponse({ status: 200, description: 'View submitted successfully' })
+  async submitView(
+    @Param('id') workspaceId: string,
+    @Body() data: SubmitViewApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.workspaceService.submitView({
+      workspaceId,
+      userId: user.sub,
+      viewId: data.viewId,
+      appId: data.appId,
+      values: data.values,
     });
   }
 }
