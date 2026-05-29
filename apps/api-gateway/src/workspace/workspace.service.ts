@@ -31,6 +31,7 @@ import {
   UpdateAppRequestDto,
   DeleteAppRequestDto,
   GetAppsRequestDto,
+  InvokeCommandRequestDto,
 } from './dto/workspace-request.dto';
 
 @Injectable()
@@ -467,6 +468,17 @@ export class WorkspaceService {
           this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.GET_APPS, data),
         ),
       'getApps',
+      'WorkspaceService',
+    );
+  }
+
+  async invokeAppCommand(data: InvokeCommandRequestDto) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.INVOKE_APP_COMMAND, data),
+        ),
+      'invokeAppCommand',
       'WorkspaceService',
     );
   }

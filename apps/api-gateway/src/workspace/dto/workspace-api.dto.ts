@@ -214,3 +214,20 @@ export class UpdateAppApiDto {
   @IsOptional()
   slashCommands?: SlashCommandApiDto[];
 }
+
+export class InvokeCommandApiDto {
+  @ApiProperty({ example: 'channel_id' })
+  @IsString()
+  @IsNotEmpty()
+  channelId: string;
+
+  @ApiProperty({ example: '/weather' })
+  @IsString()
+  @IsNotEmpty()
+  command: string;
+
+  @ApiPropertyOptional({ example: 'hanoi' })
+  @IsString()
+  @IsOptional()
+  text?: string;
+}
