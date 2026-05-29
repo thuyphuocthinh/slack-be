@@ -57,6 +57,9 @@ export class AppService {
           challenge: challenge,
         },
         {
+          headers: {
+            'Bypass-Tunnel-Reminder': 'true'
+          },
           timeout: 3000,
         },
       );

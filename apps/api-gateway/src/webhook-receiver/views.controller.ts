@@ -12,10 +12,13 @@ export class ViewsController {
   @Public()
   @HttpCode(200)
   @ApiOperation({ summary: 'Open a modal view for a user (called by external bot)' })
-  async openView(@Body() payload: { trigger_id: string; view: any }) {
-    if (!payload.trigger_id || !payload.view) {
+  async openView(
+    @Body('trigger_id') triggerId: string,
+    @Body('view') view: any,
+  ) {
+    if (!triggerId || !view) {
       throw new BadRequestException('Missing trigger_id or view');
     }
-    return this.webhookReceiverService.openView(payload.trigger_id, payload.view);
+    return this.webhookReceiverService.openView(triggerId, view);
   }
 }
