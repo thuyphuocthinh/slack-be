@@ -666,9 +666,6 @@ export class AuthService {
     if (!user) {
       throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_FOUND);
     }
-    // 3. update verification
-    verification.isUsed = true;
-    await this.verificationRepository.save(verification);
     return 'Verify reset password successfully.';
   }
 
