@@ -3,6 +3,7 @@ export enum ESocketEvent {
   SERVER_READY = 'server_ready',
   PING = 'ping',
   PONG = 'pong',
+  FORCE_LOGOUT = 'force_logout',
 
   // Message
   MESSAGE_RECEIVED = 'message_received',

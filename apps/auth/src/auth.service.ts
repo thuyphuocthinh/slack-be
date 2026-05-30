@@ -20,6 +20,7 @@ import {
   NAME_SERVICE_TCP,
   TWO_FA_MESSAGE_PATTERNS,
   USER_MESSAGE_PATTERNS,
+  ESocketEvent,
 } from '@slack/constants';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
 import {
@@ -833,6 +834,19 @@ export class AuthService {
     await this.authCacheService.bumpUserTokenVersion(userId);
     await this.presenceCacheService.removeStatus(userId);
 
+    // Force disconnect all active websockets for this user immediately
+    this.queueService
+      .addJob(EQueueName.SOCKET_QUEUE, EJobName.EMIT_TO_USERS, {
+        event: ESocketEvent.FORCE_LOGOUT,
+        userIds: [userId],
+        data: { reason: 'secure_account' },
+      })
+      .catch((err) => {
+        this.logger.error(
+          `Failed to push force_logout socket event: ${err.message}`,
+        );
+      });
+
     // 2. Mark device as untrusted
     await this.userDeviceRepository.update(
       { userId, deviceId },
@@ -847,7 +861,7 @@ export class AuthService {
     if (auth) {
       const verification = this.verificationRepository.create({
         userId: auth.userId,
-        expiresAt: new Date(Date.now() + buildTTL('MINUTE', 60)),
+        expiresAt: new Date(Date.now() + buildTTL('MINUTE', 5)),
         code: v7(),
         action: VerificationAction.RESET_PASSWORD,
       });

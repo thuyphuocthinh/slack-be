@@ -38,12 +38,12 @@ export class VerificationEntity {
   @Column({ type: 'enum', enum: VerificationAction })
   action: VerificationAction;
 
-  @Column({ type: 'timestamp', name: 'expires_at' })
+  @Column({ type: 'timestamptz', name: 'expires_at' })
   expiresAt: Date;
 
-  @CreateDateColumn({ type: 'timestamp', name: 'created_at' })
+  @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt: Date;
 
-  @UpdateDateColumn({ type: 'timestamp', name: 'updated_at' })
+  @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
   updatedAt: Date;
 }
