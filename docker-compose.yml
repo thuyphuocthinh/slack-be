@@ -11,8 +11,6 @@ services:
     env_file:
       - .env
     depends_on:
-      postgres:
-        condition: service_started
       redis-cache:
         condition: service_started
       redis-bullmq:
@@ -20,27 +18,14 @@ services:
       loki:
         condition: service_started
 
-  postgres:
-    image: postgres:15-alpine
-    container_name: slack-postgres
-    restart: always
-    environment:
-      POSTGRES_USER: dev
-      POSTGRES_PASSWORD: 123456
-      POSTGRES_DB: slack_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
   pgbouncer:
     image: edoburu/pgbouncer:latest
     container_name: slack-pgbouncer
     restart: always
     environment:
-      DB_USER: dev
-      DB_PASSWORD: 123456
-      DB_HOST: postgres
+      DB_USER: ${RDS_USER}
+      DB_PASSWORD: ${RDS_PASSWORD}
+      DB_HOST: ${RDS_ENDPOINT}
       DB_PORT: 5432
       LISTEN_PORT: 6432
       AUTH_TYPE: scram-sha-256
@@ -49,8 +34,6 @@ services:
       DEFAULT_POOL_SIZE: 50
     ports:
       - "6432:6432"
-    depends_on:
-      - postgres
 
   redis-cache:
     image: redis:7-alpine
@@ -163,7 +146,6 @@ services:
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
 
 volumes:
-  postgres_data:
   redis_cache_data:
   redis_bullmq_data:
   loki_data:
