@@ -13,4 +13,5 @@ export const USER_MESSAGE_PATTERNS = {
   FIND_USERS_BY_EMAIL: 'user.find_users_by_emails',
   DELETE_USER: 'user.delete',
   UPDATE_USER_STRIPE_ID: 'user.update_stripe_id',
+  GET_USER_BY_STRIPE_CUSTOMER_ID: 'user.get_by_stripe_customer_id',
 } as const;

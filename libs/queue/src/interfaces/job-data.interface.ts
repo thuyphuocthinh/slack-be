@@ -7,6 +7,13 @@ export interface IInviteJobData {
   context: Record<string, any>;
 }
 
+export interface IGenericEmailJobData {
+  to: string;
+  subject: string;
+  template: string;
+  context: Record<string, any>;
+}
+
 export interface IEmailJobData {
   email: string;
   code: string;
@@ -114,5 +121,6 @@ export type TJobData = {
   [EJobName.PROCESS_WEBHOOK_MESSAGE]: IProcessWebhookMessageJobData;
   [EJobName.DISPATCH_OUTBOUND_WEBHOOK]: IDispatchOutboundWebhookJobData;
   [EJobName.SEND_UNRECOGNIZED_DEVICE_EMAIL]: IUnrecognizedDeviceEmailJobData;
+  [EJobName.SEND_GENERIC_EMAIL]: IGenericEmailJobData;
 };
 

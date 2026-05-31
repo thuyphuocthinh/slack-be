@@ -9,6 +9,10 @@ import { ProcessedStripeEventEntity } from '../entity/processed-stripe-event.ent
 import { UserSubscriptionEntity } from '../entity/user-subscription.entity';
 import { StripeService } from './stripe.service';
 import type { HandleWebhookEventDto } from '../dto/billing-request.dto';
+import { Inject } from '@nestjs/common';
+import { NAME_SERVICE_TCP, USER_MESSAGE_PATTERNS } from '@slack/constants';
+import { ClientProxy } from '@nestjs/microservices';
+import { firstValueFrom } from 'rxjs';
 
 // ---------------------------------------------------------------------------
 // Minimal internal types for Stripe event data objects (verified by signature)
@@ -49,13 +53,16 @@ export class WebhookService {
     private readonly stripeService: StripeService,
     private readonly queueService: QueueService,
     private readonly dataSource: DataSource,
-  ) {}
+    @Inject(NAME_SERVICE_TCP.USER_SERVICE)
+    private readonly userClient: ClientProxy,
+  ) { }
 
   async handleEvent(dto: HandleWebhookEventDto): Promise<void> {
     await this.dataSource.transaction(async (manager) => {
       // INSERT idempotency record FIRST with ON CONFLICT DO NOTHING.
       // If the same event is already being processed concurrently, the insert is
       // a no-op (affected = 0) and we skip — eliminating the pre-check race window.
+      // Idempotency (Tính luỹ đẳng) kết hợp với Atomic Insert để chống lại lỗi Race Condition.
       const result = await manager
         .createQueryBuilder()
         .insert()
@@ -141,6 +148,25 @@ export class WebhookService {
       userIds: [userId],
       data: { planName: plan.name, status: SubscriptionStatus.ACTIVE },
     });
+
+    // Fetch user info via TCP to send email
+    const user = await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, { id: userId })
+    ).catch(() => null);
+
+    if (user?.email) {
+      await this.queueService.addJob(EQueueName.EMAIL_QUEUE, EJobName.SEND_GENERIC_EMAIL, {
+        to: user.email,
+        subject: 'Your Slack Clone Subscription is Active',
+        template: 'subscription_upgraded',
+        context: {
+          name: user.firstName || 'User',
+          planName: plan.name,
+          amount: stripeSubscription.items.data[0].price.id.includes('pro') ? '$9.99' : '$19.99',
+          date: new Date().toLocaleDateString(),
+        },
+      });
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -254,6 +280,24 @@ export class WebhookService {
     }
 
     this.logger.warn(`Payment failed for invoice: ${invoice.id}, customer: ${invoice.customer}`);
+
+    if (userId) {
+      const user = await firstValueFrom(
+        this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, { id: userId })
+      ).catch(() => null);
+
+      if (user?.email) {
+        await this.queueService.addJob(EQueueName.EMAIL_QUEUE, EJobName.SEND_GENERIC_EMAIL, {
+          to: user.email,
+          subject: 'Action Required: Slack Clone Payment Failed',
+          template: 'payment_failed',
+          context: {
+            name: user.firstName || 'User',
+            amount: `$${(invoice.amount_due / 100).toFixed(2)}`,
+          },
+        });
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -263,10 +307,10 @@ export class WebhookService {
     manager: EntityManager,
     stripeCustomerId: string,
   ): Promise<string | null> {
-    const user = await manager.getRepository(UserEntity).findOne({
-      where: { stripeCustomerId },
-      select: ['id'],
-    });
+    const user = await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_STRIPE_CUSTOMER_ID, { stripeCustomerId })
+    ).catch(() => null);
+
     if (!user) {
       this.logger.warn(`Cannot resolve userId for Stripe customer: ${stripeCustomerId}`);
       return null;

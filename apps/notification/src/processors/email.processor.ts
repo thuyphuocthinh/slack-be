@@ -5,6 +5,7 @@ import {
   EJobName,
   IEmailJobData,
   IInviteJobData,
+  IGenericEmailJobData,
   IUnrecognizedDeviceEmailJobData,
 } from '@slack/queue';
 import { Job } from 'bullmq';
@@ -13,7 +14,7 @@ import { I_MAIL_SERVICE, type IMailService } from '../services/mail.interface';
 
 @Processor(EQueueName.EMAIL_QUEUE, { concurrency: 5 })
 export class EmailProcessor extends BaseProcessor<
-  IEmailJobData | IInviteJobData | IUnrecognizedDeviceEmailJobData,
+  IEmailJobData | IInviteJobData | IGenericEmailJobData | IUnrecognizedDeviceEmailJobData,
   void,
   EJobName
 > {
@@ -24,7 +25,7 @@ export class EmailProcessor extends BaseProcessor<
   }
 
   async process(
-    job: Job<IEmailJobData | IInviteJobData | IUnrecognizedDeviceEmailJobData, void, EJobName>,
+    job: Job<IEmailJobData | IInviteJobData | IGenericEmailJobData | IUnrecognizedDeviceEmailJobData, void, EJobName>,
   ): Promise<void> {
     switch (job.name) {
       case EJobName.SEND_VERIFICATION_EMAIL: {
@@ -42,6 +43,17 @@ export class EmailProcessor extends BaseProcessor<
       case EJobName.SEND_INVITE_EMAIL: {
         const { to, subject, template, context } = job.data as IInviteJobData;
         this.logger.log(`Handling invite email for ${to}`);
+        return await this.mailerService.sendEmail(
+          to,
+          subject,
+          template,
+          context,
+        );
+      }
+
+      case EJobName.SEND_GENERIC_EMAIL: {
+        const { to, subject, template, context } = job.data as IGenericEmailJobData;
+        this.logger.log(`Handling generic email for ${to}`);
         return await this.mailerService.sendEmail(
           to,
           subject,

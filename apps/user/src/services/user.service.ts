@@ -278,4 +278,14 @@ export class UserService {
     this.logger.log(`Updated stripeCustomerId for user id ${id}`);
     this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(id));
   }
+
+  async getUserByStripeCustomerId(stripeCustomerId: string): Promise<IUserResponse> {
+    const user = await this.userRepository.findOne({
+      where: { stripeCustomerId, status: UserStatus.ACTIVE },
+    });
+    if (!user) {
+      throw new RpcException(USER_ERROR.USER_NOT_FOUND);
+    }
+    return this.mapUserToResponse(user);
+  }
 }
