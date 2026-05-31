@@ -9,6 +9,10 @@ import { ProcessedStripeEventEntity } from '../entity/processed-stripe-event.ent
 import { UserSubscriptionEntity } from '../entity/user-subscription.entity';
 import { StripeService } from './stripe.service';
 import type { HandleWebhookEventDto } from '../dto/billing-request.dto';
+import { Inject } from '@nestjs/common';
+import { NAME_SERVICE_TCP, USER_MESSAGE_PATTERNS } from '@slack/constants';
+import { ClientProxy } from '@nestjs/microservices';
+import { firstValueFrom } from 'rxjs';
 
 // ---------------------------------------------------------------------------
 // Minimal internal types for Stripe event data objects (verified by signature)
@@ -23,11 +27,17 @@ interface StripeCheckoutSession {
 interface StripeSubscription {
   id: string;
   status: string;
-  current_period_start: number;
-  current_period_end: number;
+  start_date?: number;
+  created?: number;
   cancel_at_period_end: boolean;
   customer: string;
-  items: { data: Array<{ price: { id: string } }> };
+  items: { 
+    data: Array<{ 
+      price: { id: string },
+      current_period_start?: number,
+      current_period_end?: number 
+    }> 
+  };
 }
 
 interface StripeInvoice {
@@ -49,13 +59,16 @@ export class WebhookService {
     private readonly stripeService: StripeService,
     private readonly queueService: QueueService,
     private readonly dataSource: DataSource,
-  ) {}
+    @Inject(NAME_SERVICE_TCP.USER_SERVICE)
+    private readonly userClient: ClientProxy,
+  ) { }
 
   async handleEvent(dto: HandleWebhookEventDto): Promise<void> {
     await this.dataSource.transaction(async (manager) => {
       // INSERT idempotency record FIRST with ON CONFLICT DO NOTHING.
       // If the same event is already being processed concurrently, the insert is
       // a no-op (affected = 0) and we skip — eliminating the pre-check race window.
+      // Idempotency (Tính luỹ đẳng) kết hợp với Atomic Insert để chống lại lỗi Race Condition.
       const result = await manager
         .createQueryBuilder()
         .insert()
@@ -118,6 +131,10 @@ export class WebhookService {
       where: { stripePriceId: priceId },
     });
 
+    const subscriptionItem = stripeSubscription.items.data[0] as any;
+    const currentPeriodStart = subscriptionItem.current_period_start || stripeSubscription.start_date || stripeSubscription.created;
+    const currentPeriodEnd = subscriptionItem.current_period_end || (currentPeriodStart + 30 * 24 * 60 * 60);
+
     // Upsert — idempotent if webhook fires more than once
     await manager.upsert(
       UserSubscriptionEntity,
@@ -126,8 +143,8 @@ export class WebhookService {
         planId: plan.id,
         stripeSubscriptionId: stripeSubscription.id,
         status: SubscriptionStatus.ACTIVE,
-        currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
-        currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+        currentPeriodStart: new Date(currentPeriodStart * 1000),
+        currentPeriodEnd: new Date(currentPeriodEnd * 1000),
         cancelAtPeriodEnd: false,
       },
       ['userId'],
@@ -141,6 +158,25 @@ export class WebhookService {
       userIds: [userId],
       data: { planName: plan.name, status: SubscriptionStatus.ACTIVE },
     });
+
+    // Fetch user info via TCP to send email
+    const user = await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, { id: userId })
+    ).catch(() => null);
+
+    if (user?.email) {
+      await this.queueService.addJob(EQueueName.EMAIL_QUEUE, EJobName.SEND_GENERIC_EMAIL, {
+        to: user.email,
+        subject: 'Your Slack Clone Subscription is Active',
+        template: 'subscription_upgraded',
+        context: {
+          name: user.firstName || 'User',
+          planName: plan.name,
+          amount: stripeSubscription.items.data[0].price.id.includes('pro') ? '$9.99' : '$19.99',
+          date: new Date().toLocaleDateString(),
+        },
+      });
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -150,13 +186,17 @@ export class WebhookService {
     manager: EntityManager,
     subscription: StripeSubscription,
   ): Promise<void> {
+    const subscriptionItem = subscription.items.data[0] as any;
+    const currentPeriodStart = subscriptionItem?.current_period_start || subscription.start_date || subscription.created;
+    const currentPeriodEnd = subscriptionItem?.current_period_end || (currentPeriodStart + 30 * 24 * 60 * 60);
+
     const result = await manager.update(
       UserSubscriptionEntity,
       { stripeSubscriptionId: subscription.id },
       {
         status: subscription.status as SubscriptionStatus,
-        currentPeriodStart: new Date(subscription.current_period_start * 1000),
-        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+        currentPeriodStart: new Date(currentPeriodStart * 1000),
+        currentPeriodEnd: new Date(currentPeriodEnd * 1000),
         cancelAtPeriodEnd: subscription.cancel_at_period_end,
       },
     );
@@ -254,6 +294,24 @@ export class WebhookService {
     }
 
     this.logger.warn(`Payment failed for invoice: ${invoice.id}, customer: ${invoice.customer}`);
+
+    if (userId) {
+      const user = await firstValueFrom(
+        this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, { id: userId })
+      ).catch(() => null);
+
+      if (user?.email) {
+        await this.queueService.addJob(EQueueName.EMAIL_QUEUE, EJobName.SEND_GENERIC_EMAIL, {
+          to: user.email,
+          subject: 'Action Required: Slack Clone Payment Failed',
+          template: 'payment_failed',
+          context: {
+            name: user.firstName || 'User',
+            amount: `$${(invoice.amount_due / 100).toFixed(2)}`,
+          },
+        });
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -263,10 +321,10 @@ export class WebhookService {
     manager: EntityManager,
     stripeCustomerId: string,
   ): Promise<string | null> {
-    const user = await manager.getRepository(UserEntity).findOne({
-      where: { stripeCustomerId },
-      select: ['id'],
-    });
+    const user = await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_STRIPE_CUSTOMER_ID, { stripeCustomerId })
+    ).catch(() => null);
+
     if (!user) {
       this.logger.warn(`Cannot resolve userId for Stripe customer: ${stripeCustomerId}`);
       return null;

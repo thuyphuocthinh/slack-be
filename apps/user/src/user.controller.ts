@@ -121,4 +121,9 @@ export class UserController {
   async updateStripeCustomerId(@Payload() data: { id: string; stripeCustomerId: string }) {
     return await this.userService.updateStripeCustomerId(data.id, data.stripeCustomerId);
   }
+
+  @MessagePattern(USER_MESSAGE_PATTERNS.GET_USER_BY_STRIPE_CUSTOMER_ID)
+  async getUserByStripeCustomerId(@Payload() data: { stripeCustomerId: string }) {
+    return await this.userService.getUserByStripeCustomerId(data.stripeCustomerId);
+  }
 }
