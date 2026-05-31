@@ -55,6 +55,9 @@ export class UserEntity {
   @UpdateDateColumn({ type: 'timestamp', name: 'updated_at' })
   updatedAt: Date;
 
+  @Column({ nullable: true, length: 255, unique: true, name: 'stripe_customer_id' })
+  stripeCustomerId: string;
+
   @VersionColumn({ nullable: false, default: 1, name: 'version' })
   version: number;
 }
