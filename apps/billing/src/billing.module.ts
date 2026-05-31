@@ -2,7 +2,8 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DatabaseModule } from '@slack/database';
 import { BillingController } from './billing.controller';
-import { BillingService } from './billing.service';
+import { BillingService } from './services/billing.service';
+import { StripeService } from './services/stripe.service';
 import { InvoiceEntity } from './entity/invoice.entity';
 import { PricingPlanEntity } from './entity/pricing-plan.entity';
 import { ProcessedStripeEventEntity } from './entity/processed-stripe-event.entity';
@@ -19,6 +20,6 @@ import { UserSubscriptionEntity } from './entity/user-subscription.entity';
     ]),
   ],
   controllers: [BillingController],
-  providers: [BillingService],
+  providers: [BillingService, StripeService],
 })
 export class BillingModule {}
