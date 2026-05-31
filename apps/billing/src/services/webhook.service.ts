@@ -27,11 +27,17 @@ interface StripeCheckoutSession {
 interface StripeSubscription {
   id: string;
   status: string;
-  current_period_start: number;
-  current_period_end: number;
+  start_date?: number;
+  created?: number;
   cancel_at_period_end: boolean;
   customer: string;
-  items: { data: Array<{ price: { id: string } }> };
+  items: { 
+    data: Array<{ 
+      price: { id: string },
+      current_period_start?: number,
+      current_period_end?: number 
+    }> 
+  };
 }
 
 interface StripeInvoice {
@@ -125,6 +131,10 @@ export class WebhookService {
       where: { stripePriceId: priceId },
     });
 
+    const subscriptionItem = stripeSubscription.items.data[0] as any;
+    const currentPeriodStart = subscriptionItem.current_period_start || stripeSubscription.start_date || stripeSubscription.created;
+    const currentPeriodEnd = subscriptionItem.current_period_end || (currentPeriodStart + 30 * 24 * 60 * 60);
+
     // Upsert — idempotent if webhook fires more than once
     await manager.upsert(
       UserSubscriptionEntity,
@@ -133,8 +143,8 @@ export class WebhookService {
         planId: plan.id,
         stripeSubscriptionId: stripeSubscription.id,
         status: SubscriptionStatus.ACTIVE,
-        currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
-        currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+        currentPeriodStart: new Date(currentPeriodStart * 1000),
+        currentPeriodEnd: new Date(currentPeriodEnd * 1000),
         cancelAtPeriodEnd: false,
       },
       ['userId'],
@@ -176,13 +186,17 @@ export class WebhookService {
     manager: EntityManager,
     subscription: StripeSubscription,
   ): Promise<void> {
+    const subscriptionItem = subscription.items.data[0] as any;
+    const currentPeriodStart = subscriptionItem?.current_period_start || subscription.start_date || subscription.created;
+    const currentPeriodEnd = subscriptionItem?.current_period_end || (currentPeriodStart + 30 * 24 * 60 * 60);
+
     const result = await manager.update(
       UserSubscriptionEntity,
       { stripeSubscriptionId: subscription.id },
       {
         status: subscription.status as SubscriptionStatus,
-        currentPeriodStart: new Date(subscription.current_period_start * 1000),
-        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+        currentPeriodStart: new Date(currentPeriodStart * 1000),
+        currentPeriodEnd: new Date(currentPeriodEnd * 1000),
         cancelAtPeriodEnd: subscription.cancel_at_period_end,
       },
     );
