@@ -50,4 +50,18 @@ export class BillingService {
       'BillingService',
     );
   }
+
+  handleWebhookEvent(stripeEventId: string, type: string, data: Record<string, unknown>) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () => firstValueFrom(
+        this.billingClient.send(BILLING_MESSAGE_PATTERNS.HANDLE_WEBHOOK_EVENT, {
+          stripeEventId,
+          type,
+          data,
+        }),
+      ),
+      'handleWebhookEvent',
+      'BillingService',
+    );
+  }
 }

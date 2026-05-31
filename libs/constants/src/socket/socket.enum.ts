@@ -51,4 +51,7 @@ export enum ESocketEvent {
 
   // Interactive Modals
   VIEW_OPENED = 'view_opened',
+
+  // Billing
+  BILLING_UPGRADED = 'billing:upgraded',
 }

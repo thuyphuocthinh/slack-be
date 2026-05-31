@@ -14,3 +14,9 @@ export class GetMySubscriptionRequestDto {
 export class GetUserFeatureLimitsRequestDto {
   userId: string;
 }
+
+export class HandleWebhookEventDto {
+  stripeEventId: string;
+  type: string;
+  data: Record<string, unknown>;
+}

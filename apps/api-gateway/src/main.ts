@@ -29,6 +29,7 @@ async function bootstrap() {
   } else {
     const app = await NestFactory.create(ApiGatewayModule, {
       logger: WinstonModule.createLogger(getLoggerConfig('GATEWAY')),
+      rawBody: true, // Required for Stripe webhook signature verification
     });
     app.enableShutdownHooks();
     app.useGlobalPipes(

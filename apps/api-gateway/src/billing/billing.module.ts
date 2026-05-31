@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { BillingController } from './billing.controller';
+import { StripeWebhookController } from './stripe-webhook.controller';
 import { BillingService } from './billing.service';
 
 @Module({
@@ -17,7 +18,7 @@ import { BillingService } from './billing.service';
       },
     ]),
   ],
-  controllers: [BillingController],
+  controllers: [BillingController, StripeWebhookController],
   providers: [BillingService],
 })
 export class BillingModule {}
