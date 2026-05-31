@@ -12,4 +12,5 @@ export const USER_MESSAGE_PATTERNS = {
   UPDATE_USER_PREFERENCE: 'user.update_preference',
   FIND_USERS_BY_EMAIL: 'user.find_users_by_emails',
   DELETE_USER: 'user.delete',
+  UPDATE_USER_STRIPE_ID: 'user.update_stripe_id',
 } as const;

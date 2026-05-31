@@ -116,4 +116,9 @@ export class UserController {
   async deleteUser(@Payload() data: { id: string }) {
     return await this.userService.deleteUser(data.id);
   }
+
+  @MessagePattern(USER_MESSAGE_PATTERNS.UPDATE_USER_STRIPE_ID)
+  async updateStripeCustomerId(@Payload() data: { id: string; stripeCustomerId: string }) {
+    return await this.userService.updateStripeCustomerId(data.id, data.stripeCustomerId);
+  }
 }
