@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import { EJobName, EQueueName, QueueService } from '@slack/queue';
 import { ESocketEvent, InvoiceStatus, SubscriptionStatus } from '@slack/constants';
 import { UserEntity } from '../../../user/src/entity/user.entity';
@@ -47,8 +46,6 @@ export class WebhookService {
   private readonly logger = new Logger(WebhookService.name);
 
   constructor(
-    @InjectRepository(UserSubscriptionEntity)
-    private readonly subscriptionRepo: Repository<UserSubscriptionEntity>,
     private readonly stripeService: StripeService,
     private readonly queueService: QueueService,
     private readonly dataSource: DataSource,
