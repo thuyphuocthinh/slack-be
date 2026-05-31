@@ -3,9 +3,11 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { VideoCallController } from './video-call.controller';
 import { VideoCallService } from './video-call.service';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
   imports: [
+    BillingModule,
     ClientsModule.register([
       {
         name: NAME_SERVICE_TCP.VIDEO_CALL_SERVICE,
