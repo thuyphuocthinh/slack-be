@@ -19,10 +19,23 @@ export class InvoiceEntity {
   @Column({ length: 255, unique: true, name: 'stripe_invoice_id' })
   stripeInvoiceId: string;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, name: 'amount_due' })
+  // TypeORM returns DECIMAL as string at runtime — transformer ensures JS number
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    name: 'amount_due',
+    transformer: { to: (v: number) => v, from: (v: string) => parseFloat(v) },
+  })
   amountDue: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, name: 'amount_paid' })
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    name: 'amount_paid',
+    transformer: { to: (v: number) => v, from: (v: string) => parseFloat(v) },
+  })
   amountPaid: number;
 
   @Column({ type: 'enum', enum: InvoiceStatus })

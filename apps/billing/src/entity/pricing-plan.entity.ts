@@ -22,7 +22,13 @@ export class PricingPlanEntity {
   @Index('IDX_PRICING_PLANS_STRIPE_PRICE_ID')
   stripePriceId: string;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2 })
+  // TypeORM returns DECIMAL as string at runtime — transformer ensures JS number
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    transformer: { to: (v: number) => v, from: (v: string) => parseFloat(v) },
+  })
   price: number;
 
   @Column({ length: 10 })

@@ -43,18 +43,28 @@ export class BillingService {
       order: { price: 'ASC' },
     });
     this.logger.log(`Fetched ${plans.length} active plans`);
-    return plans.map(this.mapPlanToDto);
+    // Arrow function preserves `this` context
+    return plans.map((p) => this.mapPlanToDto(p));
   }
 
   async createCheckout(dto: CreateCheckoutRequestDto): Promise<CheckoutResponseDto> {
     const { userId, planId } = dto;
     this.logger.log(`Creating checkout for userId: ${userId}, planId: ${planId}`);
 
-    // Transaction + Pessimistic Lock:
-    // Tránh race condition tạo 2 Stripe customers cho 1 user (e.g. double-click)
-    return this.dataSource.transaction(async (manager) => {
+    // Phase 1 — validate plan (no lock needed)
+    const plan = await this.planRepository.findOne({ where: { id: planId, isActive: true } });
+    if (!plan) {
+      this.logger.warn(`Plan not found or inactive: ${planId}`);
+      throw new RpcException({ ...BILLING_ERROR.PLAN_NOT_FOUND, statusCode: HttpStatus.NOT_FOUND });
+    }
+
+    // Phase 2 — get or create Stripe customer (Transaction + Pessimistic Lock).
+    // createCheckoutSession is intentionally kept OUTSIDE the transaction to avoid
+    // orphaned Stripe customers if the DB commit fails after a successful Stripe API call.
+    let stripeCustomerId: string;
+
+    await this.dataSource.transaction(async (manager) => {
       const userRepo = manager.getRepository(UserEntity);
-      const planRepo = manager.getRepository(PricingPlanEntity);
 
       const user = await userRepo.findOne({
         where: { id: userId },
@@ -68,43 +78,34 @@ export class BillingService {
         });
       }
 
-      const plan = await planRepo.findOne({ where: { id: planId, isActive: true } });
-      if (!plan) {
-        this.logger.warn(`Plan not found or inactive: ${planId}`);
-        throw new RpcException({
-          ...BILLING_ERROR.PLAN_NOT_FOUND,
-          statusCode: HttpStatus.NOT_FOUND,
-        });
-      }
-
       if (!user.stripeCustomerId) {
         this.logger.log(`No Stripe customer for userId: ${userId} — creating new customer`);
         const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ');
         const customer = await this.stripeService.createCustomer(user.email, fullName || user.email);
         await userRepo.update({ id: userId }, { stripeCustomerId: customer.id });
-        user.stripeCustomerId = customer.id;
+        stripeCustomerId = customer.id;
+      } else {
+        stripeCustomerId = user.stripeCustomerId;
       }
-
-      const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
-      const session = await this.stripeService.createCheckoutSession(
-        user.stripeCustomerId,
-        plan.stripePriceId,
-        userId,
-        `${frontendUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-        `${frontendUrl}/checkout/cancel`,
-      );
-
-      if (!session.url) {
-        this.logger.error(`Stripe checkout session created but URL is null for userId: ${userId}`);
-        throw new RpcException({
-          ...BILLING_ERROR.CHECKOUT_FAILED,
-          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        });
-      }
-
-      this.logger.log(`Checkout session ready for userId: ${userId}`);
-      return { checkoutUrl: session.url };
     });
+
+    // Phase 3 — create Stripe checkout session OUTSIDE the transaction
+    const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
+    const session = await this.stripeService.createCheckoutSession(
+      stripeCustomerId!,
+      plan.stripePriceId,
+      userId,
+      `${frontendUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+      `${frontendUrl}/checkout/cancel`,
+    );
+
+    if (!session.url) {
+      this.logger.error(`Stripe checkout session created but URL is null for userId: ${userId}`);
+      throw new RpcException({ ...BILLING_ERROR.CHECKOUT_FAILED, statusCode: HttpStatus.INTERNAL_SERVER_ERROR });
+    }
+
+    this.logger.log(`Checkout session ready for userId: ${userId}`);
+    return { checkoutUrl: session.url };
   }
 
   async createPortal(dto: CreatePortalRequestDto): Promise<PortalResponseDto> {

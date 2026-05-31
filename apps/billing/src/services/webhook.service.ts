@@ -47,8 +47,6 @@ export class WebhookService {
   private readonly logger = new Logger(WebhookService.name);
 
   constructor(
-    @InjectRepository(ProcessedStripeEventEntity)
-    private readonly processedEventRepo: Repository<ProcessedStripeEventEntity>,
     @InjectRepository(UserSubscriptionEntity)
     private readonly subscriptionRepo: Repository<UserSubscriptionEntity>,
     private readonly stripeService: StripeService,
@@ -57,16 +55,23 @@ export class WebhookService {
   ) {}
 
   async handleEvent(dto: HandleWebhookEventDto): Promise<void> {
-    // Fast idempotency check — DB constraint is the real guarantee
-    const alreadyProcessed = await this.processedEventRepo.findOne({
-      where: { eventId: dto.stripeEventId },
-    });
-    if (alreadyProcessed) {
-      this.logger.warn(`Stripe event ${dto.stripeEventId} (${dto.type}) already processed — skipping`);
-      return;
-    }
-
     await this.dataSource.transaction(async (manager) => {
+      // INSERT idempotency record FIRST with ON CONFLICT DO NOTHING.
+      // If the same event is already being processed concurrently, the insert is
+      // a no-op (affected = 0) and we skip — eliminating the pre-check race window.
+      const result = await manager
+        .createQueryBuilder()
+        .insert()
+        .into(ProcessedStripeEventEntity)
+        .values({ eventId: dto.stripeEventId, eventType: dto.type })
+        .orIgnore()
+        .execute();
+
+      if (result.raw.length === 0) {
+        this.logger.warn(`Stripe event ${dto.stripeEventId} (${dto.type}) already processed — skipping`);
+        return;
+      }
+
       switch (dto.type) {
         case 'checkout.session.completed':
           await this.handleCheckoutCompleted(manager, dto.data as unknown as StripeCheckoutSession);
@@ -87,13 +92,6 @@ export class WebhookService {
           this.logger.debug(`Unhandled Stripe event type: ${dto.type} — no action taken`);
           return;
       }
-
-      // Mark as processed inside the same transaction.
-      // If the transaction rolls back, this insert also rolls back → Stripe retries will reprocess.
-      await manager.insert(ProcessedStripeEventEntity, {
-        eventId: dto.stripeEventId,
-        eventType: dto.type,
-      });
     });
 
     this.logger.log(`Stripe event ${dto.stripeEventId} (${dto.type}) processed successfully`);

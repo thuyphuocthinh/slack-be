@@ -120,13 +120,28 @@ export class ResourceController {
   // -------------------------------------------------------------------------
   private async checkStorageQuota(userId: string, incomingBytes: number): Promise<void> {
     try {
-      const limits = await this.billingService.getUserFeatureLimits(userId);
-      const maxStorageGb = (limits as { maxStorageGb: number | null }).maxStorageGb;
+      const raw = await this.billingService.getUserFeatureLimits(userId);
+      // Safely extract maxStorageGb — guard against unexpected response shapes
+      const maxStorageGb =
+        raw !== null &&
+        typeof raw === 'object' &&
+        'maxStorageGb' in (raw as object) &&
+        typeof (raw as { maxStorageGb: unknown }).maxStorageGb !== 'undefined'
+          ? (raw as { maxStorageGb: number | null }).maxStorageGb
+          : 5; // default to Free plan limit if shape is unexpected
 
       if (maxStorageGb === null) return; // Unlimited — Pro/Premium plan
 
       const limitBytes = maxStorageGb * GB;
-      const usedBytes = await this.resourceService.getUserStorageUsedBytes(userId);
+
+      // Quota DB query — treat as a separate failure domain from billing
+      let usedBytes: number;
+      try {
+        usedBytes = await this.resourceService.getUserStorageUsedBytes(userId);
+      } catch (dbErr) {
+        this.logger.warn(`Could not fetch storage usage for userId: ${userId}, allowing upload: ${dbErr.message}`);
+        return; // fail open — don't block upload if usage query fails
+      }
 
       if (usedBytes + incomingBytes > limitBytes) {
         this.logger.warn(
