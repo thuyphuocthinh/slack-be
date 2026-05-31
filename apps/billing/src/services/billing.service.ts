@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
@@ -10,7 +10,9 @@ import {
 import { StripeService } from './stripe.service';
 import { PricingPlanEntity } from '../entity/pricing-plan.entity';
 import { UserSubscriptionEntity } from '../entity/user-subscription.entity';
-import { UserEntity } from '../../../user/src/entity/user.entity';
+import { NAME_SERVICE_TCP, USER_MESSAGE_PATTERNS } from '@slack/constants';
+import { ClientProxy } from '@nestjs/microservices';
+import { firstValueFrom } from 'rxjs';
 import type {
   CheckoutResponseDto,
   PlanResponseDto,
@@ -35,7 +37,9 @@ export class BillingService {
     private readonly subscriptionRepository: Repository<UserSubscriptionEntity>,
     private readonly stripeService: StripeService,
     private readonly dataSource: DataSource,
-  ) {}
+    @Inject(NAME_SERVICE_TCP.USER_SERVICE)
+    private readonly userClient: ClientProxy,
+  ) { }
 
   async getPlans(): Promise<PlanResponseDto[]> {
     const plans = await this.planRepository.find({
@@ -58,36 +62,37 @@ export class BillingService {
       throw new RpcException({ ...BILLING_ERROR.PLAN_NOT_FOUND, statusCode: HttpStatus.NOT_FOUND });
     }
 
-    // Phase 2 — get or create Stripe customer (Transaction + Pessimistic Lock).
-    // createCheckoutSession is intentionally kept OUTSIDE the transaction to avoid
-    // orphaned Stripe customers if the DB commit fails after a successful Stripe API call.
+    // Phase 2 — get or create Stripe customer via TCP
     let stripeCustomerId: string;
 
-    await this.dataSource.transaction(async (manager) => {
-      const userRepo = manager.getRepository(UserEntity);
+    const user = await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, { id: userId })
+    ).catch(() => null);
 
-      const user = await userRepo.findOne({
-        where: { id: userId },
-        lock: { mode: 'pessimistic_write' },
+    if (!user) {
+      this.logger.warn(`User not found for checkout: ${userId}`);
+      throw new RpcException({
+        ...BILLING_ERROR.STRIPE_CUSTOMER_NOT_FOUND,
+        statusCode: HttpStatus.NOT_FOUND,
       });
-      if (!user) {
-        this.logger.warn(`User not found for checkout: ${userId}`);
-        throw new RpcException({
-          ...BILLING_ERROR.STRIPE_CUSTOMER_NOT_FOUND,
-          statusCode: HttpStatus.NOT_FOUND,
-        });
-      }
+    }
 
-      if (!user.stripeCustomerId) {
-        this.logger.log(`No Stripe customer for userId: ${userId} — creating new customer`);
-        const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ');
-        const customer = await this.stripeService.createCustomer(user.email, fullName || user.email);
-        await userRepo.update({ id: userId }, { stripeCustomerId: customer.id });
-        stripeCustomerId = customer.id;
-      } else {
-        stripeCustomerId = user.stripeCustomerId;
-      }
-    });
+    if (!user.stripeCustomerId) {
+      this.logger.log(`No Stripe customer for userId: ${userId} — creating new customer`);
+      const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ');
+      const customer = await this.stripeService.createCustomer(user.email, fullName || user.email);
+
+      // Update stripe customer id via TCP
+      await firstValueFrom(
+        this.userClient.send(USER_MESSAGE_PATTERNS.UPDATE_USER_STRIPE_ID, {
+          id: userId,
+          stripeCustomerId: customer.id
+        })
+      );
+      stripeCustomerId = customer.id;
+    } else {
+      stripeCustomerId = user.stripeCustomerId;
+    }
 
     // Phase 3 — create Stripe checkout session OUTSIDE the transaction
     const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
@@ -112,8 +117,9 @@ export class BillingService {
     const { userId } = dto;
     this.logger.log(`Creating customer portal for userId: ${userId}`);
 
-    const userRepo = this.dataSource.getRepository(UserEntity);
-    const user = await userRepo.findOne({ where: { id: userId } });
+    const user = await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, { id: userId })
+    ).catch(() => null);
 
     if (!user?.stripeCustomerId) {
       this.logger.warn(`No Stripe customer found for userId: ${userId}`);

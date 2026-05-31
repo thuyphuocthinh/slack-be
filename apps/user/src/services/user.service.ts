@@ -44,6 +44,7 @@ export class UserService {
       status: user.status,
       isTwoFactorEnabled:
         isTwoFactorEnabled ?? (await this.isEnableTwoFactor(user.id)),
+      stripeCustomerId: user.stripeCustomerId,
     };
   }
 
@@ -266,6 +267,15 @@ export class UserService {
       throw new RpcException(USER_ERROR.USER_NOT_FOUND);
     }
     this.logger.log(`Deleted user id ${id}`);
+    this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(id));
+  }
+
+  async updateStripeCustomerId(id: string, stripeCustomerId: string): Promise<void> {
+    const result = await this.userRepository.update({ id }, { stripeCustomerId });
+    if (result.affected === 0) {
+      throw new RpcException(USER_ERROR.USER_NOT_FOUND);
+    }
+    this.logger.log(`Updated stripeCustomerId for user id ${id}`);
     this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(id));
   }
 }

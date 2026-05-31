@@ -10,4 +10,5 @@ export interface IUserResponse {
   createdAt: Date;
   status: UserStatus;
   isTwoFactorEnabled: boolean;
+  stripeCustomerId?: string;
 }
