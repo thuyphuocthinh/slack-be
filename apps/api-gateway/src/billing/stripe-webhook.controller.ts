@@ -5,13 +5,13 @@ import {
   HttpCode,
   Logger,
   Post,
-  RawBodyRequest,
   Req,
 } from '@nestjs/common';
+import type { RawBodyRequest } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { Public } from '@slack/common';
 import { BILLING_ERROR } from '@slack/constants';
-import { Request } from 'express';
+import type { Request } from 'express';
 import Stripe from 'stripe';
 import { BillingService } from './billing.service';
 
@@ -57,7 +57,7 @@ export class StripeWebhookController {
     await this.billingService.handleWebhookEvent(
       event.id,
       event.type,
-      event.data.object as Record<string, unknown>,
+      event.data.object as unknown as Record<string, unknown>,
     );
 
     // Stripe expects 2xx — must always return even if billing service processes async
