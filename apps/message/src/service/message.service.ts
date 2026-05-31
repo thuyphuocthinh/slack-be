@@ -396,6 +396,7 @@ export class MessageService {
       limit = 20,
       cursor,
       direction = 'before',
+      afterDate,
     } = query;
 
     // Check channel exist
@@ -430,6 +431,13 @@ export class MessageService {
         queryBuilder.andWhere('message.parentId = :parentId', { parentId });
       } else {
         queryBuilder.andWhere('message.parentId IS NULL');
+      }
+
+      // Free plan: restrict history to N days (afterDate injected by api-gateway)
+      if (afterDate) {
+        queryBuilder.andWhere('message.createdAt >= :afterDate', {
+          afterDate: new Date(afterDate),
+        });
       }
 
       if (cursor) {

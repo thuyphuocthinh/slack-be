@@ -20,5 +20,6 @@ import { BillingService } from './billing.service';
   ],
   controllers: [BillingController, StripeWebhookController],
   providers: [BillingService],
+  exports: [BillingService],
 })
 export class BillingModule {}

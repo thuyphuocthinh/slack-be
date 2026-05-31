@@ -27,4 +27,7 @@ export class GetMessagesQueryDto {
 
   @IsOptional()
   direction?: 'before' | 'after' = 'before';
+
+  @IsOptional()
+  afterDate?: string; // ISO string — injected by api-gateway based on user's plan
 }

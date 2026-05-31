@@ -51,6 +51,16 @@ export class BillingService {
     );
   }
 
+  getUserFeatureLimits(userId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () => firstValueFrom(
+        this.billingClient.send(BILLING_MESSAGE_PATTERNS.GET_USER_FEATURE_LIMITS, { userId }),
+      ),
+      'getUserFeatureLimits',
+      'BillingService',
+    );
+  }
+
   handleWebhookEvent(stripeEventId: string, type: string, data: Record<string, unknown>) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () => firstValueFrom(

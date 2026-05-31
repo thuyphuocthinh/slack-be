@@ -1,10 +1,12 @@
-import { Body, Controller, Post, Param, HttpCode, HttpStatus, Headers, Get, Query } from '@nestjs/common';
+import { Body, Controller, Post, Param, HttpCode, HttpStatus, Headers, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { VideoCallService } from './video-call.service';
 import { JoinHuddleApiDto, LeaveHuddleApiDto } from './dto/video-call-api.dto';
 import { CurrentUser, type JwtUser, Public } from '@slack/common';
 import { JoinHuddleResponseDto, LeaveHuddleResponseDto, WebhookResponseDto, StartRecordingResponseDto, StopRecordingResponseDto, HuddleRecordingsResponseDto } from './dto/video-call-response.dto';
 import { LiveKitWebhookPayload, GetRecordingsQueryDto } from './dto/video-call-request.dto';
+import { RequireFeature } from '../common/decorators/require-feature.decorator';
+import { SubscriptionGuard } from '../common/guards/subscription.guard';
 
 @ApiTags('Video Call / Huddle')
 @Controller('video-call')
@@ -14,8 +16,11 @@ export class VideoCallController {
   @Post('workspaces/:workspaceId/join')
   @HttpCode(HttpStatus.CREATED)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Join or start a Huddle in a channel / DM' })
+  @UseGuards(SubscriptionGuard)
+  @RequireFeature('videoCall')
+  @ApiOperation({ summary: 'Join or start a Huddle in a channel / DM (requires Pro plan)' })
   @ApiResponse({ status: 201, type: JoinHuddleResponseDto, description: 'Successfully generated LiveKit token and huddle session' })
+  @ApiResponse({ status: 403, description: 'Video call feature requires a paid subscription' })
   async joinHuddle(
     @Param('workspaceId') workspaceId: string,
     @Body() body: JoinHuddleApiDto,

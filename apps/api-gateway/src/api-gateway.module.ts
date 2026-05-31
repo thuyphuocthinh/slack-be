@@ -17,6 +17,7 @@ import { ChannelModule } from './channel/channel.module';
 import { MessageModule } from './message/message.module';
 import { VideoCallModule } from './video-call/video-call.module';
 import { RateLimitGuard } from './common/guards/rate-limit.guard';
+import { SubscriptionGuard } from './common/guards/subscription.guard';
 import { WebhookReceiverModule } from './webhook-receiver/webhook-receiver.module';
 import { BillingModule } from './billing/billing.module';
 
@@ -52,6 +53,10 @@ import { BillingModule } from './billing/billing.module';
     {
       provide: APP_GUARD,
       useClass: RateLimitGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: SubscriptionGuard,
     },
   ],
 })
