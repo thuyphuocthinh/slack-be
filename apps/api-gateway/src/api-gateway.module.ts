@@ -17,7 +17,9 @@ import { ChannelModule } from './channel/channel.module';
 import { MessageModule } from './message/message.module';
 import { VideoCallModule } from './video-call/video-call.module';
 import { RateLimitGuard } from './common/guards/rate-limit.guard';
+import { SubscriptionGuard } from './common/guards/subscription.guard';
 import { WebhookReceiverModule } from './webhook-receiver/webhook-receiver.module';
+import { BillingModule } from './billing/billing.module';
 
 @Module({
   imports: [
@@ -34,6 +36,7 @@ import { WebhookReceiverModule } from './webhook-receiver/webhook-receiver.modul
     MessageModule,
     VideoCallModule,
     WebhookReceiverModule,
+    BillingModule,
 
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'fallback_secret',
@@ -50,6 +53,10 @@ import { WebhookReceiverModule } from './webhook-receiver/webhook-receiver.modul
     {
       provide: APP_GUARD,
       useClass: RateLimitGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: SubscriptionGuard,
     },
   ],
 })

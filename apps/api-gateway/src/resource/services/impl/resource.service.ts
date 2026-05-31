@@ -47,6 +47,16 @@ export class ResourceService {
     };
   }
 
+  async getUserStorageUsedBytes(userId: string): Promise<number> {
+    const result = await this.resourceRepository
+      .createQueryBuilder('r')
+      .select('COALESCE(SUM(r.size), 0)', 'total')
+      .where('r.uploadedBy = :userId', { userId })
+      .andWhere('r.isDeleted = false')
+      .getRawOne<{ total: string }>();
+    return parseInt(result?.total ?? '0', 10);
+  }
+
   async createResource(data: CreateResourceDto): Promise<IResourceResponse> {
     const resource = this.mapToResourceEntity(data);
     return this.mapToResourceResponse(

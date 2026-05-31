@@ -27,10 +27,15 @@ export * from './tcp/message_pattern/task_msg_pattern.constant';
 export * from './tcp/message_pattern/channel_msg_pattern.constant';
 export * from './tcp/message_pattern/message_msg_pattern.constant';
 export * from './tcp/message_pattern/video_call_msg_pattern.constant';
+export * from './tcp/message_pattern/billing_msg_pattern.constant';
 
 export * from './const/regex.constant';
 
 export * from './types/roles.enum';
 export * from './types/notification.enum';
 export * from './types/channel.enum';
+export * from './types/billing.enum';
 export * from './socket/socket.enum';
+
+export * from './errors/billing.error';
+export * from './tcp/message_pattern/billing_msg_pattern.constant';

@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Logger,
   Param,
   Patch,
   Post,
@@ -10,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, type JwtUser } from '@slack/common';
+import { BillingService } from '../billing/billing.service';
 import { MessageService } from './message.service';
 import {
   CreateMessageApiDto,
@@ -38,7 +40,12 @@ import { RateLimit } from '../common/guards/rate-limit.decorator';
 @Controller('workspaces/:workspaceId/channels/:channelId/messages')
 @ApiBearerAuth()
 export class MessageController {
-  constructor(private readonly messageService: MessageService) { }
+  private readonly logger = new Logger(MessageController.name);
+
+  constructor(
+    private readonly messageService: MessageService,
+    private readonly billingService: BillingService,
+  ) {}
 
   @Post()
   @RateLimit({ limit: 10, window: 10 })
@@ -59,15 +66,31 @@ export class MessageController {
   @Get()
   @ApiOperation({ summary: 'Get messages' })
   async getMessages(
-    @Param('workspaceId') workspaceId: string,
+    @Param('workspaceId') _workspaceId: string,
     @Param('channelId') channelId: string,
     @Query() query: GetMessagesQueryApiDto,
     @CurrentUser() user: JwtUser,
   ) {
+    let afterDate: string | undefined;
+    try {
+      const limits = await this.billingService.getUserFeatureLimits(user.sub);
+      if (limits && (limits as { messageHistoryDays: number | null }).messageHistoryDays !== null) {
+        const days = (limits as { messageHistoryDays: number }).messageHistoryDays;
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - days);
+        afterDate = cutoff.toISOString();
+        this.logger.debug(`Message history limited to ${days} days for userId: ${user.sub}`);
+      }
+    } catch {
+      // Billing service unavailable — allow full history (fail open)
+      this.logger.warn(`Could not fetch billing limits for userId: ${user.sub}, allowing full history`);
+    }
+
     return await this.messageService.getMessages({
       ...query,
       channelId,
       userId: user.sub,
+      afterDate,
     } as GetMessagesRequestDto);
   }
 

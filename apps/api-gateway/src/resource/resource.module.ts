@@ -8,9 +8,11 @@ import { DatabaseModule } from '@slack/database';
 import { v2 as cloudinary } from 'cloudinary';
 import { EQueueName, QueueModule } from '@slack/queue';
 import { ResourceProcessor } from './processors/resource.processor';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
   imports: [
+    BillingModule,
     DatabaseModule,
     TypeOrmModule.forFeature([ResourceEntity]),
     QueueModule.forRoot(),

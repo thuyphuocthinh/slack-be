@@ -25,6 +25,8 @@ export class GetMessagesRequestDto {
   limit?: number;
   parentId?: string;
   direction?: 'before' | 'after' = 'before';
+  // ISO string — api-gateway injects this based on user's plan to limit history
+  afterDate?: string;
 }
 
 export class SearchMessagesRequestDto {

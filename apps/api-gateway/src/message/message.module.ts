@@ -4,9 +4,11 @@ import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { MessageController } from './message.controller';
 import { ThreadController } from './thread.controller';
 import { MessageService } from './message.service';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
   imports: [
+    BillingModule,
     ClientsModule.register([
       {
         name: NAME_SERVICE_TCP.MESSAGE_SERVICE,
