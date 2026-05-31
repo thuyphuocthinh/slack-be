@@ -17,7 +17,7 @@ import { UserSubscriptionEntity } from './entity/user-subscription.entity';
   imports: [
     DatabaseModule,
     QueueModule.forRoot(),
-    QueueModule.forFeature([EQueueName.SOCKET_QUEUE]),
+    QueueModule.forFeature([EQueueName.SOCKET_QUEUE, EQueueName.EMAIL_QUEUE]),
     ClientsModule.register([
       {
         name: NAME_SERVICE_TCP.USER_SERVICE,

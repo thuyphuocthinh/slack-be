@@ -44,7 +44,8 @@ export class BillingController {
   }
 
   @MessagePattern(BILLING_MESSAGE_PATTERNS.HANDLE_WEBHOOK_EVENT)
-  handleWebhookEvent(@Payload() dto: HandleWebhookEventDto) {
-    return this.webhookService.handleEvent(dto);
+  async handleWebhookEvent(@Payload() dto: HandleWebhookEventDto) {
+    await this.webhookService.handleEvent(dto);
+    return { success: true };
   }
 }
