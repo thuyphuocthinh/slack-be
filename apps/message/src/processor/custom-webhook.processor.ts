@@ -2,10 +2,18 @@ import { Processor } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { EQueueName, BaseProcessor, EJobName, QueueService, IProcessIncomingWebhookJobData } from '@slack/queue';
 import { WebhookAdapterFactory } from '../adapters/webhook-adapter.factory';
+import { Inject } from '@nestjs/common';
+import { ClientProxy } from '@nestjs/microservices';
+import { CHANNEL_MESSAGE_PATTERN, NAME_SERVICE_TCP } from '@slack/constants';
+import { firstValueFrom } from 'rxjs';
 
 @Processor(EQueueName.INCOMING_WEBHOOK_QUEUE, { concurrency: 10 })
 export class CustomWebhookProcessor extends BaseProcessor<IProcessIncomingWebhookJobData, string, EJobName> {
-  constructor(private readonly queueService: QueueService) {
+  constructor(
+    private readonly queueService: QueueService,
+    @Inject(NAME_SERVICE_TCP.CHANNEL_SERVICE)
+    private readonly channelClient: ClientProxy,
+  ) {
     super();
   }
 
@@ -25,11 +33,24 @@ export class CustomWebhookProcessor extends BaseProcessor<IProcessIncomingWebhoo
           return 'Ignored';
         }
 
+        // 2.5 Lookup the real webhook UUID using the token
+        const webhook = await firstValueFrom(
+          this.channelClient.send(CHANNEL_MESSAGE_PATTERN.WEBHOOK_VERIFY, {
+            workspaceId,
+            channelId,
+            token,
+          }),
+        );
+
+        if (!webhook) {
+          throw new Error(`Webhook not found for token: ${token}`);
+        }
+
         // 3. Put it back into the MESSAGE_QUEUE so the standard WebhookProcessor can handle it
         await this.queueService.addJob(EQueueName.MESSAGE_QUEUE, EJobName.PROCESS_WEBHOOK_MESSAGE, {
           channelId,
           workspaceId,
-          webhookId: token, // Assuming token represents the webhook ID here, or you may need to look it up
+          webhookId: webhook.id, // the real UUID from db
           customName: appType,
           content: transformedData.content || transformedData.text || '',
           attachments: transformedData.attachments || [],
