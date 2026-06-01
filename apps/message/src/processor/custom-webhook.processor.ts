@@ -53,6 +53,7 @@ export class CustomWebhookProcessor extends BaseProcessor<IProcessIncomingWebhoo
           webhookId: webhook.id, // the real UUID from db
           customName: appType,
           content: transformedData.content || transformedData.text || '',
+          customAvatarUrl: webhook.avatarUrl,
           attachments: transformedData.attachments || [],
         });
 

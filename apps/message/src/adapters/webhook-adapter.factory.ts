@@ -1,4 +1,7 @@
 import { GithubAdapter } from './github.adapter';
+import { TrelloAdapter } from './trello.adapter';
+import { JiraAdapter } from './jira.adapter';
+import { SentryAdapter } from './sentry.adapter';
 import { IWebhookAdapter } from './webhook-adapter.interface';
 
 export class WebhookAdapterFactory {
@@ -6,7 +9,12 @@ export class WebhookAdapterFactory {
     switch (appType.toLowerCase()) {
       case 'github':
         return new GithubAdapter();
-      // Add other cases like 'trello' here
+      case 'trello':
+        return new TrelloAdapter();
+      case 'jira':
+        return new JiraAdapter();
+      case 'sentry':
+        return new SentryAdapter();
       default:
         throw new Error(`Unsupported app type: ${appType}`);
     }
