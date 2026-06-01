@@ -26,6 +26,11 @@ export class CreateWebhookDto {
   @IsString()
   @IsOptional()
   avatarUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  appType?: string;
 }
 
 export class UpdateWebhookDto {
@@ -54,6 +59,11 @@ export class UpdateWebhookDto {
   @IsString()
   @IsOptional()
   avatarUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  appType?: string;
 }
 
 export class GetWebhooksDto {
@@ -88,6 +98,7 @@ export class WebhookResponseDto {
   name: string;
   description: string;
   avatarUrl: string;
+  appType: string;
   token: string;
   createdAt: Date;
   updatedAt: Date;

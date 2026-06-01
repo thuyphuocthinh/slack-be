@@ -3,10 +3,10 @@ import { QueueService } from '@slack/queue';
 import { EQueueName, EJobName } from '@slack/queue';
 
 @Injectable()
-export class WebhooksService {
-  private readonly logger = new Logger(WebhooksService.name);
+export class IntegrationService {
+  private readonly logger = new Logger(IntegrationService.name);
 
-  constructor(private readonly queueService: QueueService) {}
+  constructor(private readonly queueService: QueueService) { }
 
   async queueWebhook(
     appType: string,
