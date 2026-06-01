@@ -1,15 +1,14 @@
 import { Module } from '@nestjs/common';
-import { IntegrationsController } from './integrations.controller';
-import { IntegrationsService } from './integrations.service';
-import { WebhooksModule } from './webhooks/webhooks.module';
-import { QueueModule } from '@slack/queue';
+import { EQueueName, QueueModule } from '@slack/queue';
+import { IntegrationController } from './integration.controller';
+import { IntegrationService } from './integration.service';
 
 @Module({
   imports: [
     QueueModule.forRoot(),
-    WebhooksModule,
+    QueueModule.forFeature([EQueueName.INCOMING_WEBHOOK_QUEUE]),
   ],
-  controllers: [IntegrationsController],
-  providers: [IntegrationsService],
+  controllers: [IntegrationController],
+  providers: [IntegrationService],
 })
-export class IntegrationsModule {}
+export class IntegrationsModule { }
