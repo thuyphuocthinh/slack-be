@@ -219,6 +219,7 @@ export class ChannelController {
       userId: user.sub,
       name: data.name,
       avatarUrl: data.avatarUrl,
+      appType: data.appType,
     });
   }
 
@@ -254,6 +255,7 @@ export class ChannelController {
       userId: user.sub,
       name: data.name,
       avatarUrl: data.avatarUrl,
+      appType: data.appType,
     });
   }
 

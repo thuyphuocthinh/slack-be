@@ -18,6 +18,11 @@ export class CreateWebhookApiDto {
   @IsString()
   @IsOptional()
   avatarUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Loại Webhook (custom, github, trello...)' })
+  @IsString()
+  @IsOptional()
+  appType?: string;
 }
 
 export class UpdateWebhookApiDto {
@@ -37,4 +42,9 @@ export class UpdateWebhookApiDto {
   @IsString()
   @IsOptional()
   avatarUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Loại Webhook (custom, github, trello...)' })
+  @IsString()
+  @IsOptional()
+  appType?: string;
 }

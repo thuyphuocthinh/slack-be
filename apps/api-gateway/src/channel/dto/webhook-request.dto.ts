@@ -5,6 +5,7 @@ export class CreateWebhookRequestDto {
   name?: string;
   description?: string;
   avatarUrl?: string;
+  appType?: string;
 }
 
 export class UpdateWebhookRequestDto {
@@ -15,6 +16,7 @@ export class UpdateWebhookRequestDto {
   name?: string;
   description?: string;
   avatarUrl?: string;
+  appType?: string;
 }
 
 export class GetWebhooksRequestDto {
