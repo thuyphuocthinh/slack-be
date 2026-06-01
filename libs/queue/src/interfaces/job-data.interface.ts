@@ -107,6 +107,15 @@ export interface IDispatchOutboundWebhookJobData {
   payload: Record<string, unknown>;
 }
 
+export interface IProcessIncomingWebhookJobData {
+  appType: string;
+  workspaceId: string;
+  channelId: string;
+  token: string;
+  headers: Record<string, string>;
+  payload: Record<string, unknown>;
+}
+
 export type TJobData = {
   [EJobName.SEND_VERIFICATION_EMAIL]: IEmailJobData;
   [EJobName.SEND_INVITE_EMAIL]: IInviteJobData;
@@ -122,5 +131,6 @@ export type TJobData = {
   [EJobName.DISPATCH_OUTBOUND_WEBHOOK]: IDispatchOutboundWebhookJobData;
   [EJobName.SEND_UNRECOGNIZED_DEVICE_EMAIL]: IUnrecognizedDeviceEmailJobData;
   [EJobName.SEND_GENERIC_EMAIL]: IGenericEmailJobData;
+  [EJobName.PROCESS_INCOMING_WEBHOOK]: IProcessIncomingWebhookJobData;
 };
 
