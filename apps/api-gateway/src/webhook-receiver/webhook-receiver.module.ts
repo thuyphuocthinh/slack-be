@@ -28,6 +28,14 @@ import { WebhookReceiverService } from './webhook-receiver.service';
           port: PORT_TCP.WORKSPACE_TCP_PORT,
         },
       },
+      {
+        name: NAME_SERVICE_TCP.INTEGRATIONS_SERVICE,
+        transport: Transport.TCP,
+        options: {
+          host: 'localhost',
+          port: PORT_TCP.INTEGRATIONS_TCP_PORT,
+        },
+      },
     ]),
   ],
   controllers: [WebhookReceiverController, CommandReceiverController, ViewsController],

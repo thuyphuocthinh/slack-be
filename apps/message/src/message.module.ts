@@ -14,6 +14,7 @@ import { ThreadService } from './service/thread.service';
 import { MessageAttachmentService } from './service/message-attachment.service';
 import { EQueueName, QueueModule } from '@slack/queue';
 import { WebhookProcessor } from './processor/webhook.processor';
+import { IncomingWebhookProcessor } from './processor/incoming-webhook.processor';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { WebhookProcessor } from './processor/webhook.processor';
       EQueueName.RESOURCE_QUEUE,
       EQueueName.AUDIT_QUEUE,
       EQueueName.OUTBOUND_WEBHOOK_QUEUE,
+      EQueueName.INCOMING_WEBHOOK_QUEUE,
     ]),
 
     TypeOrmModule.forFeature([
@@ -63,6 +65,6 @@ import { WebhookProcessor } from './processor/webhook.processor';
     ]),
   ],
   controllers: [MessageController],
-  providers: [MessageService, ThreadService, MessageAttachmentService, WebhookProcessor],
+  providers: [MessageService, ThreadService, MessageAttachmentService, WebhookProcessor, IncomingWebhookProcessor],
 })
 export class MessageModule { }

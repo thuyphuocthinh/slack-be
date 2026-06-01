@@ -82,6 +82,15 @@
         "tsConfigPath": "libs/database/tsconfig.lib.json"
       }
     },
+    "integrations": {
+      "type": "application",
+      "root": "apps/integrations",
+      "entryFile": "main",
+      "sourceRoot": "apps/integrations/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/integrations/tsconfig.app.json"
+      }
+    },
     "message": {
       "type": "application",
       "root": "apps/message",

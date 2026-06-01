@@ -9,6 +9,7 @@ export enum EQueueName {
   TASK_QUEUE = 'task',
   RESOURCE_QUEUE = 'resource',
   OUTBOUND_WEBHOOK_QUEUE = 'outbound_webhook',
+  INCOMING_WEBHOOK_QUEUE = 'incoming_webhook',
 }
 
 export enum EJobName {
@@ -41,5 +42,6 @@ export enum EJobName {
   // Webhook
   PROCESS_WEBHOOK_MESSAGE = 'process_webhook_message',
   DISPATCH_OUTBOUND_WEBHOOK = 'dispatch_outbound_webhook',
+  PROCESS_INCOMING_WEBHOOK = 'process_incoming_webhook',
 }
 
