@@ -4,7 +4,7 @@ import { EQueueName, BaseProcessor, EJobName, QueueService, IProcessIncomingWebh
 import { WebhookAdapterFactory } from '../adapters/webhook-adapter.factory';
 
 @Processor(EQueueName.INCOMING_WEBHOOK_QUEUE, { concurrency: 10 })
-export class IncomingWebhookProcessor extends BaseProcessor<IProcessIncomingWebhookJobData, string, EJobName> {
+export class CustomWebhookProcessor extends BaseProcessor<IProcessIncomingWebhookJobData, string, EJobName> {
   constructor(private readonly queueService: QueueService) {
     super();
   }

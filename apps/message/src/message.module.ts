@@ -13,8 +13,8 @@ import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { ThreadService } from './service/thread.service';
 import { MessageAttachmentService } from './service/message-attachment.service';
 import { EQueueName, QueueModule } from '@slack/queue';
-import { WebhookProcessor } from './processor/webhook.processor';
-import { IncomingWebhookProcessor } from './processor/incoming-webhook.processor';
+import { DefaultWebhookProcessor } from './processor/default-webhook.processor';
+import { CustomWebhookProcessor } from './processor/custom-webhook.processor';
 
 @Module({
   imports: [
@@ -65,6 +65,6 @@ import { IncomingWebhookProcessor } from './processor/incoming-webhook.processor
     ]),
   ],
   controllers: [MessageController],
-  providers: [MessageService, ThreadService, MessageAttachmentService, WebhookProcessor, IncomingWebhookProcessor],
+  providers: [MessageService, ThreadService, MessageAttachmentService, DefaultWebhookProcessor, CustomWebhookProcessor],
 })
 export class MessageModule { }

@@ -41,6 +41,15 @@ export class IncomingWebhookEntity {
   @Column({ nullable: true, type: 'varchar', name: 'avatar_url', length: 500 })
   avatarUrl: string;
 
+  @Column({
+    nullable: false,
+    type: 'varchar',
+    name: 'app_type',
+    default: 'custom',
+    length: 50,
+  })
+  appType: string;
+
   @Column({ nullable: false, type: 'varchar', name: 'token' })
   @Index({ unique: true })
   token: string;

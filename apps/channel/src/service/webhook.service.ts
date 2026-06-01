@@ -35,6 +35,7 @@ export class WebhookService {
       name: entity.name,
       description: entity.description,
       avatarUrl: entity.avatarUrl,
+      appType: entity.appType,
       token: entity.token,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
@@ -78,6 +79,7 @@ export class WebhookService {
         name: dto.name || 'Incoming Webhook',
         description: dto.description,
         avatarUrl: dto.avatarUrl,
+        appType: dto.appType || 'custom',
         token,
       });
 
@@ -124,6 +126,7 @@ export class WebhookService {
     if (dto.name !== undefined) webhook.name = dto.name;
     if (dto.description !== undefined) webhook.description = dto.description;
     if (dto.avatarUrl !== undefined) webhook.avatarUrl = dto.avatarUrl;
+    if (dto.appType !== undefined) webhook.appType = dto.appType;
 
     const saved = await this.webhookRepo.save(webhook);
     return this.mapToResponseDto(saved);

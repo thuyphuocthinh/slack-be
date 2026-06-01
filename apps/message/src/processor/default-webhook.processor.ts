@@ -9,7 +9,7 @@ import {
 import { MessageService } from '../service/message.service';
 
 @Processor(EQueueName.MESSAGE_QUEUE, { concurrency: 5 })
-export class WebhookProcessor extends BaseProcessor<
+export class DefaultWebhookProcessor extends BaseProcessor<
   IProcessWebhookMessageJobData,
   void,
   EJobName
