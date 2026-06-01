@@ -29,6 +29,7 @@ import { CustomWebhookProcessor } from './processor/custom-webhook.processor';
       EQueueName.AUDIT_QUEUE,
       EQueueName.OUTBOUND_WEBHOOK_QUEUE,
       EQueueName.INCOMING_WEBHOOK_QUEUE,
+      EQueueName.MESSAGE_QUEUE,
     ]),
 
     TypeOrmModule.forFeature([
