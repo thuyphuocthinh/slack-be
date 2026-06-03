@@ -15,7 +15,7 @@ export class AiService {
       this.logger.warn('GEMINI_API_KEY is not defined in environment variables');
     } else {
       this.genAI = new GoogleGenerativeAI(apiKey);
-      this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+      this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     }
   }
 
