@@ -1,12 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsEnum, IsNotEmpty, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsEnum, IsNotEmpty, IsString, ValidateNested, IsOptional } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class AiMessageDto {
-  @ApiProperty({ example: '123' })
+  @ApiProperty({ example: '123', required: false })
   @IsString()
-  @IsNotEmpty()
-  id: string;
+  @IsOptional()
+  id?: string;
 
   @ApiProperty({ enum: ['user', 'assistant'] })
   @IsEnum(['user', 'assistant'])
