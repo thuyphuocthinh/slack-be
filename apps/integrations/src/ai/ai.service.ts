@@ -15,10 +15,7 @@ export class AiService {
       this.logger.warn('GEMINI_API_KEY is not defined in environment variables');
     } else {
       this.genAI = new GoogleGenerativeAI(apiKey);
-      this.model = this.genAI.getGenerativeModel(
-        { model: 'gemini-1.5-flash' },
-        { apiVersion: 'v1' }
-      );
+      this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     }
   }
 
@@ -29,7 +26,7 @@ export class AiService {
           subscriber.error(new Error('AI Model is not initialized. Check GEMINI_API_KEY.'));
           return;
         }
-        
+
         try {
           const history = [
             { role: 'user', parts: [{ text: 'SYSTEM INSTRUCTION (Do not reply to this message directly, just follow the rules): Bạn là một trợ lý ảo của Slack tên là AI Assistant. Hãy trả lời thân thiện, ngắn gọn và hữu ích.' }] },
@@ -39,13 +36,13 @@ export class AiService {
               parts: [{ text: m.content }],
             }))
           ];
-          
+
           const currentMessage = payload.messages[payload.messages.length - 1]?.content || '';
           this.logger.log(`Generating response for message: ${currentMessage.substring(0, 50)}...`);
-          
+
           const chatSession = this.model.startChat({ history });
           const result = await chatSession.sendMessageStream(currentMessage);
-          
+
           for await (const chunk of result.stream) {
             const chunkText = chunk.text();
             subscriber.next({ text: chunkText });
