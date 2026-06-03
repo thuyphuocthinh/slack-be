@@ -1,5 +1,5 @@
 export interface IAiMessage {
-  id: string;
+  id?: string;
   role: 'user' | 'assistant';
   content: string;
 }
