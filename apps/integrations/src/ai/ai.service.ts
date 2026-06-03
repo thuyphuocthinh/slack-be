@@ -17,7 +17,6 @@ export class AiService {
       this.genAI = new GoogleGenerativeAI(apiKey);
       this.model = this.genAI.getGenerativeModel({ 
         model: 'gemini-1.5-flash',
-        systemInstruction: 'Bạn là một trợ lý ảo của Slack tên là AI Assistant. Hãy trả lời thân thiện, ngắn gọn và hữu ích.',
       });
     }
   }
@@ -31,10 +30,14 @@ export class AiService {
         }
         
         try {
-          const history = payload.messages.slice(0, -1).map(m => ({
-            role: m.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: m.content }],
-          }));
+          const history = [
+            { role: 'user', parts: [{ text: 'SYSTEM INSTRUCTION (Do not reply to this message directly, just follow the rules): Bạn là một trợ lý ảo của Slack tên là AI Assistant. Hãy trả lời thân thiện, ngắn gọn và hữu ích.' }] },
+            { role: 'model', parts: [{ text: 'Vâng, tôi đã hiểu. Tôi là AI Assistant của Slack.' }] },
+            ...payload.messages.slice(0, -1).map(m => ({
+              role: m.role === 'assistant' ? 'model' : 'user',
+              parts: [{ text: m.content }],
+            }))
+          ];
           
           const currentMessage = payload.messages[payload.messages.length - 1]?.content || '';
           this.logger.log(`Generating response for message: ${currentMessage.substring(0, 50)}...`);
