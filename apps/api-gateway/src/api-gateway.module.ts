@@ -20,6 +20,7 @@ import { RateLimitGuard } from './common/guards/rate-limit.guard';
 import { SubscriptionGuard } from './common/guards/subscription.guard';
 import { WebhookReceiverModule } from './webhook-receiver/webhook-receiver.module';
 import { BillingModule } from './billing/billing.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { BillingModule } from './billing/billing.module';
     VideoCallModule,
     WebhookReceiverModule,
     BillingModule,
+    AiModule,
 
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'fallback_secret',
