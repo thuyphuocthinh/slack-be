@@ -22,8 +22,24 @@ export class AiDocumentChunkEntity {
   @Column({ type: 'text' })
   content: string;
 
-  // pgvector column — stored as float[] in TypeORM, raw SQL handles vector type
-  @Column({ type: 'float', array: true, nullable: true })
+  // pgvector column — stored as text string in TypeORM, raw SQL handles vector type implicit cast
+  @Column({
+    type: 'varchar',
+    nullable: true,
+    transformer: {
+      to: (value: number[]) => {
+        if (!value) return null;
+        return `[${value.join(',')}]`;
+      },
+      from: (value: string) => {
+        if (!value) return null;
+        if (typeof value === 'string') {
+          return value.replace('[', '').replace(']', '').split(',').map(Number);
+        }
+        return value;
+      },
+    },
+  })
   embedding: number[];
 
   @CreateDateColumn({ type: 'timestamptz' })
