@@ -13,7 +13,7 @@ export class EmbeddingService {
       this.logger.warn('GEMINI_API_KEY is not defined — embedding disabled');
     } else {
       this.genAI = new GoogleGenerativeAI(apiKey);
-      this.embeddingModel = this.genAI.getGenerativeModel({ model: 'gemini-embedding-2' });
+      this.embeddingModel = this.genAI.getGenerativeModel({ model: 'embedding-001' });
     }
   }
 
