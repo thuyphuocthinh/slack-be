@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsEnum, IsNotEmpty, IsString, ValidateNested, IsOptional } from 'class-validator';
+import { IsArray, IsEnum, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class AiMessageDto {
@@ -24,4 +24,28 @@ export class AiChatDto {
   @ValidateNested({ each: true })
   @Type(() => AiMessageDto)
   messages: AiMessageDto[];
+
+  @ApiProperty({ example: 'workspace-uuid', required: false })
+  @IsString()
+  @IsOptional()
+  workspaceId?: string;
+}
+
+export class AiUploadDocumentDto {
+  @ApiProperty({ example: 'workspace-uuid' })
+  @IsString()
+  @IsNotEmpty()
+  workspaceId: string;
+}
+
+export class AiDeleteDocumentDto {
+  @ApiProperty({ example: 'document.txt' })
+  @IsString()
+  @IsNotEmpty()
+  documentName: string;
+
+  @ApiProperty({ example: 'workspace-uuid' })
+  @IsString()
+  @IsNotEmpty()
+  workspaceId: string;
 }
