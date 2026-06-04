@@ -94,15 +94,14 @@ export class DocumentService {
    * Index a document: parse → chunk → embed → store
    */
   async indexDocument(
-    fileBuffer: Buffer,
+    textContent: string,
     fileName: string,
     workspaceId: string,
   ): Promise<IndexDocumentResult> {
     this.logger.log(`Indexing document: ${fileName} for workspace: ${workspaceId}`);
 
-    // 1. Parse text
-    const text = this.parseText(fileBuffer, fileName);
-    if (!text.trim()) {
+    // 1. Validate text
+    if (!textContent || !textContent.trim()) {
       throw new Error('Document is empty or contains no readable text.');
     }
 
@@ -110,7 +109,7 @@ export class DocumentService {
     await this.chunkRepo.delete({ workspaceId, documentName: fileName });
 
     // 3. Chunk text
-    const chunks = this.chunkText(text);
+    const chunks = this.chunkText(textContent);
     this.logger.log(`Split into ${chunks.length} chunks`);
 
     // 4. Batch embed

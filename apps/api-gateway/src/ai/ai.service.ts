@@ -31,7 +31,7 @@ export class AiService {
       this.integrationsClient.send<IAiIndexDocumentResponse>(
         INTEGRATIONS_MESSAGE_PATTERNS.AI_INDEX_DOCUMENT,
         {
-          fileBuffer: Array.from(fileBuffer),
+          fileContent: fileBuffer.toString('utf-8'),
           fileName,
           workspaceId,
         },

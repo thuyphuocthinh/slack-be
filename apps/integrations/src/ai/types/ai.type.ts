@@ -14,7 +14,7 @@ export interface IAiChatResponse {
 }
 
 export interface IAiIndexDocumentRequest {
-  fileBuffer: number[];  // Buffer serialized as number array for TCP transport
+  fileContent: string;
   fileName: string;
   workspaceId: string;
 }
