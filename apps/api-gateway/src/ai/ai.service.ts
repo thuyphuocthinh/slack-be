@@ -27,11 +27,31 @@ export class AiService {
     fileName: string,
     workspaceId: string,
   ): Promise<IAiIndexDocumentResponse> {
+    let fileContent = '';
+    const lowerName = fileName.toLowerCase();
+
+    try {
+      if (lowerName.endsWith('.pdf')) {
+        const pdfParse = require('pdf-parse');
+        const pdfData = await pdfParse(fileBuffer);
+        fileContent = pdfData.text;
+      } else if (lowerName.endsWith('.docx')) {
+        const mammoth = require('mammoth');
+        const result = await mammoth.extractRawText({ buffer: fileBuffer });
+        fileContent = result.value;
+      } else {
+        // default to text
+        fileContent = fileBuffer.toString('utf-8');
+      }
+    } catch (e) {
+      throw new Error(`Failed to parse file ${fileName}: ${e.message}`);
+    }
+
     return lastValueFrom(
       this.integrationsClient.send<IAiIndexDocumentResponse>(
         INTEGRATIONS_MESSAGE_PATTERNS.AI_INDEX_DOCUMENT,
         {
-          fileContent: fileBuffer.toString('utf-8'),
+          fileContent,
           fileName,
           workspaceId,
         },
