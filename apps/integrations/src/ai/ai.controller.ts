@@ -30,8 +30,7 @@ export class AiController {
   async handleIndexDocument(
     @Payload() data: IAiIndexDocumentRequest,
   ): Promise<IAiIndexDocumentResponse> {
-    const fileBuffer = Buffer.from(data.fileBuffer);
-    return this.documentService.indexDocument(fileBuffer, data.fileName, data.workspaceId);
+    return this.documentService.indexDocument(data.fileContent, data.fileName, data.workspaceId);
   }
 
   @MessagePattern(INTEGRATIONS_MESSAGE_PATTERNS.AI_LIST_DOCUMENTS)
