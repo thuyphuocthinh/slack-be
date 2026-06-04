@@ -60,6 +60,7 @@ export class DocumentService {
 
     while (start < text.length) {
       let end = start + targetChars;
+      let isLastChunk = false;
 
       // Try to break at a paragraph or sentence boundary
       if (end < text.length) {
@@ -75,16 +76,18 @@ export class DocumentService {
         }
       } else {
         end = text.length;
+        isLastChunk = true;
       }
 
-      const chunk = text.substring(start, end).trim();
+      const chunk = text.substring(Math.max(0, start), end).trim();
       if (chunk.length > 0) {
         chunks.push(chunk);
       }
 
+      if (isLastChunk) break;
+
       // Move start forward with overlap
       start = end - overlapChars;
-      if (start >= text.length) break;
     }
 
     return chunks;
