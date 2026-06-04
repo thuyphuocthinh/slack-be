@@ -13,8 +13,18 @@ export class EmbeddingService {
       this.logger.warn('GEMINI_API_KEY is not defined — embedding disabled');
     } else {
       this.genAI = new GoogleGenerativeAI(apiKey);
-      this.embeddingModel = this.genAI.getGenerativeModel({ model: 'embedding-001' });
+      // gemini-embedding-2 is a valid alias that returns 3072 dimensions
+      this.embeddingModel = this.genAI.getGenerativeModel({ model: 'gemini-embedding-2' });
     }
+  }
+
+  /**
+   * Helper method to slice and normalize Matryoshka vectors
+   */
+  private normalizeVector(vector: number[], dimensions: number): number[] {
+    const sliced = vector.slice(0, dimensions);
+    const magnitude = Math.sqrt(sliced.reduce((sum, val) => sum + val * val, 0));
+    return magnitude === 0 ? sliced : sliced.map((val) => val / magnitude);
   }
 
   /**
@@ -30,7 +40,7 @@ export class EmbeddingService {
       taskType: TaskType.RETRIEVAL_DOCUMENT,
     });
 
-    return result.embedding.values;
+    return this.normalizeVector(result.embedding.values, 768);
   }
 
   /**
@@ -46,7 +56,7 @@ export class EmbeddingService {
       taskType: TaskType.RETRIEVAL_QUERY,
     });
 
-    return result.embedding.values;
+    return this.normalizeVector(result.embedding.values, 768);
   }
 
   /**
@@ -64,6 +74,6 @@ export class EmbeddingService {
       })),
     });
 
-    return result.embeddings.map((e) => e.values);
+    return result.embeddings.map((e) => this.normalizeVector(e.values, 768));
   }
 }
