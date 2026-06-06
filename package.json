@@ -38,6 +38,7 @@
     "start:video-call": "nest start video-call --watch",
     "start:billing": "nest start billing --watch",
     "start:integrations": "nest start integrations --watch",
+    "start:canvas": "nest start canvas --watch",
     "start:nodeA": "cross-env NODE_OPTIONS='--max-old-space-size=4096' concurrently -n GATEWAY,AUTH,USER -c blue,green,pink \"pnpm run start:gateway\" \"pnpm run start:auth\" \"pnpm run start:user\"",
     "start:nodeB": "cross-env NODE_OPTIONS='--max-old-space-size=4096' concurrently -n WORKSPACE,NOTIFICATION -c yellow,cyan \"pnpm run start:workspace\" \"pnpm run start:notification\"",
     "start:all": "cross-env NODE_OPTIONS='--max-old-space-size=4096' concurrently -n GATEWAY,AUTH,USER,WORKSPACE,NOTIFICATION,CHANNEL,TASK,MESSAGE,SOCKET,VIDEO,BILLING,INTEGRATIONS -c blue,green,pink,yellow,cyan,magenta,red,white,gray,black,bgBlue,white \"pnpm run start:gateway\" \"pnpm run start:auth\" \"pnpm run start:user\" \"pnpm run start:workspace\" \"pnpm run start:notification\" \"pnpm run start:channel\" \"pnpm run start:task\" \"pnpm run start:message\" \"pnpm run start:socket-gateway\" \"pnpm run start:video-call\" \"pnpm run start:billing\" \"pnpm run start:integrations\"",
@@ -55,6 +56,9 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@hocuspocus/extension-database": "^4.1.0",
+    "@hocuspocus/server": "^4.1.0",
+    "@hocuspocus/transformer": "^4.1.0",
     "@nestjs-modules/mailer": "^2.3.4",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.1",
@@ -70,6 +74,10 @@
     "@nestjs/websockets": "^11.1.19",
     "@sendgrid/mail": "^8.1.6",
     "@socket.io/redis-adapter": "^8.3.0",
+    "@tiptap/core": "^3.26.0",
+    "@tiptap/extension-task-item": "^3.26.0",
+    "@tiptap/extension-task-list": "^3.26.0",
+    "@tiptap/starter-kit": "^3.26.0",
     "argon2": "^0.44.0",
     "axios": "^1.16.1",
     "bullmq": "^5.76.1",
@@ -105,6 +113,7 @@
     "winston": "^3.19.0",
     "winston-loki": "^6.1.4",
     "winston-transport": "^4.9.0",
+    "yjs": "^13.6.31",
     "zod": "^4.3.6"
   },
   "devDependencies": {

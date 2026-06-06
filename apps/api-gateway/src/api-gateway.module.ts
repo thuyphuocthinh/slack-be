@@ -21,6 +21,7 @@ import { SubscriptionGuard } from './common/guards/subscription.guard';
 import { WebhookReceiverModule } from './webhook-receiver/webhook-receiver.module';
 import { BillingModule } from './billing/billing.module';
 import { AiModule } from './ai/ai.module';
+import { CanvasModule } from './canvas/canvas.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { AiModule } from './ai/ai.module';
     WebhookReceiverModule,
     BillingModule,
     AiModule,
+    CanvasModule,
 
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'fallback_secret',

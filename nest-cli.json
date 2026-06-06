@@ -46,6 +46,15 @@
         "tsConfigPath": "libs/cached/tsconfig.lib.json"
       }
     },
+    "canvas": {
+      "type": "application",
+      "root": "apps/canvas",
+      "entryFile": "main",
+      "sourceRoot": "apps/canvas/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/canvas/tsconfig.app.json"
+      }
+    },
     "channel": {
       "type": "application",
       "root": "apps/channel",
