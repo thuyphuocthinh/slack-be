@@ -8,6 +8,7 @@ services:
     ports:
       - "3000:3000"
       - "3008:3008"
+      - "8081:8080" # Hocuspocus WebSocket port (8080 is used by cadvisor)
     env_file:
       - .env
     depends_on:
