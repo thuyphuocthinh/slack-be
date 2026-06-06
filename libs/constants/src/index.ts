@@ -15,6 +15,7 @@ export * from './errors/message.error';
 export * from './errors/resource.error';
 export * from './errors/webhook.error';
 export * from './errors/app.error';
+export * from './errors/canvas.error';
 
 export * from './tcp/tcp.constant';
 export * from './tcp/message_pattern/notification_msg_pattern.constant';
@@ -29,7 +30,7 @@ export * from './tcp/message_pattern/message_msg_pattern.constant';
 export * from './tcp/message_pattern/video_call_msg_pattern.constant';
 export * from './tcp/message_pattern/billing_msg_pattern.constant';
 export * from './tcp/message_pattern/integrations_msg_pattern.constant';
-
+export * from './tcp/message_pattern/canvas_msg_pattern.constant';
 export * from './const/regex.constant';
 
 export * from './types/roles.enum';
