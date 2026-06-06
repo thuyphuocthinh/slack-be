@@ -44,7 +44,7 @@ export class HocuspocusGateway implements OnModuleInit, OnModuleDestroy {
         if (!token) throw new Error('Unauthorized');
         try {
           const payload = await jwtService.verifyAsync(token, {
-            secret: process.env.JWT_ACCESS_SECRET || 'secret',
+            secret: process.env.JWT_SECRET || 'fallback_secret',
           });
           const isBlacklisted = await authCache.isBlacklisted(token);
           if (isBlacklisted) throw new Error('Unauthorized');
