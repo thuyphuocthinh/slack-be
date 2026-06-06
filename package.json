@@ -55,6 +55,9 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@hocuspocus/extension-database": "^4.1.0",
+    "@hocuspocus/server": "^4.1.0",
+    "@hocuspocus/transformer": "^4.1.0",
     "@nestjs-modules/mailer": "^2.3.4",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.1",
@@ -70,6 +73,10 @@
     "@nestjs/websockets": "^11.1.19",
     "@sendgrid/mail": "^8.1.6",
     "@socket.io/redis-adapter": "^8.3.0",
+    "@tiptap/core": "^3.26.0",
+    "@tiptap/extension-task-item": "^3.26.0",
+    "@tiptap/extension-task-list": "^3.26.0",
+    "@tiptap/starter-kit": "^3.26.0",
     "argon2": "^0.44.0",
     "axios": "^1.16.1",
     "bullmq": "^5.76.1",
@@ -105,6 +112,7 @@
     "winston": "^3.19.0",
     "winston-loki": "^6.1.4",
     "winston-transport": "^4.9.0",
+    "yjs": "^13.6.31",
     "zod": "^4.3.6"
   },
   "devDependencies": {

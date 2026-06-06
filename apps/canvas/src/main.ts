@@ -1,8 +1,35 @@
 import { NestFactory } from '@nestjs/core';
+import { WinstonModule } from 'nest-winston';
+import { getLoggerConfig } from '@slack/common';
+import { MicroserviceOptions, Transport } from '@nestjs/microservices';
+import { PORT_TCP } from '@slack/constants';
+import * as dotenv from 'dotenv';
+import { ValidationPipe } from '@nestjs/common';
+import { AllRpcExceptionFilter } from '@slack/common';
 import { CanvasModule } from './canvas.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(CanvasModule);
-  await app.listen(process.env.port ?? 3000);
+  dotenv.config();
+  const app = await NestFactory.createMicroservice<MicroserviceOptions>(
+    CanvasModule,
+    {
+      transport: Transport.TCP,
+      options: {
+        host: 'localhost',
+        port: PORT_TCP.CANVAS_TCP_PORT,
+      },
+      logger: WinstonModule.createLogger(getLoggerConfig('CANVAS')),
+    },
+  );
+  app.enableShutdownHooks();
+  app.useGlobalFilters(new AllRpcExceptionFilter());
+  app.useGlobalPipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: false,
+      forbidNonWhitelisted: false,
+    }),
+  );
+  await app.listen();
 }
 bootstrap();
