@@ -44,17 +44,20 @@ export class WorkspaceService {
     private readonly channelClient: ClientProxy,
     @Inject(NAME_SERVICE_TCP.NOTIFICATION_SERVICE)
     private readonly notificationClient: ClientProxy,
-  ) { }
+  ) {}
 
   async getSidebarSummary(workspaceId: string, userId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       async () => {
         const [channelSummary, notificationSummary] = await Promise.all([
           firstValueFrom(
-            this.channelClient.send(CHANNEL_MESSAGE_PATTERN.GET_UNREAD_SUMMARY, {
-              workspaceId,
-              memberId: userId,
-            }),
+            this.channelClient.send(
+              CHANNEL_MESSAGE_PATTERN.GET_UNREAD_SUMMARY,
+              {
+                workspaceId,
+                memberId: userId,
+              },
+            ),
           ),
           firstValueFrom(
             this.notificationClient.send(
@@ -324,10 +327,7 @@ export class WorkspaceService {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.workspaceClient.send(
-            WORKSPACE_MESSAGE_PATTERNS.JOIN_LINK,
-            data,
-          ),
+          this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.JOIN_LINK, data),
         ),
       'joinLink',
       'WorkspaceService',
@@ -433,7 +433,10 @@ export class WorkspaceService {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.CREATE_APP, data),
+          this.workspaceClient.send(
+            WORKSPACE_MESSAGE_PATTERNS.CREATE_APP,
+            data,
+          ),
         ),
       'createApp',
       'WorkspaceService',
@@ -444,7 +447,10 @@ export class WorkspaceService {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.UPDATE_APP, data),
+          this.workspaceClient.send(
+            WORKSPACE_MESSAGE_PATTERNS.UPDATE_APP,
+            data,
+          ),
         ),
       'updateApp',
       'WorkspaceService',
@@ -455,7 +461,10 @@ export class WorkspaceService {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.DELETE_APP, data),
+          this.workspaceClient.send(
+            WORKSPACE_MESSAGE_PATTERNS.DELETE_APP,
+            data,
+          ),
         ),
       'deleteApp',
       'WorkspaceService',
@@ -477,7 +486,10 @@ export class WorkspaceService {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.INVOKE_APP_COMMAND, data),
+          this.workspaceClient.send(
+            WORKSPACE_MESSAGE_PATTERNS.INVOKE_APP_COMMAND,
+            data,
+          ),
         ),
       'invokeAppCommand',
       'WorkspaceService',
@@ -488,7 +500,10 @@ export class WorkspaceService {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.SUBMIT_VIEW, data),
+          this.workspaceClient.send(
+            WORKSPACE_MESSAGE_PATTERNS.SUBMIT_VIEW,
+            data,
+          ),
         ),
       'submitView',
       'WorkspaceService',

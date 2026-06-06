@@ -5,6 +5,7 @@ import {
   NOTIFICATION_MESSAGE_PATTERNS,
 } from '@slack/constants';
 import { firstValueFrom } from 'rxjs';
+import { MicroserviceErrorHandler } from '../common/microservice_error.handler';
 import { FetchNotificationsDto } from './dto';
 
 @Injectable()
@@ -15,69 +16,101 @@ export class NotificationService {
   ) {}
 
   async getUnreadSummary(userId: string) {
-    return await firstValueFrom(
-      this.notificationClient.send(
-        NOTIFICATION_MESSAGE_PATTERNS.GET_UNREAD_SUMMARY,
-        { userId },
-      ),
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.notificationClient.send(
+            NOTIFICATION_MESSAGE_PATTERNS.GET_UNREAD_SUMMARY,
+            { userId },
+          ),
+        ),
+      'getUnreadSummary',
+      'NotificationService',
     );
   }
 
   async fetchNotifications(userId: string, dto: FetchNotificationsDto) {
-    return await firstValueFrom(
-      this.notificationClient.send(
-        NOTIFICATION_MESSAGE_PATTERNS.FETCH_NOTIFICATIONS,
-        {
-          ...dto,
-          userId,
-        },
-      ),
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.notificationClient.send(
+            NOTIFICATION_MESSAGE_PATTERNS.FETCH_NOTIFICATIONS,
+            {
+              ...dto,
+              userId,
+            },
+          ),
+        ),
+      'fetchNotifications',
+      'NotificationService',
     );
   }
 
   async markAsRead(userId: string, id: string) {
-    return await firstValueFrom(
-      this.notificationClient.send(NOTIFICATION_MESSAGE_PATTERNS.MARK_AS_READ, {
-        userId,
-        id,
-      }),
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.notificationClient.send(
+            NOTIFICATION_MESSAGE_PATTERNS.MARK_AS_READ,
+            {
+              userId,
+              id,
+            },
+          ),
+        ),
+      'markAsRead',
+      'NotificationService',
     );
   }
 
   async markAllAsRead(userId: string, workspaceId?: string) {
-    return await firstValueFrom(
-      this.notificationClient.send(
-        NOTIFICATION_MESSAGE_PATTERNS.MARK_ALL_AS_READ,
-        {
-          userId,
-          workspaceId,
-        },
-      ),
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.notificationClient.send(
+            NOTIFICATION_MESSAGE_PATTERNS.MARK_ALL_AS_READ,
+            {
+              userId,
+              workspaceId,
+            },
+          ),
+        ),
+      'markAllAsRead',
+      'NotificationService',
     );
   }
 
   async deleteNotification(userId: string, id: string) {
-    return await firstValueFrom(
-      this.notificationClient.send(
-        NOTIFICATION_MESSAGE_PATTERNS.DELETE_NOTIFICATION,
-        {
-          userId,
-          id,
-        },
-      ),
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.notificationClient.send(
+            NOTIFICATION_MESSAGE_PATTERNS.DELETE_NOTIFICATION,
+            {
+              userId,
+              id,
+            },
+          ),
+        ),
+      'deleteNotification',
+      'NotificationService',
     );
   }
 
   async getNotificationById(userId: string, id: string) {
-    return await firstValueFrom(
-      this.notificationClient.send(
-        NOTIFICATION_MESSAGE_PATTERNS.GET_NOTIFICATION_BY_ID,
-        {
-          userId,
-          id,
-        },
-      ),
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.notificationClient.send(
+            NOTIFICATION_MESSAGE_PATTERNS.GET_NOTIFICATION_BY_ID,
+            {
+              userId,
+              id,
+            },
+          ),
+        ),
+      'getNotificationById',
+      'NotificationService',
     );
   }
 }
-

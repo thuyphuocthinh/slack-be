@@ -1,6 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
-import { INTEGRATIONS_MESSAGE_PATTERNS, NAME_SERVICE_TCP } from '@slack/constants';
+import {
+  INTEGRATIONS_MESSAGE_PATTERNS,
+  NAME_SERVICE_TCP,
+} from '@slack/constants';
 import {
   IAiChatRequest,
   IAiChatResponse,
@@ -8,11 +11,12 @@ import {
   IAiDocumentSummary,
 } from './types/ai.type';
 import { Observable, lastValueFrom } from 'rxjs';
-
+import { MicroserviceErrorHandler } from '../common/microservice_error.handler';
 @Injectable()
 export class AiService {
   constructor(
-    @Inject(NAME_SERVICE_TCP.INTEGRATIONS_SERVICE) private readonly integrationsClient: ClientProxy,
+    @Inject(NAME_SERVICE_TCP.INTEGRATIONS_SERVICE)
+    private readonly integrationsClient: ClientProxy,
   ) {}
 
   chat(payload: IAiChatRequest): Observable<IAiChatResponse> {
@@ -47,33 +51,51 @@ export class AiService {
       throw new Error(`Failed to parse file ${fileName}: ${e.message}`);
     }
 
-    return lastValueFrom(
-      this.integrationsClient.send<IAiIndexDocumentResponse>(
-        INTEGRATIONS_MESSAGE_PATTERNS.AI_INDEX_DOCUMENT,
-        {
-          fileContent,
-          fileName,
-          workspaceId,
-        },
-      ),
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        lastValueFrom(
+          this.integrationsClient.send<IAiIndexDocumentResponse>(
+            INTEGRATIONS_MESSAGE_PATTERNS.AI_INDEX_DOCUMENT,
+            {
+              fileContent,
+              fileName,
+              workspaceId,
+            },
+          ),
+        ),
+      'indexDocument',
+      'AiService',
     );
   }
 
   async listDocuments(workspaceId: string): Promise<IAiDocumentSummary[]> {
-    return lastValueFrom(
-      this.integrationsClient.send<IAiDocumentSummary[]>(
-        INTEGRATIONS_MESSAGE_PATTERNS.AI_LIST_DOCUMENTS,
-        { workspaceId },
-      ),
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        lastValueFrom(
+          this.integrationsClient.send<IAiDocumentSummary[]>(
+            INTEGRATIONS_MESSAGE_PATTERNS.AI_LIST_DOCUMENTS,
+            { workspaceId },
+          ),
+        ),
+      'listDocuments',
+      'AiService',
     );
   }
 
-  async deleteDocument(workspaceId: string, documentName: string): Promise<{ success: boolean }> {
-    return lastValueFrom(
-      this.integrationsClient.send<{ success: boolean }>(
-        INTEGRATIONS_MESSAGE_PATTERNS.AI_DELETE_DOCUMENT,
-        { workspaceId, documentName },
-      ),
+  async deleteDocument(
+    workspaceId: string,
+    documentName: string,
+  ): Promise<{ success: boolean }> {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        lastValueFrom(
+          this.integrationsClient.send<{ success: boolean }>(
+            INTEGRATIONS_MESSAGE_PATTERNS.AI_DELETE_DOCUMENT,
+            { workspaceId, documentName },
+          ),
+        ),
+      'deleteDocument',
+      'AiService',
     );
   }
 }

@@ -15,7 +15,10 @@ export class BillingService {
 
   getPlans() {
     return MicroserviceErrorHandler.handleAsyncCall(
-      () => firstValueFrom(this.billingClient.send(BILLING_MESSAGE_PATTERNS.GET_PLANS, {})),
+      () =>
+        firstValueFrom(
+          this.billingClient.send(BILLING_MESSAGE_PATTERNS.GET_PLANS, {}),
+        ),
       'getPlans',
       'BillingService',
     );
@@ -23,9 +26,13 @@ export class BillingService {
 
   createCheckout(userId: string, planId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
-      () => firstValueFrom(
-        this.billingClient.send(BILLING_MESSAGE_PATTERNS.CREATE_CHECKOUT, { userId, planId }),
-      ),
+      () =>
+        firstValueFrom(
+          this.billingClient.send(BILLING_MESSAGE_PATTERNS.CREATE_CHECKOUT, {
+            userId,
+            planId,
+          }),
+        ),
       'createCheckout',
       'BillingService',
     );
@@ -33,9 +40,12 @@ export class BillingService {
 
   createPortal(userId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
-      () => firstValueFrom(
-        this.billingClient.send(BILLING_MESSAGE_PATTERNS.CREATE_PORTAL, { userId }),
-      ),
+      () =>
+        firstValueFrom(
+          this.billingClient.send(BILLING_MESSAGE_PATTERNS.CREATE_PORTAL, {
+            userId,
+          }),
+        ),
       'createPortal',
       'BillingService',
     );
@@ -43,9 +53,13 @@ export class BillingService {
 
   getMySubscription(userId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
-      () => firstValueFrom(
-        this.billingClient.send(BILLING_MESSAGE_PATTERNS.GET_MY_SUBSCRIPTION, { userId }),
-      ),
+      () =>
+        firstValueFrom(
+          this.billingClient.send(
+            BILLING_MESSAGE_PATTERNS.GET_MY_SUBSCRIPTION,
+            { userId },
+          ),
+        ),
       'getMySubscription',
       'BillingService',
     );
@@ -53,23 +67,35 @@ export class BillingService {
 
   getUserFeatureLimits(userId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
-      () => firstValueFrom(
-        this.billingClient.send(BILLING_MESSAGE_PATTERNS.GET_USER_FEATURE_LIMITS, { userId }),
-      ),
+      () =>
+        firstValueFrom(
+          this.billingClient.send(
+            BILLING_MESSAGE_PATTERNS.GET_USER_FEATURE_LIMITS,
+            { userId },
+          ),
+        ),
       'getUserFeatureLimits',
       'BillingService',
     );
   }
 
-  handleWebhookEvent(stripeEventId: string, type: string, data: Record<string, unknown>) {
+  handleWebhookEvent(
+    stripeEventId: string,
+    type: string,
+    data: Record<string, unknown>,
+  ) {
     return MicroserviceErrorHandler.handleAsyncCall(
-      () => firstValueFrom(
-        this.billingClient.send(BILLING_MESSAGE_PATTERNS.HANDLE_WEBHOOK_EVENT, {
-          stripeEventId,
-          type,
-          data,
-        }),
-      ),
+      () =>
+        firstValueFrom(
+          this.billingClient.send(
+            BILLING_MESSAGE_PATTERNS.HANDLE_WEBHOOK_EVENT,
+            {
+              stripeEventId,
+              type,
+              data,
+            },
+          ),
+        ),
       'handleWebhookEvent',
       'BillingService',
     );
