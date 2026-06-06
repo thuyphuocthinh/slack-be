@@ -69,7 +69,7 @@ export class CloudinaryUploadService implements UploadService {
     if (!name) return name;
     // Nếu string có chứa ký tự > 255 (đã là unicode đúng) thì không cần fix
     for (let i = 0; i < name.length; i++) {
-      if (name.charCodeAt(i) > 255) return name; 
+      if (name.charCodeAt(i) > 255) return name;
     }
     try {
       return Buffer.from(name, 'latin1').toString('utf8');
@@ -80,17 +80,18 @@ export class CloudinaryUploadService implements UploadService {
 
   async upload(file: Express.Multer.File): Promise<IUploadResponse> {
     this.validateFile(file);
-    
+
     // Sửa tên file bị mã hóa sai
     const originalname = this.fixUtf8Name(file.originalname);
-    
+
     // Cloudinary mặc định coi PDF là image, dẫn đến lỗi 401 khi xem inline do chính sách bảo mật.
     // Phải set resource_type là 'raw' cho các file document.
-    const isRawFile = file.mimetype === 'application/pdf' || 
-                      file.mimetype.includes('officedocument') || 
-                      file.mimetype.includes('msword') ||
-                      file.mimetype.includes('zip');
-                      
+    const isRawFile =
+      file.mimetype === 'application/pdf' ||
+      file.mimetype.includes('officedocument') ||
+      file.mimetype.includes('msword') ||
+      file.mimetype.includes('zip');
+
     const resourceType = isRawFile ? 'raw' : 'auto';
 
     const result = await new Promise<UploadApiResponse>((resolve, reject) => {

@@ -30,7 +30,7 @@ export class TaskService {
   constructor(
     @Inject(NAME_SERVICE_TCP.TASK_SERVICE)
     private readonly taskClient: ClientProxy,
-  ) { }
+  ) {}
 
   // --- BOARD ---
   async createBoard(dto: CreateBoardRequestDto, requesterId: string) {

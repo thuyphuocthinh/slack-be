@@ -11,7 +11,7 @@ export class ResourceService {
   constructor(
     @InjectRepository(ResourceEntity)
     private readonly resourceRepository: Repository<ResourceEntity>,
-  ) { }
+  ) {}
 
   private mapToResourceEntity(data: CreateResourceDto): ResourceEntity {
     const resource = new ResourceEntity();
