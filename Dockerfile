@@ -7,6 +7,7 @@ RUN npm install -g pnpm
 COPY package.json pnpm-lock.yaml ./
 RUN npm pkg delete scripts.prepare && \
     pnpm config set strict-dep-builds false && \
+    pnpm config set minimum-release-age 0 && \
     pnpm install --frozen-lockfile
 
 COPY . .
@@ -36,6 +37,7 @@ RUN npm install -g pnpm pm2
 COPY --from=builder /app/package.json /app/pnpm-lock.yaml ./
 RUN npm pkg delete scripts.prepare && \
     pnpm config set strict-dep-builds false && \
+    pnpm config set minimum-release-age 0 && \
     pnpm install --prod --frozen-lockfile
 
 COPY --from=builder /app/dist ./dist
