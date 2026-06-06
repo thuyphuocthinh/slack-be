@@ -35,7 +35,7 @@ export class WebhookReceiverService {
     payload: WebhookPayloadDto,
   ) {
     try {
-      const webhook: any = MicroserviceErrorHandler.handleAsyncCall(
+      const webhook: any = await MicroserviceErrorHandler.handleAsyncCall(
         () =>
           firstValueFrom(
             this.channelClient.send(CHANNEL_MESSAGE_PATTERN.WEBHOOK_VERIFY, {
@@ -84,7 +84,7 @@ export class WebhookReceiverService {
 
   async processCommandResponse(token: string, payload: WebhookPayloadDto) {
     try {
-      const commandData: any = MicroserviceErrorHandler.handleAsyncCall(
+      const commandData: any = await MicroserviceErrorHandler.handleAsyncCall(
         () =>
           firstValueFrom(
             this.workspaceClient.send(
@@ -131,7 +131,7 @@ export class WebhookReceiverService {
   async openView(triggerId: string, view: any) {
     try {
       this.logger.log(`Open view called for trigger_id ${triggerId}`);
-      const triggerData: any = MicroserviceErrorHandler.handleAsyncCall(
+      const triggerData: any = await MicroserviceErrorHandler.handleAsyncCall(
         () =>
           firstValueFrom(
             this.workspaceClient.send(
