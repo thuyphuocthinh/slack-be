@@ -38,6 +38,7 @@
     "start:video-call": "nest start video-call --watch",
     "start:billing": "nest start billing --watch",
     "start:integrations": "nest start integrations --watch",
+    "start:canvas": "nest start canvas --watch",
     "start:nodeA": "cross-env NODE_OPTIONS='--max-old-space-size=4096' concurrently -n GATEWAY,AUTH,USER -c blue,green,pink \"pnpm run start:gateway\" \"pnpm run start:auth\" \"pnpm run start:user\"",
     "start:nodeB": "cross-env NODE_OPTIONS='--max-old-space-size=4096' concurrently -n WORKSPACE,NOTIFICATION -c yellow,cyan \"pnpm run start:workspace\" \"pnpm run start:notification\"",
     "start:all": "cross-env NODE_OPTIONS='--max-old-space-size=4096' concurrently -n GATEWAY,AUTH,USER,WORKSPACE,NOTIFICATION,CHANNEL,TASK,MESSAGE,SOCKET,VIDEO,BILLING,INTEGRATIONS -c blue,green,pink,yellow,cyan,magenta,red,white,gray,black,bgBlue,white \"pnpm run start:gateway\" \"pnpm run start:auth\" \"pnpm run start:user\" \"pnpm run start:workspace\" \"pnpm run start:notification\" \"pnpm run start:channel\" \"pnpm run start:task\" \"pnpm run start:message\" \"pnpm run start:socket-gateway\" \"pnpm run start:video-call\" \"pnpm run start:billing\" \"pnpm run start:integrations\"",
