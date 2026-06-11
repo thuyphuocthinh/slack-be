@@ -19,6 +19,7 @@ import { QueueModule, EQueueName } from '@slack/queue';
 import { EmailProcessor } from './processors/email.processor';
 import { NotificationProcessor } from './processors/notification.processor';
 import { AuditProcessor } from './processors/audit.processor';
+import { FcmService } from './services/impl/fcm.service';
 
 @Module({
   imports: [
@@ -82,6 +83,7 @@ import { AuditProcessor } from './processors/audit.processor';
   controllers: [NotificationController],
   providers: [
     NotificationService,
+    FcmService,
     AuditService,
     NodemailerService,
     SendgridService,

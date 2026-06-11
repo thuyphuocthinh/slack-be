@@ -170,4 +170,19 @@ export class UserService {
       'UserService',
     );
   }
+
+  async saveFcmToken(userId: string, token: string, deviceId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.userClient.send(USER_MESSAGE_PATTERNS.SAVE_FCM_TOKEN, {
+            userId,
+            token,
+            deviceId,
+          }),
+        ),
+      'saveFcmToken',
+      'UserService',
+    );
+  }
 }
