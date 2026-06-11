@@ -5,32 +5,53 @@ import {
   NAME_SERVICE_TCP,
   CHANNEL_MESSAGE_PATTERN,
   NotificationType,
+  USER_MESSAGE_PATTERNS,
 } from '@slack/constants';
 import {
   EQueueName,
   BaseProcessor,
   EJobName,
   ICreateNotificationJobData,
+  ISendPushNotificationJobData,
 } from '@slack/queue';
 import { ClientProxy } from '@nestjs/microservices';
 import { lastValueFrom } from 'rxjs';
 import { NotificationService } from '../services/impl/notification.service';
+import { FcmService } from '../services/impl/fcm.service';
 
 @Processor(EQueueName.NOTIFICATION_QUEUE, { concurrency: 10 })
 export class NotificationProcessor extends BaseProcessor<
-  ICreateNotificationJobData,
+  any,
   void,
   EJobName
 > {
   constructor(
     private readonly notificationService: NotificationService,
+    private readonly fcmService: FcmService,
     @Inject(NAME_SERVICE_TCP.CHANNEL_SERVICE)
     private readonly channelClient: ClientProxy,
+    @Inject(NAME_SERVICE_TCP.USER_SERVICE)
+    private readonly userClient: ClientProxy,
   ) {
     super();
   }
 
   async process(
+    job: Job<any, void, EJobName>,
+  ): Promise<void> {
+    switch (job.name) {
+      case EJobName.CREATE_NOTIFICATION:
+        await this.handleCreateNotification(job);
+        break;
+      case EJobName.SEND_PUSH_NOTIFICATION:
+        await this.handleSendPushNotification(job);
+        break;
+      default:
+        this.logger.warn(`Unknown job name: ${job.name}`);
+    }
+  }
+
+  private async handleCreateNotification(
     job: Job<ICreateNotificationJobData, void, EJobName>,
   ): Promise<void> {
     const {
@@ -115,6 +136,26 @@ export class NotificationProcessor extends BaseProcessor<
       );
     } catch (error) {
       this.logger.error(`Failed to process notification job: ${error.message}`);
+      throw error;
+    }
+  }
+
+  private async handleSendPushNotification(
+    job: Job<ISendPushNotificationJobData, void, EJobName>,
+  ): Promise<void> {
+    const { recipientId, title, body, data } = job.data;
+    try {
+      const fcmTokens: string[] = await lastValueFrom(
+        this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_FCM_TOKENS, {
+          userId: recipientId,
+        }),
+      );
+
+      if (fcmTokens && fcmTokens.length > 0) {
+        await this.fcmService.sendPushNotification(fcmTokens, title, body, data);
+      }
+    } catch (error) {
+      this.logger.error(`Failed to process background push notification: ${error.message}`);
       throw error;
     }
   }

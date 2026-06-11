@@ -24,7 +24,6 @@ import { NotificationStatus } from '@slack/constants';
 import { NotificationResponse } from '../../types/notification.response';
 import { NotificationUnreadSummaryResponse } from '../../types/notification-unread-summary.response';
 import { QueueService, EQueueName, EJobName } from '@slack/queue';
-import { FcmService } from './fcm.service';
 
 @Injectable()
 export class NotificationService {
@@ -36,7 +35,6 @@ export class NotificationService {
     @Inject(NAME_SERVICE_TCP.USER_SERVICE)
     private readonly userClient: ClientProxy,
     private readonly queueService: QueueService,
-    private readonly fcmService: FcmService,
   ) { }
 
   async fetchNotifications(
@@ -84,40 +82,50 @@ export class NotificationService {
   }
 
   async pushNotification(dto: PushNotificationDto) {
-    // Lấy user preferences từ user service
+    // 1. Kiểm tra cấu hình preferences của User
+    await this.checkUserPreference(dto.recipientId);
+
+    // 2. Validate Metadata
+    const validatedMetadata = this.validateMetadata(dto.templateKey || dto.type, dto.metadata);
+
+    // 3. Lưu thông báo vào database
+    const saved = await this.saveNotificationEntity(dto, validatedMetadata);
+
+    // 4. Kích hoạt các Side-effects (Socket & FCM Push) chạy nền song song
+    this.triggerNotificationSideEffects(saved);
+
+    return saved;
+  }
+
+  private async checkUserPreference(userId: string): Promise<void> {
     try {
       const preferences = await lastValueFrom(
         this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_PREFERENCE, {
-          userId: dto.recipientId,
+          userId,
         }),
       );
 
-      // Ở đây tạm thời check nếu có preferences trả về, sau này update logic check filter cho từng notification type sau.
-      // VD: if (preferences && preferences.someSetting === false) return null;
       if (!preferences) {
-        this.logger.debug(
-          `Could not find preferences for user ${dto.recipientId}`,
-        );
+        this.logger.debug(`Could not find preferences for user ${userId}`);
       }
     } catch (error) {
       this.logger.warn(`Failed to fetch user preferences: ${error.message}`);
     }
+  }
 
-    // Validate metadata
-    const schema = NotificationMetadataSchema[dto.templateKey];
-    if (schema) {
-      try {
-        dto.metadata = schema.parse(dto.metadata || {});
-      } catch (error) {
-        this.logger.warn(
-          `Invalid metadata for template ${dto.templateKey}: ${error.message}`,
-        );
-        throw new RpcException(
-          `Invalid metadata for template ${dto.templateKey}`,
-        );
-      }
+  private validateMetadata(templateKey: string, metadata: any): any {
+    const schema = NotificationMetadataSchema[templateKey];
+    if (!schema) return metadata;
+
+    try {
+      return schema.parse(metadata || {});
+    } catch (error) {
+      this.logger.warn(`Invalid metadata for template ${templateKey}: ${error.message}`);
+      throw new RpcException(`Invalid metadata for template ${templateKey}`);
     }
+  }
 
+  private async saveNotificationEntity(dto: PushNotificationDto, metadata: any): Promise<Notification> {
     const notification = this.notificationRepo.create({
       recipientId: dto.recipientId,
       type: dto.type,
@@ -125,15 +133,26 @@ export class NotificationService {
       content: dto.content,
       objectId: dto.objectId,
       objectType: dto.objectType,
-      metadata: dto.metadata,
+      metadata,
       workspaceId: dto.workspaceId,
       status: NotificationStatus.UNREAD,
     });
 
-    const saved = await this.notificationRepo.save(notification);
+    return this.notificationRepo.save(notification);
+  }
 
-    // Bắn tin hiệu Socket Realtime tới Room cá nhân của User đó
-    // Đưa vào try-catch để nếu socket lỗi cũng không làm fail transaction chính
+  private async triggerNotificationSideEffects(saved: Notification): Promise<void> {
+    try {
+      await Promise.all([
+        this.emitSocketUpdate(saved),
+        this.enqueueFcmPush(saved),
+      ]);
+    } catch (error) {
+      this.logger.error(`Error in notification side effects: ${error.message}`);
+    }
+  }
+
+  private async emitSocketUpdate(saved: Notification): Promise<void> {
     try {
       const unreadNotiCount = await this.getUnreadCount(saved.recipientId);
       const unreadSummary = await this.getUnreadSummary(saved.recipientId);
@@ -153,41 +172,36 @@ export class NotificationService {
     } catch (error) {
       this.logger.error(`Failed to emit socket event: ${error.message}`);
     }
+  }
 
-    // Gửi thông báo đẩy qua Firebase Cloud Messaging (FCM)
+  private async enqueueFcmPush(saved: Notification): Promise<void> {
     try {
-      const fcmTokens: string[] = await lastValueFrom(
-        this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_FCM_TOKENS, {
-          userId: saved.recipientId,
-        }),
-      );
+      const actorName = String(saved.metadata?.['actorName'] || 'Slack Clone');
+      const channelName = saved.metadata?.['channelName']
+        ? `#${String(saved.metadata['channelName'])}`
+        : '';
+      const title = channelName ? `${actorName} (trong ${channelName})` : actorName;
+      const body = saved.content || '';
 
-      if (fcmTokens && fcmTokens.length > 0) {
-        const actorName = String(saved.metadata?.['actorName'] || 'Slack Clone');
-        const channelName = saved.metadata?.['channelName']
-          ? `#${String(saved.metadata['channelName'])}`
-          : '';
-        const title = channelName ? `${actorName} (trong ${channelName})` : actorName;
-        const body = saved.content || '';
+      const notificationData: Record<string, string> = {
+        workspaceId: saved.workspaceId || '',
+        channelId: String(saved.metadata?.['channelId'] || ''),
+        messageId: saved.objectId || '',
+      };
 
-        const notificationData: Record<string, string> = {
-          workspaceId: saved.workspaceId || '',
-          channelId: String(saved.metadata?.['channelId'] || ''),
-          messageId: saved.objectId || '',
-        };
-
-        await this.fcmService.sendPushNotification(
-          fcmTokens,
+      await this.queueService.addJob(
+        EQueueName.NOTIFICATION_QUEUE,
+        EJobName.SEND_PUSH_NOTIFICATION,
+        {
+          recipientId: saved.recipientId,
           title,
           body,
-          notificationData,
-        );
-      }
+          data: notificationData,
+        },
+      );
     } catch (error) {
-      this.logger.error(`Không thể gửi push notification qua FCM: ${error.message}`);
+      this.logger.error(`Không thể xếp hàng gửi push notification qua FCM: ${error.message}`);
     }
-
-    return saved;
   }
 
   async markAsRead(dto: MarkNotificationDto): Promise<string> {

@@ -52,6 +52,13 @@ export interface ICreateNotificationJobData {
   recipientId?: string;
 }
 
+export interface ISendPushNotificationJobData {
+  recipientId: string;
+  title: string;
+  body: string;
+  data?: Record<string, string>;
+}
+
 export interface IEmitEventJobData {
   event: string;
   room?: string | string[];
@@ -121,6 +128,7 @@ export type TJobData = {
   [EJobName.SEND_INVITE_EMAIL]: IInviteJobData;
   [EJobName.SEND_PASSWORD_RESET_EMAIL]: IEmailJobData;
   [EJobName.CREATE_NOTIFICATION]: ICreateNotificationJobData;
+  [EJobName.SEND_PUSH_NOTIFICATION]: ISendPushNotificationJobData;
   [EJobName.EMIT_EVENT]: IEmitEventJobData;
   [EJobName.EMIT_TO_USERS]: IEmitToUsersJobData;
   [EJobName.INCREMENT_UNREAD_COUNT]: IIncrementUnreadJobData;
