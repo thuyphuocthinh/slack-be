@@ -181,7 +181,7 @@ export class NotificationService {
         ? `#${String(saved.metadata['channelName'])}`
         : '';
       const title = channelName ? `${actorName} (trong ${channelName})` : actorName;
-      const body = saved.content || '';
+      const body = this.extractPlainHistoryText(saved.content || '');
 
       const notificationData: Record<string, string> = {
         workspaceId: saved.workspaceId || '',
@@ -201,6 +201,33 @@ export class NotificationService {
       );
     } catch (error) {
       this.logger.error(`Không thể xếp hàng gửi push notification qua FCM: ${error.message}`);
+    }
+  }
+
+  private extractPlainHistoryText(contentStr: string): string {
+    try {
+      const parsed = JSON.parse(contentStr);
+
+      if (typeof parsed === 'string') {
+        return parsed;
+      }
+
+      // Xử lý đệ quy trích xuất text từ cấu trúc Rich Content JSON (Tiptap / Lexical)
+      const texts: string[] = [];
+      const traverse = (node: any) => {
+        if (!node) return;
+        if (node.type === 'text' && typeof node.text === 'string') {
+          texts.push(node.text);
+        }
+        if (Array.isArray(node.content)) {
+          node.content.forEach(traverse);
+        }
+      };
+
+      traverse(parsed);
+      return texts.join(' ');
+    } catch {
+      return contentStr;
     }
   }
 
