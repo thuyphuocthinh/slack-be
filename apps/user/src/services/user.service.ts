@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UserEntity, UserStatus } from '../entity/user.entity';
+import { UserFcmTokenEntity } from '../entity/user_fcm_token.entity';
 import { ILike, In, Repository } from 'typeorm';
 import { CreateUserDto, UpdateUserDto } from '../dto';
 import { type IUserResponse } from '../types/user.response';
@@ -23,6 +24,8 @@ export class UserService {
   constructor(
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
+    @InjectRepository(UserFcmTokenEntity)
+    private readonly userFcmTokenRepository: Repository<UserFcmTokenEntity>,
     @Inject(NAME_SERVICE_TCP.AUTH_SERVICE)
     private readonly authClient: ClientProxy,
     private readonly cachedService: CachedService,
@@ -287,5 +290,24 @@ export class UserService {
       throw new RpcException(USER_ERROR.USER_NOT_FOUND);
     }
     return this.mapUserToResponse(user);
+  }
+
+  async saveFcmToken(userId: string, token: string, deviceId: string): Promise<void> {
+    this.logger.log(`Saving FCM token for user ${userId} and device ${deviceId}`);
+    let userFcmToken = await this.userFcmTokenRepository.findOneBy({ userId, deviceId });
+    if (userFcmToken) {
+      userFcmToken.token = token;
+    } else {
+      userFcmToken = this.userFcmTokenRepository.create({ userId, deviceId, token });
+    }
+    await this.userFcmTokenRepository.save(userFcmToken);
+  }
+
+  async getUserFcmTokens(userId: string): Promise<string[]> {
+    const tokens = await this.userFcmTokenRepository.find({
+      where: { userId },
+      select: ['token'],
+    });
+    return tokens.map((t) => t.token);
   }
 }

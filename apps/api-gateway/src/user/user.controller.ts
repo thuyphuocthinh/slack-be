@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Logger,
   Param,
   Patch,
@@ -147,5 +148,17 @@ export class UserController {
   async findUsersByEmails(@Query('email') email: string) {
     this.logger.log(`Find users by email: ${email}`);
     return await this.userService.findUsersByEmail(email);
+  }
+
+  @ApiOperation({ summary: 'Save FCM token' })
+  @ApiResponse({ status: 200, description: 'FCM token saved successfully' })
+  @Post('fcm-token')
+  async saveFcmToken(
+    @Body() data: { token: string },
+    @CurrentUser() user: JwtUser,
+    @Headers('x-device-id') deviceId: string,
+  ) {
+    this.logger.log(`Save FCM token for user: ${user.sub}, device: ${deviceId}`);
+    return await this.userService.saveFcmToken(user.sub, data.token, deviceId);
   }
 }

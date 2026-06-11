@@ -24,6 +24,7 @@ import { NotificationStatus } from '@slack/constants';
 import { NotificationResponse } from '../../types/notification.response';
 import { NotificationUnreadSummaryResponse } from '../../types/notification-unread-summary.response';
 import { QueueService, EQueueName, EJobName } from '@slack/queue';
+import { FcmService } from './fcm.service';
 
 @Injectable()
 export class NotificationService {
@@ -35,6 +36,7 @@ export class NotificationService {
     @Inject(NAME_SERVICE_TCP.USER_SERVICE)
     private readonly userClient: ClientProxy,
     private readonly queueService: QueueService,
+    private readonly fcmService: FcmService,
   ) { }
 
   async fetchNotifications(
@@ -150,6 +152,39 @@ export class NotificationService {
       );
     } catch (error) {
       this.logger.error(`Failed to emit socket event: ${error.message}`);
+    }
+
+    // Gửi thông báo đẩy qua Firebase Cloud Messaging (FCM)
+    try {
+      const fcmTokens: string[] = await lastValueFrom(
+        this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_FCM_TOKENS, {
+          userId: saved.recipientId,
+        }),
+      );
+
+      if (fcmTokens && fcmTokens.length > 0) {
+        const actorName = String(saved.metadata?.['actorName'] || 'Slack Clone');
+        const channelName = saved.metadata?.['channelName']
+          ? `#${String(saved.metadata['channelName'])}`
+          : '';
+        const title = channelName ? `${actorName} (trong ${channelName})` : actorName;
+        const body = saved.content || '';
+
+        const notificationData: Record<string, string> = {
+          workspaceId: saved.workspaceId || '',
+          channelId: String(saved.metadata?.['channelId'] || ''),
+          messageId: saved.objectId || '',
+        };
+
+        await this.fcmService.sendPushNotification(
+          fcmTokens,
+          title,
+          body,
+          notificationData,
+        );
+      }
+    } catch (error) {
+      this.logger.error(`Không thể gửi push notification qua FCM: ${error.message}`);
     }
 
     return saved;

@@ -127,4 +127,15 @@ export class UserController {
   async getUserByStripeCustomerId(@Payload() data: { stripeCustomerId: string }) {
     return await this.userService.getUserByStripeCustomerId(data.stripeCustomerId);
   }
+
+  @MessagePattern(USER_MESSAGE_PATTERNS.SAVE_FCM_TOKEN)
+  async saveFcmToken(@Payload() data: { userId: string; token: string; deviceId: string }) {
+    await this.userService.saveFcmToken(data.userId, data.token, data.deviceId);
+    return { success: true };
+  }
+
+  @MessagePattern(USER_MESSAGE_PATTERNS.GET_USER_FCM_TOKENS)
+  async getUserFcmTokens(@Payload() data: { userId: string }) {
+    return await this.userService.getUserFcmTokens(data.userId);
+  }
 }

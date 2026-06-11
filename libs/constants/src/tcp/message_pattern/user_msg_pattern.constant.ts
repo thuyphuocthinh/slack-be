@@ -14,4 +14,6 @@ export const USER_MESSAGE_PATTERNS = {
   DELETE_USER: 'user.delete',
   UPDATE_USER_STRIPE_ID: 'user.update_stripe_id',
   GET_USER_BY_STRIPE_CUSTOMER_ID: 'user.get_by_stripe_customer_id',
+  SAVE_FCM_TOKEN: 'user.save_fcm_token',
+  GET_USER_FCM_TOKENS: 'user.get_fcm_tokens',
 } as const;
