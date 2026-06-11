@@ -22,6 +22,7 @@ export enum EJobName {
 
   // Notification
   CREATE_NOTIFICATION = 'create_notification',
+  SEND_PUSH_NOTIFICATION = 'send_push_notification',
 
   // Socket
   EMIT_EVENT = 'emit_event',
