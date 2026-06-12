@@ -2,18 +2,18 @@ const autocannon = require('autocannon');
 
 const instance = autocannon(
   {
-    url: 'http://localhost:3000/api/v1/auth/login',
+    url: 'https://api.tpt.io.vn/api/v1/auth/login',
     method: 'POST',
     headers: {
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      email: 'thuyphuocthinhtpt+5@gmail.com',
+      email: 'thuyphuocthinhtpt+4@gmail.com',
       password: '123456Aa',
     }),
-    connections: 500,
-    duration: 30,
-    pipelining: 1,
+    connections: 2000,
+    duration: 60,
+    pipelining: 10,
   },
   (err, result) => {
     if (err) {

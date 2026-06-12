@@ -18,6 +18,7 @@ import { MessageModule } from './message/message.module';
 import { VideoCallModule } from './video-call/video-call.module';
 import { RateLimitGuard } from './common/guards/rate-limit.guard';
 import { SubscriptionGuard } from './common/guards/subscription.guard';
+import { RolesGuard } from './common/guards/role.guard';
 import { WebhookReceiverModule } from './webhook-receiver/webhook-receiver.module';
 import { BillingModule } from './billing/billing.module';
 import { AiModule } from './ai/ai.module';
@@ -53,6 +54,10 @@ import { CanvasModule } from './canvas/canvas.module';
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
     {
       provide: APP_GUARD,

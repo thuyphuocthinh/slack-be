@@ -11,6 +11,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsNotHtmlXss } from '../../common/decorators/is-not-xss.decorator';
 
 export class MessageAttachmentApiDto {
   @IsUUID()
@@ -57,6 +58,7 @@ export class MessageAttachmentApiDto {
 export class CreateMessageApiDto {
   @ValidateIf((o) => !o.attachments || o.attachments.length === 0)
   @IsNotEmpty({ message: 'Content is required when there are no attachments' })
+  @IsNotHtmlXss({ message: 'Content contains dangerous HTML/XSS payloads' })
   @ApiProperty()
   content: string | Record<string, unknown> | Record<string, unknown>[];
 
@@ -80,6 +82,7 @@ export class CreateMessageApiDto {
 
 export class UpdateMessageApiDto {
   @IsNotEmpty()
+  @IsNotHtmlXss({ message: 'Content contains dangerous HTML/XSS payloads' })
   @ApiProperty()
   content: string | Record<string, unknown> | Record<string, unknown>[];
 
