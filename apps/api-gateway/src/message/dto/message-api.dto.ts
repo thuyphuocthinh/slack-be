@@ -7,6 +7,7 @@ import {
   IsString,
   IsUUID,
   Min,
+  Max,
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
@@ -108,6 +109,7 @@ export class GetMessagesQueryApiDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(100)
   @IsOptional()
   @ApiPropertyOptional({ default: 20 })
   limit?: number = 20;

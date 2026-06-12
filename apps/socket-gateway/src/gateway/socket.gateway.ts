@@ -336,6 +336,9 @@ export class SocketGateway
         return { status: 'error', message: 'Unauthorized' };
       }
 
+      // Verify JWT token validity and expiration
+      await this.jwtService.verifyAsync(token);
+
       if (await this.authCache.isBlacklisted(token)) {
         this.logger.warn(`Heartbeat rejected: Token blacklisted for user ${user.sub}`);
         client.disconnect();

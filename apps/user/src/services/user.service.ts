@@ -15,7 +15,7 @@ import {
 } from '@slack/constants';
 import { OptimisticLockVersionMismatchError } from 'typeorm';
 import { firstValueFrom } from 'rxjs';
-import { CACHE, CachedService, TTL } from '@slack/cached';
+import { CACHE, CachedService, TTL, AuthCacheService } from '@slack/cached';
 import { TwoFactorService } from './two_fa.service';
 @Injectable()
 export class UserService {
@@ -30,6 +30,7 @@ export class UserService {
     private readonly authClient: ClientProxy,
     private readonly cachedService: CachedService,
     private readonly twoFactorService: TwoFactorService,
+    private readonly authCacheService: AuthCacheService,
   ) {}
 
   private async mapUserToResponse(
@@ -67,6 +68,15 @@ export class UserService {
     }
 
     this.logger.log(`Change status of user id ${id} to ${status}`);
+
+    // Invalidate user detail cache
+    this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(id));
+
+    // If user is deactivated/inactive, bump token version to invalidate all active sessions
+    if (status === UserStatus.INACTIVE) {
+      await this.authCacheService.bumpUserTokenVersion(id);
+      this.logger.log(`Bumped token version for user ${id} due to inactive status`);
+    }
   }
 
   async getUserById(id: string): Promise<IUserResponse> {

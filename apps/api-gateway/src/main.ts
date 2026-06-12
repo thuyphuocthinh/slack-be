@@ -50,7 +50,18 @@ async function bootstrap() {
     );
     app.useGlobalFilters(new HttpExceptionFilter());
     app.useGlobalInterceptors(new ResponseInterceptor());
-    app.enableCors();
+    const frontendUrl = process.env.FRONTEND_URL;
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+    ];
+    if (frontendUrl) {
+      allowedOrigins.push(frontendUrl);
+    }
+    app.enableCors({
+      origin: allowedOrigins,
+      credentials: true,
+    });
     app.setGlobalPrefix('api/v1', {
       exclude: ['metrics'],
     });
