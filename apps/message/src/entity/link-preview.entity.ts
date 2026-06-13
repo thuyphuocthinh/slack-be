@@ -19,7 +19,7 @@ export class LinkPreviewEntity {
   @Column({ type: 'text' })
   url: string;
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
+  @Column({ type: 'text', nullable: true })
   title?: string;
 
   @Column({ type: 'text', nullable: true })
@@ -28,7 +28,7 @@ export class LinkPreviewEntity {
   @Column({ name: 'image_url', type: 'text', nullable: true })
   imageUrl?: string;
 
-  @Column({ name: 'site_name', type: 'varchar', length: 100, nullable: true })
+  @Column({ name: 'site_name', type: 'text', nullable: true })
   siteName?: string;
 
   @Column({ name: 'fav_icon', type: 'text', nullable: true })
