@@ -84,8 +84,8 @@ export class MessageEntity {
   })
   linkPreviews?: ILinkPreviewMetadata[] | null;
 
-  @PrimaryColumn({ type: 'timestamptz', name: 'created_at' })
-  createdAt: Date = new Date();
+  @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
+  createdAt: Date;
 
   @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
   updatedAt: Date;
