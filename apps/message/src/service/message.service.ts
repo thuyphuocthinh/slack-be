@@ -304,7 +304,7 @@ export class MessageService {
     // check channel exist
     const channel = await this.checkChannelExist(channelId, senderId);
 
-    return await this.dataSource.transaction(async (manager) => {
+    const { response, savedMessage } = await this.dataSource.transaction(async (manager) => {
       // 2. Validate parent if it's a reply
       if (parentId) {
         const parent = await manager.findOne(MessageEntity, {
@@ -332,31 +332,33 @@ export class MessageService {
       // 5. Hydrate and return
       const [response] = await this.hydrateMessages([savedMessage], manager);
 
-      // Extract URLs and trigger link preview generation
-      const foundUrls = this.extractUrlsFromContent(content);
-      if (foundUrls.length > 0) {
-        await this.queueService.addJob(
-          EQueueName.LINK_PREVIEW_QUEUE,
-          EJobName.GENERATE_LINK_PREVIEW,
-          {
-            messageId: savedMessage.id,
-            urls: foundUrls,
-          },
-        );
-      }
-
-      // 6. Broadcast events and queues
-      await this.broadcastMessageEvents(response, channel, savedMessage, manager);
-
-      // 7. Dispatch Webhook Events to Bot Servers
-      process.nextTick(() => {
-        this.dispatchWebhookEvents(response, channel).catch((err) => {
-          this.logger.error(`Error dispatching webhook: ${err.message}`);
-        });
-      });
-
-      return response;
+      return { response, savedMessage };
     });
+
+    // Extract URLs and trigger link preview generation
+    const foundUrls = this.extractUrlsFromContent(content);
+    if (foundUrls.length > 0) {
+      await this.queueService.addJob(
+        EQueueName.LINK_PREVIEW_QUEUE,
+        EJobName.GENERATE_LINK_PREVIEW,
+        {
+          messageId: savedMessage.id,
+          urls: foundUrls,
+        },
+      );
+    }
+
+    // 6. Broadcast events and queues
+    await this.broadcastMessageEvents(response, channel, savedMessage, this.dataSource.manager);
+
+    // 7. Dispatch Webhook Events to Bot Servers
+    process.nextTick(() => {
+      this.dispatchWebhookEvents(response, channel).catch((err) => {
+        this.logger.error(`Error dispatching webhook: ${err.message}`);
+      });
+    });
+
+    return response;
   }
 
   private extractUrlsFromContent(content: string | Record<string, unknown> | Record<string, unknown>[]): string[] {
@@ -427,7 +429,7 @@ export class MessageService {
 
     // We don't check checkChannelExist because webhooks are pre-verified
 
-    return await this.dataSource.transaction(async (manager) => {
+    const { response, savedMessage } = await this.dataSource.transaction(async (manager) => {
       // Create message
       const message = manager.create(MessageEntity, {
         id: uuidv7(),
@@ -446,30 +448,32 @@ export class MessageService {
 
       const [response] = await this.hydrateMessages([savedMessage], manager);
 
-      // Extract URLs and trigger link preview generation
-      const foundUrls = this.extractUrlsFromContent(message.content);
-      if (foundUrls.length > 0) {
-        await this.queueService.addJob(
-          EQueueName.LINK_PREVIEW_QUEUE,
-          EJobName.GENERATE_LINK_PREVIEW,
-          {
-            messageId: savedMessage.id,
-            urls: foundUrls,
-          },
-        );
-      }
-
-      // Get real channel info via TCP
-      const channel = await firstValueFrom(
-        this.channelService.send(CHANNEL_MESSAGE_PATTERN.GET_CHANNEL_BASIC_INFO, {
-          channelId,
-        }),
-      );
-
-      await this.broadcastMessageEvents(response, channel, savedMessage, manager);
-
-      return response;
+      return { response, savedMessage };
     });
+
+    // Extract URLs and trigger link preview generation
+    const foundUrls = this.extractUrlsFromContent(savedMessage.content);
+    if (foundUrls.length > 0) {
+      await this.queueService.addJob(
+        EQueueName.LINK_PREVIEW_QUEUE,
+        EJobName.GENERATE_LINK_PREVIEW,
+        {
+          messageId: savedMessage.id,
+          urls: foundUrls,
+        },
+      );
+    }
+
+    // Get real channel info via TCP
+    const channel = await firstValueFrom(
+      this.channelService.send(CHANNEL_MESSAGE_PATTERN.GET_CHANNEL_BASIC_INFO, {
+        channelId,
+      }),
+    );
+
+    await this.broadcastMessageEvents(response, channel, savedMessage, this.dataSource.manager);
+
+    return response;
   }
 
   async getMessages(
