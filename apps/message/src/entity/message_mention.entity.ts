@@ -19,8 +19,9 @@ export class MessageMentionEntity {
 
   @ManyToOne(() => MessageEntity, (message) => message.mentions, {
     onDelete: 'CASCADE',
+    createForeignKeyConstraints: false,
   })
-  @JoinColumn({ name: 'message_id' })
+  @JoinColumn({ name: 'message_id', referencedColumnName: 'id' })
   message: MessageEntity;
 
   @Column({ nullable: false, type: 'uuid', name: 'user_id' })

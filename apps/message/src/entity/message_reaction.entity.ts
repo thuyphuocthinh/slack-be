@@ -21,8 +21,9 @@ export class MessageReactionEntity {
 
   @ManyToOne(() => MessageEntity, (message) => message.reactions, {
     onDelete: 'CASCADE',
+    createForeignKeyConstraints: false,
   })
-  @JoinColumn({ name: 'message_id' })
+  @JoinColumn({ name: 'message_id', referencedColumnName: 'id' })
   message: MessageEntity;
 
   @Column({ nullable: false, type: 'uuid', name: 'user_id' })
