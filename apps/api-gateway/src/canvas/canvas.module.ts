@@ -1,20 +1,14 @@
 import { Module } from '@nestjs/common';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ClientsModule } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
+import { getMicroserviceClientConfig } from '@slack/common';
 import { CanvasController } from './canvas.controller'
 import { CanvasService } from './canvas.service';
 
 @Module({
   imports: [
-    ClientsModule.register([
-      {
-        name: NAME_SERVICE_TCP.CANVAS_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PORT_TCP.CANVAS_TCP_PORT,
-        },
-      },
+    ClientsModule.registerAsync([
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.CANVAS_SERVICE, PORT_TCP.CANVAS_TCP_PORT),
     ]),
   ],
   controllers: [CanvasController],

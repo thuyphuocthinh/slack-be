@@ -7,8 +7,9 @@ import { ChannelEntity } from './entity/channel.entity';
 import { ChannelMemberEntity } from './entity/channel_member.entity';
 import { IncomingWebhookEntity } from './entity/incoming-webhook.entity';
 import { CachedModule } from '@slack/cached';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ClientsModule } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
+import { getMicroserviceClientConfig } from '@slack/common';
 import { QueueModule, EQueueName } from '@slack/queue';
 import { ChannelMemberService } from './service/channel-member.service';
 import { ChannelProcessor } from './processors/channel.processor';
@@ -26,23 +27,9 @@ import { WebhookService } from './service/webhook.service';
       EQueueName.AUDIT_QUEUE,
     ]),
 
-    ClientsModule.register([
-      {
-        name: NAME_SERVICE_TCP.WORKSPACE_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PORT_TCP.WORKSPACE_TCP_PORT,
-        },
-      },
-      {
-        name: NAME_SERVICE_TCP.USER_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PORT_TCP.USER_TCP_PORT,
-        },
-      },
+    ClientsModule.registerAsync([
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.WORKSPACE_SERVICE, PORT_TCP.WORKSPACE_TCP_PORT),
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.USER_SERVICE, PORT_TCP.USER_TCP_PORT),
     ]),
   ],
   controllers: [ChannelController],

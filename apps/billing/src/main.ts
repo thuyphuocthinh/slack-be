@@ -13,8 +13,8 @@ async function bootstrap() {
     {
       transport: Transport.TCP,
       options: {
-        host: 'localhost',
-        port: PORT_TCP.BILLING_TCP_PORT,
+        host: process.env.BILLING_SERVICE_HOST || '0.0.0.0',
+        port: process.env.BILLING_SERVICE_PORT ? parseInt(process.env.BILLING_SERVICE_PORT) : PORT_TCP.BILLING_TCP_PORT,
       },
       logger: WinstonModule.createLogger(getLoggerConfig('BILLING')),
     },

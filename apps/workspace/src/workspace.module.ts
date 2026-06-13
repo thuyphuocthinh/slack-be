@@ -9,8 +9,9 @@ import { WorkspaceLinkEntity } from './entity/workspace_link.entity';
 import { AppEntity } from './entity/app.entity';
 import { AppEventSubscriptionEntity } from './entity/app-event-subscription.entity';
 import { DatabaseModule } from '@slack/database';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ClientsModule } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
+import { getMicroserviceClientConfig } from '@slack/common';
 import { CachedModule } from '@slack/cached';
 import { WorkspaceCommonService } from './services/workspace-common.service';
 import { WorkspaceMemberService } from './services/workspace-member.service';
@@ -39,31 +40,10 @@ import { OutboundWebhookProcessor } from './processor/outbound-webhook.processor
       AppEntity,
       AppEventSubscriptionEntity,
     ]),
-    ClientsModule.register([
-      {
-        name: NAME_SERVICE_TCP.NOTIFICATION_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PORT_TCP.NOTIFICATION_TCP_PORT,
-        },
-      },
-      {
-        name: NAME_SERVICE_TCP.USER_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PORT_TCP.USER_TCP_PORT,
-        },
-      },
-      {
-        name: NAME_SERVICE_TCP.CHANNEL_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PORT_TCP.CHANNEL_TCP_PORT,
-        },
-      },
+    ClientsModule.registerAsync([
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.NOTIFICATION_SERVICE, PORT_TCP.NOTIFICATION_TCP_PORT),
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.USER_SERVICE, PORT_TCP.USER_TCP_PORT),
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.CHANNEL_SERVICE, PORT_TCP.CHANNEL_TCP_PORT),
     ]),
   ],
   controllers: [WorkspaceController],

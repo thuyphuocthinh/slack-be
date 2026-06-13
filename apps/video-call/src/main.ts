@@ -15,8 +15,8 @@ async function bootstrap() {
     {
       transport: Transport.TCP,
       options: {
-        host: 'localhost',
-        port: PORT_TCP.VIDEO_CALL_TCP_PORT,
+        host: process.env.VIDEO_CALL_SERVICE_HOST || '0.0.0.0',
+        port: process.env.VIDEO_CALL_SERVICE_PORT ? parseInt(process.env.VIDEO_CALL_SERVICE_PORT) : PORT_TCP.VIDEO_CALL_TCP_PORT,
       },
       logger: WinstonModule.createLogger(getLoggerConfig('VIDEO_CALL')),
     },

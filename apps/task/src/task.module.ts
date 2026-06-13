@@ -17,8 +17,9 @@ import { DatabaseModule } from '@slack/database';
 import { CachedModule } from '@slack/cached';
 import { EQueueName, QueueModule } from '@slack/queue';
 
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ClientsModule } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
+import { getMicroserviceClientConfig } from '@slack/common';
 import { ChecklistService } from './services/checklist.service';
 import { TaskAttachmentEntity } from './entity/task_attachment.entity';
 import { TaskProcessor } from './processors/task.processor';
@@ -42,23 +43,9 @@ import { TaskCommonService } from './services/task-common.service';
       TaskMemberEntity,
       TaskAttachmentEntity,
     ]),
-    ClientsModule.register([
-      {
-        name: NAME_SERVICE_TCP.WORKSPACE_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PORT_TCP.WORKSPACE_TCP_PORT,
-        },
-      },
-      {
-        name: NAME_SERVICE_TCP.NOTIFICATION_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PORT_TCP.NOTIFICATION_TCP_PORT,
-        },
-      },
+    ClientsModule.registerAsync([
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.WORKSPACE_SERVICE, PORT_TCP.WORKSPACE_TCP_PORT),
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.NOTIFICATION_SERVICE, PORT_TCP.NOTIFICATION_TCP_PORT),
     ]),
   ],
   controllers: [TaskController],
