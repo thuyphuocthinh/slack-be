@@ -123,6 +123,11 @@ export interface IProcessIncomingWebhookJobData {
   payload: Record<string, unknown>;
 }
 
+export interface IGenerateLinkPreviewJobData {
+  messageId: string;
+  urls: string[];
+}
+
 export type TJobData = {
   [EJobName.SEND_VERIFICATION_EMAIL]: IEmailJobData;
   [EJobName.SEND_INVITE_EMAIL]: IInviteJobData;
@@ -140,5 +145,6 @@ export type TJobData = {
   [EJobName.SEND_UNRECOGNIZED_DEVICE_EMAIL]: IUnrecognizedDeviceEmailJobData;
   [EJobName.SEND_GENERIC_EMAIL]: IGenericEmailJobData;
   [EJobName.PROCESS_INCOMING_WEBHOOK]: IProcessIncomingWebhookJobData;
+  [EJobName.GENERATE_LINK_PREVIEW]: IGenerateLinkPreviewJobData;
 };
 

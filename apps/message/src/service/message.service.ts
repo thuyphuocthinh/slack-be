@@ -30,6 +30,7 @@ import { firstValueFrom } from 'rxjs';
 import { v7 as uuidv7 } from 'uuid';
 import { EQueueName, EJobName, QueueService, IProcessWebhookMessageJobData } from '@slack/queue';
 import { IMessageAttachment } from '../types/message-attachment.interface';
+import { ITipTapNode } from '../types/tiptap-node.interface';
 import { CACHE, CachedService, TTL } from '@slack/cached';
 import { AuditAction, AuditEntityType } from '@slack/common';
 
@@ -331,6 +332,19 @@ export class MessageService {
       // 5. Hydrate and return
       const [response] = await this.hydrateMessages([savedMessage], manager);
 
+      // Extract URLs and trigger link preview generation
+      const foundUrls = this.extractUrlsFromContent(content);
+      if (foundUrls.length > 0) {
+        await this.queueService.addJob(
+          EQueueName.LINK_PREVIEW_QUEUE,
+          EJobName.GENERATE_LINK_PREVIEW,
+          {
+            messageId: savedMessage.id,
+            urls: foundUrls,
+          },
+        );
+      }
+
       // 6. Broadcast events and queues
       await this.broadcastMessageEvents(response, channel, savedMessage, manager);
 
@@ -343,6 +357,50 @@ export class MessageService {
 
       return response;
     });
+  }
+
+  private extractUrlsFromContent(content: string | Record<string, unknown> | Record<string, unknown>[]): string[] {
+    const urls: string[] = [];
+    const URL_REGEX = /https?:\/\/[^\s$.?#].[^\s]*/gi;
+
+    if (typeof content === 'string') {
+      const matches = content.match(URL_REGEX);
+      if (matches) {
+        urls.push(...matches);
+      }
+      return urls;
+    }
+
+    const traverse = (node: ITipTapNode) => {
+      if (!node) return;
+
+      if (node.marks && Array.isArray(node.marks)) {
+        for (const mark of node.marks) {
+          if (mark.type === 'link' && mark.attrs?.href) {
+            urls.push(mark.attrs.href);
+          }
+        }
+      }
+
+      if (node.text && typeof node.text === 'string') {
+        const matches = node.text.match(URL_REGEX);
+        if (matches) {
+          urls.push(...matches);
+        }
+      }
+
+      if (node.content && Array.isArray(node.content)) {
+        node.content.forEach(traverse);
+      }
+    };
+
+    if (Array.isArray(content)) {
+      (content as unknown as ITipTapNode[]).forEach(traverse);
+    } else {
+      traverse(content as unknown as ITipTapNode);
+    }
+
+    return urls;
   }
 
   async createWebhookMessage(
@@ -370,6 +428,19 @@ export class MessageService {
       // but rather rich-text content or slack-format attachments
 
       const [response] = await this.hydrateMessages([savedMessage], manager);
+
+      // Extract URLs and trigger link preview generation
+      const foundUrls = this.extractUrlsFromContent(message.content);
+      if (foundUrls.length > 0) {
+        await this.queueService.addJob(
+          EQueueName.LINK_PREVIEW_QUEUE,
+          EJobName.GENERATE_LINK_PREVIEW,
+          {
+            messageId: savedMessage.id,
+            urls: foundUrls,
+          },
+        );
+      }
 
       // Get real channel info via TCP
       const channel = await firstValueFrom(
@@ -1099,6 +1170,7 @@ export class MessageService {
     }
     dto.mentions = allMentions;
     dto.replyCount = 0;
+    dto.linkPreviews = message.linkPreviews;
     return dto;
   }
 }

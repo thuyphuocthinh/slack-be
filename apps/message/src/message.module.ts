@@ -15,6 +15,8 @@ import { MessageAttachmentService } from './service/message-attachment.service';
 import { EQueueName, QueueModule } from '@slack/queue';
 import { DefaultWebhookProcessor } from './processor/default-webhook.processor';
 import { CustomWebhookProcessor } from './processor/custom-webhook.processor';
+import { LinkScraperService } from './service/link-scraper.service';
+import { LinkPreviewProcessor } from './processor/link-preview.processor';
 
 @Module({
   imports: [
@@ -30,6 +32,7 @@ import { CustomWebhookProcessor } from './processor/custom-webhook.processor';
       EQueueName.OUTBOUND_WEBHOOK_QUEUE,
       EQueueName.INCOMING_WEBHOOK_QUEUE,
       EQueueName.MESSAGE_QUEUE,
+      EQueueName.LINK_PREVIEW_QUEUE,
     ]),
 
     TypeOrmModule.forFeature([
@@ -66,6 +69,14 @@ import { CustomWebhookProcessor } from './processor/custom-webhook.processor';
     ]),
   ],
   controllers: [MessageController],
-  providers: [MessageService, ThreadService, MessageAttachmentService, DefaultWebhookProcessor, CustomWebhookProcessor],
+  providers: [
+    MessageService,
+    ThreadService,
+    MessageAttachmentService,
+    DefaultWebhookProcessor,
+    CustomWebhookProcessor,
+    LinkScraperService,
+    LinkPreviewProcessor,
+  ],
 })
 export class MessageModule { }
