@@ -363,10 +363,22 @@ export class MessageService {
     const urls: string[] = [];
     const URL_REGEX = /https?:\/\/[^\s$.?#].[^\s]*/gi;
 
-    if (typeof content === 'string') {
-      const matches = content.match(URL_REGEX);
+    let parsedContent = content;
+    if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
+      try {
+        parsedContent = JSON.parse(content);
+      } catch {
+        // Fallback to plain string
+      }
+    }
+
+    if (typeof parsedContent === 'string') {
+      const matches = parsedContent.match(URL_REGEX);
       if (matches) {
-        urls.push(...matches);
+        for (let match of matches) {
+          match = match.replace(/[.,"\x27[\]{}()!]+$/, '');
+          urls.push(match);
+        }
       }
       return urls;
     }
@@ -377,7 +389,9 @@ export class MessageService {
       if (node.marks && Array.isArray(node.marks)) {
         for (const mark of node.marks) {
           if (mark.type === 'link' && mark.attrs?.href) {
-            urls.push(mark.attrs.href);
+            let href = mark.attrs.href;
+            href = href.replace(/[.,"\x27[\]{}()!]+$/, '');
+            urls.push(href);
           }
         }
       }
@@ -385,7 +399,10 @@ export class MessageService {
       if (node.text && typeof node.text === 'string') {
         const matches = node.text.match(URL_REGEX);
         if (matches) {
-          urls.push(...matches);
+          for (let match of matches) {
+            match = match.replace(/[.,"\x27[\]{}()!]+$/, '');
+            urls.push(match);
+          }
         }
       }
 
@@ -394,10 +411,10 @@ export class MessageService {
       }
     };
 
-    if (Array.isArray(content)) {
-      (content as unknown as ITipTapNode[]).forEach(traverse);
+    if (Array.isArray(parsedContent)) {
+      (parsedContent as unknown as ITipTapNode[]).forEach(traverse);
     } else {
-      traverse(content as unknown as ITipTapNode);
+      traverse(parsedContent as unknown as ITipTapNode);
     }
 
     return urls;
