@@ -3,6 +3,7 @@ import { Job } from 'bullmq';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MessageEntity } from '../entity/message.entity';
+import { LinkPreviewEntity } from '../entity/link-preview.entity';
 import { LinkScraperService } from '../service/link-scraper.service';
 import { MessageService } from '../service/message.service';
 import { CachedService, CACHE } from '@slack/cached';
@@ -16,6 +17,7 @@ import {
 import { ILinkPreviewMetadata } from '../types/link-preview.interface';
 import { ESocketEvent } from '@slack/constants';
 import { Logger } from '@nestjs/common';
+import * as crypto from 'crypto';
 
 @Processor(EQueueName.LINK_PREVIEW_QUEUE, { concurrency: 5 })
 export class LinkPreviewProcessor extends BaseProcessor<
@@ -30,6 +32,8 @@ export class LinkPreviewProcessor extends BaseProcessor<
     private readonly messageService: MessageService,
     @InjectRepository(MessageEntity)
     private readonly messageRepository: Repository<MessageEntity>,
+    @InjectRepository(LinkPreviewEntity)
+    private readonly linkPreviewRepository: Repository<LinkPreviewEntity>,
   ) {
     super();
   }
@@ -65,28 +69,70 @@ export class LinkPreviewProcessor extends BaseProcessor<
     this.logger.log(`Generating link preview for message: ${messageId}, URLs: ${uniqueUrls.join(', ')}`);
 
     for (const url of uniqueUrls) {
-      const b64Url = Buffer.from(url).toString('base64url');
-      const cacheKey = CACHE.MESSAGE.KEYS.LINK_PREVIEW(b64Url);
+      const urlHash = crypto.createHash('sha256').update(url).digest('hex');
+      const cacheKey = CACHE.MESSAGE.KEYS.LINK_PREVIEW(urlHash);
 
+      // 1. Check L1 Cache (Redis)
       const cachedData = await this.cachedService.get<ILinkPreviewMetadata | 'FAILED'>(cacheKey);
 
       if (cachedData === 'FAILED') {
-        this.logger.log(`Cache HIT (Negative/FAILED) for URL: ${url}`);
+        this.logger.log(`Cache HIT (L1 Negative/FAILED) for URL: ${url}`);
         continue;
       }
 
       if (cachedData) {
-        this.logger.log(`Cache HIT (Positive) for URL: ${url}`);
+        this.logger.log(`Cache HIT (L1 Positive) for URL: ${url}`);
         finalPreviews.push(cachedData);
         continue;
       }
 
-      this.logger.log(`Cache MISS for URL: ${url}. Fetching...`);
+      // 2. Check L2 Cache (Postgres Database)
+      const dbPreview = await this.linkPreviewRepository.findOne({
+        where: { urlHash },
+      });
+
+      if (dbPreview) {
+        this.logger.log(`Database HIT (L2) for URL: ${url}`);
+        const meta: ILinkPreviewMetadata = {
+          url: dbPreview.url,
+          title: dbPreview.title || undefined,
+          description: dbPreview.description || undefined,
+          imageUrl: dbPreview.imageUrl || undefined,
+          siteName: dbPreview.siteName || undefined,
+          favIcon: dbPreview.favIcon || undefined,
+        };
+        finalPreviews.push(meta);
+        // Warm up L1 Cache
+        await this.cachedService.set(cacheKey, meta, 86400); // 24h
+        continue;
+      }
+
+      // 3. Cache Miss - Scrape from target website
+      this.logger.log(`Cache MISS (L1 & L2) for URL: ${url}. Fetching...`);
       const meta = await this.scraperService.scrape(url);
 
       if (meta) {
         this.logger.log(`Successfully scraped URL: ${url}`);
         finalPreviews.push(meta);
+
+        // Save to L2 Cache (Database)
+        try {
+          await this.linkPreviewRepository.save(
+            this.linkPreviewRepository.create({
+              urlHash,
+              url: meta.url || url,
+              title: meta.title,
+              description: meta.description,
+              imageUrl: meta.imageUrl,
+              siteName: meta.siteName,
+              favIcon: meta.favIcon,
+            }),
+          );
+        } catch (dbErr) {
+          this.logger.warn(`Failed to save preview to L2 database: ${(dbErr as Error).message}`);
+        }
+
+        // Save to L1 Cache (Redis)
         await this.cachedService.set(cacheKey, meta, 86400); // 24h
       } else {
         this.logger.log(`Failed to scrape URL: ${url}. Writing negative cache.`);

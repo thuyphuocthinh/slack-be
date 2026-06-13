@@ -18,7 +18,43 @@ export class LinkScraperService {
   ];
 
   async scrape(targetUrl: string): Promise<ILinkPreviewMetadata | null> {
-    this.logger.log(`Starting scrape for target URL: ${targetUrl}`);
+    const workerUrl = process.env.SCRAPER_WORKER_URL;
+    if (!workerUrl) {
+      return this.scrapeDirectly(targetUrl);
+    }
+
+    this.logger.log(`Routing scrape request through Cloudflare Worker for: ${targetUrl}`);
+    try {
+      const response = await axios.get(workerUrl, {
+        params: { url: targetUrl },
+        timeout: 5000,
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      if (response.status === 200 && response.data) {
+        const data = response.data;
+        this.logger.log(`Successfully scraped URL via Worker: ${targetUrl}`);
+        return {
+          url: targetUrl,
+          title: data.title || undefined,
+          description: data.description || undefined,
+          imageUrl: data.imageUrl || undefined,
+          siteName: data.siteName || undefined,
+          favIcon: data.favIcon || undefined,
+          mediaType: data.mediaType || undefined,
+        };
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to scrape URL via Worker: ${targetUrl}. Error: ${(error as Error).message}. Falling back to direct scraping.`);
+    }
+
+    return this.scrapeDirectly(targetUrl);
+  }
+
+  private async scrapeDirectly(targetUrl: string): Promise<ILinkPreviewMetadata | null> {
+    this.logger.log(`Starting direct scrape for target URL: ${targetUrl}`);
     try {
       const url = new URL(targetUrl);
       if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -91,7 +127,7 @@ export class LinkScraperService {
       this.logger.log(`Successfully parsed metadata for ${targetUrl}: title="${meta.title}", image="${meta.imageUrl}"`);
       return meta;
     } catch (error) {
-      this.logger.warn(`Failed to scrape link preview for ${targetUrl}: ${(error as Error).message}`);
+      this.logger.warn(`Failed to direct scrape link preview for ${targetUrl}: ${(error as Error).message}`);
       return null;
     }
   }

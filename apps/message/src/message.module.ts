@@ -7,6 +7,7 @@ import { MessageEntity } from './entity/message.entity';
 import { MessageMentionEntity } from './entity/message_mention.entity';
 import { MessageReactionEntity } from './entity/message_reaction.entity';
 import { MessageAttachmentEntity } from './entity/message_attachment.entity';
+import { LinkPreviewEntity } from './entity/link-preview.entity';
 import { CachedModule } from '@slack/cached';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
@@ -40,6 +41,7 @@ import { LinkPreviewProcessor } from './processor/link-preview.processor';
       MessageMentionEntity,
       MessageReactionEntity,
       MessageAttachmentEntity,
+      LinkPreviewEntity,
     ]),
     ClientsModule.register([
       {
