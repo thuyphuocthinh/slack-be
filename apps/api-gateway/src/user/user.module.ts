@@ -1,20 +1,14 @@
 import { Module } from '@nestjs/common';
 import { UserController } from './user.controller';
 import { UserService } from './user.service';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ClientsModule } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
+import { getMicroserviceClientConfig } from '@slack/common';
 
 @Module({
   imports: [
-    ClientsModule.register([
-      {
-        name: NAME_SERVICE_TCP.USER_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PORT_TCP.USER_TCP_PORT,
-        },
-      },
+    ClientsModule.registerAsync([
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.USER_SERVICE, PORT_TCP.USER_TCP_PORT),
     ]),
   ],
   controllers: [UserController],

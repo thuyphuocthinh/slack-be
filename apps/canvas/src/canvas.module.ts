@@ -5,8 +5,9 @@ import { DatabaseModule } from '@slack/database';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CanvasEntity } from './entity/canvas.entity';
 import { CachedModule } from '@slack/cached';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ClientsModule } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
+import { getMicroserviceClientConfig } from '@slack/common';
 import { HocuspocusGateway } from './hocuspocus/hocuspocus.gateway';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -17,15 +18,8 @@ import { JwtModule } from '@nestjs/jwt';
     CachedModule.forRoot(),
     TypeOrmModule.forFeature([CanvasEntity]),
     JwtModule.register({}),
-    ClientsModule.register([
-      {
-        name: NAME_SERVICE_TCP.CHANNEL_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PORT_TCP.CHANNEL_TCP_PORT,
-        },
-      },
+    ClientsModule.registerAsync([
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.CHANNEL_SERVICE, PORT_TCP.CHANNEL_TCP_PORT),
     ]),
   ],
   controllers: [CanvasController],

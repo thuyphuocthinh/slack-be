@@ -5,8 +5,9 @@ import { QueueModule, EQueueName } from '@slack/queue';
 import { SocketProcessor } from './processors/socket.processor';
 import { JwtModule } from '@nestjs/jwt';
 import { CachedModule } from '@slack/cached';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ClientsModule } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
+import { getMicroserviceClientConfig } from '@slack/common';
 
 @Module({
   imports: [
@@ -15,23 +16,9 @@ import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
     }),
     QueueModule.forRoot(),
     QueueModule.forFeature([EQueueName.SOCKET_QUEUE]),
-    ClientsModule.register([
-      {
-        name: NAME_SERVICE_TCP.CHANNEL_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PORT_TCP.CHANNEL_TCP_PORT,
-        },
-      },
-      {
-        name: NAME_SERVICE_TCP.MESSAGE_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PORT_TCP.MESSAGE_TCP_PORT,
-        },
-      },
+    ClientsModule.registerAsync([
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.CHANNEL_SERVICE, PORT_TCP.CHANNEL_TCP_PORT),
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.MESSAGE_SERVICE, PORT_TCP.MESSAGE_TCP_PORT),
     ]),
     JwtModule.registerAsync({
       inject: [ConfigService],

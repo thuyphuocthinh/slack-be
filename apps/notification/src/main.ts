@@ -16,7 +16,8 @@ async function bootstrap() {
     {
       transport: Transport.TCP,
       options: {
-        port: PORT_TCP.NOTIFICATION_TCP_PORT,
+        host: process.env.NOTIFICATION_SERVICE_HOST || '0.0.0.0',
+        port: process.env.NOTIFICATION_SERVICE_PORT ? parseInt(process.env.NOTIFICATION_SERVICE_PORT) : PORT_TCP.NOTIFICATION_TCP_PORT,
       },
       logger: WinstonModule.createLogger(getLoggerConfig('NOTIFICATION')),
     },

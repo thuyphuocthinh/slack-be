@@ -9,8 +9,9 @@ import { MessageReactionEntity } from './entity/message_reaction.entity';
 import { MessageAttachmentEntity } from './entity/message_attachment.entity';
 import { LinkPreviewEntity } from './entity/link-preview.entity';
 import { CachedModule } from '@slack/cached';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ClientsModule } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
+import { getMicroserviceClientConfig } from '@slack/common';
 import { ThreadService } from './service/thread.service';
 import { MessageAttachmentService } from './service/message-attachment.service';
 import { EQueueName, QueueModule } from '@slack/queue';
@@ -43,31 +44,10 @@ import { LinkPreviewProcessor } from './processor/link-preview.processor';
       MessageAttachmentEntity,
       LinkPreviewEntity,
     ]),
-    ClientsModule.register([
-      {
-        name: NAME_SERVICE_TCP.CHANNEL_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PORT_TCP.CHANNEL_TCP_PORT,
-        },
-      },
-      {
-        name: NAME_SERVICE_TCP.USER_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PORT_TCP.USER_TCP_PORT,
-        },
-      },
-      {
-        name: NAME_SERVICE_TCP.NOTIFICATION_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PORT_TCP.NOTIFICATION_TCP_PORT,
-        },
-      },
+    ClientsModule.registerAsync([
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.CHANNEL_SERVICE, PORT_TCP.CHANNEL_TCP_PORT),
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.USER_SERVICE, PORT_TCP.USER_TCP_PORT),
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.NOTIFICATION_SERVICE, PORT_TCP.NOTIFICATION_TCP_PORT),
     ]),
   ],
   controllers: [MessageController],

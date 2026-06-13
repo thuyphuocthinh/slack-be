@@ -13,8 +13,9 @@ import { join } from 'path';
 import { I_MAIL_SERVICE } from './services/mail.interface';
 import { SendgridService } from './services/impl/sendgrid.service';
 import { NodemailerService } from './services/impl/nodemailer.service';
-import { ClientsModule, Transport } from '@nestjs/microservices';
+import { ClientsModule } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
+import { getMicroserviceClientConfig } from '@slack/common';
 import { QueueModule, EQueueName } from '@slack/queue';
 import { EmailProcessor } from './processors/email.processor';
 import { NotificationProcessor } from './processors/notification.processor';
@@ -32,23 +33,9 @@ import { FcmService } from './services/impl/fcm.service';
     ]),
     DatabaseModule,
     TypeOrmModule.forFeature([Notification, AuditLog]),
-    ClientsModule.register([
-      {
-        name: NAME_SERVICE_TCP.USER_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PORT_TCP.USER_TCP_PORT,
-        },
-      },
-      {
-        name: NAME_SERVICE_TCP.CHANNEL_SERVICE,
-        transport: Transport.TCP,
-        options: {
-          host: 'localhost',
-          port: PORT_TCP.CHANNEL_TCP_PORT,
-        },
-      },
+    ClientsModule.registerAsync([
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.USER_SERVICE, PORT_TCP.USER_TCP_PORT),
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.CHANNEL_SERVICE, PORT_TCP.CHANNEL_TCP_PORT),
     ]),
     MailerModule.forRootAsync({
       inject: [ConfigService],

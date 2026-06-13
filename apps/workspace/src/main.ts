@@ -14,8 +14,8 @@ async function bootstrap() {
     {
       transport: Transport.TCP,
       options: {
-        host: 'localhost',
-        port: PORT_TCP.WORKSPACE_TCP_PORT,
+        host: process.env.WORKSPACE_SERVICE_HOST || '0.0.0.0',
+        port: process.env.WORKSPACE_SERVICE_PORT ? parseInt(process.env.WORKSPACE_SERVICE_PORT) : PORT_TCP.WORKSPACE_TCP_PORT,
       },
       logger: WinstonModule.createLogger(getLoggerConfig('WORKSPACE')),
     },

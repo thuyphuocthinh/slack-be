@@ -13,6 +13,7 @@ export * from './filters/rpc-exception.filter';
 export * from './types/metadata.interface';
 export * from './types/audit.type';
 export * from './utils/security.util';
+export * from './utils/microservice-client.util';
 
 export * from './custom_decorators/public.decorator';
 export * from './custom_decorators/role.decorator';

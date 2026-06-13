@@ -15,8 +15,8 @@ async function bootstrap() {
     {
       transport: Transport.TCP,
       options: {
-        host: 'localhost',
-        port: PORT_TCP.CANVAS_TCP_PORT,
+        host: process.env.CANVAS_SERVICE_HOST || '0.0.0.0',
+        port: process.env.CANVAS_SERVICE_PORT ? parseInt(process.env.CANVAS_SERVICE_PORT) : PORT_TCP.CANVAS_TCP_PORT,
       },
       logger: WinstonModule.createLogger(getLoggerConfig('CANVAS')),
     },

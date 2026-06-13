@@ -14,8 +14,8 @@ async function bootstrap() {
     {
       transport: Transport.TCP,
       options: {
-        host: 'localhost',
-        port: PORT_TCP.TASK_TCP_PORT,
+        host: process.env.TASK_SERVICE_HOST || '0.0.0.0',
+        port: process.env.TASK_SERVICE_PORT ? parseInt(process.env.TASK_SERVICE_PORT) : PORT_TCP.TASK_TCP_PORT,
       },
       logger: WinstonModule.createLogger(getLoggerConfig('TASK')),
     },
