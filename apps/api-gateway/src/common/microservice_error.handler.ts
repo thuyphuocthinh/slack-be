@@ -129,12 +129,18 @@ export class MicroserviceErrorHandler {
 
     if (
       errorMessage.includes('unauthorized') ||
-      errorMessage.includes('access denied')
+      errorMessage.includes('access denied') ||
+      errorMessage.includes('wrong credentials')
     ) {
       return HttpStatus.UNAUTHORIZED; // 401
     }
 
-    if (errorMessage.includes('forbidden')) {
+    if (
+      errorMessage.includes('forbidden') ||
+      errorMessage.includes('not a member') ||
+      errorMessage.includes('not in this board') ||
+      errorMessage.includes('not allowed')
+    ) {
       return HttpStatus.FORBIDDEN; // 403
     }
 

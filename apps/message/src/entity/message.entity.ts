@@ -59,8 +59,9 @@ export class MessageEntity {
 
   @ManyToOne(() => MessageEntity, (message) => message.replies, {
     onDelete: 'CASCADE',
+    createForeignKeyConstraints: false,
   })
-  @JoinColumn({ name: 'parent_id' })
+  @JoinColumn({ name: 'parent_id', referencedColumnName: 'id' })
   parent: MessageEntity;
 
   // self-join
@@ -83,8 +84,8 @@ export class MessageEntity {
   })
   linkPreviews?: ILinkPreviewMetadata[] | null;
 
-  @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
-  createdAt: Date;
+  @PrimaryColumn({ type: 'timestamptz', name: 'created_at' })
+  createdAt: Date = new Date();
 
   @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
   updatedAt: Date;

@@ -46,8 +46,9 @@ export class MessageAttachmentEntity {
 
   @ManyToOne(() => MessageEntity, (message) => message.attachments, {
     onDelete: 'CASCADE',
+    createForeignKeyConstraints: false,
   })
-  @JoinColumn({ name: 'message_id' })
+  @JoinColumn({ name: 'message_id', referencedColumnName: 'id' })
   message: MessageEntity;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
