@@ -199,6 +199,8 @@ export const CACHE = {
         cursor?: string,
       ): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:messages:v1:pinned:c_${channelId}:v_${version}:l_${limit}${cursor ? ':cur_' + cursor : ''}`,
+      LINK_PREVIEW: (b64Url: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:messages:v1:link_preview:${b64Url}`,
     },
     TRACKERS: {
       PINNED_VERSION: (channelId: string): string =>

@@ -12,6 +12,7 @@ import {
 import { MessageReactionEntity } from './message_reaction.entity';
 import { MessageMentionEntity } from './message_mention.entity';
 import { MessageAttachmentEntity } from './message_attachment.entity';
+import { ILinkPreviewMetadata } from '../types/link-preview.interface';
 
 @Entity('messages')
 @Index(['channelId', 'id'])
@@ -74,6 +75,13 @@ export class MessageEntity {
 
   @OneToMany(() => MessageAttachmentEntity, (attachment) => attachment.message)
   attachments: MessageAttachmentEntity[];
+
+  @Column({
+    type: 'jsonb',
+    nullable: true,
+    name: 'link_previews',
+  })
+  linkPreviews?: ILinkPreviewMetadata[] | null;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt: Date;

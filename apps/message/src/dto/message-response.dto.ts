@@ -18,6 +18,7 @@ export class UserResponseDto {
 }
 
 import { IMessageAttachment } from '../types/message-attachment.interface';
+import { ILinkPreviewMetadata } from '../types/link-preview.interface';
 
 export class MessageResponseDto {
   id: string;
@@ -32,6 +33,7 @@ export class MessageResponseDto {
   reactions: ReactionResponseDto[] | [];
   mentions: MentionResponseDto[] | [];
   replyCount: number;
+  linkPreviews?: ILinkPreviewMetadata[] | null;
 }
 
 export class ThreadResponseDto {

@@ -10,6 +10,7 @@ export enum EQueueName {
   RESOURCE_QUEUE = 'resource',
   OUTBOUND_WEBHOOK_QUEUE = 'outbound_webhook',
   INCOMING_WEBHOOK_QUEUE = 'incoming_webhook',
+  LINK_PREVIEW_QUEUE = 'link_preview',
 }
 
 export enum EJobName {
@@ -44,5 +45,6 @@ export enum EJobName {
   PROCESS_WEBHOOK_MESSAGE = 'process_webhook_message',
   DISPATCH_OUTBOUND_WEBHOOK = 'dispatch_outbound_webhook',
   PROCESS_INCOMING_WEBHOOK = 'process_incoming_webhook',
+  GENERATE_LINK_PREVIEW = 'generate_link_preview',
 }
 
