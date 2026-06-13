@@ -11,7 +11,7 @@ const WORKSPACE_ID = '57558aac-97ec-43b8-9512-94b76de7455a';
 const CHANNEL_ID = 'baf4f98c-a33f-4adf-af81-99ace6d62083';
 
 let token =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzYzE5NWI1My1mZWUxLTRlY2MtOGQwYS05ZTdkOTIzOGM1YmIiLCJlbWFpbCI6InRwdEBnbWFpbC5jb20iLCJ0b2tlblZlcnNpb24iOjEsImlhdCI6MTc4MTMxODEyOSwiZXhwIjoxNzgxMzE5OTI5fQ.v066Om-hNiL7iZolC0ZI1pp2Irpk6WUCYVDcDsdC7lI';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzYzE5NWI1My1mZWUxLTRlY2MtOGQwYS05ZTdkOTIzOGM1YmIiLCJlbWFpbCI6InRwdEBnbWFpbC5jb20iLCJ0b2tlblZlcnNpb24iOjEsImlhdCI6MTc4MTMyMDY3MiwiZXhwIjoxNzgxMzIyNDcyfQ.Kao_MC7RYWcONTwLzXHSAXptD4artMlCzgEPhvR22_Q';
 
 async function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -128,7 +128,7 @@ async function runTest() {
     const messageId1 = msg1.data ? msg1.data.id : msg1.id;
     console.log(`-> Đã tạo tin nhắn thành công. ID: ${messageId1}`);
     console.log(`-> Đang đợi link preview được cào và cập nhật (polling)...`);
-    
+
     const previews1 = await waitForPreviews(messageId1);
     console.log('-> Kết quả linkPreviews nhận được từ API:');
     console.log(JSON.stringify(previews1, null, 2));
