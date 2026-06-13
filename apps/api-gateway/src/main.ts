@@ -54,9 +54,13 @@ async function bootstrap() {
     const allowedOrigins = [
       'http://localhost:5173',
       'http://127.0.0.1:5173',
+      'https://slack-fe.tpt.io.vn',
+      'https://slack.tpt.io.vn',
+      'https://tpt.io.vn',
     ];
     if (frontendUrl) {
-      allowedOrigins.push(frontendUrl);
+      const parsedOrigins = frontendUrl.split(',').map((url) => url.trim());
+      allowedOrigins.push(...parsedOrigins);
     }
     app.enableCors({
       origin: allowedOrigins,
