@@ -43,6 +43,14 @@ export class AiService {
         const mammoth = require('mammoth');
         const result = await mammoth.extractRawText({ buffer: fileBuffer });
         fileContent = result.value;
+      } else if (
+        lowerName.endsWith('.png') ||
+        lowerName.endsWith('.jpg') ||
+        lowerName.endsWith('.jpeg') ||
+        lowerName.endsWith('.webp')
+      ) {
+        // Send image data as base64 to be processed by integrations service
+        fileContent = fileBuffer.toString('base64');
       } else {
         // default to text
         fileContent = fileBuffer.toString('utf-8');
