@@ -11,10 +11,22 @@ import { WorkspaceRoleEnum } from '../types/workspace.enum';
 describe('WorkspaceCommonService', () => {
   let service: WorkspaceCommonService;
   let memberRepo: Repository<WorkspaceMemberEntity>;
+  let workspaceRepo: Repository<WorkspaceEntity>;
+  let cachedService: CachedService;
 
   const mockMemberRepo = () => ({
     findOne: jest.fn(),
   });
+
+  const mockWorkspaceRepo = () => ({
+    findOne: jest.fn(),
+  });
+
+  const mockCachedService = {
+    get: jest.fn(),
+    set: jest.fn(),
+    del: jest.fn(),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({

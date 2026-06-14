@@ -3,13 +3,13 @@ jest.mock('uuid', () => ({
 }));
 
 import { Test, TestingModule } from '@nestjs/testing';
-import { WorkspaceService } from './services/workspace.service';
+import { WorkspaceService } from './workspace.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { WorkspaceEntity } from './entity/workspace.entity';
-import { WorkspaceMemberEntity } from './entity/workspace_member.entity';
+import { WorkspaceEntity } from '../entity/workspace.entity';
+import { WorkspaceMemberEntity } from '../entity/workspace_member.entity';
 import { DataSource, Repository } from 'typeorm';
 import { CachedService } from '@slack/cached';
-import { WorkspaceCommonService } from './services/workspace-common.service';
+import { WorkspaceCommonService } from './workspace-common.service';
 
 describe('WorkspaceService', () => {
   let service: WorkspaceService;
@@ -165,7 +165,7 @@ describe('WorkspaceService', () => {
       (memberRepo.find as jest.Mock).mockResolvedValue(members);
       (workspaceRepo.find as jest.Mock).mockResolvedValue(workspaces);
 
-      const result = await service.getListWorkspaceOfUser(userId);
+      const result = await service.getListWorkspaceOfUser({ userId });
 
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe('ws-1');
@@ -175,7 +175,7 @@ describe('WorkspaceService', () => {
     it('should return cached data if available', async () => {
       (cachedService.get as jest.Mock).mockResolvedValue(workspaces);
 
-      const result = await service.getListWorkspaceOfUser(userId);
+      const result = await service.getListWorkspaceOfUser({ userId });
 
       expect(result).toEqual(workspaces);
       expect(memberRepo.find).not.toHaveBeenCalled();
