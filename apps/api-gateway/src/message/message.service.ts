@@ -15,6 +15,7 @@ import {
   GetAttachmentsRequestDto,
   GetFullThreadRequestDto,
 } from './dto/message-request.dto';
+import { redactContent } from './utils/dlp.util';
 
 @Injectable()
 export class MessageService {
@@ -26,10 +27,14 @@ export class MessageService {
   ) {}
 
   async createMessage(dto: CreateMessageRequestDto) {
+    const redactedDto = {
+      ...dto,
+      content: redactContent(dto.content),
+    };
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.CREATE, dto),
+          this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.CREATE, redactedDto),
         ),
       'createMessage',
       'MessageService',
@@ -126,13 +131,17 @@ export class MessageService {
   }
 
   async updateMessage(dto: UpdateMessageRequestDto) {
+    const redactedUpdateDto = {
+      ...dto,
+      content: redactContent(dto.content),
+    };
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
           this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.UPDATE, {
             id: dto.messageId,
             userId: dto.userId,
-            updateDto: dto,
+            updateDto: redactedUpdateDto,
           }),
         ),
       'updateMessage',
