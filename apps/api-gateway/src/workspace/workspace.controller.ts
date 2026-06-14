@@ -30,8 +30,9 @@ import {
   UpdateAppApiDto,
   InvokeCommandApiDto,
   SubmitViewApiDto,
+  UpdateWorkspaceSsoApiDto,
 } from './dto/workspace-api.dto';
-import { CurrentUser, type JwtUser } from '@slack/common';
+import { CurrentUser, type JwtUser, Public } from '@slack/common';
 
 @ApiTags('Workspaces')
 @Controller('workspaces')
@@ -430,5 +431,50 @@ export class WorkspaceController {
       appId: data.appId,
       values: data.values,
     });
+  }
+
+  @Get(':id/sso')
+  @ApiOperation({ summary: 'Get workspace SSO configuration' })
+  @ApiResponse({ status: 200, description: 'SSO configuration retrieved successfully' })
+  async getSsoConfig(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return await this.workspaceService.getWorkspaceSsoConfig(id, user.sub);
+  }
+
+  @Post(':id/sso')
+  @ApiOperation({ summary: 'Update workspace SSO configuration' })
+  @ApiResponse({ status: 200, description: 'SSO configuration updated successfully' })
+  async updateSsoConfig(
+    @Param('id') id: string,
+    @Body() data: UpdateWorkspaceSsoApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.workspaceService.updateWorkspaceSsoConfig({
+      workspaceId: id,
+      adminUserId: user.sub,
+      ...data,
+    });
+  }
+
+  @Delete(':id/sso')
+  @ApiOperation({ summary: 'Delete workspace SSO configuration' })
+  @ApiResponse({ status: 200, description: 'SSO configuration deleted successfully' })
+  async deleteSsoConfig(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return await this.workspaceService.deleteWorkspaceSsoConfig(id, user.sub);
+  }
+
+  @Public()
+  @Get('sso/discover')
+  @ApiOperation({ summary: 'Discover SSO configuration by email domain' })
+  @ApiResponse({ status: 200, description: 'SSO configuration retrieved successfully' })
+  async discoverSso(@Query('domain') domain: string) {
+    const config = await this.workspaceService.findSsoConfigByDomain(domain);
+    if (!config) return null;
+    return {
+      id: config.id,
+      workspaceId: config.workspaceId,
+      domain: config.domain,
+      providerType: config.providerType,
+      entryPoint: config.entryPoint,
+    };
   }
 }

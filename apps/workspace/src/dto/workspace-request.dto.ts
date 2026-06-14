@@ -119,3 +119,17 @@ export class GetWorkspacesRequestDto {
   @Min(1)
   limit?: number = 20;
 }
+
+export class UpdateWorkspaceSsoConfigRequestDto {
+  workspaceId: string;
+  adminUserId: string;
+  domain: string;
+  providerType: 'SAML2' | 'OIDC';
+  entryPoint?: string;
+  idpCert?: string;
+  issuer?: string;
+  clientId?: string;
+  clientSecret?: string;
+  discoveryUrl?: string;
+}
+

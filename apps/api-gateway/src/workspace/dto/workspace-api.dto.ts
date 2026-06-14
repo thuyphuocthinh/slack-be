@@ -249,3 +249,46 @@ export class SubmitViewApiDto {
   @IsObject()
   values: Record<string, any>;
 }
+
+export class UpdateWorkspaceSsoApiDto {
+  @ApiProperty({ example: 'acme.com' })
+  @IsString()
+  @IsNotEmpty()
+  domain: string;
+
+  @ApiProperty({ enum: ['SAML2', 'OIDC'], example: 'SAML2' })
+  @IsString()
+  @IsNotEmpty()
+  providerType: 'SAML2' | 'OIDC';
+
+  @ApiPropertyOptional({ example: 'https://okta.acme.com/entrypoint' })
+  @IsString()
+  @IsOptional()
+  entryPoint?: string;
+
+  @ApiPropertyOptional({ example: '-----BEGIN CERTIFICATE-----...' })
+  @IsString()
+  @IsOptional()
+  idpCert?: string;
+
+  @ApiPropertyOptional({ example: 'okta-issuer' })
+  @IsString()
+  @IsOptional()
+  issuer?: string;
+
+  @ApiPropertyOptional({ example: 'client-id' })
+  @IsString()
+  @IsOptional()
+  clientId?: string;
+
+  @ApiPropertyOptional({ example: 'client-secret' })
+  @IsString()
+  @IsOptional()
+  clientSecret?: string;
+
+  @ApiPropertyOptional({ example: 'https://accounts.google.com/.well-known/openid-configuration' })
+  @IsString()
+  @IsOptional()
+  discoveryUrl?: string;
+}
+

@@ -34,13 +34,20 @@ import {
 } from './dto';
 import { Public } from '@slack/common';
 import { RateLimit } from '../common/guards/rate-limit.decorator';
+import { WorkspaceService } from '../workspace/workspace.service';
+import { generateSamlRequest, parseSamlEmail } from './utils/sso.util';
+import axios from 'axios';
+import { Response } from 'express';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
 
-  constructor(private readonly authService: AuthService) { }
+  constructor(
+    private readonly authService: AuthService,
+    private readonly workspaceService: WorkspaceService,
+  ) { }
 
   @Public()
   @RateLimit({ limit: 3, window: 60 })
@@ -263,5 +270,201 @@ export class AuthController {
   })
   secureAccount(@Body('token') token: string) {
     return this.authService.secureAccount(token);
+  }
+
+  @Public()
+  @Get('sso/login')
+  @ApiOperation({ summary: 'Initiate Enterprise SSO Login' })
+  async ssoLogin(
+    @Query('domain') domain: string,
+    @Req() req: any,
+    @Res() res: any,
+  ) {
+    if (!domain) {
+      return res.status(400).json({ message: 'Domain is required' });
+    }
+
+    try {
+      const ssoConfig = await this.workspaceService.findSsoConfigByDomain(domain);
+      if (!ssoConfig) {
+        return res.status(400).json({ message: `SSO is not enabled for domain ${domain}` });
+      }
+
+      const host = req.get('host');
+      const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+      const callbackBase = `${protocol}://${host}/api/v1/auth/sso`;
+
+      if (ssoConfig.providerType === 'SAML2') {
+        const callbackUrl = `${callbackBase}/saml/callback`;
+        const samlRequest = generateSamlRequest(
+          ssoConfig.entryPoint,
+          ssoConfig.issuer || 'slack-clone',
+          callbackUrl,
+        );
+        const redirectUrl = `${ssoConfig.entryPoint}?SAMLRequest=${encodeURIComponent(samlRequest)}&RelayState=${encodeURIComponent(domain)}`;
+        return res.redirect(redirectUrl);
+      } else if (ssoConfig.providerType === 'OIDC') {
+        let authUrl = ssoConfig.entryPoint;
+        if (ssoConfig.discoveryUrl) {
+          try {
+            const discRes = await axios.get(ssoConfig.discoveryUrl);
+            authUrl = discRes.data.authorization_endpoint || authUrl;
+          } catch (err) {
+            this.logger.error(`OIDC discovery failed for ${domain}: ${err.message}`);
+          }
+        }
+        const callbackUrl = `${callbackBase}/oidc/callback`;
+        const redirectUrl = `${authUrl}?response_type=code&client_id=${ssoConfig.clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=openid%20email%20profile&state=${encodeURIComponent(domain)}`;
+        return res.redirect(redirectUrl);
+      } else {
+        return res.status(400).json({ message: 'Unsupported SSO provider type' });
+      }
+    } catch (error) {
+      this.logger.error(`SSO Login initiation failed: ${error.message}`);
+      return res.status(500).json({ message: 'Internal server error initiating SSO' });
+    }
+  }
+
+  @Public()
+  @Get('sso/oidc/callback')
+  @ApiOperation({ summary: 'OIDC OAuth callback' })
+  async oidcCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Req() req: any,
+    @Res() res: any,
+    @Ip() ipAddress: string,
+    @Headers('user-agent') userAgent: string,
+    @Headers('x-device-id') deviceId: string,
+  ) {
+    try {
+      const domain = state;
+      const ssoConfig = await this.workspaceService.findSsoConfigByDomain(domain);
+      if (!ssoConfig) {
+        return this.sendSsoHtmlResponse(res, 'SSO configuration not found', null);
+      }
+
+      let tokenUrl = ssoConfig.entryPoint;
+      if (ssoConfig.discoveryUrl) {
+        try {
+          const discRes = await axios.get(ssoConfig.discoveryUrl);
+          tokenUrl = discRes.data.token_endpoint || tokenUrl;
+        } catch (err) {
+          this.logger.error(`OIDC discovery for token endpoint failed: ${err.message}`);
+        }
+      }
+
+      const host = req.get('host');
+      const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+      const callbackUrl = `${protocol}://${host}/api/v1/auth/sso/oidc/callback`;
+
+      const tokenRes = await axios.post(
+        tokenUrl,
+        new URLSearchParams({
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: callbackUrl,
+          client_id: ssoConfig.clientId,
+          client_secret: ssoConfig.clientSecret,
+        }).toString(),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+      );
+
+      const idToken = tokenRes.data.id_token;
+      if (!idToken) {
+        return this.sendSsoHtmlResponse(res, 'No id_token returned from OIDC provider', null);
+      }
+
+      const payload = JSON.parse(Buffer.from(idToken.split('.')[1], 'base64').toString('utf8'));
+      const email = payload.email;
+      if (!email) {
+        return this.sendSsoHtmlResponse(res, 'No email found in OIDC id_token', null);
+      }
+
+      const tokens: any = await this.authService.loginSso(
+        { email },
+        { ipAddress, userAgent, device: deviceId || userAgent },
+      );
+
+      const jwtPayload = JSON.parse(Buffer.from(tokens.accessToken.split('.')[1], 'base64').toString('utf8'));
+      const userId = jwtPayload.sub;
+
+      await this.workspaceService.addMemberSso({
+        workspaceId: ssoConfig.workspaceId,
+        userId,
+      });
+
+      return this.sendSsoHtmlResponse(res, null, tokens);
+    } catch (error) {
+      this.logger.error(`OIDC callback processing failed: ${error.message}`);
+      return this.sendSsoHtmlResponse(res, `Authentication failed: ${error.message}`, null);
+    }
+  }
+
+  @Public()
+  @Post('sso/saml/callback')
+  @ApiOperation({ summary: 'SAML 2.0 callback' })
+  async samlCallback(
+    @Body('SAMLResponse') samlResponse: string,
+    @Body('RelayState') relayState: string,
+    @Res() res: any,
+    @Ip() ipAddress: string,
+    @Headers('user-agent') userAgent: string,
+    @Headers('x-device-id') deviceId: string,
+  ) {
+    try {
+      if (!samlResponse) {
+        return this.sendSsoHtmlResponse(res, 'SAMLResponse is missing', null);
+      }
+
+      const domain = relayState;
+      const ssoConfig = await this.workspaceService.findSsoConfigByDomain(domain);
+      if (!ssoConfig) {
+        return this.sendSsoHtmlResponse(res, 'SSO configuration not found', null);
+      }
+
+      const xml = Buffer.from(samlResponse, 'base64').toString('utf8');
+      const email = parseSamlEmail(xml);
+      if (!email) {
+        return this.sendSsoHtmlResponse(res, 'Could not parse user email from SAML assertion', null);
+      }
+
+      const tokens: any = await this.authService.loginSso(
+        { email },
+        { ipAddress, userAgent, device: deviceId || userAgent },
+      );
+
+      const jwtPayload = JSON.parse(Buffer.from(tokens.accessToken.split('.')[1], 'base64').toString('utf8'));
+      const userId = jwtPayload.sub;
+
+      await this.workspaceService.addMemberSso({
+        workspaceId: ssoConfig.workspaceId,
+        userId,
+      });
+
+      return this.sendSsoHtmlResponse(res, null, tokens);
+    } catch (error) {
+      this.logger.error(`SAML callback processing failed: ${error.message}`);
+      return this.sendSsoHtmlResponse(res, `Authentication failed: ${error.message}`, null);
+    }
+  }
+
+  private sendSsoHtmlResponse(res: Response, error: string | null, tokens: any) {
+    const dataObj = error
+      ? { type: 'SSO_LOGIN_FAILURE', error }
+      : { type: 'SSO_LOGIN_SUCCESS', tokens };
+
+    const html = `
+      <html>
+        <body>
+          <script>
+            window.opener.postMessage(${JSON.stringify(dataObj)}, '*');
+            window.close();
+          </script>
+        </body>
+      </html>
+    `;
+    res.setHeader('Content-Type', 'text/html');
+    return res.status(200).send(html);
   }
 }

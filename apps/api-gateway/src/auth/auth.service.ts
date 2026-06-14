@@ -88,6 +88,20 @@ export class AuthService {
     );
   }
 
+  async loginSso(data: { email: string }, metadata: IRequestMetadata) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.authClient.send(AUTH_MESSAGE_PATTERNS.LOGIN_SSO, {
+            data,
+            metadata,
+          }),
+        ),
+      'loginSso',
+      'AuthService',
+    );
+  }
+
   async logout(data: { accessToken: string; refreshToken: string }) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>

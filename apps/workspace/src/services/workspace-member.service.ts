@@ -467,4 +467,48 @@ export class WorkspaceMemberService {
 
     return this.commonService.mapMemberWithUserToDto(member, user);
   }
+
+  async addMemberSso(dto: { workspaceId: string; userId: string }): Promise<WorkspaceMemberResponseDto> {
+    await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, {
+        id: dto.userId,
+      }),
+    );
+
+    const member = await this.dataSource.transaction(async (manager) => {
+      const existingMember = await manager.findOne(WorkspaceMemberEntity, {
+        where: { workspaceId: dto.workspaceId, userId: dto.userId },
+      });
+
+      if (existingMember && existingMember.status === MembershipStatus.ACTIVE) {
+        return existingMember;
+      }
+
+      if (existingMember) {
+        existingMember.status = MembershipStatus.ACTIVE;
+        existingMember.role = WorkspaceRoleEnum.MEMBER;
+        existingMember.joinedAt = new Date();
+        return await manager.save(existingMember);
+      } else {
+        const newMember = manager.create(WorkspaceMemberEntity, {
+          workspaceId: dto.workspaceId,
+          userId: dto.userId,
+          role: WorkspaceRoleEnum.MEMBER,
+          status: MembershipStatus.ACTIVE,
+        });
+        return await manager.save(newMember);
+      }
+    });
+
+    this.logger.log('Add member SSO', JSON.stringify({ member }));
+    this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+    this.cachedService.del(
+      CACHE.WORKSPACE.KEYS.IS_MEMBER(dto.workspaceId, dto.userId),
+    );
+    await this.cachedService.invalidateList(
+      CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(dto.userId),
+    );
+
+    return this.commonService.mapMemberToDto(member);
+  }
 }

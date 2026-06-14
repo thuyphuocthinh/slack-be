@@ -24,6 +24,7 @@ import {
   UpdateWorkspaceRequestDto,
   AddBatchMembersRequestDto,
   GetWorkspacesRequestDto,
+  UpdateWorkspaceSsoConfigRequestDto,
 } from './dto/workspace-request.dto';
 import { WorkspaceRoleEnum } from './types/workspace.enum';
 import { AppService } from './services/app.service';
@@ -221,5 +222,30 @@ export class WorkspaceController {
   @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.SUBMIT_VIEW)
   submitView(@Payload() dto: { workspaceId: string; userId: string; viewId: string; appId: string; values: any }) {
     return this.appService.submitView(dto);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.GET_SSO_CONFIG)
+  getWorkspaceSsoConfig(@Payload() dto: { workspaceId: string; userId: string }) {
+    return this.workspaceService.getWorkspaceSsoConfig(dto);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.UPDATE_SSO_CONFIG)
+  updateWorkspaceSsoConfig(@Payload() dto: UpdateWorkspaceSsoConfigRequestDto) {
+    return this.workspaceService.updateWorkspaceSsoConfig(dto);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.DELETE_SSO_CONFIG)
+  deleteWorkspaceSsoConfig(@Payload() dto: { workspaceId: string; adminUserId: string }) {
+    return this.workspaceService.deleteWorkspaceSsoConfig(dto);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.FIND_SSO_BY_DOMAIN)
+  findSsoConfigByDomain(@Payload() domain: string) {
+    return this.workspaceService.findSsoConfigByDomain(domain);
+  }
+
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.ADD_MEMBER_SSO)
+  addMemberSso(@Payload() dto: { workspaceId: string; userId: string }) {
+    return this.memberService.addMemberSso(dto);
   }
 }

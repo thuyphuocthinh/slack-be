@@ -6,12 +6,14 @@ import { WorkspaceMemberEntity } from '../entity/workspace_member.entity';
 import { WorkspaceEntity } from '../entity/workspace.entity';
 import { WorkspaceInviteEntity } from '../entity/workspace_invite.entity';
 import { WorkspaceLinkEntity } from '../entity/workspace_link.entity';
+import { WorkspaceSsoConfigEntity } from '../entity/workspace_sso_config.entity';
 import { WorkspaceRoleEnum, MembershipStatus } from '../types/workspace.enum';
 import { WORKSPACE_ERROR } from '@slack/constants';
 import {
   WorkspaceDto,
   WorkspaceMemberDto,
   WorkspaceInviteDto,
+  WorkspaceSsoConfigDto,
 } from '../dto/workspace.dto';
 import { WorkspaceLinkResponseDto } from '../dto/workspace-response.dto';
 import { CACHE, CachedService, TTL } from '@slack/cached';
@@ -89,6 +91,30 @@ export class WorkspaceCommonService {
       maxUsage: link.maxUsage,
       usedCount: link.usedCount,
       createdAt: link.createdAt,
+    };
+  }
+
+  mapSsoConfigToDto(
+    config: WorkspaceSsoConfigEntity,
+    maskSecret = true,
+  ): WorkspaceSsoConfigDto {
+    return {
+      id: config.id,
+      workspaceId: config.workspaceId,
+      domain: config.domain,
+      providerType: config.providerType,
+      entryPoint: config.entryPoint,
+      idpCert: config.idpCert,
+      issuer: config.issuer,
+      clientId: config.clientId,
+      clientSecret: config.clientSecret
+        ? maskSecret
+          ? '********'
+          : config.clientSecret
+        : undefined,
+      discoveryUrl: config.discoveryUrl,
+      createdAt: config.createdAt,
+      updatedAt: config.updatedAt,
     };
   }
 

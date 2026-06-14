@@ -157,3 +157,17 @@ export class SubmitViewRequestDto {
   viewId: string;
   values: Record<string, any>;
 }
+
+export class UpdateWorkspaceSsoConfigRequestDto {
+  workspaceId: string;
+  adminUserId: string;
+  domain: string;
+  providerType: 'SAML2' | 'OIDC';
+  entryPoint?: string;
+  idpCert?: string;
+  issuer?: string;
+  clientId?: string;
+  clientSecret?: string;
+  discoveryUrl?: string;
+}
+

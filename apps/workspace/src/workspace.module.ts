@@ -8,6 +8,7 @@ import { WorkspaceInviteEntity } from './entity/workspace_invite.entity';
 import { WorkspaceLinkEntity } from './entity/workspace_link.entity';
 import { AppEntity } from './entity/app.entity';
 import { AppEventSubscriptionEntity } from './entity/app-event-subscription.entity';
+import { WorkspaceSsoConfigEntity } from './entity/workspace_sso_config.entity';
 import { DatabaseModule } from '@slack/database';
 import { ClientsModule } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
@@ -39,6 +40,7 @@ import { OutboundWebhookProcessor } from './processor/outbound-webhook.processor
       WorkspaceLinkEntity,
       AppEntity,
       AppEventSubscriptionEntity,
+      WorkspaceSsoConfigEntity,
     ]),
     ClientsModule.registerAsync([
       getMicroserviceClientConfig(NAME_SERVICE_TCP.NOTIFICATION_SERVICE, PORT_TCP.NOTIFICATION_TCP_PORT),
