@@ -14,4 +14,5 @@ export const AUTH_MESSAGE_PATTERNS = {
   VERIFY_OTP_FROM_AUTHENTICATOR: 'auth.verify_otp_from_authenticator',
   RESEND_CODE: 'auth.resend_code',
   SECURE_ACCOUNT: 'auth.secure_account',
+  LOGIN_SSO: 'auth.login_sso',
 } as const;

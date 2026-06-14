@@ -1,10 +1,10 @@
 const DLP_RULES: Record<string, RegExp> = {
-  CREDIT_CARD: /\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|6(?:011|5[0-9][0-9])[0-9]{12}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|(?:2131|1800|35\d{3})\d{11})\b/g,
+  CREDIT_CARD: /\b(?:4[0-9]{3}[ -]?[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4}|5[1-5][0-9]{2}[ -]?[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4}|6011[ -]?[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4}|3[47][0-9]{2}[ -]?[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{3})\b/g,
   AWS_API_KEY: /\b(AKIA|ASCA|AOAG|ACCA)[A-Z0-9]{16}\b/g,
   SLACK_TOKEN: /\bxox[baprt]-[a-zA-Z0-9-]{10,}\b/g,
-  GOOGLE_API_KEY: /\bAIza[yY][a-zA-Z0-9-_]{35}\b/g,
+  GOOGLE_API_KEY: /\bA[Il]za[a-zA-Z0-9-_]{34,40}\b/g,
   GITHUB_TOKEN: /\b(ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9]{36,255}\b/g,
-  PRIVATE_KEY: /-----BEGIN [A-Z\s]+ PRIVATE KEY-----[\s\S]*?-----END [A-Z\s]+ PRIVATE KEY-----/g,
+  PRIVATE_KEY: /-----BEGIN [A-Z\s]*?PRIVATE KEY-----[\s\S]*?-----END [A-Z\s]*?PRIVATE KEY-----/g,
 };
 
 /**

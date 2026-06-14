@@ -33,6 +33,7 @@ import {
   GetAppsRequestDto,
   InvokeCommandRequestDto,
   SubmitViewRequestDto,
+  UpdateWorkspaceSsoConfigRequestDto,
 } from './dto/workspace-request.dto';
 
 @Injectable()
@@ -506,6 +507,76 @@ export class WorkspaceService {
           ),
         ),
       'submitView',
+      'WorkspaceService',
+    );
+  }
+
+  async getWorkspaceSsoConfig(workspaceId: string, userId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.workspaceClient.send(
+            WORKSPACE_MESSAGE_PATTERNS.GET_SSO_CONFIG,
+            { workspaceId, userId },
+          ),
+        ),
+      'getWorkspaceSsoConfig',
+      'WorkspaceService',
+    );
+  }
+
+  async updateWorkspaceSsoConfig(data: UpdateWorkspaceSsoConfigRequestDto) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.workspaceClient.send(
+            WORKSPACE_MESSAGE_PATTERNS.UPDATE_SSO_CONFIG,
+            data,
+          ),
+        ),
+      'updateWorkspaceSsoConfig',
+      'WorkspaceService',
+    );
+  }
+
+  async deleteWorkspaceSsoConfig(workspaceId: string, adminUserId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.workspaceClient.send(
+            WORKSPACE_MESSAGE_PATTERNS.DELETE_SSO_CONFIG,
+            { workspaceId, adminUserId },
+          ),
+        ),
+      'deleteWorkspaceSsoConfig',
+      'WorkspaceService',
+    );
+  }
+
+  async findSsoConfigByDomain(domain: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.workspaceClient.send(
+            WORKSPACE_MESSAGE_PATTERNS.FIND_SSO_BY_DOMAIN,
+            domain,
+          ),
+        ),
+      'findSsoConfigByDomain',
+      'WorkspaceService',
+    );
+  }
+
+  async addMemberSso(data: { workspaceId: string; userId: string }) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.workspaceClient.send(
+            WORKSPACE_MESSAGE_PATTERNS.ADD_MEMBER_SSO,
+            data,
+          ),
+        ),
+      'addMemberSso',
       'WorkspaceService',
     );
   }

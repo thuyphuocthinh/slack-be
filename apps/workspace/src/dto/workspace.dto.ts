@@ -65,3 +65,18 @@ export class WorkspaceListResponseDto {
     totalPages: number;
   };
 }
+
+export class WorkspaceSsoConfigDto {
+  id: string;
+  workspaceId: string;
+  domain: string;
+  providerType: 'SAML2' | 'OIDC';
+  entryPoint?: string;
+  idpCert?: string;
+  issuer?: string;
+  clientId?: string;
+  clientSecret?: string;
+  discoveryUrl?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}

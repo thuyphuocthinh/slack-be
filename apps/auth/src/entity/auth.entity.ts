@@ -10,6 +10,7 @@ import {
 export enum ProviderType {
   LOCAL = 'local',
   GOOGLE = 'google',
+  SSO = 'sso',
 }
 
 @Entity('auth')

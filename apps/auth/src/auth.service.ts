@@ -530,6 +530,76 @@ export class AuthService {
     };
   }
 
+  async loginSso(
+    request: { email: string },
+    metadata?: IRequestMetadata,
+  ): Promise<ITokenResponse | ITwoFactorResponse> {
+    const { email } = request;
+    let auth = await this.authRepository.findOne({
+      where: {
+        providerId: email,
+        providerType: ProviderType.SSO,
+      },
+    });
+
+    let user;
+    if (!auth) {
+      user = await firstValueFrom(
+        this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_EMAIL, {
+          email,
+        }),
+      ).catch(() => null);
+
+      if (!user) {
+        user = await firstValueFrom(
+          this.userClient.send(USER_MESSAGE_PATTERNS.CREATE_USER, {
+            email,
+            status: 'active',
+          }),
+        );
+      }
+
+      const newAuth = this.authRepository.create({
+        userId: user.id,
+        providerId: email,
+        providerType: ProviderType.SSO,
+        password: '',
+      });
+
+      auth = await this.authRepository.save(newAuth);
+    } else {
+      user = await firstValueFrom(
+        this.userClient.send(USER_MESSAGE_PATTERNS.GET_USER_BY_ID, {
+          id: auth.userId,
+        }),
+      );
+    }
+
+    if (!user) {
+      throw new RpcException(AUTH_ERROR.ACCOUNT_NOT_FOUND);
+    }
+
+    if (user.isTwoFactorEnabled) {
+      return {
+        isEnableTwoFactor: true,
+        tempToken: await this.generateTempToken(auth.userId, email),
+      };
+    }
+
+    await this.handleDeviceTracking(auth.userId, email, metadata);
+
+    const { accessToken, refreshToken } = await this.generateTokens(
+      auth.userId,
+      email,
+    );
+    await this.createSession(auth.userId, refreshToken, metadata);
+    return {
+      accessToken,
+      refreshToken,
+      type: 'Bearer',
+    };
+  }
+
   async logout(request: {
     accessToken: string;
     refreshToken: string;

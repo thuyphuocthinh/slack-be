@@ -6,10 +6,12 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { PassportModule } from '@nestjs/passport';
 import { GoogleStrategy } from './strategy/google.strategy';
+import { WorkspaceModule } from '../workspace/workspace.module';
 
 @Module({
   imports: [
     PassportModule,
+    WorkspaceModule,
     ClientsModule.registerAsync([
       getMicroserviceClientConfig(NAME_SERVICE_TCP.AUTH_SERVICE, PORT_TCP.AUTH_TCP_PORT),
     ]),

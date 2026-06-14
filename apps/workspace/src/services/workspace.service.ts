@@ -12,12 +12,14 @@ import {
   UpdateWorkspaceRequestDto,
   DeleteWorkspaceRequestDto,
   GetWorkspacesRequestDto,
+  UpdateWorkspaceSsoConfigRequestDto,
 } from '../dto/workspace-request.dto';
 import { WorkspaceResponseDto } from '../dto/workspace-response.dto';
 import { WorkspaceDto } from '../dto/workspace.dto';
 import { generateSlug, IOffsetResponse, AuditAction, AuditEntityType } from '@slack/common';
 import { WorkspaceCommonService } from './workspace-common.service';
 import { EJobName, EQueueName, QueueService } from '@slack/queue';
+import { WorkspaceSsoConfigEntity } from '../entity/workspace_sso_config.entity';
 
 @Injectable()
 export class WorkspaceService {
@@ -28,6 +30,8 @@ export class WorkspaceService {
     private readonly workspaceRepository: Repository<WorkspaceEntity>,
     @InjectRepository(WorkspaceMemberEntity)
     private readonly memberRepository: Repository<WorkspaceMemberEntity>,
+    @InjectRepository(WorkspaceSsoConfigEntity)
+    private readonly ssoConfigRepository: Repository<WorkspaceSsoConfigEntity>,
     private readonly dataSource: DataSource,
     private readonly cachedService: CachedService,
     private readonly commonService: WorkspaceCommonService,
@@ -312,5 +316,78 @@ export class WorkspaceService {
       dto.userId,
       dto.allowedRoles,
     );
+  }
+
+  async getWorkspaceSsoConfig(dto: { workspaceId: string; userId: string }) {
+    await this.commonService.checkPermission(dto.workspaceId, dto.userId, [
+      WorkspaceRoleEnum.OWNER,
+      WorkspaceRoleEnum.ADMIN,
+    ]);
+
+    const config = await this.ssoConfigRepository.findOne({
+      where: { workspaceId: dto.workspaceId },
+    });
+
+    if (!config) return null;
+
+    return this.commonService.mapSsoConfigToDto(config, true);
+  }
+
+  async updateWorkspaceSsoConfig(dto: UpdateWorkspaceSsoConfigRequestDto) {
+    await this.commonService.checkPermission(dto.workspaceId, dto.adminUserId, [
+      WorkspaceRoleEnum.OWNER,
+      WorkspaceRoleEnum.ADMIN,
+    ]);
+
+    let config = await this.ssoConfigRepository.findOne({
+      where: { workspaceId: dto.workspaceId },
+    });
+
+    if (!config) {
+      config = new WorkspaceSsoConfigEntity();
+      config.workspaceId = dto.workspaceId;
+    }
+
+    config.domain = dto.domain;
+    config.providerType = dto.providerType;
+    config.entryPoint = dto.entryPoint;
+    config.idpCert = dto.idpCert;
+    config.issuer = dto.issuer;
+    config.clientId = dto.clientId;
+    if (dto.clientSecret !== '********') {
+      config.clientSecret = dto.clientSecret;
+    }
+    config.discoveryUrl = dto.discoveryUrl;
+
+    const savedConfig = await this.ssoConfigRepository.save(config);
+    return this.commonService.mapSsoConfigToDto(savedConfig, true);
+  }
+
+  async deleteWorkspaceSsoConfig(dto: { workspaceId: string; adminUserId: string }) {
+    await this.commonService.checkPermission(dto.workspaceId, dto.adminUserId, [
+      WorkspaceRoleEnum.OWNER,
+      WorkspaceRoleEnum.ADMIN,
+    ]);
+
+    const result = await this.ssoConfigRepository.delete({
+      workspaceId: dto.workspaceId,
+    });
+
+    return (result.affected ?? 0) > 0
+      ? 'SSO configuration deleted successfully'
+      : 'No SSO configuration found to delete';
+  }
+
+  async findSsoConfigByDomain(domain: string) {
+    const config = await this.ssoConfigRepository.findOne({
+      where: { domain },
+    });
+    if (!config) {
+      throw new RpcException({
+        message: 'No SSO configuration found for this domain',
+        status: 404,
+      });
+    }
+    return this.commonService.mapSsoConfigToDto(config, false);
   }
 }

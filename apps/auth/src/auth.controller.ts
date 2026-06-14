@@ -50,6 +50,17 @@ export class AuthController {
     return this.authService.loginGoogle(payload.data, payload.metadata);
   }
 
+  @MessagePattern(AUTH_MESSAGE_PATTERNS.LOGIN_SSO)
+  loginSso(
+    @Payload()
+    payload: {
+      data: { email: string };
+      metadata?: IRequestMetadata;
+    },
+  ) {
+    return this.authService.loginSso(payload.data, payload.metadata);
+  }
+
   @MessagePattern(AUTH_MESSAGE_PATTERNS.LOGOUT)
   logout(
     @Payload() payload: { data: { accessToken: string; refreshToken: string } },

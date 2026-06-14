@@ -33,4 +33,9 @@ export const WORKSPACE_MESSAGE_PATTERNS = {
   VERIFY_COMMAND_RESPONSE: 'workspace.verify_command_response',
   VERIFY_MODAL_TRIGGER: 'workspace.verify_modal_trigger',
   SUBMIT_VIEW: 'workspace.submit_view',
+  GET_SSO_CONFIG: 'workspace.get_sso_config',
+  UPDATE_SSO_CONFIG: 'workspace.update_sso_config',
+  DELETE_SSO_CONFIG: 'workspace.delete_sso_config',
+  FIND_SSO_BY_DOMAIN: 'workspace.find_sso_by_domain',
+  ADD_MEMBER_SSO: 'workspace.add_member_sso',
 } as const;
