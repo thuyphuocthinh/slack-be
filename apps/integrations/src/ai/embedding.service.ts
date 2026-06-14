@@ -85,7 +85,7 @@ export class EmbeddingService {
       throw new Error('GenAI not initialized. Check GEMINI_API_KEY.');
     }
 
-    const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const prompt = `
       Hãy đóng vai trò là một chuyên gia phân tích tài liệu chuyên nghiệp.
       Hãy trích xuất toàn bộ văn bản xuất hiện trong hình ảnh này (nếu có).
