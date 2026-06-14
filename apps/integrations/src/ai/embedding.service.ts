@@ -76,4 +76,31 @@ export class EmbeddingService {
 
     return result.embeddings.map((e) => this.normalizeVector(e.values, 768));
   }
+
+  /**
+   * Describe an image using Gemini 1.5 Flash
+   */
+  async describeImage(base64Data: string, mimeType: string): Promise<string> {
+    if (!this.genAI) {
+      throw new Error('GenAI not initialized. Check GEMINI_API_KEY.');
+    }
+
+    const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const prompt = `
+      Hãy đóng vai trò là một chuyên gia phân tích tài liệu chuyên nghiệp.
+      Hãy trích xuất toàn bộ văn bản xuất hiện trong hình ảnh này (nếu có).
+      Nếu trong ảnh có bảng biểu, sơ đồ hoặc biểu đồ số liệu, hãy phân tích và giải thích chi tiết số liệu, xu hướng và ý nghĩa của chúng dưới dạng văn bản có cấu trúc rõ ràng.
+      Nếu đây chỉ là ảnh phong cảnh, chân dung hoặc ảnh thông thường, hãy mô tả chi tiết nội dung của bức ảnh để phục vụ cho việc tìm kiếm ngữ nghĩa.
+    `;
+
+    const imagePart = {
+      inlineData: {
+        data: base64Data,
+        mimeType: mimeType,
+      },
+    };
+
+    const result = await model.generateContent([prompt, imagePart]);
+    return result.response.text();
+  }
 }

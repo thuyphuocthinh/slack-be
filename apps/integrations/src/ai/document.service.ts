@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { AiDocumentChunkEntity } from './entities/ai-document-chunk.entity';
+import { AiDocumentParentEntity } from './entities/ai-document-parent.entity';
 import { EmbeddingService } from './embedding.service';
 
 interface ChunkSearchResult {
@@ -22,6 +23,14 @@ interface DocumentSummary {
   createdAt: Date;
 }
 
+interface QueryResult {
+  id: string;
+  content: string;
+  documentName: string;
+  chunkIndex: number;
+  parentId: string | null;
+}
+
 @Injectable()
 export class DocumentService {
   private readonly logger = new Logger(DocumentService.name);
@@ -29,6 +38,8 @@ export class DocumentService {
   constructor(
     @InjectRepository(AiDocumentChunkEntity)
     private readonly chunkRepo: Repository<AiDocumentChunkEntity>,
+    @InjectRepository(AiDocumentParentEntity)
+    private readonly parentRepo: Repository<AiDocumentParentEntity>,
     private readonly embeddingService: EmbeddingService,
   ) {}
 
@@ -94,7 +105,7 @@ export class DocumentService {
   }
 
   /**
-   * Index a document: parse → chunk → embed → store
+   * Index a document: parse → chunk (2 levels) → embed → store
    */
   async indexDocument(
     textContent: string,
@@ -108,35 +119,79 @@ export class DocumentService {
       throw new Error('Document is empty or contains no readable text.');
     }
 
-    // 2. Delete existing chunks for same document in same workspace (re-index)
+    // 2. Multimodal processing: check if the document is an image
+    let actualContent = textContent;
+    const lowerName = fileName.toLowerCase();
+    const isImage = ['png', 'jpg', 'jpeg', 'webp'].some((ext) =>
+      lowerName.endsWith(ext),
+    );
+
+    if (isImage) {
+      let mimeType = 'image/png';
+      if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
+        mimeType = 'image/jpeg';
+      } else if (lowerName.endsWith('.webp')) {
+        mimeType = 'image/webp';
+      }
+
+      this.logger.log(`Processing image ${fileName} with Gemini multimodal...`);
+      actualContent = await this.embeddingService.describeImage(
+        textContent,
+        mimeType,
+      );
+      this.logger.log(`Generated image description of length ${actualContent.length}`);
+    }
+
+    // 3. Delete existing parents (will cascade delete child chunks via foreign key constraint)
+    await this.parentRepo.delete({ workspaceId, documentName: fileName });
+    // Also delete any orphaned chunks
     await this.chunkRepo.delete({ workspaceId, documentName: fileName });
 
-    // 3. Chunk text
-    const chunks = this.chunkText(textContent);
-    this.logger.log(`Split into ${chunks.length} chunks`);
+    // 4. Chunk text into Parent Documents (~1000 tokens / 4000 characters)
+    const parentTexts = this.chunkText(actualContent, 1000, 100);
+    this.logger.log(`Split document into ${parentTexts.length} parent chunks`);
 
-    // 4. Batch embed
-    const embeddings = await this.embeddingService.embedTexts(chunks);
-
-    // 5. Bulk insert
-    const entities = chunks.map((content, index) => {
-      const entity = new AiDocumentChunkEntity();
+    // 4. Save parent documents
+    const parentEntities = parentTexts.map((content) => {
+      const entity = new AiDocumentParentEntity();
       entity.workspaceId = workspaceId;
       entity.documentName = fileName;
-      entity.chunkIndex = index;
       entity.content = content;
-      entity.embedding = embeddings[index];
       return entity;
     });
+    const savedParents = await this.parentRepo.save(parentEntities);
 
-    await this.chunkRepo.save(entities);
-    this.logger.log(`Successfully indexed ${entities.length} chunks for: ${fileName}`);
+    // 5. Chunk parent texts into Child Chunks (~250 tokens / 1000 characters) and embed
+    const childEntities: AiDocumentChunkEntity[] = [];
 
-    return { documentName: fileName, chunksCount: entities.length };
+    for (const parent of savedParents) {
+      const childTexts = this.chunkText(parent.content, 250, 25);
+      if (childTexts.length === 0) continue;
+
+      const embeddings = await this.embeddingService.embedTexts(childTexts);
+
+      childTexts.forEach((content, index) => {
+        const entity = new AiDocumentChunkEntity();
+        entity.workspaceId = workspaceId;
+        entity.documentName = fileName;
+        entity.parentId = parent.id;
+        entity.chunkIndex = index;
+        entity.content = content;
+        entity.embedding = embeddings[index];
+        childEntities.push(entity);
+      });
+    }
+
+    if (childEntities.length > 0) {
+      await this.chunkRepo.save(childEntities);
+      this.logger.log(`Successfully indexed ${childEntities.length} child chunks for: ${fileName}`);
+    }
+
+    return { documentName: fileName, chunksCount: childEntities.length };
   }
 
   /**
-   * Search for relevant chunks using cosine similarity via pgvector
+   * Search for relevant chunks using Hybrid Search (Vector + FTS) combined via RRF
    */
   async searchRelevantChunks(
     query: string,
@@ -147,26 +202,114 @@ export class DocumentService {
     const queryVector = await this.embeddingService.embedQuery(query);
     const vectorStr = `[${queryVector.join(',')}]`;
 
-    // 2. Cosine similarity search
-    const results = await this.chunkRepo.query(
-      `SELECT 
-        content, 
-        "documentName", 
-        "chunkIndex",
-        1 - (embedding <=> $1::vector) as score
-      FROM ai_document_chunks 
-      WHERE "workspaceId" = $2 
-      ORDER BY embedding <=> $1::vector 
-      LIMIT $3`,
-      [vectorStr, workspaceId, limit],
-    );
+    // 2. Run Vector and FTS searches in parallel
+    const searchLimit = limit * 3;
+    let ftsHits: QueryResult[] = [];
 
-    return results.map((r: { content: string; documentName: string; chunkIndex: number; score: number }) => ({
-      content: r.content,
-      documentName: r.documentName,
-      chunkIndex: r.chunkIndex,
-      score: parseFloat(String(r.score)),
-    }));
+    const [vectorHits] = await Promise.all([
+      this.chunkRepo.query(
+        `SELECT 
+          id,
+          content, 
+          "documentName", 
+          "chunkIndex",
+          "parentId"
+        FROM ai_document_chunks 
+        WHERE "workspaceId" = $2 
+        ORDER BY embedding <=> $1::vector 
+        LIMIT $3`,
+        [vectorStr, workspaceId, searchLimit],
+      ),
+      (async () => {
+        try {
+          ftsHits = await this.chunkRepo.query(
+            `SELECT 
+              id,
+              content, 
+              "documentName", 
+              "chunkIndex",
+              "parentId"
+            FROM ai_document_chunks 
+            WHERE "workspaceId" = $2 
+              AND to_tsvector('simple', content) @@ plainto_tsquery('simple', $1)
+            ORDER BY ts_rank(to_tsvector('simple', content), plainto_tsquery('simple', $1)) DESC
+            LIMIT $3`,
+            [query, workspaceId, searchLimit],
+          );
+        } catch (err) {
+          this.logger.warn(`Full-text search query failed: ${err.message}`);
+        }
+      })(),
+    ]);
+
+    // 3. Reciprocal Rank Fusion (RRF) Reranking
+    const k = 60;
+    const itemMap = new Map<string, {
+      id: string;
+      content: string;
+      documentName: string;
+      chunkIndex: number;
+      parentId: string | null;
+      score: number;
+    }>();
+
+    vectorHits.forEach((hit: QueryResult, index: number) => {
+      itemMap.set(hit.id, {
+        id: hit.id,
+        content: hit.content,
+        documentName: hit.documentName,
+        chunkIndex: hit.chunkIndex,
+        parentId: hit.parentId,
+        score: 1 / (k + (index + 1)),
+      });
+    });
+
+    ftsHits.forEach((hit: QueryResult, index: number) => {
+      const existing = itemMap.get(hit.id);
+      const rrfScore = 1 / (k + (index + 1));
+      if (existing) {
+        existing.score += rrfScore;
+      } else {
+        itemMap.set(hit.id, {
+          id: hit.id,
+          content: hit.content,
+          documentName: hit.documentName,
+          chunkIndex: hit.chunkIndex,
+          parentId: hit.parentId,
+          score: rrfScore,
+        });
+      }
+    });
+
+    const reranked = Array.from(itemMap.values())
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+
+    // 4. Retrieve Parent Document Content for richer LLM context
+    const parentIds = reranked
+      .map((r) => r.parentId)
+      .filter((id): id is string => !!id);
+
+    const parentMap = new Map<string, string>();
+    if (parentIds.length > 0) {
+      const uniqueParentIds = Array.from(new Set(parentIds));
+      const parents = await this.parentRepo.find({
+        where: { id: In(uniqueParentIds) },
+      });
+      parents.forEach((p) => {
+        parentMap.set(p.id, p.content);
+      });
+    }
+
+    return reranked.map((r) => {
+      const parentContent = r.parentId ? parentMap.get(r.parentId) : null;
+      return {
+        content: parentContent || r.content,
+        documentName: r.documentName,
+        chunkIndex: r.chunkIndex,
+        score: r.score,
+      };
+    });
   }
 
   /**
@@ -196,6 +339,7 @@ export class DocumentService {
    * Delete all chunks for a specific document in a workspace
    */
   async deleteDocument(workspaceId: string, documentName: string): Promise<void> {
+    await this.parentRepo.delete({ workspaceId, documentName });
     await this.chunkRepo.delete({ workspaceId, documentName });
     this.logger.log(`Deleted document: ${documentName} from workspace: ${workspaceId}`);
   }

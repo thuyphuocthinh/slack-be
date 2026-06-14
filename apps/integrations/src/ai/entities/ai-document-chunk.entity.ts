@@ -3,7 +3,10 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { AiDocumentParentEntity } from './ai-document-parent.entity';
 
 @Entity('ai_document_chunks')
 export class AiDocumentChunkEntity {
@@ -15,6 +18,15 @@ export class AiDocumentChunkEntity {
 
   @Column({ type: 'varchar' })
   documentName: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  parentId: string;
+
+  @ManyToOne(() => AiDocumentParentEntity, (parent) => parent.chunks, {
+    onDelete: 'CASCADE',
+  })
+  @JoinColumn({ name: 'parentId' })
+  parent: AiDocumentParentEntity;
 
   @Column({ type: 'int', default: 0 })
   chunkIndex: number;
