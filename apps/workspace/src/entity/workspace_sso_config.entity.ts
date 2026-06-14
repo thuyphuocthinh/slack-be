@@ -24,7 +24,7 @@ export class WorkspaceSsoConfigEntity {
   @Column({ length: 100, unique: true })
   domain: string; // e.g. 'acme.com'
 
-  @Column({ type: 'varchar', length: 10 })
+  @Column({ name: 'provider_type', type: 'varchar', length: 10 })
   providerType: 'SAML2' | 'OIDC'; // 'SAML2' or 'OIDC'
 
   // SAML 2.0 configuration fields
