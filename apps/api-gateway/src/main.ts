@@ -31,6 +31,12 @@ async function bootstrap() {
       logger: WinstonModule.createLogger(getLoggerConfig('GATEWAY')),
       rawBody: true, // Required for Stripe webhook signature verification
     });
+    
+    const expressApp = app.getHttpAdapter().getInstance();
+    if (typeof expressApp.set === 'function') {
+      expressApp.set('trust proxy', true);
+    }
+
     app.enableShutdownHooks();
     app.useGlobalPipes(
       new ValidationPipe({
