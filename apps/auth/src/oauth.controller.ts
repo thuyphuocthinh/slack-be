@@ -67,4 +67,9 @@ export class OAuthController {
   getUserInfo(@Payload() payload: { accessToken: string }) {
     return this.oauthService.getUserInfo(payload.accessToken);
   }
+
+  @MessagePattern(OAUTH_MESSAGE_PATTERNS.VERIFY_TOKEN_SCOPE)
+  verifyTokenScope(@Payload() payload: { accessToken: string; requiredScope: string }) {
+    return this.oauthService.verifyTokenScope(payload.accessToken, payload.requiredScope);
+  }
 }

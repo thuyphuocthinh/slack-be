@@ -158,4 +158,18 @@ export class OAuthService {
       'OAuthService',
     );
   }
+
+  async verifyTokenScope(accessToken: string, requiredScope: string): Promise<{ userId: string; clientId: string }> {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.authClient.send(OAUTH_MESSAGE_PATTERNS.VERIFY_TOKEN_SCOPE, {
+            accessToken,
+            requiredScope,
+          }),
+        ),
+      'verifyTokenScope',
+      'OAuthService',
+    );
+  }
 }

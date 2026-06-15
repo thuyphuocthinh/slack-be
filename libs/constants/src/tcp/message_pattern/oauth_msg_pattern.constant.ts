@@ -12,4 +12,5 @@ export const OAUTH_MESSAGE_PATTERNS = {
   APPROVE_CONSENT: 'oauth.approve_consent',
   EXCHANGE_TOKEN: 'oauth.exchange_token',
   GET_USERINFO: 'oauth.get_userinfo',
+  VERIFY_TOKEN_SCOPE: 'oauth.verify_token_scope',
 } as const;

@@ -9,11 +9,13 @@ import { OAuthService } from './oauth.service';
 import { PassportModule } from '@nestjs/passport';
 import { GoogleStrategy } from './strategy/google.strategy';
 import { WorkspaceModule } from '../workspace/workspace.module';
+import { ChannelModule } from '../channel/channel.module';
 
 @Module({
   imports: [
     PassportModule,
     WorkspaceModule,
+    ChannelModule,
     ClientsModule.registerAsync([
       getMicroserviceClientConfig(NAME_SERVICE_TCP.AUTH_SERVICE, PORT_TCP.AUTH_TCP_PORT),
     ]),

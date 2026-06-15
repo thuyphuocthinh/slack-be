@@ -94,3 +94,10 @@ Content-Type: {{contentType}}
 
 GET {{baseUrl}}/oauth/userinfo
 Authorization: Bearer {{oauthAccessToken}}
+
+### Retrieve Channels using OAuth Access Token (channels:read scope)
+# Replace with workspaceId you want to query channels from
+@workspaceId = workspace_uuid_here
+
+GET {{baseUrl}}/oauth/channels?workspaceId={{workspaceId}}
+Authorization: Bearer {{oauthAccessToken}}

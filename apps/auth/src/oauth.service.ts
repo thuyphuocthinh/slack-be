@@ -324,6 +324,39 @@ export class OAuthService {
 
   // ================= HELPERS =================
 
+  async verifyTokenScope(accessToken: string, requiredScope: string): Promise<{ userId: string; clientId: string }> {
+    if (!accessToken) {
+      throw new RpcException(OAUTH_ERROR.INVALID_TOKEN);
+    }
+
+    const oauthToken = await this.tokenRepository.findOne({
+      where: { accessToken },
+    });
+
+    if (!oauthToken || oauthToken.expiresAt.getTime() < Date.now()) {
+      throw new RpcException(OAUTH_ERROR.INVALID_TOKEN);
+    }
+
+    let payload: any;
+    try {
+      payload = await this.jwtService.verifyAsync(accessToken);
+    } catch (err) {
+      throw new RpcException(OAUTH_ERROR.INVALID_TOKEN);
+    }
+
+    if (!payload.scopes || !payload.scopes.includes(requiredScope)) {
+      throw new RpcException({
+        statusCode: 403,
+        message: `Forbidden: Token is missing required scope '${requiredScope}'`,
+      });
+    }
+
+    return {
+      userId: oauthToken.userId,
+      clientId: oauthToken.clientId,
+    };
+  }
+
   private mapClientToResponse(client: OAuthClientEntity): IOAuthClientResponse {
     return {
       id: client.id,
