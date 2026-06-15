@@ -8,3 +8,4 @@ export * from './two_fa.dto';
 export * from './logout.dto';
 export * from './logout-all.dto';
 export * from './resend.dto';
+export * from './oauth.dto';

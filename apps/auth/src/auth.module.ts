@@ -2,9 +2,14 @@ import { Module } from '@nestjs/common';
 import { DatabaseModule } from '@slack/database';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { OAuthController } from './oauth.controller';
+import { OAuthService } from './oauth.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthEntity } from './entity/auth.entity';
 import { SessionEntity } from './entity/session.entity';
+import { OAuthClientEntity } from './entity/oauth-client.entity';
+import { OAuthAuthCodeEntity } from './entity/oauth-auth-code.entity';
+import { OAuthTokenEntity } from './entity/oauth-token.entity';
 import { ClientsModule } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { getMicroserviceClientConfig } from '@slack/common';
@@ -22,7 +27,15 @@ import { UserDeviceEntity } from './entity/user-device.entity';
     QueueModule.forRoot(),
     QueueModule.forFeature([EQueueName.EMAIL_QUEUE]),
     CachedModule.forRoot(),
-    TypeOrmModule.forFeature([AuthEntity, SessionEntity, VerificationEntity, UserDeviceEntity]),
+    TypeOrmModule.forFeature([
+      AuthEntity,
+      SessionEntity,
+      VerificationEntity,
+      UserDeviceEntity,
+      OAuthClientEntity,
+      OAuthAuthCodeEntity,
+      OAuthTokenEntity,
+    ]),
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'fallback_secret',
     }),
@@ -31,7 +44,7 @@ import { UserDeviceEntity } from './entity/user-device.entity';
       getMicroserviceClientConfig(NAME_SERVICE_TCP.NOTIFICATION_SERVICE, PORT_TCP.NOTIFICATION_TCP_PORT),
     ]),
   ],
-  controllers: [AuthController],
-  providers: [AuthService, GoogleStrategy],
+  controllers: [AuthController, OAuthController],
+  providers: [AuthService, OAuthService, GoogleStrategy],
 })
 export class AuthModule {}
