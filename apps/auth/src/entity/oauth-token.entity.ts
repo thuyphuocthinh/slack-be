@@ -7,7 +7,7 @@ import {
 
 @Entity('oauth_tokens')
 export class OAuthTokenEntity {
-  @PrimaryColumn({ type: 'varchar', length: 255, name: 'access_token' })
+  @PrimaryColumn({ type: 'text', name: 'access_token' })
   accessToken: string;
 
   @Column({ type: 'varchar', length: 255, unique: true, name: 'refresh_token' })
