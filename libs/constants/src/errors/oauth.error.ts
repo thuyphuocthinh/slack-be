@@ -1,0 +1,26 @@
+export const OAUTH_ERROR = {
+  CLIENT_NOT_FOUND: {
+    code: 'ERR.OAUTH.0401',
+    message: 'OAUTH CLIENT NOT FOUND',
+  },
+  INVALID_CLIENT_SECRET: {
+    code: 'ERR.OAUTH.0402',
+    message: 'INVALID CLIENT SECRET',
+  },
+  REDIRECT_URI_MISMATCH: {
+    code: 'ERR.OAUTH.0403',
+    message: 'REDIRECT URI NOT IN ALLOWED LIST',
+  },
+  AUTH_CODE_EXPIRED: {
+    code: 'ERR.OAUTH.0404',
+    message: 'AUTHORIZATION CODE EXPIRED OR INVALID',
+  },
+  INVALID_SCOPE: {
+    code: 'ERR.OAUTH.0405',
+    message: 'REQUESTED SCOPE IS NOT ALLOWED',
+  },
+  INVALID_TOKEN: {
+    code: 'ERR.OAUTH.0406',
+    message: 'ACCESS TOKEN IS INVALID OR EXPIRED',
+  },
+};

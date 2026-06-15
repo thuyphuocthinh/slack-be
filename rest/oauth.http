@@ -1,0 +1,96 @@
+# ========== CONFIGURATION ==========
+@baseUrl = http://localhost:3000/api/v1
+@contentType = application/json
+# Set the login bearer token here to test owner endpoints
+@accessToken = YOUR_SLACK_USER_JWT_TOKEN
+
+# ========== DEVELOPER CONSOLE ==========
+
+### Create OAuth Client
+# @name createClient
+POST {{baseUrl}}/oauth/clients
+Content-Type: {{contentType}}
+Authorization: Bearer {{accessToken}}
+
+{
+  "name": "Third Party App",
+  "logoUrl": "https://example.com/logo.png",
+  "redirectUris": [
+    "https://oauthdebugger.com/debug",
+    "http://localhost:4000/callback"
+  ]
+}
+
+### Get All OAuth Clients
+GET {{baseUrl}}/oauth/clients
+Authorization: Bearer {{accessToken}}
+
+### Get OAuth Client Details
+# Replace with the id returned from createClient
+@clientId = client_id_here
+GET {{baseUrl}}/oauth/clients/{{clientId}}
+Authorization: Bearer {{accessToken}}
+
+### Update OAuth Client
+PATCH {{baseUrl}}/oauth/clients/{{clientId}}
+Content-Type: {{contentType}}
+Authorization: Bearer {{accessToken}}
+
+{
+  "name": "Updated Third Party App",
+  "logoUrl": "https://example.com/new_logo.png"
+}
+
+### Regenerate Client Secret
+POST {{baseUrl}}/oauth/clients/{{clientId}}/secret
+Authorization: Bearer {{accessToken}}
+
+### Delete OAuth Client
+DELETE {{baseUrl}}/oauth/clients/{{clientId}}
+Authorization: Bearer {{accessToken}}
+
+
+# ========== OAUTH 2.0 PROVIDER FLOW ==========
+
+# Replace with the generated clientId (e.g. uuid) from createClient
+@clientUuid = client_uuid_here
+@redirectUri = https://oauthdebugger.com/debug
+
+### Get Authorize Consent Screen Details
+GET {{baseUrl}}/oauth/authorize?clientId={{clientUuid}}&redirectUri={{redirectUri}}
+Authorization: Bearer {{accessToken}}
+
+### Approve Consent (Generates code and redirect URL)
+# @name approveConsent
+POST {{baseUrl}}/oauth/approve
+Content-Type: {{contentType}}
+Authorization: Bearer {{accessToken}}
+
+{
+  "clientId": "{{clientUuid}}",
+  "redirectUri": "{{redirectUri}}",
+  "scopes": ["openid", "profile", "email"]
+}
+
+### Exchange Authorization Code for Access & Refresh Token
+# Replace the authorization code below with the code returned in the redirect url from approveConsent
+# Replace clientSecret with the plain text secret returned from createClient / secret regeneration
+@authCode = code_returned_here
+@clientSecret = plain_client_secret_here
+
+POST {{baseUrl}}/oauth/token
+Content-Type: {{contentType}}
+
+{
+  "clientId": "{{clientUuid}}",
+  "clientSecret": "{{clientSecret}}",
+  "code": "{{authCode}}",
+  "redirectUri": "{{redirectUri}}"
+}
+
+### Retrieve User Information using OAuth Access Token
+# Replace with the accessToken returned from exchange token request
+@oauthAccessToken = oauth_access_token_here
+
+GET {{baseUrl}}/oauth/userinfo
+Authorization: Bearer {{oauthAccessToken}}
