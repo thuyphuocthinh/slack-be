@@ -19,6 +19,7 @@ import {
 } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { OAuthService } from './oauth.service';
+import { ChannelService } from '../channel/channel.service';
 import { CurrentUser, type JwtUser, Public } from '@slack/common';
 import {
   CreateOAuthClientDto,
@@ -32,7 +33,10 @@ import {
 @Controller('oauth')
 @ApiBearerAuth()
 export class OAuthController {
-  constructor(private readonly oauthService: OAuthService) {}
+  constructor(
+    private readonly oauthService: OAuthService,
+    private readonly channelService: ChannelService,
+  ) {}
 
   // ================= DEVELOPER CONSOLE =================
 
@@ -132,5 +136,29 @@ export class OAuthController {
     }
     const token = authHeader.substring(7);
     return this.oauthService.getUserInfo(token);
+  }
+
+  @Public()
+  @Get('channels')
+  @ApiOperation({ summary: 'Retrieve workspace channels using OAuth access token with channels:read scope' })
+  @ApiResponse({ status: 200, description: 'Channels retrieved successfully' })
+  async getChannels(
+    @Req() req: Request,
+    @Query('workspaceId') workspaceId: string,
+  ) {
+    const authHeader = req.headers['authorization'];
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      throw new UnauthorizedException('Missing or invalid Authorization header');
+    }
+    const token = authHeader.substring(7);
+
+    // 1. Verify token scope and get user id context
+    const tokenInfo = await this.oauthService.verifyTokenScope(token, 'channels:read');
+
+    // 2. Query workspace channels acting on behalf of the user
+    return this.channelService.getChannels({
+      workspaceId,
+      memberId: tokenInfo.userId,
+    });
   }
 }
