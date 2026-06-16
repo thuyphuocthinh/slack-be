@@ -1,11 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Repository, EntityManager, In } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
 import * as crypto from 'crypto';
 import * as argon2 from 'argon2';
+import { buildTTL } from '@slack/common';
 
 import { OAuthClientEntity } from './entity/oauth-client.entity';
 import { OAuthAuthCodeEntity } from './entity/oauth-auth-code.entity';
@@ -28,11 +29,18 @@ import {
   IOAuthTokenExchangeDto,
   IOAuthTokenExchangeResponse,
   IOAuthUserInfoResponse,
-} from './types/oauth.interface';
+  IOAuthRevokeTokenDto,
+  IOAuthAuthorizedClientResponse,
+} from './types/oauth.interface';import {
+  IOAuthGrantStrategy,
+  AuthorizationCodeGrantStrategy,
+  RefreshTokenGrantStrategy,
+} from './strategy/oauth';
 
 @Injectable()
 export class OAuthService {
   private readonly logger = new Logger(OAuthService.name);
+  private readonly strategies: Record<string, IOAuthGrantStrategy>;
 
   constructor(
     @InjectRepository(OAuthClientEntity)
@@ -45,7 +53,23 @@ export class OAuthService {
     private readonly userClient: ClientProxy,
     private readonly jwtService: JwtService,
     private readonly dataSource: DataSource,
-  ) {}
+  ) {
+    this.strategies = {
+      'authorization_code': new AuthorizationCodeGrantStrategy(this.jwtService),
+      'refresh_token': new RefreshTokenGrantStrategy(this.jwtService),
+    };
+  }
+
+  private getGrantStrategy(grantType: string): IOAuthGrantStrategy {
+    const strategy = this.strategies[grantType];
+    if (!strategy) {
+      throw new RpcException({
+        statusCode: 400,
+        message: `Unsupported grant_type: ${grantType}`,
+      });
+    }
+    return strategy;
+  }
 
   // ================= DEVELOPER CONSOLE =================
 
@@ -182,7 +206,7 @@ export class OAuthService {
     }
 
     const code = crypto.randomBytes(24).toString('hex');
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
+    const expiresAt = new Date(Date.now() + buildTTL('MINUTE', 10)); // 10 minutes expiry
 
     const authCode = this.authCodeRepository.create({
       code,
@@ -218,58 +242,11 @@ export class OAuthService {
       throw new RpcException(OAUTH_ERROR.INVALID_CLIENT_SECRET);
     }
 
-    // Perform database transactions to ensure code consumption is atomic (anti-replay)
+    const grantType = data.grantType || 'authorization_code';
+    const strategy = this.getGrantStrategy(grantType);
+
     return await this.dataSource.transaction(async (manager) => {
-      const authCode = await manager.findOne(OAuthAuthCodeEntity, {
-        where: { code: data.code },
-        lock: { mode: 'pessimistic_write' },
-      });
-
-      if (!authCode || authCode.expiresAt.getTime() < Date.now()) {
-        throw new RpcException(OAUTH_ERROR.AUTH_CODE_EXPIRED);
-      }
-
-      if (authCode.clientId !== data.clientId || authCode.redirectUri !== data.redirectUri) {
-        throw new RpcException(OAUTH_ERROR.REDIRECT_URI_MISMATCH);
-      }
-
-      // Consume the authorization code immediately
-      await manager.remove(authCode);
-
-      // Generate Access Token and Refresh Token
-      const tokenExpiresIn = 3600; // 1 hour in seconds
-      const expiresAt = new Date(Date.now() + tokenExpiresIn * 1000);
-
-      const tokenPayload = {
-        sub: authCode.userId,
-        client_id: authCode.clientId,
-        scopes: authCode.scopes,
-        type: 'oauth_access',
-      };
-
-      const accessToken = await this.jwtService.signAsync(tokenPayload, {
-        expiresIn: '1h',
-      });
-
-      const refreshToken = crypto.randomBytes(40).toString('hex');
-
-      // Save tokens in database
-      const oauthToken = manager.create(OAuthTokenEntity, {
-        accessToken,
-        refreshToken,
-        clientId: authCode.clientId,
-        userId: authCode.userId,
-        expiresAt,
-      });
-
-      await manager.save(oauthToken);
-
-      return {
-        accessToken,
-        refreshToken,
-        tokenType: 'Bearer',
-        expiresIn: tokenExpiresIn,
-      };
+      return strategy.exchange(manager, data, client);
     });
   }
 
@@ -369,5 +346,92 @@ export class OAuthService {
       createdAt: client.createdAt,
       updatedAt: client.updatedAt,
     };
+  }
+
+  async revokeToken(data: IOAuthRevokeTokenDto): Promise<void> {
+    const client = await this.clientRepository.findOne({
+      where: { clientId: data.clientId },
+    });
+
+    if (!client) {
+      throw new RpcException(OAUTH_ERROR.CLIENT_NOT_FOUND);
+    }
+
+    const isSecretValid = await argon2.verify(client.clientSecret, data.clientSecret);
+    if (!isSecretValid) {
+      throw new RpcException(OAUTH_ERROR.INVALID_CLIENT_SECRET);
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const token = await manager.findOne(OAuthTokenEntity, {
+        where: [
+          { accessToken: data.token, clientId: data.clientId },
+          { refreshToken: data.token, clientId: data.clientId },
+        ],
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (token) {
+        await manager.remove(token);
+      }
+    });
+  }
+
+  async getAuthorizedClients(userId: string): Promise<IOAuthAuthorizedClientResponse[]> {
+    const tokens = await this.tokenRepository.find({
+      where: { userId },
+    });
+
+    const clientIds = [...new Set(tokens.map(t => t.clientId))];
+    if (clientIds.length === 0) return [];
+
+    const clients = await this.clientRepository.find({
+      where: { clientId: In(clientIds) },
+    });
+
+    return clients.map(client => {
+      const clientTokens = tokens.filter(t => t.clientId === client.clientId);
+      let scopes: string[] = [];
+      const activeToken = clientTokens.find(t => t.expiresAt.getTime() > Date.now());
+      if (activeToken) {
+        try {
+          const decoded = this.jwtService.decode(activeToken.accessToken) as any;
+          scopes = decoded?.scopes || [];
+        } catch (e) {
+          // ignore
+        }
+      } else if (clientTokens[0]) {
+        try {
+          const decoded = this.jwtService.decode(clientTokens[0].accessToken) as any;
+          scopes = decoded?.scopes || [];
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      const sortedTokens = [...clientTokens].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+      return {
+        id: client.id,
+        clientId: client.clientId,
+        name: client.name,
+        logoUrl: client.logoUrl,
+        authorizedScopes: scopes,
+        authorizedAt: sortedTokens[0]?.createdAt || new Date(),
+      };
+    });
+  }
+
+  async revokeAuthorizedClient(userId: string, clientId: string): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      const tokens = await manager.find(OAuthTokenEntity, {
+        where: { userId, clientId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (tokens.length > 0) {
+        await manager.remove(tokens);
+      }
+    });
   }
 }

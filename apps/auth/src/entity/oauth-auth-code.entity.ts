@@ -3,10 +3,13 @@ import {
   CreateDateColumn,
   Entity,
   PrimaryColumn,
+  Index,
 } from 'typeorm';
 import { OAuthScope } from '@slack/constants';
 
 @Entity('oauth_auth_codes')
+@Index('IDX_OAUTH_AUTH_CODES_USER_ID', ['userId'])
+@Index('IDX_OAUTH_AUTH_CODES_CLIENT_ID', ['clientId'])
 export class OAuthAuthCodeEntity {
   @PrimaryColumn({ type: 'varchar', length: 100, name: 'code' })
   code: string;

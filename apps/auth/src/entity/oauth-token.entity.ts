@@ -3,9 +3,13 @@ import {
   CreateDateColumn,
   Entity,
   PrimaryColumn,
+  Index,
 } from 'typeorm';
 
 @Entity('oauth_tokens')
+@Index('IDX_OAUTH_TOKENS_USER_ID', ['userId'])
+@Index('IDX_OAUTH_TOKENS_CLIENT_ID', ['clientId'])
+@Index('IDX_OAUTH_TOKENS_USER_CLIENT_ID', ['userId', 'clientId'])
 export class OAuthTokenEntity {
   @PrimaryColumn({ type: 'text', name: 'access_token' })
   accessToken: string;

@@ -9,6 +9,7 @@ import {
   GetOAuthAuthorizeDetailsDto,
   OAuthApproveConsentDto,
   OAuthTokenExchangeDto,
+  OAuthRevokeTokenDto,
 } from './dto/oauth.dto';
 
 @Injectable()
@@ -169,6 +170,46 @@ export class OAuthService {
           }),
         ),
       'verifyTokenScope',
+      'OAuthService',
+    );
+  }
+
+  async revokeToken(data: OAuthRevokeTokenDto) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.authClient.send(OAUTH_MESSAGE_PATTERNS.REVOKE_TOKEN, {
+            data,
+          }),
+        ),
+      'revokeToken',
+      'OAuthService',
+    );
+  }
+
+  async getAuthorizedClients(userId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.authClient.send(OAUTH_MESSAGE_PATTERNS.GET_AUTHORIZED_CLIENTS, {
+            userId,
+          }),
+        ),
+      'getAuthorizedClients',
+      'OAuthService',
+    );
+  }
+
+  async revokeAuthorizedClient(userId: string, clientId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.authClient.send(OAUTH_MESSAGE_PATTERNS.REVOKE_AUTHORIZED_CLIENT, {
+            userId,
+            clientId,
+          }),
+        ),
+      'revokeAuthorizedClient',
       'OAuthService',
     );
   }

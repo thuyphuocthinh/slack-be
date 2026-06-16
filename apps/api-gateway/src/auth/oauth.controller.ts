@@ -10,6 +10,8 @@ import {
   Req,
   Headers,
   UnauthorizedException,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -27,6 +29,7 @@ import {
   GetOAuthAuthorizeDetailsDto,
   OAuthApproveConsentDto,
   OAuthTokenExchangeDto,
+  OAuthRevokeTokenDto,
 } from './dto/oauth.dto';
 
 @ApiTags('OAuth 2.0 Provider')
@@ -160,5 +163,33 @@ export class OAuthController {
       workspaceId,
       memberId: tokenInfo.userId,
     });
+  }
+
+  @Public()
+  @Post('revoke')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Revoke an access token or refresh token' })
+  @ApiResponse({ status: 200, description: 'Token revoked successfully' })
+  async revokeToken(@Body() data: OAuthRevokeTokenDto) {
+    await this.oauthService.revokeToken(data);
+    return { status: 'Success', message: 'Token revoked' };
+  }
+
+  @Get('authorized-apps')
+  @ApiOperation({ summary: 'List all third-party apps authorized by the user' })
+  @ApiResponse({ status: 200, description: 'List of authorized apps retrieved successfully' })
+  async getAuthorizedApps(@CurrentUser() user: JwtUser) {
+    return this.oauthService.getAuthorizedClients(user.sub);
+  }
+
+  @Delete('authorized-apps/:clientId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Revoke authorization/access for a third-party app' })
+  @ApiResponse({ status: 204, description: 'App authorization revoked successfully' })
+  async revokeAuthorizedApp(
+    @CurrentUser() user: JwtUser,
+    @Param('clientId') clientId: string,
+  ) {
+    await this.oauthService.revokeAuthorizedClient(user.sub, clientId);
   }
 }

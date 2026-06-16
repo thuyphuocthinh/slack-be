@@ -57,8 +57,10 @@ export interface IOAuthApproveConsentResponse {
 export interface IOAuthTokenExchangeDto {
   clientId: string;
   clientSecret: string;
-  code: string;
-  redirectUri: string;
+  grantType?: string;
+  code?: string;
+  redirectUri?: string;
+  refreshToken?: string;
 }
 
 export interface IOAuthTokenExchangeResponse {
@@ -74,4 +76,20 @@ export interface IOAuthUserInfoResponse {
   name: string;
   email: string;
   picture?: string;
+}
+
+export interface IOAuthRevokeTokenDto {
+  clientId: string;
+  clientSecret: string;
+  token: string;
+  tokenTypeHint?: string;
+}
+
+export interface IOAuthAuthorizedClientResponse {
+  id: string;
+  clientId: string;
+  name: string;
+  logoUrl: string | null;
+  authorizedScopes: string[];
+  authorizedAt: Date;
 }

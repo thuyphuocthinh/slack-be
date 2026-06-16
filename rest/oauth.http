@@ -101,3 +101,35 @@ Authorization: Bearer {{oauthAccessToken}}
 
 GET {{baseUrl}}/oauth/channels?workspaceId={{workspaceId}}
 Authorization: Bearer {{oauthAccessToken}}
+
+### Exchange Refresh Token for New Access Token (grant_type=refresh_token)
+# Replace with the refreshToken returned from exchange token request
+@oauthRefreshToken = oauth_refresh_token_here
+
+POST {{baseUrl}}/oauth/token
+Content-Type: application/json
+
+{
+  "clientId": "{{clientId}}",
+  "clientSecret": "{{clientSecret}}",
+  "grantType": "refresh_token",
+  "refreshToken": "{{oauthRefreshToken}}"
+}
+
+### Revoke OAuth Token (Access Token or Refresh Token)
+POST {{baseUrl}}/oauth/revoke
+Content-Type: {{contentType}}
+
+{
+  "clientId": "{{clientUuid}}",
+  "clientSecret": "{{clientSecret}}",
+  "token": "{{oauthAccessToken}}"
+}
+
+### Get User Authorized Apps
+GET {{baseUrl}}/oauth/authorized-apps
+Authorization: Bearer {{accessToken}}
+
+### Revoke App Authorization (by Client ID)
+DELETE {{baseUrl}}/oauth/authorized-apps/{{clientUuid}}
+Authorization: Bearer {{accessToken}}

@@ -8,6 +8,7 @@ import {
   IGetOAuthAuthorizeDetailsDto,
   IOAuthApproveConsentDto,
   IOAuthTokenExchangeDto,
+  IOAuthRevokeTokenDto,
 } from './types/oauth.interface';
 
 @Controller()
@@ -71,5 +72,20 @@ export class OAuthController {
   @MessagePattern(OAUTH_MESSAGE_PATTERNS.VERIFY_TOKEN_SCOPE)
   verifyTokenScope(@Payload() payload: { accessToken: string; requiredScope: string }) {
     return this.oauthService.verifyTokenScope(payload.accessToken, payload.requiredScope);
+  }
+
+  @MessagePattern(OAUTH_MESSAGE_PATTERNS.REVOKE_TOKEN)
+  revokeToken(@Payload() payload: { data: IOAuthRevokeTokenDto }) {
+    return this.oauthService.revokeToken(payload.data);
+  }
+
+  @MessagePattern(OAUTH_MESSAGE_PATTERNS.GET_AUTHORIZED_CLIENTS)
+  getAuthorizedClients(@Payload() payload: { userId: string }) {
+    return this.oauthService.getAuthorizedClients(payload.userId);
+  }
+
+  @MessagePattern(OAUTH_MESSAGE_PATTERNS.REVOKE_AUTHORIZED_CLIENT)
+  revokeAuthorizedClient(@Payload() payload: { userId: string; clientId: string }) {
+    return this.oauthService.revokeAuthorizedClient(payload.userId, payload.clientId);
   }
 }

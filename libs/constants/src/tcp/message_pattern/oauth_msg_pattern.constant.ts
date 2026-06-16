@@ -13,4 +13,7 @@ export const OAUTH_MESSAGE_PATTERNS = {
   EXCHANGE_TOKEN: 'oauth.exchange_token',
   GET_USERINFO: 'oauth.get_userinfo',
   VERIFY_TOKEN_SCOPE: 'oauth.verify_token_scope',
+  REVOKE_TOKEN: 'oauth.revoke_token',
+  GET_AUTHORIZED_CLIENTS: 'oauth.get_authorized_clients',
+  REVOKE_AUTHORIZED_CLIENT: 'oauth.revoke_authorized_client',
 } as const;
