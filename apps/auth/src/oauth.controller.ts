@@ -75,8 +75,9 @@ export class OAuthController {
   }
 
   @MessagePattern(OAUTH_MESSAGE_PATTERNS.REVOKE_TOKEN)
-  revokeToken(@Payload() payload: { data: IOAuthRevokeTokenDto }) {
-    return this.oauthService.revokeToken(payload.data);
+  async revokeToken(@Payload() payload: { data: IOAuthRevokeTokenDto }) {
+    await this.oauthService.revokeToken(payload.data);
+    return { success: true };
   }
 
   @MessagePattern(OAUTH_MESSAGE_PATTERNS.GET_AUTHORIZED_CLIENTS)
@@ -85,7 +86,8 @@ export class OAuthController {
   }
 
   @MessagePattern(OAUTH_MESSAGE_PATTERNS.REVOKE_AUTHORIZED_CLIENT)
-  revokeAuthorizedClient(@Payload() payload: { userId: string; clientId: string }) {
-    return this.oauthService.revokeAuthorizedClient(payload.userId, payload.clientId);
+  async revokeAuthorizedClient(@Payload() payload: { userId: string; clientId: string }) {
+    await this.oauthService.revokeAuthorizedClient(payload.userId, payload.clientId);
+    return { success: true };
   }
 }
