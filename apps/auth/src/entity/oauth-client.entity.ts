@@ -4,10 +4,12 @@ import {
   Entity,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
+  Index,
 } from 'typeorm';
 import { OAuthScope } from '@slack/constants';
 
 @Entity('oauth_clients')
+@Index('IDX_OAUTH_CLIENTS_OWNER', ['ownerId'])
 export class OAuthClientEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

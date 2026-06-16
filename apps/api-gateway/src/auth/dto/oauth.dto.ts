@@ -83,13 +83,45 @@ export class OAuthTokenExchangeDto {
   @IsNotEmpty()
   clientSecret: string;
 
-  @ApiProperty({ description: 'OAuth authorization code' })
+  @ApiProperty({ description: 'OAuth grant_type: authorization_code or refresh_token', required: false })
+  @IsString()
+  @IsOptional()
+  grantType?: string;
+
+  @ApiProperty({ description: 'OAuth authorization code', required: false })
+  @IsString()
+  @IsOptional()
+  code?: string;
+
+  @ApiProperty({ description: 'OAuth redirect_uri', required: false })
+  @IsUrl()
+  @IsOptional()
+  redirectUri?: string;
+
+  @ApiProperty({ description: 'OAuth refresh_token', required: false })
+  @IsString()
+  @IsOptional()
+  refreshToken?: string;
+}
+
+export class OAuthRevokeTokenDto {
+  @ApiProperty({ description: 'OAuth client_id' })
   @IsString()
   @IsNotEmpty()
-  code: string;
+  clientId: string;
 
-  @ApiProperty({ description: 'OAuth redirect_uri' })
-  @IsUrl()
+  @ApiProperty({ description: 'OAuth client_secret' })
+  @IsString()
   @IsNotEmpty()
-  redirectUri: string;
+  clientSecret: string;
+
+  @ApiProperty({ description: 'The access token or refresh token to revoke' })
+  @IsString()
+  @IsNotEmpty()
+  token: string;
+
+  @ApiProperty({ description: 'An optional hint about the type of token submitted for revocation', required: false })
+  @IsString()
+  @IsOptional()
+  tokenTypeHint?: string;
 }
