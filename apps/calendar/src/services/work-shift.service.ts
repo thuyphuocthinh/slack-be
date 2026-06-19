@@ -1,6 +1,6 @@
 import { Injectable, Logger, HttpStatus, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, Between, In } from 'typeorm';
 import { RpcException, ClientProxy } from '@nestjs/microservices';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
 import { BulkRegisterWorkShiftDto, GetWorkShiftsDto } from '../dto/calendar-request.dto';
@@ -69,7 +69,15 @@ export class WorkShiftService {
         skipUpdateIfNoValuesChanged: true,
       });
 
-      return `Successfully registered ${shiftsToInsert.length} shifts.`
+      const upsertedShifts = await this.workShiftRepository.find({
+        where: {
+          workspaceId,
+          userId,
+          workDate: In(shifts.map(s => s.workDate)),
+        },
+      });
+
+      return plainToInstance(WorkShiftResponseDto, upsertedShifts);
     } catch (error) {
       if (error instanceof RpcException) throw error;
       this.logger.error('Error bulk registering shifts:', error);
