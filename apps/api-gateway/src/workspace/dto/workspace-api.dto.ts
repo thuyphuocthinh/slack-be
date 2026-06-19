@@ -87,10 +87,16 @@ export class AddBatchMembersApiDto {
   role: WorkspaceRoleEnum;
 }
 
-export class ChangeRoleApiDto {
-  @ApiProperty({ enum: WorkspaceRoleEnum, example: WorkspaceRoleEnum.ADMIN })
+export class UpdateMemberApiDto {
+  @ApiPropertyOptional({ enum: WorkspaceRoleEnum, example: WorkspaceRoleEnum.ADMIN })
   @IsEnum(WorkspaceRoleEnum)
-  newRole: WorkspaceRoleEnum;
+  @IsOptional()
+  newRole?: WorkspaceRoleEnum;
+
+  @ApiPropertyOptional({ example: 'FULLTIME' })
+  @IsString()
+  @IsOptional()
+  newEmploymentType?: string;
 }
 
 export class TransferOwnershipApiDto {

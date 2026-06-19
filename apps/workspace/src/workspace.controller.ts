@@ -107,7 +107,7 @@ export class WorkspaceController {
     return this.memberService.leaveWorkspace(dto);
   }
 
-  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.CHANGE_ROLE)
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.UPDATE_MEMBER)
   updateMember(@Payload() dto: UpdateMemberRequestDto) {
     return this.memberService.updateMember(dto);
   }
