@@ -20,7 +20,7 @@ import {
   CreateWorkspaceApiDto,
   InviteMemberApiDto,
   AddMemberDirectApiDto,
-  updateMemberApiDto,
+  UpdateMemberApiDto,
   TransferOwnershipApiDto,
   CreateLinkApiDto,
   UpdateWorkspaceApiDto,
@@ -222,13 +222,14 @@ export class WorkspaceController {
   async updateMember(
     @Param('id') id: string,
     @Param('userId') userId: string,
-    @Body() data: updateMemberApiDto,
+    @Body() data: UpdateMemberApiDto,
     @CurrentUser() user: JwtUser,
   ) {
     return await this.workspaceService.updateMember({
       workspaceId: id,
       targetUserId: userId,
       newRole: data.newRole,
+      newEmploymentType: data.newEmploymentType,
       adminUserId: user.sub,
     });
   }

@@ -7,7 +7,6 @@ export class InitCalendarEntities1781800000000 implements MigrationInterface {
     // 1. Create Enums
     await queryRunner.query(`CREATE TYPE "public"."calendar_request_type_enum" AS ENUM('LEAVE_PAID', 'LEAVE_UNPAID', 'LEAVE_SICK', 'OFF_SHIFT', 'CALENDAR_OPEN_REQUEST', 'ATTENDANCE_CORRECTION')`);
     await queryRunner.query(`CREATE TYPE "public"."calendar_request_status_enum" AS ENUM('PENDING', 'APPROVED', 'REJECTED')`);
-    await queryRunner.query(`CREATE TYPE "public"."work_shift_type_enum" AS ENUM('FULLTIME', 'PARTTIME')`);
     await queryRunner.query(`CREATE TYPE "public"."work_shift_location_enum" AS ENUM('OFFICE', 'WFH')`);
     await queryRunner.query(`CREATE TYPE "public"."work_shift_status_enum" AS ENUM('PENDING', 'APPROVED', 'REJECTED')`);
     await queryRunner.query(`CREATE TYPE "public"."attendance_log_type_enum" AS ENUM('CHECK_IN', 'CHECK_OUT')`);
@@ -32,7 +31,6 @@ export class InitCalendarEntities1781800000000 implements MigrationInterface {
         "user_id" uuid NOT NULL,
         "workspace_id" uuid NOT NULL,
         "work_date" date NOT NULL,
-        "shift_type" "public"."work_shift_type_enum" NOT NULL DEFAULT 'FULLTIME',
         "location" "public"."work_shift_location_enum" NOT NULL DEFAULT 'OFFICE',
         "start_time" TIMESTAMP WITH TIME ZONE NOT NULL,
         "end_time" TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -171,7 +169,6 @@ export class InitCalendarEntities1781800000000 implements MigrationInterface {
     await queryRunner.query(`DROP TYPE "public"."attendance_log_type_enum"`);
     await queryRunner.query(`DROP TYPE "public"."work_shift_status_enum"`);
     await queryRunner.query(`DROP TYPE "public"."work_shift_location_enum"`);
-    await queryRunner.query(`DROP TYPE "public"."work_shift_type_enum"`);
     await queryRunner.query(`DROP TYPE "public"."calendar_request_status_enum"`);
     await queryRunner.query(`DROP TYPE "public"."calendar_request_type_enum"`);
   }

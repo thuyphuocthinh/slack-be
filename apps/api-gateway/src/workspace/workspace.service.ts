@@ -15,7 +15,7 @@ import {
   RemoveMemberRequestDto,
   JoinWorkspaceRequestDto,
   LeaveWorkspaceRequestDto,
-  updateMemberRequestDto,
+  UpdateMemberRequestDto,
   TransferOwnershipRequestDto,
   DeleteWorkspaceRequestDto,
   ResendInviteRequestDto,
@@ -226,12 +226,12 @@ export class WorkspaceService {
     );
   }
 
-  async updateMember(data: updateMemberRequestDto) {
+  async updateMember(data: UpdateMemberRequestDto) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
           this.workspaceClient.send(
-            WORKSPACE_MESSAGE_PATTERNS.CHANGE_ROLE,
+            WORKSPACE_MESSAGE_PATTERNS.UPDATE_MEMBER,
             data,
           ),
         ),

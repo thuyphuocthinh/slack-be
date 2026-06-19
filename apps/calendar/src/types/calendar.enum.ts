@@ -1,8 +1,3 @@
-export enum ShiftType {
-  FULLTIME = 'FULLTIME',
-  PARTTIME = 'PARTTIME',
-}
-
 export enum ShiftLocation {
   OFFICE = 'OFFICE',
   WFH = 'WFH',

@@ -7,7 +7,7 @@ import {
   Index,
   Unique,
 } from 'typeorm';
-import { ShiftType, ShiftLocation, ShiftStatus } from '../types/calendar.enum';
+import { ShiftLocation, ShiftStatus } from '../types/calendar.enum';
 
 @Entity('work_shifts')
 @Unique('IDX_UNIQUE_SHIFT_PER_DAY', ['userId', 'workspaceId', 'workDate'])
@@ -26,14 +26,6 @@ export class WorkShiftEntity {
   @Column({ name: 'work_date', type: 'date' })
   @Index()
   workDate: string; // YYYY-MM-DD — ngày làm việc cụ thể
-
-  @Column({
-    name: 'shift_type',
-    type: 'enum',
-    enum: ShiftType,
-    default: ShiftType.FULLTIME,
-  })
-  shiftType: ShiftType;
 
   @Column({
     type: 'enum',
