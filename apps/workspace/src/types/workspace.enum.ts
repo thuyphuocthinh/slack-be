@@ -4,6 +4,11 @@ export enum WorkspaceRoleEnum {
   MEMBER = 'member',
 }
 
+export enum EmploymentType {
+  FULLTIME = 'FULLTIME',
+  PARTTIME = 'PARTTIME',
+}
+
 export enum WorkspaceLinkStatus {
   ACTIVE = 'active',
   DISABLED = 'disabled',

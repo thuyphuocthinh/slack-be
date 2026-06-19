@@ -15,7 +15,7 @@ import {
   RemoveMemberRequestDto,
   JoinWorkspaceRequestDto,
   LeaveWorkspaceRequestDto,
-  ChangeRoleRequestDto,
+  updateMemberRequestDto,
   TransferOwnershipRequestDto,
   DeleteWorkspaceRequestDto,
   ResendInviteRequestDto,
@@ -226,7 +226,7 @@ export class WorkspaceService {
     );
   }
 
-  async changeRole(data: ChangeRoleRequestDto) {
+  async updateMember(data: updateMemberRequestDto) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -235,7 +235,7 @@ export class WorkspaceService {
             data,
           ),
         ),
-      'changeRole',
+      'updateMember',
       'WorkspaceService',
     );
   }

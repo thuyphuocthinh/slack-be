@@ -7,7 +7,7 @@ export const WORKSPACE_MESSAGE_PATTERNS = {
   ADD_MEMBER_DIRECT: 'workspace.add_member_direct',
   ACCEPT_INVITE: 'workspace.accept_invite',
   LEAVE: 'workspace.leave',
-  CHANGE_ROLE: 'workspace.change_role',
+  UPDATE_MEMBER: 'workspace.UPDATE_MEMBER',
   TRANSFER_OWNERSHIP: 'workspace.transfer_ownership',
   RESEND_INVITE: 'workspace.resend_invite',
   REVOKE_INVITE: 'workspace.revoke_invite',

@@ -14,7 +14,7 @@ import {
   AddMemberRequestDto,
   RemoveMemberRequestDto,
   LeaveWorkspaceRequestDto,
-  ChangeRoleRequestDto,
+  UpdateMemberRequestDto,
   TransferOwnershipRequestDto,
   AddBatchMembersRequestDto,
 } from '../dto/workspace-request.dto';
@@ -76,6 +76,7 @@ export class WorkspaceMemberService {
           workspaceId: dto.workspaceId,
           userId: dto.userId,
           role: dto.role,
+          employmentType: dto.employmentType,
           status: MembershipStatus.ACTIVE,
         });
         return await manager.save(newMember);
@@ -207,8 +208,8 @@ export class WorkspaceMemberService {
     return 'Left workspace successfully';
   }
 
-  async changeRole(
-    dto: ChangeRoleRequestDto,
+  async updateMember(
+    dto: UpdateMemberRequestDto,
   ): Promise<WorkspaceMemberResponseDto> {
     const adminMember = await this.commonService.checkPermission(
       dto.workspaceId,
@@ -249,11 +250,16 @@ export class WorkspaceMemberService {
       });
     }
 
-    targetMember.role = dto.newRole;
+    if (dto.newRole) {
+      targetMember.role = dto.newRole;
+    }
+    if (dto.newEmploymentType) {
+      targetMember.employmentType = dto.newEmploymentType;
+    }
     const updatedMember = await this.memberRepository.save(targetMember);
 
     this.logger.log(
-      'Change role',
+      'Update member info',
       JSON.stringify({ targetMember, updatedMember }),
     );
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
@@ -398,6 +404,7 @@ export class WorkspaceMemberService {
           if (existing.status !== MembershipStatus.ACTIVE) {
             existing.status = MembershipStatus.ACTIVE;
             existing.role = dto.role ?? existing.role;
+            existing.employmentType = dto.employmentType ?? existing.employmentType;
             existing.joinedAt = new Date();
             toSave.push(existing);
           }
@@ -408,6 +415,7 @@ export class WorkspaceMemberService {
           workspaceId: dto.workspaceId,
           userId,
           role: dto.role ?? WorkspaceRoleEnum.MEMBER,
+          employmentType: dto.employmentType,
           status: MembershipStatus.ACTIVE,
         });
 

@@ -4,6 +4,7 @@ import {
   InviteStatus,
   WorkspaceLinkType,
   WorkspaceLinkStatus,
+  EmploymentType,
 } from '../types/workspace.enum';
 
 export class WorkspaceDto {
@@ -21,6 +22,7 @@ export class WorkspaceMemberDto {
   workspaceId: string;
   userId: string;
   role: WorkspaceRoleEnum;
+  employmentType: EmploymentType;
   status: MembershipStatus;
   joinedAt: Date;
   createdAt: Date;

@@ -20,7 +20,7 @@ import {
   CreateWorkspaceApiDto,
   InviteMemberApiDto,
   AddMemberDirectApiDto,
-  ChangeRoleApiDto,
+  updateMemberApiDto,
   TransferOwnershipApiDto,
   CreateLinkApiDto,
   UpdateWorkspaceApiDto,
@@ -219,13 +219,13 @@ export class WorkspaceController {
   @Patch(':id/members/:userId/role')
   @ApiOperation({ summary: 'Change a members role in a workspace' })
   @ApiResponse({ status: 200, description: 'Role changed successfully' })
-  async changeRole(
+  async updateMember(
     @Param('id') id: string,
     @Param('userId') userId: string,
-    @Body() data: ChangeRoleApiDto,
+    @Body() data: updateMemberApiDto,
     @CurrentUser() user: JwtUser,
   ) {
-    return await this.workspaceService.changeRole({
+    return await this.workspaceService.updateMember({
       workspaceId: id,
       targetUserId: userId,
       newRole: data.newRole,

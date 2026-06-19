@@ -9,7 +9,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { WorkspaceRoleEnum, MembershipStatus } from '../types/workspace.enum';
+import { WorkspaceRoleEnum, MembershipStatus, EmploymentType } from '../types/workspace.enum';
 import { WorkspaceEntity } from './workspace.entity';
 
 @Entity('workspace_members')
@@ -35,6 +35,14 @@ export class WorkspaceMemberEntity {
     enum: WorkspaceRoleEnum,
   })
   role: WorkspaceRoleEnum;
+
+  @Column({
+    name: 'employment_type',
+    type: 'enum',
+    enum: EmploymentType,
+    default: EmploymentType.FULLTIME,
+  })
+  employmentType: EmploymentType;
 
   @Column({
     type: 'enum',

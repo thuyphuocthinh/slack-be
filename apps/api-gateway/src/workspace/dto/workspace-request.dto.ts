@@ -25,6 +25,7 @@ export class AddMemberRequestDto {
   workspaceId: string;
   userId: string;
   role: WorkspaceRoleEnum;
+  employmentType?: string;
   adminUserId: string;
 }
 
@@ -32,6 +33,7 @@ export class AddBatchMembersRequestDto {
   workspaceId: string;
   userIds: string[];
   role: WorkspaceRoleEnum;
+  employmentType?: string;
   adminUserId: string;
 }
 
@@ -51,10 +53,11 @@ export class LeaveWorkspaceRequestDto {
   userId: string;
 }
 
-export class ChangeRoleRequestDto {
+export class UpdateMemberRequestDto {
   workspaceId: string;
   targetUserId: string;
-  newRole: WorkspaceRoleEnum;
+  newRole?: WorkspaceRoleEnum;
+  newEmploymentType?: string;
   adminUserId: string;
 }
 
