@@ -1,6 +1,6 @@
 import { IsOptional, IsUUID, IsNumber, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import { WorkspaceRoleEnum } from '../types/workspace.enum';
+import { WorkspaceRoleEnum, EmploymentType } from '../types/workspace.enum';
 
 export class CreateWorkspaceRequestDto {
   name: string;
@@ -26,6 +26,7 @@ export class AddMemberRequestDto {
   workspaceId: string;
   userId: string;
   role: WorkspaceRoleEnum;
+  employmentType?: EmploymentType;
   adminUserId: string;
 }
 
@@ -33,6 +34,7 @@ export class AddBatchMembersRequestDto {
   workspaceId: string;
   userIds: string[];
   role: WorkspaceRoleEnum;
+  employmentType?: EmploymentType;
   adminUserId: string;
 }
 
@@ -52,10 +54,11 @@ export class LeaveWorkspaceRequestDto {
   userId: string;
 }
 
-export class ChangeRoleRequestDto {
+export class UpdateMemberRequestDto {
   workspaceId: string;
   targetUserId: string;
-  newRole: WorkspaceRoleEnum;
+  newRole?: WorkspaceRoleEnum;
+  newEmploymentType?: EmploymentType;
   adminUserId: string;
 }
 

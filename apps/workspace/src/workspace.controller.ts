@@ -12,7 +12,7 @@ import {
   RemoveMemberRequestDto,
   JoinWorkspaceRequestDto,
   LeaveWorkspaceRequestDto,
-  ChangeRoleRequestDto,
+  UpdateMemberRequestDto,
   TransferOwnershipRequestDto,
   DeleteWorkspaceRequestDto,
   ResendInviteRequestDto,
@@ -108,8 +108,8 @@ export class WorkspaceController {
   }
 
   @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.CHANGE_ROLE)
-  changeRole(@Payload() dto: ChangeRoleRequestDto) {
-    return this.memberService.changeRole(dto);
+  updateMember(@Payload() dto: UpdateMemberRequestDto) {
+    return this.memberService.updateMember(dto);
   }
 
   @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.RESEND_INVITE)

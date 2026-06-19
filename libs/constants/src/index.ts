@@ -42,3 +42,5 @@ export * from './types/billing.enum';
 export * from './types/oauth.enum';
 export * from './socket/socket.enum';
 export * from './errors/billing.error';
+export * from './errors/calendar.error';
+export * from './tcp/message_pattern/calendar_msg_pattern.constant';

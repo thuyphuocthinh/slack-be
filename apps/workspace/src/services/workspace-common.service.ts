@@ -48,6 +48,7 @@ export class WorkspaceCommonService {
       workspaceId: member.workspaceId,
       userId: member.userId,
       role: member.role,
+      employmentType: member.employmentType,
       status: member.status,
       joinedAt: member.joinedAt,
       createdAt: member.createdAt,

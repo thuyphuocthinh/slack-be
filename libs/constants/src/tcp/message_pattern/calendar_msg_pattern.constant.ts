@@ -1,0 +1,16 @@
+export const CALENDAR_MESSAGE_PATTERNS = {
+  BULK_REGISTER_SHIFTS: 'calendar.bulk_register_shifts',
+  GET_MY_SHIFTS: 'calendar.get_my_shifts',
+  GET_ALL_SHIFTS: 'calendar.get_all_shifts',
+  CREATE_LEAVE_REQUEST: 'calendar.create_leave_request',
+  APPROVE_LEAVE_REQUEST: 'calendar.approve_leave_request',
+  REJECT_LEAVE_REQUEST: 'calendar.reject_leave_request',
+  CHECK_IN: 'calendar.check_in',
+  CHECK_OUT: 'calendar.check_out',
+  GET_MY_STATS: 'calendar.get_my_stats',
+  GET_ORGANIZATION_REPORT: 'calendar.get_organization_report',
+  EXPORT_EXCEL: 'calendar.export_excel',
+  UNLOCK_USER_CALENDAR: 'calendar.unlock_user_calendar',
+  GET_CALENDAR_POLICY: 'calendar.get_policy',
+  UPDATE_CALENDAR_POLICY: 'calendar.update_policy',
+} as const;
