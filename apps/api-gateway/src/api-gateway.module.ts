@@ -23,6 +23,7 @@ import { WebhookReceiverModule } from './webhook-receiver/webhook-receiver.modul
 import { BillingModule } from './billing/billing.module';
 import { AiModule } from './ai/ai.module';
 import { CanvasModule } from './canvas/canvas.module';
+import { CalendarModule } from './calendar/calendar.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { CanvasModule } from './canvas/canvas.module';
     BillingModule,
     AiModule,
     CanvasModule,
+    CalendarModule,
 
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'fallback_secret',

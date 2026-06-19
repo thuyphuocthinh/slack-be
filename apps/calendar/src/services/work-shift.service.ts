@@ -1,12 +1,15 @@
 import { Injectable, Logger, HttpStatus, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Between } from 'typeorm';
 import { RpcException, ClientProxy } from '@nestjs/microservices';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
-import { BulkRegisterWorkShiftDto } from '../dto/calendar-request.dto';
+import { BulkRegisterWorkShiftDto, GetWorkShiftsDto } from '../dto/calendar-request.dto';
+import { WorkShiftResponseDto } from '../dto/calendar-response.dto';
+import { plainToInstance } from 'class-transformer';
 import { WORKSPACE_MESSAGE_PATTERNS, NAME_SERVICE_TCP } from '@slack/constants';
 import { ShiftStatus } from '../types/calendar.enum';
 import { firstValueFrom } from 'rxjs';
+import { isUtcString } from '@slack/common';
 
 @Injectable()
 export class WorkShiftService {
@@ -17,10 +20,10 @@ export class WorkShiftService {
     private readonly workShiftRepository: Repository<WorkShiftEntity>,
     @Inject(NAME_SERVICE_TCP.WORKSPACE_SERVICE)
     private readonly workspaceClient: ClientProxy,
-  ) {}
+  ) { }
 
   async bulkRegisterShifts(dto: BulkRegisterWorkShiftDto) {
-    const { workspaceId, userId, dates, startTime, endTime, location } = dto;
+    const { workspaceId, userId, shifts, location } = dto;
 
     try {
       // 1. Validate membership and get employmentType
@@ -38,28 +41,23 @@ export class WorkShiftService {
         });
       }
 
-      // 2. Validate Business Rules (e.g., WFH limits, max working hours for PARTTIME/FULLTIME)
-      // For now, simple implementation: parse start and end time
-      // Future logic: check deadline, overlap, etc.
-
+      // 2. Validate Business Rules
       const shiftsToInsert: Partial<WorkShiftEntity>[] = [];
 
-      for (const dateStr of dates) {
-        const [startHours, startMinutes] = startTime.split(':');
-        const [endHours, endMinutes] = endTime.split(':');
-
-        const shiftStart = new Date(`${dateStr}T${startHours}:${startMinutes}:00Z`);
-        const shiftEnd = new Date(`${dateStr}T${endHours}:${endMinutes}:00Z`);
-
-        // Example business validation: FULLTIME requires at least 8 hours?
-        // Let's rely on employmentType later if needed
-
+      for (const shift of shifts) {
+        // Extra safeguard: Ensure it's strictly UTC using common util
+        if (!isUtcString(shift.startTime) || !isUtcString(shift.endTime)) {
+          throw new RpcException({
+            statusCode: HttpStatus.BAD_REQUEST,
+            message: 'Strict UTC Validation Failed: startTime and endTime must be valid UTC strings ending with Z',
+          });
+        }
         shiftsToInsert.push({
           workspaceId,
           userId,
-          workDate: dateStr,
-          startTime: shiftStart,
-          endTime: shiftEnd,
+          workDate: shift.workDate,
+          startTime: shift.startTime as unknown as Date,
+          endTime: shift.endTime as unknown as Date,
           location,
           status: ShiftStatus.APPROVED, // Auto-approve or PENDING depending on policy
         });
@@ -71,16 +69,44 @@ export class WorkShiftService {
         skipUpdateIfNoValuesChanged: true,
       });
 
-      return {
-        success: true,
-        message: `Successfully registered ${shiftsToInsert.length} shifts.`,
-      };
+      return `Successfully registered ${shiftsToInsert.length} shifts.`
     } catch (error) {
       if (error instanceof RpcException) throw error;
       this.logger.error('Error bulk registering shifts:', error);
       throw new RpcException({
         statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
         message: 'Failed to bulk register shifts',
+      });
+    }
+  }
+
+  async getWorkShifts(dto: GetWorkShiftsDto) {
+    const { workspaceId, startDate, endDate, userId } = dto;
+
+    try {
+      const whereCondition: any = {
+        workspaceId,
+        workDate: Between(startDate, endDate),
+      };
+
+      if (userId) {
+        whereCondition.userId = userId;
+      }
+
+      const shifts = await this.workShiftRepository.find({
+        where: whereCondition,
+        order: {
+          workDate: 'ASC',
+          startTime: 'ASC',
+        },
+      });
+
+      return plainToInstance(WorkShiftResponseDto, shifts);
+    } catch (error) {
+      this.logger.error(`Error fetching work shifts:`, error);
+      throw new RpcException({
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'Failed to fetch work shifts',
       });
     }
   }

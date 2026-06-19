@@ -1,12 +1,34 @@
+import { Type } from 'class-transformer';
 import {
   IsArray,
   IsEnum,
+  IsISO8601,
   IsNotEmpty,
   IsString,
   IsUUID,
   Matches,
+  ValidateNested,
+  IsOptional,
 } from 'class-validator';
 import { ShiftLocation } from '../types/calendar.enum';
+
+export class ShiftItemDto {
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'workDate must be in YYYY-MM-DD format',
+  })
+  workDate: string;
+
+  @IsString()
+  @IsISO8601({ strict: true })
+  @Matches(/Z$/, { message: 'startTime must be a strictly UTC ISO string ending with Z' })
+  startTime: string;
+
+  @IsString()
+  @IsISO8601({ strict: true })
+  @Matches(/Z$/, { message: 'endTime must be a strictly UTC ISO string ending with Z' })
+  endTime: string;
+}
 
 export class BulkRegisterWorkShiftDto {
   @IsUUID()
@@ -18,28 +40,30 @@ export class BulkRegisterWorkShiftDto {
   userId: string;
 
   @IsArray()
-  @IsString({ each: true })
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
-    each: true,
-    message: 'Each date must be in YYYY-MM-DD format',
-  })
-  dates: string[];
-
-  @IsString()
-  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
-    message: 'startTime must be in HH:mm format',
-  })
+  @ValidateNested({ each: true })
+  @Type(() => ShiftItemDto)
   @IsNotEmpty()
-  startTime: string;
-
-  @IsString()
-  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
-    message: 'endTime must be in HH:mm format',
-  })
-  @IsNotEmpty()
-  endTime: string;
+  shifts: ShiftItemDto[];
 
   @IsEnum(ShiftLocation)
   @IsNotEmpty()
   location: ShiftLocation;
+}
+
+export class GetWorkShiftsDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'startDate must be in YYYY-MM-DD format' })
+  startDate: string;
+
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'endDate must be in YYYY-MM-DD format' })
+  endDate: string;
+
+  @IsUUID()
+  @IsOptional()
+  userId?: string;
 }
