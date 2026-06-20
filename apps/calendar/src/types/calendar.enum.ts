@@ -24,6 +24,11 @@ export enum CalendarRequestStatus {
   REJECTED = 'REJECTED',
 }
 
+export enum CalendarRequestAction {
+  APPROVE = 'APPROVE',
+  REJECT = 'REJECT',
+}
+
 export enum AttendanceLogType {
   CHECK_IN = 'CHECK_IN',
   CHECK_OUT = 'CHECK_OUT',

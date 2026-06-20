@@ -230,3 +230,38 @@ export class GetCalendarRequestsApiDto {
   @IsOptional()
   limit?: number = 20;
 }
+
+export enum CalendarRequestActionApi {
+  APPROVE = 'APPROVE',
+  REJECT = 'REJECT',
+}
+
+export class ReviewCalendarRequestApiDto {
+  @ApiProperty({ enum: CalendarRequestActionApi })
+  @IsEnum(CalendarRequestActionApi)
+  @IsNotEmpty()
+  action: CalendarRequestActionApi;
+
+  @ApiPropertyOptional({ example: 'Đồng ý' })
+  @IsString()
+  @IsOptional()
+  reviewNotes?: string;
+}
+
+export class ManualUnlockCalendarApiDto {
+  @ApiProperty({ description: 'User ID to unlock calendar for' })
+  @IsUUID()
+  @IsNotEmpty()
+  targetUserId: string;
+
+  @ApiProperty({ example: '2026-07', description: 'YYYY-MM to unlock' })
+  @IsString()
+  @Matches(/^\d{4}-\d{2}$/, { message: 'targetMonth must be in YYYY-MM format' })
+  @IsNotEmpty()
+  targetMonth: string;
+
+  @ApiPropertyOptional({ example: 'Mở khóa ngoại lệ do ốm' })
+  @IsString()
+  @IsOptional()
+  reason?: string;
+}

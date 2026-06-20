@@ -6,7 +6,7 @@ import { CalendarRequestService } from './calendar-request.service';
 import { CalendarRequestEntity } from '../entity/calendar_request.entity';
 import { LeaveBalanceEntity } from '../entity/leave_balance.entity';
 import { NAME_SERVICE_TCP, WORKSPACE_MESSAGE_PATTERNS, CALENDAR_ERROR, DEFAULT_PAID_LEAVE_DAYS, WorkspaceRoleEnum } from '@slack/constants';
-import { CalendarRequestType, CalendarRequestStatus } from '../types/calendar.enum';
+import { CalendarRequestType, CalendarRequestStatus, CalendarRequestAction } from '../types/calendar.enum';
 import { of } from 'rxjs';
 
 describe('CalendarRequestService', () => {
@@ -24,6 +24,13 @@ describe('CalendarRequestService', () => {
       save: jest.fn(),
       remove: jest.fn(),
       merge: jest.fn((entity, obj, data) => Object.assign(obj, data)),
+      createQueryBuilder: jest.fn().mockReturnValue({
+        delete: jest.fn().mockReturnThis(),
+        from: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 1 }),
+      }),
     };
 
     const mockQueryBuilder = {
@@ -93,9 +100,9 @@ describe('CalendarRequestService', () => {
     it('should throw BAD_REQUEST if LEAVE_PAID and balance is insufficient', async () => {
       workspaceClient.send.mockReturnValue(of({ id: 'user-1', role: WorkspaceRoleEnum.MEMBER }));
       manager.findOne.mockResolvedValue({ totalPaidLeave: 12, usedPaidLeave: 12 }); // 0 left
-      
+
       const leavePaidDto = { ...dto, requestType: CalendarRequestType.LEAVE_PAID, durationDays: 1 };
-      
+
       await expect(service.createRequest(leavePaidDto)).rejects.toMatchObject({
         error: expect.objectContaining({ statusCode: HttpStatus.BAD_REQUEST, code: CALENDAR_ERROR.INSUFFICIENT_LEAVE_BALANCE.code }),
       });
@@ -154,7 +161,7 @@ describe('CalendarRequestService', () => {
     it('should throw BAD_REQUEST if request is not PENDING', async () => {
       manager.findOne.mockResolvedValue({ id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.APPROVED });
       await expect(service.updateRequest(dto)).rejects.toMatchObject({
-        error: expect.objectContaining({ statusCode: HttpStatus.BAD_REQUEST, code: CALENDAR_ERROR.REQUEST_NOT_PENDING.code }),
+        error: expect.objectContaining({ statusCode: HttpStatus.BAD_REQUEST, code: CALENDAR_ERROR.REQUEST_ALREADY_PROCESSED.code }),
       });
     });
 
@@ -221,22 +228,22 @@ describe('CalendarRequestService', () => {
 
     it('should force targetUserId to userId if member is just a MEMBER', async () => {
       workspaceClient.send.mockReturnValue(of({ id: 'user-1', role: WorkspaceRoleEnum.MEMBER }));
-      
+
       const queryDto = { ...dto, targetUserId: 'some-other-user' };
       const qb = requestRepository.createQueryBuilder();
-      
+
       await service.getRequests(queryDto);
-      
+
       // Should override 'some-other-user' with 'user-1'
       expect(qb.andWhere).toHaveBeenCalledWith('request.userId = :actualTargetUserId', { actualTargetUserId: 'user-1' });
     });
 
     it('should allow ADMIN to fetch all requests if targetUserId is omitted', async () => {
       workspaceClient.send.mockReturnValue(of({ id: 'user-1', role: WorkspaceRoleEnum.ADMIN }));
-      
+
       const qb = requestRepository.createQueryBuilder();
       await service.getRequests(dto);
-      
+
       // actualTargetUserId should be undefined, so andWhere for userId should not be called
       expect(qb.andWhere).not.toHaveBeenCalledWith('request.userId = :actualTargetUserId', expect.anything());
     });
@@ -256,6 +263,165 @@ describe('CalendarRequestService', () => {
       expect(qb.take).toHaveBeenCalledWith(10);
       expect(result.data).toHaveLength(1);
       expect(result.paging.total).toBe(1);
+    });
+  });
+
+  describe('reviewRequest', () => {
+    const dto: any = {
+      id: 'req-1',
+      workspaceId: 'workspace-1',
+      reviewerId: 'manager-1',
+      action: CalendarRequestAction.APPROVE,
+      reviewNotes: 'Looks good',
+    };
+
+    it('should throw FORBIDDEN if reviewer is just a MEMBER', async () => {
+      workspaceClient.send.mockReturnValue(of({ id: 'manager-1', role: WorkspaceRoleEnum.MEMBER }));
+      await expect(service.reviewRequest(dto)).rejects.toMatchObject({
+        error: expect.objectContaining({ statusCode: HttpStatus.FORBIDDEN, code: CALENDAR_ERROR.REVIEW_REQUEST_FORBIDDEN.code }),
+      });
+    });
+
+    it('should throw BAD_REQUEST if request is not PENDING', async () => {
+      workspaceClient.send.mockReturnValue(of({ id: 'manager-1', role: WorkspaceRoleEnum.ADMIN }));
+      manager.findOne.mockResolvedValueOnce({ id: 'req-1', status: CalendarRequestStatus.APPROVED }); // Request lookup
+
+      await expect(service.reviewRequest(dto)).rejects.toMatchObject({
+        error: expect.objectContaining({ statusCode: HttpStatus.BAD_REQUEST, code: CALENDAR_ERROR.REQUEST_ALREADY_PROCESSED.code }),
+      });
+    });
+
+    it('should correctly REJECT a request', async () => {
+      workspaceClient.send.mockReturnValue(of({ id: 'manager-1', role: WorkspaceRoleEnum.ADMIN }));
+      const mockReq = { id: 'req-1', status: CalendarRequestStatus.PENDING, requestType: CalendarRequestType.OFF_SHIFT };
+      manager.findOne.mockResolvedValueOnce(mockReq);
+      manager.save.mockResolvedValueOnce({ ...mockReq, status: CalendarRequestStatus.REJECTED, rejectReason: 'Looks good' });
+
+      const rejectDto = { ...dto, action: CalendarRequestAction.REJECT };
+      const result = await service.reviewRequest(rejectDto);
+
+      expect(manager.save).toHaveBeenCalled();
+      expect(result.status).toBe(CalendarRequestStatus.REJECTED);
+      expect(result.rejectReason).toBe('Looks good');
+    });
+
+    it('should correctly APPROVE a LEAVE_PAID request, deduct balance and delete shifts', async () => {
+      workspaceClient.send.mockReturnValue(of({ id: 'manager-1', role: WorkspaceRoleEnum.ADMIN }));
+      const mockReq = {
+        id: 'req-1',
+        status: CalendarRequestStatus.PENDING,
+        requestType: CalendarRequestType.LEAVE_PAID,
+        userId: 'user-1',
+        startTime: new Date('2026-06-20T00:00:00Z'),
+        endTime: new Date('2026-06-21T00:00:00Z'),
+        durationDays: 2,
+      };
+      const mockBalance = { id: 'bal-1', totalPaidLeave: 12, usedPaidLeave: 5 };
+
+      manager.findOne
+        .mockResolvedValueOnce(mockReq)      // For request
+        .mockResolvedValueOnce(mockBalance); // For balance lookup
+
+      manager.save.mockResolvedValue({ ...mockReq, status: CalendarRequestStatus.APPROVED });
+
+      const result = await service.reviewRequest(dto);
+
+      expect(manager.save).toHaveBeenCalledWith(LeaveBalanceEntity, expect.objectContaining({ usedPaidLeave: 7 }));
+      expect(manager.createQueryBuilder).toHaveBeenCalled();
+      expect(result.status).toBe(CalendarRequestStatus.APPROVED);
+    });
+
+    it('should correctly APPROVE a CALENDAR_OPEN_REQUEST and create lock entity', async () => {
+      workspaceClient.send.mockReturnValue(of({ id: 'manager-1', role: WorkspaceRoleEnum.ADMIN }));
+      const mockReq = {
+        id: 'req-2',
+        status: CalendarRequestStatus.PENDING,
+        requestType: CalendarRequestType.CALENDAR_OPEN_REQUEST,
+        userId: 'user-2',
+        startTime: new Date('2026-06-20T00:00:00Z'),
+      };
+
+      manager.findOne
+        .mockResolvedValueOnce(mockReq) // For request
+        .mockResolvedValueOnce(null);   // For lock lookup (not found)
+
+      const mockLock = { isUnlocked: false };
+      manager.create.mockReturnValue(mockLock);
+      manager.save.mockResolvedValue({ ...mockReq, status: CalendarRequestStatus.APPROVED });
+
+      await service.reviewRequest(dto);
+
+      expect(manager.create).toHaveBeenCalled(); // Should create CalendarUserLockEntity
+      expect(mockLock.isUnlocked).toBe(true);
+      expect(mockLock).toHaveProperty('unlockExpiresAt');
+    });
+  });
+
+  describe('manualUnlock', () => {
+    const dto: any = {
+      workspaceId: 'workspace-1',
+      reviewerId: 'manager-1',
+      targetUserId: 'user-1',
+      targetMonth: '2026-07',
+      reason: 'Urgent edit',
+    };
+
+    it('should throw FORBIDDEN if reviewer is just a MEMBER', async () => {
+      workspaceClient.send.mockReturnValue(of({ id: 'manager-1', role: WorkspaceRoleEnum.MEMBER }));
+
+      await expect(service.manualUnlock(dto)).rejects.toMatchObject({
+        error: expect.objectContaining({ statusCode: HttpStatus.FORBIDDEN, code: CALENDAR_ERROR.MANUAL_UNLOCK_FORBIDDEN.code }),
+      });
+    });
+
+    it('should create a new lock entity if none exists and unlock successfully', async () => {
+      workspaceClient.send.mockReturnValue(of({ id: 'manager-1', role: WorkspaceRoleEnum.ADMIN }));
+      manager.findOne.mockResolvedValueOnce(null); // Lock not found
+
+      const newLock = { workspaceId: 'workspace-1', userId: 'user-1', targetMonth: '2026-07' };
+      manager.create.mockReturnValue(newLock);
+      manager.save.mockResolvedValueOnce(newLock);
+
+      const result = await service.manualUnlock(dto);
+
+      expect(manager.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        workspaceId: 'workspace-1',
+        userId: 'user-1',
+        targetMonth: '2026-07',
+      }));
+      expect(newLock).toHaveProperty('isUnlocked', true);
+      expect(newLock).toHaveProperty('unlockedBy', 'manager-1');
+      expect(newLock).toHaveProperty('unlockReason', 'Urgent edit');
+      expect(newLock).toHaveProperty('unlockExpiresAt');
+      expect(manager.save).toHaveBeenCalled();
+      expect(result).toHaveProperty('success', true);
+    });
+
+    it('should update existing lock entity if it exists and unlock successfully', async () => {
+      workspaceClient.send.mockReturnValue(of({ id: 'manager-1', role: WorkspaceRoleEnum.ADMIN }));
+      const existingLock = { id: 'lock-1', isUnlocked: false };
+      manager.findOne.mockResolvedValueOnce(existingLock); // Lock found
+      manager.save.mockResolvedValueOnce(existingLock);
+
+      const dtoWithoutReason = { ...dto, reason: undefined };
+      const result = await service.manualUnlock(dtoWithoutReason);
+
+      expect(manager.create).not.toHaveBeenCalled(); // Should not create a new one
+      expect(existingLock).toHaveProperty('isUnlocked', true);
+      expect(existingLock).toHaveProperty('unlockedBy', 'manager-1');
+      expect(existingLock).toHaveProperty('unlockReason', 'Manual unlock by manager'); // Default reason
+      expect(existingLock).toHaveProperty('unlockExpiresAt');
+      expect(manager.save).toHaveBeenCalled();
+      expect(result).toHaveProperty('success', true);
+    });
+
+    it('should throw INTERNAL_SERVER_ERROR if database operation fails', async () => {
+      workspaceClient.send.mockReturnValue(of({ id: 'manager-1', role: WorkspaceRoleEnum.ADMIN }));
+      manager.findOne.mockRejectedValue(new Error('DB connection lost'));
+
+      await expect(service.manualUnlock(dto)).rejects.toMatchObject({
+        error: expect.objectContaining({ statusCode: HttpStatus.INTERNAL_SERVER_ERROR, code: CALENDAR_ERROR.MANUAL_UNLOCK_FAILED.code }),
+      });
     });
   });
 });

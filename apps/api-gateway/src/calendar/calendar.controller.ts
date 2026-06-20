@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Put, Delete, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CalendarService } from './calendar.service';
-import { BulkRegisterWorkShiftApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto, CreateCalendarRequestApiDto, UpdateCalendarRequestApiDto, GetCalendarRequestsApiDto } from './dto/calendar-api.dto';
+import { BulkRegisterWorkShiftApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto, CreateCalendarRequestApiDto, UpdateCalendarRequestApiDto, GetCalendarRequestsApiDto, ReviewCalendarRequestApiDto, ManualUnlockCalendarApiDto } from './dto/calendar-api.dto';
 import { CurrentUser, type JwtUser } from '@slack/common';
 
 @ApiTags('Calendar')
@@ -124,5 +124,26 @@ export class CalendarController {
     @Query() query: GetCalendarRequestsApiDto,
   ) {
     return this.calendarService.getRequests(workspaceId, user.sub!, query);
+  }
+
+  @Put('requests/:id/review')
+  @ApiOperation({ summary: 'Approve or Reject a calendar request (Manager/Admin only)' })
+  async reviewRequest(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: ReviewCalendarRequestApiDto,
+  ) {
+    return this.calendarService.reviewRequest(id, workspaceId, user.sub!, dto);
+  }
+
+  @Post('manual-unlock')
+  @ApiOperation({ summary: 'Manually unlock calendar for a specific user (Manager/Admin only)' })
+  async manualUnlock(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: ManualUnlockCalendarApiDto,
+  ) {
+    return this.calendarService.manualUnlock(workspaceId, user.sub!, dto);
   }
 }

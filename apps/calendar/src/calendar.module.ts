@@ -11,6 +11,7 @@ import { LeaveBalanceEntity } from './entity/leave_balance.entity';
 import { AttendanceLogEntity } from './entity/attendance_log.entity';
 import { DailyReconciliationEntity } from './entity/daily_reconciliation.entity';
 import { UserFaceBaselineEntity } from './entity/user_face_baseline.entity';
+import { CalendarUserLockEntity } from './entity/calendar_user_lock.entity';
 import { ClientsModule } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { getMicroserviceClientConfig } from '@slack/common';
@@ -31,6 +32,7 @@ import { CachedModule } from '@slack/cached';
       AttendanceLogEntity,
       DailyReconciliationEntity,
       UserFaceBaselineEntity,
+      CalendarUserLockEntity,
     ]),
     ClientsModule.registerAsync([
       getMicroserviceClientConfig(NAME_SERVICE_TCP.WORKSPACE_SERVICE, PORT_TCP.WORKSPACE_TCP_PORT),
