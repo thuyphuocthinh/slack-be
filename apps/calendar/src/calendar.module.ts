@@ -20,7 +20,7 @@ import { CachedModule } from '@slack/cached';
 
 @Module({
   imports: [
-    CachedModule,
+    CachedModule.forRoot(),
     DatabaseModule,
     TypeOrmModule.forFeature([
       WorkspaceCalendarPolicyEntity,
