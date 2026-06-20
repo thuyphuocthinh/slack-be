@@ -4,7 +4,7 @@ import { Repository, Between } from 'typeorm';
 import { RpcException, ClientProxy } from '@nestjs/microservices';
 import { WorkspaceCalendarPolicyEntity } from '../entity/workspace_calendar_policy.entity';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
-import { CALENDAR_ERROR, NAME_SERVICE_TCP, WORKSPACE_MESSAGE_PATTERNS } from '@slack/constants';
+import { CALENDAR_ERROR, NAME_SERVICE_TCP, WORKSPACE_MESSAGE_PATTERNS, WorkspaceRoleEnum } from '@slack/constants';
 import { getMondayOfWeek, getSundayOfWeek, getLastDayOfMonth, calculateDiffHours } from '@slack/common/utils/time.util';
 import { ShiftLocation } from '../types/calendar.enum';
 import { WorkShiftValidationPayload } from '../types/calendar.type';
@@ -161,7 +161,7 @@ export class WorkspaceCalendarPolicyService {
   }
 
   async checkLockDeadline(workspaceId: string, memberRole: string, workDates: string[]) {
-    if (memberRole === 'ADMIN' || memberRole === 'MANAGER') return;
+    if (memberRole === WorkspaceRoleEnum.ADMIN || memberRole === WorkspaceRoleEnum.OWNER) return;
 
     const policy = await this.getPolicy(workspaceId);
     const lockDeadlineDay = policy?.policyData?.lockDeadlineDay ?? 25;
@@ -196,7 +196,7 @@ export class WorkspaceCalendarPolicyService {
       });
     }
 
-    if (member.role !== 'ADMIN' && member.role !== 'MANAGER') {
+    if (member.role !== WorkspaceRoleEnum.ADMIN && member.role !== WorkspaceRoleEnum.OWNER) {
       throw new RpcException({
         statusCode: HttpStatus.FORBIDDEN,
         ...CALENDAR_ERROR.POLICY_MANAGEMENT_FORBIDDEN,
