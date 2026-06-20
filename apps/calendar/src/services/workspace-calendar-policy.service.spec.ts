@@ -6,7 +6,7 @@ import { HttpStatus } from '@nestjs/common';
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { WorkspaceCalendarPolicyEntity } from '../entity/workspace_calendar_policy.entity';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
-import { CALENDAR_ERROR } from '@slack/constants';
+import { CALENDAR_ERROR, WorkspaceRoleEnum } from '@slack/constants';
 import { ShiftLocation } from '../types/calendar.enum';
 import { WorkShiftValidationPayload } from '../types/calendar.type';
 import { CachedService } from '@slack/cached/cached.service';
@@ -88,7 +88,7 @@ describe('WorkspaceCalendarPolicyService', () => {
         },
       ];
 
-      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', 'MANAGER', shifts)).resolves.not.toThrow();
+      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', WorkspaceRoleEnum.OWNER, shifts)).resolves.not.toThrow();
     });
 
     it('should throw an error if WFH limit is exceeded', async () => {
@@ -114,7 +114,7 @@ describe('WorkspaceCalendarPolicyService', () => {
         },
       ];
 
-      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', 'MANAGER', shifts)).rejects.toMatchObject({
+      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', WorkspaceRoleEnum.OWNER, shifts)).rejects.toMatchObject({
         error: {
           statusCode: HttpStatus.BAD_REQUEST,
           ...CALENDAR_ERROR.WFH_LIMIT_EXCEEDED,
@@ -147,7 +147,7 @@ describe('WorkspaceCalendarPolicyService', () => {
         },
       ];
 
-      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', 'MANAGER', shifts)).rejects.toMatchObject({
+      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', WorkspaceRoleEnum.OWNER, shifts)).rejects.toMatchObject({
         error: {
           statusCode: HttpStatus.BAD_REQUEST,
           ...CALENDAR_ERROR.MAX_HOURS_EXCEEDED,
@@ -184,17 +184,17 @@ describe('WorkspaceCalendarPolicyService', () => {
         },
       ];
 
-      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', 'MANAGER', shifts)).resolves.not.toThrow();
+      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', WorkspaceRoleEnum.OWNER, shifts)).resolves.not.toThrow();
     });
   });
 
   describe('checkLockDeadline', () => {
-    it('should allow ADMIN and MANAGER to bypass the lock check', async () => {
+    it('should allow ADMIN and OWNER to bypass the lock check', async () => {
       // Use a date that is clearly past the deadline
       const pastDates = ['2026-05-01'];
       // Should not throw
-      await expect(service.checkLockDeadline(mockWorkspaceId, 'ADMIN', pastDates)).resolves.not.toThrow();
-      await expect(service.checkLockDeadline(mockWorkspaceId, 'MANAGER', pastDates)).resolves.not.toThrow();
+      await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.ADMIN, pastDates)).resolves.not.toThrow();
+      await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.OWNER, pastDates)).resolves.not.toThrow();
     });
 
     it('should throw an error if the date is locked for a MEMBER', async () => {
@@ -207,7 +207,7 @@ describe('WorkspaceCalendarPolicyService', () => {
       const targetDates = ['2026-07-15']; // Target is July. Deadline was June 25th.
       // So June 26th > June 25th -> Locked!
 
-      await expect(service.checkLockDeadline(mockWorkspaceId, 'MEMBER', targetDates)).rejects.toMatchObject({
+      await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.MEMBER, targetDates)).rejects.toMatchObject({
         error: {
           statusCode: HttpStatus.FORBIDDEN,
           ...CALENDAR_ERROR.CALENDAR_LOCKED,
@@ -227,7 +227,7 @@ describe('WorkspaceCalendarPolicyService', () => {
       const targetDates = ['2026-07-15']; // Target is July. Deadline is June 25th.
       // So June 24th < June 25th -> Not locked!
 
-      await expect(service.checkLockDeadline(mockWorkspaceId, 'MEMBER', targetDates)).resolves.not.toThrow();
+      await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.MEMBER, targetDates)).resolves.not.toThrow();
 
       jest.useRealTimers();
     });
