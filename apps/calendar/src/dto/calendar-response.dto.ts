@@ -1,5 +1,5 @@
 import { Exclude, Expose, Type } from 'class-transformer';
-import { ShiftLocation, ShiftStatus } from '../types/calendar.enum';
+import { ShiftLocation, ShiftStatus, CalendarRequestType, CalendarRequestStatus } from '../types/calendar.enum';
 
 @Exclude()
 export class WorkShiftResponseDto {
@@ -60,6 +60,54 @@ export class WorkspaceCalendarPolicyResponseDto {
   @Expose()
   @Type(() => PolicyDataResponseDto)
   policyData: PolicyDataResponseDto;
+
+  @Expose()
+  createdAt: Date;
+
+  @Expose()
+  updatedAt: Date;
+}
+
+@Exclude()
+export class CalendarRequestResponseDto {
+  @Expose()
+  id: string;
+
+  @Expose()
+  userId: string;
+
+  @Expose()
+  workspaceId: string;
+
+  @Expose()
+  requestType: CalendarRequestType;
+
+  @Expose()
+  startTime: Date;
+
+  @Expose()
+  endTime: Date;
+
+  @Expose()
+  durationDays: number;
+
+  @Expose()
+  reason: string;
+
+  @Expose()
+  status: CalendarRequestStatus;
+
+  @Expose()
+  approvedBy?: string;
+
+  @Expose()
+  rejectReason?: string;
+
+  @Expose()
+  notes?: string;
+
+  @Expose()
+  metaData?: Record<string, any>;
 
   @Expose()
   createdAt: Date;

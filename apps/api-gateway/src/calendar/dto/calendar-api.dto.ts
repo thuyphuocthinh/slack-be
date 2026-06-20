@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsEnum, IsISO8601, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, ValidateNested } from 'class-validator';
+import { IsArray, IsEnum, IsISO8601, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, ValidateNested, IsNumber, IsObject } from 'class-validator';
 
 export enum ShiftLocationApi {
   OFFICE = 'OFFICE',
@@ -113,4 +113,120 @@ export class UpsertCalendarPolicyApiDto {
   @Type(() => PolicyDataApiDto)
   @IsNotEmpty()
   policyData: PolicyDataApiDto;
+}
+
+export enum CalendarRequestTypeApi {
+  LEAVE_PAID = 'LEAVE_PAID',
+  LEAVE_UNPAID = 'LEAVE_UNPAID',
+  LEAVE_SICK = 'LEAVE_SICK',
+  OFF_SHIFT = 'OFF_SHIFT',
+  CALENDAR_OPEN_REQUEST = 'CALENDAR_OPEN_REQUEST',
+  ATTENDANCE_CORRECTION = 'ATTENDANCE_CORRECTION',
+}
+
+export class CreateCalendarRequestApiDto {
+  @ApiProperty({ enum: CalendarRequestTypeApi })
+  @IsEnum(CalendarRequestTypeApi)
+  @IsNotEmpty()
+  requestType: CalendarRequestTypeApi;
+
+  @ApiProperty({ example: '2026-06-20T02:00:00.000Z' })
+  @IsString()
+  @IsISO8601({ strict: true })
+  @Matches(/Z$/, { message: 'startTime must be a strictly UTC ISO string ending with Z' })
+  @IsNotEmpty()
+  startTime: string;
+
+  @ApiProperty({ example: '2026-06-20T11:00:00.000Z' })
+  @IsString()
+  @IsISO8601({ strict: true })
+  @Matches(/Z$/, { message: 'endTime must be a strictly UTC ISO string ending with Z' })
+  @IsNotEmpty()
+  endTime: string;
+
+  @ApiPropertyOptional({ example: 1.0 })
+  @IsNumber()
+  @IsOptional()
+  durationDays?: number;
+
+  @ApiProperty({ example: 'I need to take a day off for personal reasons.' })
+  @IsString()
+  @IsNotEmpty()
+  reason: string;
+
+  @ApiPropertyOptional()
+  @IsObject()
+  @IsOptional()
+  metaData?: Record<string, any>;
+}
+
+export class UpdateCalendarRequestApiDto {
+  @ApiPropertyOptional({ enum: CalendarRequestTypeApi })
+  @IsEnum(CalendarRequestTypeApi)
+  @IsOptional()
+  requestType?: CalendarRequestTypeApi;
+
+  @ApiPropertyOptional({ example: '2026-06-20T02:00:00.000Z' })
+  @IsString()
+  @IsISO8601({ strict: true })
+  @Matches(/Z$/, { message: 'startTime must be a strictly UTC ISO string ending with Z' })
+  @IsOptional()
+  startTime?: string;
+
+  @ApiPropertyOptional({ example: '2026-06-20T11:00:00.000Z' })
+  @IsString()
+  @IsISO8601({ strict: true })
+  @Matches(/Z$/, { message: 'endTime must be a strictly UTC ISO string ending with Z' })
+  @IsOptional()
+  endTime?: string;
+
+  @ApiPropertyOptional({ example: 1.0 })
+  @IsNumber()
+  @IsOptional()
+  durationDays?: number;
+
+  @ApiPropertyOptional({ example: 'I need to take a day off for personal reasons.' })
+  @IsString()
+  @IsOptional()
+  reason?: string;
+
+  @ApiPropertyOptional()
+  @IsObject()
+  @IsOptional()
+  metaData?: Record<string, any>;
+}
+
+export enum CalendarRequestStatusApi {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+}
+
+export class GetCalendarRequestsApiDto {
+  @ApiPropertyOptional({ description: 'User ID to filter requests by' })
+  @IsUUID()
+  @IsOptional()
+  targetUserId?: string;
+
+  @ApiPropertyOptional({ enum: CalendarRequestStatusApi })
+  @IsEnum(CalendarRequestStatusApi)
+  @IsOptional()
+  status?: CalendarRequestStatusApi;
+
+  @ApiPropertyOptional({ enum: CalendarRequestTypeApi })
+  @IsEnum(CalendarRequestTypeApi)
+  @IsOptional()
+  type?: CalendarRequestTypeApi;
+
+  @ApiPropertyOptional({ example: 1, default: 1 })
+  @Type(() => Number)
+  @IsNumber()
+  @IsOptional()
+  page?: number = 1;
+
+  @ApiPropertyOptional({ example: 20, default: 20 })
+  @Type(() => Number)
+  @IsNumber()
+  @IsOptional()
+  limit?: number = 20;
 }

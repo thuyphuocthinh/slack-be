@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Put, Delete, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CalendarService } from './calendar.service';
-import { BulkRegisterWorkShiftApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto } from './dto/calendar-api.dto';
+import { BulkRegisterWorkShiftApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto, CreateCalendarRequestApiDto, UpdateCalendarRequestApiDto, GetCalendarRequestsApiDto } from './dto/calendar-api.dto';
 import { CurrentUser, type JwtUser } from '@slack/common';
 
 @ApiTags('Calendar')
@@ -83,5 +83,46 @@ export class CalendarController {
     @CurrentUser() user: JwtUser,
   ) {
     return this.calendarService.deletePolicy(workspaceId, user.sub!);
+  }
+
+  @Post('requests')
+  @ApiOperation({ summary: 'Create a calendar request (Leave, Unlock, etc.)' })
+  async createRequest(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: CreateCalendarRequestApiDto,
+  ) {
+    return this.calendarService.createRequest(workspaceId, user.sub!, dto);
+  }
+
+  @Put('requests/:id')
+  @ApiOperation({ summary: 'Update a calendar request (Only if PENDING)' })
+  async updateRequest(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: UpdateCalendarRequestApiDto,
+  ) {
+    return this.calendarService.updateRequest(id, workspaceId, user.sub!, dto);
+  }
+
+  @Delete('requests/:id')
+  @ApiOperation({ summary: 'Delete a calendar request (Only if PENDING)' })
+  async deleteRequest(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.calendarService.deleteRequest(id, workspaceId, user.sub!);
+  }
+
+  @Get('requests')
+  @ApiOperation({ summary: 'Get calendar requests with pagination and optional user filtering' })
+  async getRequests(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+    @Query() query: GetCalendarRequestsApiDto,
+  ) {
+    return this.calendarService.getRequests(workspaceId, user.sub!, query);
   }
 }
