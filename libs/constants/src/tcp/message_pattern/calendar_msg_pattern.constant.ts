@@ -8,6 +8,7 @@ export const CALENDAR_MESSAGE_PATTERNS = {
   UPDATE_LEAVE_REQUEST: 'calendar.update_leave_request',
   DELETE_LEAVE_REQUEST: 'calendar.delete_leave_request',
   GET_LEAVE_REQUESTS: 'calendar.get_leave_requests',
+  REVIEW_CALENDAR_REQUEST: 'calendar.review_calendar_request',
   APPROVE_LEAVE_REQUEST: 'calendar.approve_leave_request',
   REJECT_LEAVE_REQUEST: 'calendar.reject_leave_request',
   CHECK_IN: 'calendar.check_in',

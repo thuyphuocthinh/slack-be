@@ -13,7 +13,7 @@ import {
   IsObject,
   Min,
 } from 'class-validator';
-import { ShiftLocation, CalendarRequestType, CalendarRequestStatus } from '../types/calendar.enum';
+import { ShiftLocation, CalendarRequestType, CalendarRequestStatus, CalendarRequestAction } from '../types/calendar.enum';
 
 export class ShiftItemDto {
   @IsString()
@@ -314,4 +314,49 @@ export class GetCalendarRequestsDto {
   @Type(() => Number)
   @IsOptional()
   limit?: number = 20;
+}
+
+export class ReviewCalendarRequestDto {
+  @IsUUID()
+  @IsNotEmpty()
+  id: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  reviewerId: string;
+
+  @IsEnum(CalendarRequestAction)
+  @IsNotEmpty()
+  action: CalendarRequestAction;
+
+  @IsString()
+  @IsOptional()
+  reviewNotes?: string;
+}
+
+export class ManualUnlockCalendarDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  reviewerId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  targetUserId: string;
+
+  @IsString()
+  @Matches(/^\d{4}-\d{2}$/, { message: 'targetMonth must be in YYYY-MM format' })
+  @IsNotEmpty()
+  targetMonth: string;
+
+  @IsString()
+  @IsOptional()
+  reason?: string;
 }

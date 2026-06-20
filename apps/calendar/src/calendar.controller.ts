@@ -9,7 +9,7 @@ import {
 } from './dto/calendar-request.dto';
 import { WorkspaceCalendarPolicyService } from './services/workspace-calendar-policy.service';
 import { CalendarRequestService } from './services/calendar-request.service';
-import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto } from './dto/calendar-request.dto';
+import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto, ReviewCalendarRequestDto, ManualUnlockCalendarDto } from './dto/calendar-request.dto';
 
 @Controller()
 export class CalendarController {
@@ -78,5 +78,15 @@ export class CalendarController {
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_LEAVE_REQUESTS)
   async getRequests(@Payload() dto: GetCalendarRequestsDto) {
     return this.requestService.getRequests(dto);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.REVIEW_CALENDAR_REQUEST)
+  async reviewRequest(@Payload() dto: ReviewCalendarRequestDto) {
+    return this.requestService.reviewRequest(dto);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.UNLOCK_USER_CALENDAR)
+  async manualUnlock(@Payload() dto: ManualUnlockCalendarDto) {
+    return this.requestService.manualUnlock(dto);
   }
 }

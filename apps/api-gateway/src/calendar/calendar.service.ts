@@ -257,4 +257,47 @@ export class CalendarService {
       'CalendarService',
     );
   }
+
+  async reviewRequest(id: string, workspaceId: string, reviewerId: string, dto: any) {
+    const payload = {
+      id,
+      workspaceId,
+      reviewerId,
+      ...dto,
+    };
+
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.REVIEW_CALENDAR_REQUEST,
+            payload,
+          ),
+        ),
+      'reviewRequest',
+      'CalendarService',
+    );
+  }
+
+  async manualUnlock(workspaceId: string, reviewerId: string, dto: any) {
+    const payload = {
+      workspaceId,
+      reviewerId,
+      targetUserId: dto.targetUserId,
+      targetMonth: dto.targetMonth,
+      reason: dto.reason,
+    };
+
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.UNLOCK_USER_CALENDAR,
+            payload,
+          ),
+        ),
+      'manualUnlock',
+      'CalendarService',
+    );
+  }
 }
