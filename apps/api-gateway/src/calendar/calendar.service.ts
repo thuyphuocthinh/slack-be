@@ -176,4 +176,85 @@ export class CalendarService {
       'CalendarService',
     );
   }
+
+  async createRequest(workspaceId: string, userId: string, dto: any) {
+    const payload = {
+      workspaceId,
+      userId,
+      ...dto,
+    };
+
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.CREATE_LEAVE_REQUEST,
+            payload,
+          ),
+        ),
+      'createRequest',
+      'CalendarService',
+    );
+  }
+
+  async updateRequest(id: string, workspaceId: string, userId: string, dto: any) {
+    const payload = {
+      id,
+      workspaceId,
+      userId,
+      ...dto,
+    };
+
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.UPDATE_LEAVE_REQUEST,
+            payload,
+          ),
+        ),
+      'updateRequest',
+      'CalendarService',
+    );
+  }
+
+  async deleteRequest(id: string, workspaceId: string, userId: string) {
+    const payload = {
+      id,
+      workspaceId,
+      userId,
+    };
+
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.DELETE_LEAVE_REQUEST,
+            payload,
+          ),
+        ),
+      'deleteRequest',
+      'CalendarService',
+    );
+  }
+
+  async getRequests(workspaceId: string, userId: string, query: any) {
+    const payload = {
+      workspaceId,
+      userId,
+      ...query,
+    };
+
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.GET_LEAVE_REQUESTS,
+            payload,
+          ),
+        ),
+      'getRequests',
+      'CalendarService',
+    );
+  }
 }

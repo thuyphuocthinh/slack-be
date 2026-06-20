@@ -1,0 +1,1 @@
+export const DEFAULT_PAID_LEAVE_DAYS = 12.0;

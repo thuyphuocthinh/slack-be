@@ -34,6 +34,7 @@ export * from './tcp/message_pattern/billing_msg_pattern.constant';
 export * from './tcp/message_pattern/integrations_msg_pattern.constant';
 export * from './tcp/message_pattern/canvas_msg_pattern.constant';
 export * from './const/regex.constant';
+export * from './const/calendar.constant';
 
 export * from './types/roles.enum';
 export * from './types/notification.enum';

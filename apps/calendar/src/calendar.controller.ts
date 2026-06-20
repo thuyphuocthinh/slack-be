@@ -8,6 +8,8 @@ import {
   GetCalendarPolicyDto, CreateCalendarPolicyDto, UpdateCalendarPolicyDto, DeleteCalendarPolicyDto 
 } from './dto/calendar-request.dto';
 import { WorkspaceCalendarPolicyService } from './services/workspace-calendar-policy.service';
+import { CalendarRequestService } from './services/calendar-request.service';
+import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto } from './dto/calendar-request.dto';
 
 @Controller()
 export class CalendarController {
@@ -15,6 +17,7 @@ export class CalendarController {
     private readonly calendarService: CalendarService,
     private readonly workShiftService: WorkShiftService,
     private readonly policyService: WorkspaceCalendarPolicyService,
+    private readonly requestService: CalendarRequestService,
   ) {}
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.BULK_REGISTER_SHIFTS)
@@ -55,5 +58,25 @@ export class CalendarController {
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.DELETE_CALENDAR_POLICY)
   async deletePolicy(@Payload() dto: DeleteCalendarPolicyDto) {
     return this.policyService.deletePolicy(dto);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.CREATE_LEAVE_REQUEST)
+  async createRequest(@Payload() dto: CreateCalendarRequestDto) {
+    return this.requestService.createRequest(dto);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.UPDATE_LEAVE_REQUEST)
+  async updateRequest(@Payload() dto: UpdateCalendarRequestDto) {
+    return this.requestService.updateRequest(dto);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.DELETE_LEAVE_REQUEST)
+  async deleteRequest(@Payload() dto: DeleteCalendarRequestDto) {
+    return this.requestService.deleteRequest(dto);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_LEAVE_REQUESTS)
+  async getRequests(@Payload() dto: GetCalendarRequestsDto) {
+    return this.requestService.getRequests(dto);
   }
 }

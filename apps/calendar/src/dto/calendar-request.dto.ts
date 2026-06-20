@@ -11,8 +11,9 @@ import {
   IsOptional,
   IsNumber,
   IsObject,
+  Min,
 } from 'class-validator';
-import { ShiftLocation } from '../types/calendar.enum';
+import { ShiftLocation, CalendarRequestType, CalendarRequestStatus } from '../types/calendar.enum';
 
 export class ShiftItemDto {
   @IsString()
@@ -185,4 +186,132 @@ export class DeleteCalendarPolicyDto {
   @IsUUID()
   @IsNotEmpty()
   userId: string;
+}
+
+export class CreateCalendarRequestDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsEnum(CalendarRequestType)
+  @IsNotEmpty()
+  requestType: CalendarRequestType;
+
+  @IsString()
+  @IsISO8601({ strict: true })
+  @Matches(/Z$/, { message: 'startTime must be a strictly UTC ISO string ending with Z' })
+  @IsNotEmpty()
+  startTime: string;
+
+  @IsString()
+  @IsISO8601({ strict: true })
+  @Matches(/Z$/, { message: 'endTime must be a strictly UTC ISO string ending with Z' })
+  @IsNotEmpty()
+  endTime: string;
+
+  @IsNumber()
+  @IsOptional()
+  durationDays?: number;
+
+  @IsString()
+  @IsNotEmpty()
+  reason: string;
+
+  @IsObject()
+  @IsOptional()
+  metaData?: Record<string, any>;
+}
+
+export class UpdateCalendarRequestDto {
+  @IsUUID()
+  @IsNotEmpty()
+  id: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsEnum(CalendarRequestType)
+  @IsOptional()
+  requestType?: CalendarRequestType;
+
+  @IsString()
+  @IsISO8601({ strict: true })
+  @Matches(/Z$/, { message: 'startTime must be a strictly UTC ISO string ending with Z' })
+  @IsOptional()
+  startTime?: string;
+
+  @IsString()
+  @IsISO8601({ strict: true })
+  @Matches(/Z$/, { message: 'endTime must be a strictly UTC ISO string ending with Z' })
+  @IsOptional()
+  endTime?: string;
+
+  @IsNumber()
+  @IsOptional()
+  durationDays?: number;
+
+  @IsString()
+  @IsOptional()
+  reason?: string;
+
+  @IsObject()
+  @IsOptional()
+  metaData?: Record<string, any>;
+}
+
+export class DeleteCalendarRequestDto {
+  @IsUUID()
+  @IsNotEmpty()
+  id: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
+}
+
+export class GetCalendarRequestsDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsUUID()
+  @IsOptional()
+  targetUserId?: string;
+
+  @IsEnum(CalendarRequestStatus)
+  @IsOptional()
+  status?: CalendarRequestStatus;
+
+  @IsEnum(CalendarRequestType)
+  @IsOptional()
+  type?: CalendarRequestType;
+
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  @IsOptional()
+  page?: number = 1;
+
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  @IsOptional()
+  limit?: number = 20;
 }

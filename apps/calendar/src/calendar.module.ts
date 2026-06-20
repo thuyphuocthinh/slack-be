@@ -15,6 +15,7 @@ import { ClientsModule } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { getMicroserviceClientConfig } from '@slack/common';
 import { WorkspaceCalendarPolicyService } from './services/workspace-calendar-policy.service';
+import { CalendarRequestService } from './services/calendar-request.service';
 
 import { CachedModule } from '@slack/cached';
 
@@ -36,6 +37,11 @@ import { CachedModule } from '@slack/cached';
     ]),
   ],
   controllers: [CalendarController],
-  providers: [CalendarService, WorkShiftService, WorkspaceCalendarPolicyService],
+  providers: [
+    CalendarService, 
+    WorkShiftService, 
+    WorkspaceCalendarPolicyService,
+    CalendarRequestService
+  ],
 })
 export class CalendarModule {}
