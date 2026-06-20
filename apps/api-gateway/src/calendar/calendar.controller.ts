@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Delete, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CalendarService } from './calendar.service';
-import { BulkRegisterWorkShiftApiDto, GetWorkShiftsApiDto } from './dto/calendar-api.dto';
+import { BulkRegisterWorkShiftApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto } from './dto/calendar-api.dto';
 import { CurrentUser, type JwtUser } from '@slack/common';
 
 @ApiTags('Calendar')
@@ -27,5 +27,61 @@ export class CalendarController {
     @Query() query: GetWorkShiftsApiDto,
   ) {
     return this.calendarService.getWorkShifts(workspaceId, query);
+  }
+
+  @Put('work-shifts/:id')
+  @ApiOperation({ summary: 'Update a work shift' })
+  async updateWorkShift(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: UpdateWorkShiftApiDto,
+  ) {
+    return this.calendarService.updateWorkShift(id, workspaceId, user.sub!, dto);
+  }
+
+  @Delete('work-shifts/:id')
+  @ApiOperation({ summary: 'Delete a work shift' })
+  async deleteWorkShift(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.calendarService.deleteWorkShift(id, workspaceId, user.sub!);
+  }
+
+  @Get('policy')
+  @ApiOperation({ summary: 'Get workspace calendar policy' })
+  async getPolicy(@Param('workspaceId') workspaceId: string) {
+    return this.calendarService.getPolicy(workspaceId);
+  }
+
+  @Post('policy')
+  @ApiOperation({ summary: 'Create workspace calendar policy (Admin/Manager only)' })
+  async createPolicy(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: UpsertCalendarPolicyApiDto,
+  ) {
+    return this.calendarService.createPolicy(workspaceId, user.sub!, dto);
+  }
+
+  @Put('policy')
+  @ApiOperation({ summary: 'Update workspace calendar policy (Admin/Manager only)' })
+  async updatePolicy(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: UpsertCalendarPolicyApiDto,
+  ) {
+    return this.calendarService.updatePolicy(workspaceId, user.sub!, dto);
+  }
+
+  @Delete('policy')
+  @ApiOperation({ summary: 'Delete workspace calendar policy (Admin/Manager only)' })
+  async deletePolicy(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.calendarService.deletePolicy(workspaceId, user.sub!);
   }
 }

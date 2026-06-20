@@ -2,6 +2,8 @@ export const CALENDAR_MESSAGE_PATTERNS = {
   BULK_REGISTER_SHIFTS: 'calendar.bulk_register_shifts',
   GET_MY_SHIFTS: 'calendar.get_my_shifts',
   GET_ALL_SHIFTS: 'calendar.get_all_shifts',
+  UPDATE_WORK_SHIFT: 'calendar.update_work_shift',
+  DELETE_WORK_SHIFT: 'calendar.delete_work_shift',
   CREATE_LEAVE_REQUEST: 'calendar.create_leave_request',
   APPROVE_LEAVE_REQUEST: 'calendar.approve_leave_request',
   REJECT_LEAVE_REQUEST: 'calendar.reject_leave_request',
@@ -12,5 +14,7 @@ export const CALENDAR_MESSAGE_PATTERNS = {
   EXPORT_EXCEL: 'calendar.export_excel',
   UNLOCK_USER_CALENDAR: 'calendar.unlock_user_calendar',
   GET_CALENDAR_POLICY: 'calendar.get_policy',
+  CREATE_CALENDAR_POLICY: 'calendar.create_policy',
   UPDATE_CALENDAR_POLICY: 'calendar.update_policy',
+  DELETE_CALENDAR_POLICY: 'calendar.delete_policy',
 } as const;

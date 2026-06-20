@@ -9,6 +9,8 @@ import {
   Matches,
   ValidateNested,
   IsOptional,
+  IsNumber,
+  IsObject,
 } from 'class-validator';
 import { ShiftLocation } from '../types/calendar.enum';
 
@@ -66,4 +68,121 @@ export class GetWorkShiftsDto {
   @IsUUID()
   @IsOptional()
   userId?: string;
+}
+
+export class UpdateWorkShiftDto {
+  @IsUUID()
+  @IsNotEmpty()
+  id: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'workDate must be in YYYY-MM-DD format',
+  })
+  @IsOptional()
+  workDate?: string;
+
+  @IsString()
+  @IsISO8601({ strict: true })
+  @Matches(/Z$/, { message: 'startTime must be a strictly UTC ISO string ending with Z' })
+  @IsOptional()
+  startTime?: string;
+
+  @IsString()
+  @IsISO8601({ strict: true })
+  @Matches(/Z$/, { message: 'endTime must be a strictly UTC ISO string ending with Z' })
+  @IsOptional()
+  endTime?: string;
+
+  @IsEnum(ShiftLocation)
+  @IsOptional()
+  location?: ShiftLocation;
+}
+
+export class DeleteWorkShiftDto {
+  @IsUUID()
+  @IsNotEmpty()
+  id: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+}
+
+export class PolicyDataDto {
+  @IsNumber()
+  @IsOptional()
+  maxWfhDaysPerWeek?: number;
+
+  @IsNumber()
+  @IsOptional()
+  maxFullTimeHours?: number;
+
+  @IsNumber()
+  @IsOptional()
+  maxPartTimeHours?: number;
+
+  @IsNumber()
+  @IsOptional()
+  lockDeadlineDay?: number;
+}
+
+export class GetCalendarPolicyDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+}
+
+export class CreateCalendarPolicyDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsObject()
+  @ValidateNested()
+  @Type(() => PolicyDataDto)
+  @IsNotEmpty()
+  policyData: PolicyDataDto;
+}
+
+export class UpdateCalendarPolicyDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsObject()
+  @ValidateNested()
+  @Type(() => PolicyDataDto)
+  @IsNotEmpty()
+  policyData: PolicyDataDto;
+}
+
+export class DeleteCalendarPolicyDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
 }

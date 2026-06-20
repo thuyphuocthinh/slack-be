@@ -61,3 +61,56 @@ export class GetWorkShiftsApiDto {
   @IsOptional()
   userId?: string;
 }
+
+export class UpdateWorkShiftApiDto {
+  @ApiPropertyOptional({ example: '2026-06-20', description: 'YYYY-MM-DD' })
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'workDate must be in YYYY-MM-DD format' })
+  @IsOptional()
+  workDate?: string;
+
+  @ApiPropertyOptional({ example: '2026-06-20T02:00:00.000Z' })
+  @IsString()
+  @IsISO8601({ strict: true })
+  @Matches(/Z$/, { message: 'startTime must be a strictly UTC ISO string ending with Z' })
+  @IsOptional()
+  startTime?: string;
+
+  @ApiPropertyOptional({ example: '2026-06-20T11:00:00.000Z' })
+  @IsString()
+  @IsISO8601({ strict: true })
+  @Matches(/Z$/, { message: 'endTime must be a strictly UTC ISO string ending with Z' })
+  @IsOptional()
+  endTime?: string;
+
+  @ApiPropertyOptional({ enum: ShiftLocationApi })
+  @IsEnum(ShiftLocationApi)
+  @IsOptional()
+  location?: ShiftLocationApi;
+}
+
+export class PolicyDataApiDto {
+  @ApiPropertyOptional({ example: 4, description: 'Max WFH days allowed per week' })
+  @IsOptional()
+  maxWfhDaysPerWeek?: number;
+
+  @ApiPropertyOptional({ example: 208, description: 'Max working hours per month for FULLTIME' })
+  @IsOptional()
+  maxFullTimeHours?: number;
+
+  @ApiPropertyOptional({ example: 120, description: 'Max working hours per month for PARTTIME' })
+  @IsOptional()
+  maxPartTimeHours?: number;
+
+  @ApiPropertyOptional({ example: 25, description: 'Day of the month when calendar is locked' })
+  @IsOptional()
+  lockDeadlineDay?: number;
+}
+
+export class UpsertCalendarPolicyApiDto {
+  @ApiProperty({ type: PolicyDataApiDto })
+  @ValidateNested()
+  @Type(() => PolicyDataApiDto)
+  @IsNotEmpty()
+  policyData: PolicyDataApiDto;
+}
