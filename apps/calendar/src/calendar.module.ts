@@ -14,9 +14,13 @@ import { UserFaceBaselineEntity } from './entity/user_face_baseline.entity';
 import { ClientsModule } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { getMicroserviceClientConfig } from '@slack/common';
+import { WorkspaceCalendarPolicyService } from './services/workspace-calendar-policy.service';
+
+import { CachedModule } from '@slack/cached';
 
 @Module({
   imports: [
+    CachedModule,
     DatabaseModule,
     TypeOrmModule.forFeature([
       WorkspaceCalendarPolicyEntity,
@@ -32,6 +36,6 @@ import { getMicroserviceClientConfig } from '@slack/common';
     ]),
   ],
   controllers: [CalendarController],
-  providers: [CalendarService, WorkShiftService],
+  providers: [CalendarService, WorkShiftService, WorkspaceCalendarPolicyService],
 })
 export class CalendarModule {}

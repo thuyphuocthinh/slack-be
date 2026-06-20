@@ -218,6 +218,13 @@ export const CACHE = {
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:apps:v1:modals:trigger:${triggerId}`,
     },
   },
+  CALENDAR: {
+    _VER: 'v1',
+    KEYS: {
+      POLICY: (workspaceId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:calendar:v1:policy:ws_${workspaceId}`,
+    },
+  },
 };
 
 /*
