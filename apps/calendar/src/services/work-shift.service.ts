@@ -188,7 +188,7 @@ export class WorkShiftService {
       this.calendarCommonService.assertSelfOrPrivileged(requestorId, userId, requestor.role);
 
       // 3. Check lock deadline (admin/owner bypass via their role)
-      await this.policyService.checkLockDeadline(workspaceId, requestor.role, [shift.workDate]);
+      await this.policyService.checkLockDeadline(workspaceId, requestor.role, userId, [shift.workDate]);
 
       // 4. Delete
       await this.workShiftRepository.delete({ id, workspaceId, userId });

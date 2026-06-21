@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ScheduleModule } from '@nestjs/schedule';
 import { DatabaseModule } from '@slack/database';
 import { CalendarController } from './calendar.controller';
 import { CalendarService } from './calendar.service';
@@ -18,11 +19,14 @@ import { getMicroserviceClientConfig } from '@slack/common';
 import { WorkspaceCalendarPolicyService } from './services/workspace-calendar-policy.service';
 import { CalendarRequestService } from './services/calendar-request.service';
 import { CalendarCommonService } from './services/calendar-common.service';
+import { AttendanceService } from './services/attendance.service';
+import { CalendarCronService } from './services/calendar-cron.service';
 
 import { CachedModule } from '@slack/cached';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     CachedModule.forRoot(),
     DatabaseModule,
     TypeOrmModule.forFeature([
@@ -46,6 +50,8 @@ import { CachedModule } from '@slack/cached';
     WorkShiftService,
     WorkspaceCalendarPolicyService,
     CalendarRequestService,
+    AttendanceService,
+    CalendarCronService,
   ],
 })
 export class CalendarModule {}

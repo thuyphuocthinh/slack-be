@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Param, Post, Put, Delete, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Delete, Query, Ip } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CalendarService } from './calendar.service';
-import { BulkRegisterWorkShiftApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto, CreateCalendarRequestApiDto, UpdateCalendarRequestApiDto, GetCalendarRequestsApiDto, ReviewCalendarRequestApiDto, ManualUnlockCalendarApiDto } from './dto/calendar-api.dto';
+import { BulkRegisterWorkShiftApiDto, CheckInApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto, CreateCalendarRequestApiDto, UpdateCalendarRequestApiDto, GetCalendarRequestsApiDto, ReviewCalendarRequestApiDto, ManualUnlockCalendarApiDto } from './dto/calendar-api.dto';
 import { CurrentUser, type JwtUser } from '@slack/common';
 
 @ApiTags('Calendar')
@@ -146,5 +146,36 @@ export class CalendarController {
     @Body() dto: ManualUnlockCalendarApiDto,
   ) {
     return this.calendarService.manualUnlock(workspaceId, user.sub!, dto);
+  }
+
+  @Post('check-in')
+  @ApiOperation({ summary: 'Record check-in (OFFICE validates IP, WFH requires face similarity)' })
+  async checkIn(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+    @Body() dto: CheckInApiDto,
+  ) {
+    return this.calendarService.checkIn(workspaceId, user.sub!, ip, dto);
+  }
+
+  @Post('check-out')
+  @ApiOperation({ summary: 'Record check-out' })
+  async checkOut(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+    @Ip() ip: string,
+    @Body() dto: CheckInApiDto,
+  ) {
+    return this.calendarService.checkOut(workspaceId, user.sub!, ip, dto);
+  }
+
+  @Get('today-attendance')
+  @ApiOperation({ summary: 'Get today check-in / check-out status for current user' })
+  async getTodayAttendance(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.calendarService.getTodayAttendance(workspaceId, user.sub!);
   }
 }

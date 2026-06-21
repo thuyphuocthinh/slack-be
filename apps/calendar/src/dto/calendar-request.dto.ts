@@ -12,6 +12,7 @@ import {
   IsNumber,
   IsObject,
   Min,
+  Max,
 } from 'class-validator';
 import { ShiftLocation, CalendarRequestType, CalendarRequestStatus, CalendarRequestAction } from '../types/calendar.enum';
 
@@ -352,6 +353,50 @@ export class ReviewCalendarRequestDto {
   @IsString()
   @IsOptional()
   reviewNotes?: string;
+}
+
+export class CheckInDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsEnum(ShiftLocation)
+  @IsNotEmpty()
+  location: ShiftLocation;
+
+  @IsUUID()
+  @IsOptional()
+  shiftId?: string;
+
+  @IsString()
+  @IsOptional()
+  ipAddress?: string;
+
+  @IsString()
+  @IsOptional()
+  faceImageKey?: string;
+
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  @IsOptional()
+  faceSimilarityScore?: number;
+}
+
+export class CheckOutDto extends CheckInDto {}
+
+export class GetTodayAttendanceDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
 }
 
 export class ManualUnlockCalendarDto {

@@ -1,15 +1,20 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, CALENDAR_MESSAGE_PATTERNS } from '@slack/constants';
 import { firstValueFrom } from 'rxjs';
+import { v2 as cloudinary } from 'cloudinary';
 import { MicroserviceErrorHandler } from '../common/microservice_error.handler';
-import { BulkRegisterWorkShiftApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto } from './dto/calendar-api.dto';
+import { BulkRegisterWorkShiftApiDto, CheckInApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto } from './dto/calendar-api.dto';
 
 @Injectable()
 export class CalendarService {
+  private readonly logger = new Logger(CalendarService.name);
+
   constructor(
     @Inject(NAME_SERVICE_TCP.CALENDAR_SERVICE)
     private readonly calendarClient: ClientProxy,
+    @Inject('CLOUDINARY')
+    private readonly cloudinaryClient: typeof cloudinary,
   ) {}
 
   async bulkRegisterShifts(
@@ -301,6 +306,81 @@ export class CalendarService {
           ),
         ),
       'manualUnlock',
+      'CalendarService',
+    );
+  }
+
+  private async uploadFaceImage(base64: string): Promise<string | undefined> {
+    try {
+      const result = await this.cloudinaryClient.uploader.upload(base64, {
+        resource_type: 'image',
+        folder: 'attendance/faces',
+      });
+      return result.secure_url;
+    } catch (err) {
+      this.logger.warn('Face image upload failed, continuing without image:', err?.message);
+      return undefined;
+    }
+  }
+
+  async checkIn(workspaceId: string, userId: string, clientIp: string, dto: CheckInApiDto) {
+    let faceImageKey: string | undefined;
+    if (dto.location === 'WFH' && dto.faceImageBase64) {
+      faceImageKey = await this.uploadFaceImage(dto.faceImageBase64);
+    }
+
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.CHECK_IN, {
+            workspaceId,
+            userId,
+            location: dto.location,
+            shiftId: dto.shiftId,
+            ipAddress: clientIp,
+            faceImageKey,
+            faceSimilarityScore: dto.faceSimilarityScore,
+          }),
+        ),
+      'checkIn',
+      'CalendarService',
+    );
+  }
+
+  async checkOut(workspaceId: string, userId: string, clientIp: string, dto: CheckInApiDto) {
+    let faceImageKey: string | undefined;
+    if (dto.location === 'WFH' && dto.faceImageBase64) {
+      faceImageKey = await this.uploadFaceImage(dto.faceImageBase64);
+    }
+
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.CHECK_OUT, {
+            workspaceId,
+            userId,
+            location: dto.location,
+            shiftId: dto.shiftId,
+            ipAddress: clientIp,
+            faceImageKey,
+            faceSimilarityScore: dto.faceSimilarityScore,
+          }),
+        ),
+      'checkOut',
+      'CalendarService',
+    );
+  }
+
+  async getTodayAttendance(workspaceId: string, userId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_TODAY_ATTENDANCE, {
+            workspaceId,
+            userId,
+          }),
+        ),
+      'getTodayAttendance',
       'CalendarService',
     );
   }

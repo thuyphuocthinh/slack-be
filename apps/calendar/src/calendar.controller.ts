@@ -3,12 +3,14 @@ import { MessagePattern, Payload } from '@nestjs/microservices';
 import { CalendarService } from './calendar.service';
 import { WorkShiftService } from './services/work-shift.service';
 import { CALENDAR_MESSAGE_PATTERNS } from '@slack/constants';
-import { 
+import {
   BulkRegisterWorkShiftDto, GetWorkShiftsDto, UpdateWorkShiftDto, DeleteWorkShiftDto,
-  GetCalendarPolicyDto, CreateCalendarPolicyDto, UpdateCalendarPolicyDto, DeleteCalendarPolicyDto 
+  GetCalendarPolicyDto, CreateCalendarPolicyDto, UpdateCalendarPolicyDto, DeleteCalendarPolicyDto,
+  CheckInDto, CheckOutDto, GetTodayAttendanceDto,
 } from './dto/calendar-request.dto';
 import { WorkspaceCalendarPolicyService } from './services/workspace-calendar-policy.service';
 import { CalendarRequestService } from './services/calendar-request.service';
+import { AttendanceService } from './services/attendance.service';
 import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto, ReviewCalendarRequestDto, ManualUnlockCalendarDto } from './dto/calendar-request.dto';
 
 @Controller()
@@ -18,6 +20,7 @@ export class CalendarController {
     private readonly workShiftService: WorkShiftService,
     private readonly policyService: WorkspaceCalendarPolicyService,
     private readonly requestService: CalendarRequestService,
+    private readonly attendanceService: AttendanceService,
   ) {}
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.BULK_REGISTER_SHIFTS)
@@ -88,5 +91,20 @@ export class CalendarController {
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.UNLOCK_USER_CALENDAR)
   async manualUnlock(@Payload() dto: ManualUnlockCalendarDto) {
     return this.requestService.manualUnlock(dto);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.CHECK_IN)
+  async checkIn(@Payload() dto: CheckInDto) {
+    return this.attendanceService.checkIn(dto);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.CHECK_OUT)
+  async checkOut(@Payload() dto: CheckOutDto) {
+    return this.attendanceService.checkOut(dto);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_TODAY_ATTENDANCE)
+  async getTodayAttendance(@Payload() dto: GetTodayAttendanceDto) {
+    return this.attendanceService.getTodayAttendance(dto);
   }
 }
