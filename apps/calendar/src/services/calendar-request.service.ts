@@ -33,13 +33,10 @@ export class CalendarRequestService {
       lock: { mode: 'pessimistic_write' },
     });
 
-    let maxPaidLeaveDays = DEFAULT_PAID_LEAVE_DAYS;
-    if (!balance) {
-      const policy = await this.policyService.getPolicy(workspaceId);
-      maxPaidLeaveDays = policy?.policyData?.maxPaidLeaveDaysPerYear ?? DEFAULT_PAID_LEAVE_DAYS;
-    }
+    const policy = await this.policyService.getPolicy(workspaceId);
+    const maxPaidLeaveDays = policy?.policyData?.maxPaidLeaveDaysPerYear ?? DEFAULT_PAID_LEAVE_DAYS;
 
-    const available = balance ? balance.totalPaidLeave - balance.usedPaidLeave : maxPaidLeaveDays;
+    const available = balance ? maxPaidLeaveDays - balance.usedPaidLeave : maxPaidLeaveDays;
 
     if (available < actualDuration) {
       throw new RpcException({
@@ -83,15 +80,15 @@ export class CalendarRequestService {
   private async handleLeaveApproval(manager: EntityManager, request: CalendarRequestEntity) {
     if (request.requestType === CalendarRequestType.LEAVE_PAID) {
       const year = request.startTime.getFullYear();
+      const policy = await this.policyService.getPolicy(request.workspaceId);
+      const maxPaidLeaveDays = policy?.policyData?.maxPaidLeaveDaysPerYear ?? DEFAULT_PAID_LEAVE_DAYS;
+
       let balance = await manager.findOne(LeaveBalanceEntity, {
         where: { workspaceId: request.workspaceId, userId: request.userId, year },
         lock: { mode: 'pessimistic_write' },
       });
 
       if (!balance) {
-        const policy = await this.policyService.getPolicy(request.workspaceId);
-        const maxPaidLeaveDays = policy?.policyData?.maxPaidLeaveDaysPerYear ?? DEFAULT_PAID_LEAVE_DAYS;
-
         balance = manager.create(LeaveBalanceEntity, {
           workspaceId: request.workspaceId,
           userId: request.userId,
@@ -99,6 +96,8 @@ export class CalendarRequestService {
           totalPaidLeave: maxPaidLeaveDays,
           usedPaidLeave: 0,
         });
+      } else {
+        balance.totalPaidLeave = maxPaidLeaveDays;
       }
 
       const available = balance.totalPaidLeave - balance.usedPaidLeave;

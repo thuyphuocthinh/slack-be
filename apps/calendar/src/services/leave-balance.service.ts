@@ -25,14 +25,14 @@ export class LeaveBalanceService {
     try {
       await this.calendarCommonService.fetchMember(workspaceId, userId);
 
+      const policy = await this.policyService.getPolicy(workspaceId);
+      const maxPaidLeaveDays = policy?.policyData?.maxPaidLeaveDaysPerYear ?? DEFAULT_PAID_LEAVE_DAYS;
+
       let balance = await this.leaveBalanceRepo.findOne({
         where: { workspaceId, userId, year },
       });
 
       if (!balance) {
-        const policy = await this.policyService.getPolicy(workspaceId);
-        const maxPaidLeaveDays = policy?.policyData?.maxPaidLeaveDaysPerYear ?? DEFAULT_PAID_LEAVE_DAYS;
-
         return {
           id: 'default',
           workspaceId,
@@ -43,6 +43,7 @@ export class LeaveBalanceService {
         };
       }
 
+      balance.totalPaidLeave = maxPaidLeaveDays;
       return plainToInstance(LeaveBalanceResponseDto, balance);
     } catch (error) {
       if (error instanceof RpcException) throw error;
@@ -65,11 +66,17 @@ export class LeaveBalanceService {
          });
       }
 
+      const policy = await this.policyService.getPolicy(workspaceId);
+      const maxPaidLeaveDays = policy?.policyData?.maxPaidLeaveDaysPerYear ?? DEFAULT_PAID_LEAVE_DAYS;
+
       const balances = await this.leaveBalanceRepo.find({
         where: { workspaceId, year },
       });
 
-      return balances.map((b) => plainToInstance(LeaveBalanceResponseDto, b));
+      return balances.map((b) => {
+        b.totalPaidLeave = maxPaidLeaveDays;
+        return plainToInstance(LeaveBalanceResponseDto, b);
+      });
     } catch (error) {
       if (error instanceof RpcException) throw error;
       this.logger.error('Error getting workspace leave balances:', error);
