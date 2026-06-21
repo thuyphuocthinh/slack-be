@@ -70,12 +70,13 @@ describe('LeaveBalanceService', () => {
         workspaceId: mockWorkspaceId,
         userId: mockUserId,
         year: mockYear,
-        totalPaidLeave: 15,
+        totalPaidLeave: 12, // the DB value doesn't matter much anymore since it's overridden
         usedPaidLeave: 5,
       };
 
       mockCalendarCommonService.fetchMember.mockResolvedValueOnce({ id: mockUserId, role: 'MEMBER' });
       mockLeaveBalanceRepo.findOne.mockResolvedValueOnce(mockBalance);
+      mockPolicyService.getPolicy.mockResolvedValueOnce({ policyData: { maxPaidLeaveDaysPerYear: 15 } });
 
       const result = await service.getMyLeaveBalance(mockWorkspaceId, mockUserId, mockYear);
 
