@@ -9,10 +9,13 @@ import { CALENDAR_ERROR, AUTH_ERROR } from '@slack/constants';
 import { CalendarRequestType, CalendarRequestStatus, CalendarRequestAction } from '../types/calendar.enum';
 import { CalendarCommonService } from './calendar-common.service';
 
+import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
+
 describe('CalendarRequestService', () => {
   let service: CalendarRequestService;
   let requestRepository: any;
   let calendarCommonService: jest.Mocked<Pick<CalendarCommonService, 'fetchMember' | 'isPrivileged' | 'assertPrivileged'>>;
+  let policyService: any;
   let manager: any;
 
   const MEMBER = { id: 'user-1', role: 'member' };
@@ -56,6 +59,10 @@ describe('CalendarRequestService', () => {
       assertPrivileged: jest.fn(),
     };
 
+    policyService = {
+      getPolicy: jest.fn().mockResolvedValue(null),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CalendarRequestService,
@@ -66,6 +73,10 @@ describe('CalendarRequestService', () => {
         {
           provide: CalendarCommonService,
           useValue: calendarCommonService,
+        },
+        {
+          provide: WorkspaceCalendarPolicyService,
+          useValue: policyService,
         },
       ],
     }).compile();
@@ -119,9 +130,10 @@ describe('CalendarRequestService', () => {
       expect(result).toHaveProperty('id', 'req-1');
     });
 
-    it('should use DEFAULT_PAID_LEAVE_DAYS if balance record does not exist', async () => {
+    it('should use DEFAULT_PAID_LEAVE_DAYS if balance record does not exist and no policy', async () => {
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
       manager.findOne.mockResolvedValue(null); // No balance record
+      policyService.getPolicy.mockResolvedValue(null);
       manager.create.mockReturnValue({ id: 'req-2' });
       manager.save.mockResolvedValue({ id: 'req-2' });
 
@@ -130,6 +142,21 @@ describe('CalendarRequestService', () => {
 
       expect(manager.save).toHaveBeenCalled();
       expect(result).toHaveProperty('id', 'req-2');
+    });
+
+    it('should use maxPaidLeaveDaysPerYear from policy if balance record does not exist', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      manager.findOne.mockResolvedValue(null); // No balance record
+      policyService.getPolicy.mockResolvedValue({ policyData: { maxPaidLeaveDaysPerYear: 20 } });
+      manager.create.mockReturnValue({ id: 'req-3' });
+      manager.save.mockResolvedValue({ id: 'req-3' });
+
+      const leavePaidDto = { ...dto, requestType: CalendarRequestType.LEAVE_PAID, durationDays: 15 }; // 15 < 20
+      const result = await service.createRequest(leavePaidDto);
+
+      expect(policyService.getPolicy).toHaveBeenCalled();
+      expect(manager.save).toHaveBeenCalled();
+      expect(result).toHaveProperty('id', 'req-3');
     });
   });
 

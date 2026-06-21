@@ -85,6 +85,19 @@ describe('WorkspaceCalendarPolicyService', () => {
       expect(result).toEqual(mockPolicy);
       expect(policyRepository.findOne).toHaveBeenCalledWith({ where: { workspaceId: mockWorkspaceId } });
     });
+
+    it('should return policy containing maxPaidLeaveDaysPerYear', async () => {
+      const mockPolicy = { 
+        id: 'policy-2', 
+        workspaceId: mockWorkspaceId,
+        policyData: { maxPaidLeaveDaysPerYear: 20 }
+      } as unknown as WorkspaceCalendarPolicyEntity;
+      jest.spyOn(policyRepository, 'findOne').mockResolvedValue(mockPolicy);
+
+      const result = await service.getPolicy(mockWorkspaceId);
+      expect(result).toEqual(mockPolicy);
+      expect(result?.policyData).toHaveProperty('maxPaidLeaveDaysPerYear', 20);
+    });
   });
 
   describe('validateShifts', () => {

@@ -8,6 +8,8 @@ import { CalendarCommonService } from './calendar-common.service';
 import { LeaveBalanceResponseDto } from '../dto/calendar-response.dto';
 import { CALENDAR_ERROR, AUTH_ERROR, DEFAULT_PAID_LEAVE_DAYS } from '@slack/constants';
 
+import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
+
 @Injectable()
 export class LeaveBalanceService {
   private readonly logger = new Logger(LeaveBalanceService.name);
@@ -16,6 +18,7 @@ export class LeaveBalanceService {
     @InjectRepository(LeaveBalanceEntity)
     private readonly leaveBalanceRepo: Repository<LeaveBalanceEntity>,
     private readonly calendarCommonService: CalendarCommonService,
+    private readonly policyService: WorkspaceCalendarPolicyService,
   ) { }
 
   async getMyLeaveBalance(workspaceId: string, userId: string, year: number) {
@@ -27,12 +30,15 @@ export class LeaveBalanceService {
       });
 
       if (!balance) {
+        const policy = await this.policyService.getPolicy(workspaceId);
+        const maxPaidLeaveDays = policy?.policyData?.maxPaidLeaveDaysPerYear ?? DEFAULT_PAID_LEAVE_DAYS;
+
         return {
           id: 'default',
           workspaceId,
           userId,
           year,
-          totalPaidLeave: DEFAULT_PAID_LEAVE_DAYS,
+          totalPaidLeave: maxPaidLeaveDays,
           usedPaidLeave: 0,
         };
       }

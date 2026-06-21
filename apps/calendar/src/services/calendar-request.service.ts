@@ -14,6 +14,8 @@ import { plainToInstance } from 'class-transformer';
 import { IOffsetResponse } from '@slack/common';
 import { CalendarCommonService } from './calendar-common.service';
 
+import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
+
 @Injectable()
 export class CalendarRequestService {
   private readonly logger = new Logger(CalendarRequestService.name);
@@ -22,6 +24,7 @@ export class CalendarRequestService {
     @InjectRepository(CalendarRequestEntity)
     private readonly requestRepository: Repository<CalendarRequestEntity>,
     private readonly calendarCommonService: CalendarCommonService,
+    private readonly policyService: WorkspaceCalendarPolicyService,
   ) {}
 
   private async checkLeaveBalance(manager: EntityManager, workspaceId: string, userId: string, year: number, actualDuration: number) {
@@ -30,7 +33,13 @@ export class CalendarRequestService {
       lock: { mode: 'pessimistic_write' },
     });
 
-    const available = balance ? balance.totalPaidLeave - balance.usedPaidLeave : DEFAULT_PAID_LEAVE_DAYS;
+    let maxPaidLeaveDays = DEFAULT_PAID_LEAVE_DAYS;
+    if (!balance) {
+      const policy = await this.policyService.getPolicy(workspaceId);
+      maxPaidLeaveDays = policy?.policyData?.maxPaidLeaveDaysPerYear ?? DEFAULT_PAID_LEAVE_DAYS;
+    }
+
+    const available = balance ? balance.totalPaidLeave - balance.usedPaidLeave : maxPaidLeaveDays;
 
     if (available < actualDuration) {
       throw new RpcException({
@@ -80,11 +89,14 @@ export class CalendarRequestService {
       });
 
       if (!balance) {
+        const policy = await this.policyService.getPolicy(request.workspaceId);
+        const maxPaidLeaveDays = policy?.policyData?.maxPaidLeaveDaysPerYear ?? DEFAULT_PAID_LEAVE_DAYS;
+
         balance = manager.create(LeaveBalanceEntity, {
           workspaceId: request.workspaceId,
           userId: request.userId,
           year,
-          totalPaidLeave: DEFAULT_PAID_LEAVE_DAYS,
+          totalPaidLeave: maxPaidLeaveDays,
           usedPaidLeave: 0,
         });
       }

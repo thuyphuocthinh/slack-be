@@ -72,6 +72,9 @@ export class PolicyDataResponseDto {
 
   @Expose()
   lockDeadlineDay?: number;
+
+  @Expose()
+  maxPaidLeaveDaysPerYear?: number;
 }
 
 @Exclude()
