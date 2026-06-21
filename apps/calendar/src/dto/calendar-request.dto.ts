@@ -119,6 +119,10 @@ export class UpdateWorkShiftDto {
   @IsEnum(ShiftLocation)
   @IsOptional()
   location?: ShiftLocation;
+
+  @IsString()
+  @IsOptional()
+  notes?: string;
 }
 
 export class DeleteWorkShiftDto {

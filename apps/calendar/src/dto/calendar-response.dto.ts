@@ -32,6 +32,31 @@ export class WorkShiftResponseDto {
 
   @Expose()
   updatedAt: Date;
+
+  @Expose()
+  notes?: string;
+
+  @Expose()
+  @Type(() => AttendanceLogResponseDto)
+  attendanceLogs?: AttendanceLogResponseDto[];
+
+  @Expose()
+  inOutStatus?: string;
+}
+
+@Exclude()
+export class AttendanceLogResponseDto {
+  @Expose()
+  id: string;
+
+  @Expose()
+  userId: string;
+
+  @Expose()
+  logType: string;
+
+  @Expose()
+  recordedAt: Date;
 }
 
 @Exclude()
