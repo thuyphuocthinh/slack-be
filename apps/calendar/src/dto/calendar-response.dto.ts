@@ -140,3 +140,30 @@ export class CalendarRequestResponseDto {
   @Expose()
   updatedAt: Date;
 }
+
+@Exclude()
+export class LeaveBalanceResponseDto {
+  @Expose()
+  id: string;
+
+  @Expose()
+  userId: string;
+
+  @Expose()
+  workspaceId: string;
+
+  @Expose()
+  year: number;
+
+  @Expose()
+  totalPaidLeave: number;
+
+  @Expose()
+  usedPaidLeave: number;
+
+  @Expose()
+  createdAt: Date;
+
+  @Expose()
+  updatedAt: Date;
+}

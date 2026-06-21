@@ -425,3 +425,31 @@ export class ManualUnlockCalendarDto {
   @IsOptional()
   reason?: string;
 }
+
+export class GetMyLeaveBalanceDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsNumber()
+  @IsNotEmpty()
+  year: number;
+}
+
+export class GetWorkspaceLeaveBalancesDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  requestorId: string;
+
+  @IsNumber()
+  @IsNotEmpty()
+  year: number;
+}

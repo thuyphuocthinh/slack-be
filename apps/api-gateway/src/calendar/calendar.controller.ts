@@ -178,4 +178,26 @@ export class CalendarController {
   ) {
     return this.calendarService.getTodayAttendance(workspaceId, user.sub!);
   }
+
+  @Get('leave-balances/my-balance')
+  @ApiOperation({ summary: 'Get current user leave balance for the specified year' })
+  async getMyLeaveBalance(
+    @Param('workspaceId') workspaceId: string,
+    @Query('year') year: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const targetYear = year ? parseInt(year, 10) : new Date().getFullYear();
+    return this.calendarService.getMyLeaveBalance(workspaceId, user.sub!, targetYear);
+  }
+
+  @Get('leave-balances')
+  @ApiOperation({ summary: 'Get all members leave balances for the workspace (Admin only)' })
+  async getWorkspaceLeaveBalances(
+    @Param('workspaceId') workspaceId: string,
+    @Query('year') year: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const targetYear = year ? parseInt(year, 10) : new Date().getFullYear();
+    return this.calendarService.getWorkspaceLeaveBalances(workspaceId, user.sub!, targetYear);
+  }
 }
