@@ -384,4 +384,34 @@ export class CalendarService {
       'CalendarService',
     );
   }
+
+  async getMyLeaveBalance(workspaceId: string, userId: string, year: number) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_MY_LEAVE_BALANCE, {
+            workspaceId,
+            userId,
+            year,
+          }),
+        ),
+      'getMyLeaveBalance',
+      'CalendarService',
+    );
+  }
+
+  async getWorkspaceLeaveBalances(workspaceId: string, requestorId: string, year: number) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_WORKSPACE_LEAVE_BALANCES, {
+            workspaceId,
+            requestorId,
+            year,
+          }),
+        ),
+      'getWorkspaceLeaveBalances',
+      'CalendarService',
+    );
+  }
 }

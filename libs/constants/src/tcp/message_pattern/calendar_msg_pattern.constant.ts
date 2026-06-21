@@ -22,4 +22,6 @@ export const CALENDAR_MESSAGE_PATTERNS = {
   CREATE_CALENDAR_POLICY: 'calendar.create_policy',
   UPDATE_CALENDAR_POLICY: 'calendar.update_policy',
   DELETE_CALENDAR_POLICY: 'calendar.delete_policy',
+  GET_MY_LEAVE_BALANCE: 'calendar.get_my_leave_balance',
+  GET_WORKSPACE_LEAVE_BALANCES: 'calendar.get_workspace_leave_balances',
 } as const;

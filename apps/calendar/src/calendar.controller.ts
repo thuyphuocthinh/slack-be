@@ -11,7 +11,8 @@ import {
 import { WorkspaceCalendarPolicyService } from './services/workspace-calendar-policy.service';
 import { CalendarRequestService } from './services/calendar-request.service';
 import { AttendanceService } from './services/attendance.service';
-import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto, ReviewCalendarRequestDto, ManualUnlockCalendarDto } from './dto/calendar-request.dto';
+import { LeaveBalanceService } from './services/leave-balance.service';
+import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto, ReviewCalendarRequestDto, ManualUnlockCalendarDto, GetMyLeaveBalanceDto, GetWorkspaceLeaveBalancesDto } from './dto/calendar-request.dto';
 
 @Controller()
 export class CalendarController {
@@ -21,6 +22,7 @@ export class CalendarController {
     private readonly policyService: WorkspaceCalendarPolicyService,
     private readonly requestService: CalendarRequestService,
     private readonly attendanceService: AttendanceService,
+    private readonly leaveBalanceService: LeaveBalanceService,
   ) {}
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.BULK_REGISTER_SHIFTS)
@@ -106,5 +108,15 @@ export class CalendarController {
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_TODAY_ATTENDANCE)
   async getTodayAttendance(@Payload() dto: GetTodayAttendanceDto) {
     return this.attendanceService.getTodayAttendance(dto);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_MY_LEAVE_BALANCE)
+  async getMyLeaveBalance(@Payload() dto: GetMyLeaveBalanceDto) {
+    return this.leaveBalanceService.getMyLeaveBalance(dto.workspaceId, dto.userId, dto.year);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_WORKSPACE_LEAVE_BALANCES)
+  async getWorkspaceLeaveBalances(@Payload() dto: GetWorkspaceLeaveBalancesDto) {
+    return this.leaveBalanceService.getWorkspaceLeaveBalances(dto.workspaceId, dto.requestorId, dto.year);
   }
 }
