@@ -40,6 +40,10 @@ export class BulkRegisterWorkShiftDto {
 
   @IsUUID()
   @IsNotEmpty()
+  requestorId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
   userId: string;
 
   @IsArray()
@@ -57,6 +61,10 @@ export class GetWorkShiftsDto {
   @IsUUID()
   @IsNotEmpty()
   workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  requestorId: string;
 
   @IsString()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'startDate must be in YYYY-MM-DD format' })
@@ -78,11 +86,15 @@ export class UpdateWorkShiftDto {
 
   @IsUUID()
   @IsNotEmpty()
-  userId: string;
+  workspaceId: string;
 
   @IsUUID()
   @IsNotEmpty()
-  workspaceId: string;
+  requestorId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
 
   @IsString()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, {
@@ -115,11 +127,15 @@ export class DeleteWorkShiftDto {
 
   @IsUUID()
   @IsNotEmpty()
-  userId: string;
+  workspaceId: string;
 
   @IsUUID()
   @IsNotEmpty()
-  workspaceId: string;
+  requestorId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
 }
 
 export class PolicyDataDto {

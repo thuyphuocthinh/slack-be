@@ -1,20 +1,20 @@
 import { Injectable, HttpStatus } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
-import { RpcException, ClientProxy } from '@nestjs/microservices';
+import { RpcException } from '@nestjs/microservices';
 import { WorkspaceCalendarPolicyEntity } from '../entity/workspace_calendar_policy.entity';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
-import { CALENDAR_ERROR, NAME_SERVICE_TCP, WORKSPACE_MESSAGE_PATTERNS, WorkspaceRoleEnum } from '@slack/constants';
+import { CALENDAR_ERROR } from '@slack/constants';
 import { getMondayOfWeek, getSundayOfWeek, getLastDayOfMonth, calculateDiffHours } from '@slack/common/utils/time.util';
 import { ShiftLocation } from '../types/calendar.enum';
 import { WorkShiftValidationPayload } from '../types/calendar.type';
-import { Inject, Logger } from '@nestjs/common';
-import { firstValueFrom } from 'rxjs';
+import { Logger } from '@nestjs/common';
 import { CreateCalendarPolicyDto, UpdateCalendarPolicyDto, DeleteCalendarPolicyDto } from '../dto/calendar-request.dto';
 import { WorkspaceCalendarPolicyResponseDto } from '../dto/calendar-response.dto';
 import { CACHE, TTL } from '@slack/cached/cached.constant';
 import { CachedService } from '@slack/cached/cached.service';
 import { plainToInstance } from 'class-transformer';
+import { CalendarCommonService } from './calendar-common.service';
 
 @Injectable()
 export class WorkspaceCalendarPolicyService {
@@ -25,8 +25,7 @@ export class WorkspaceCalendarPolicyService {
     private readonly policyRepository: Repository<WorkspaceCalendarPolicyEntity>,
     @InjectRepository(WorkShiftEntity)
     private readonly workShiftRepository: Repository<WorkShiftEntity>,
-    @Inject(NAME_SERVICE_TCP.WORKSPACE_SERVICE)
-    private readonly workspaceClient: ClientProxy,
+    private readonly calendarCommonService: CalendarCommonService,
     private readonly cachedService: CachedService,
   ) { }
 
@@ -56,7 +55,6 @@ export class WorkspaceCalendarPolicyService {
 
     const empType = memberEmploymentType || 'FULLTIME';
     const maxHours = empType === 'PARTTIME' ? maxPartTimeHours : maxFullTimeHours;
-    const lockDeadlineDay = policy?.policyData?.lockDeadlineDay ?? 25;
 
     const wfhDatesSet = new Set<string>();
     const monthMap = new Map<string, { newHours: number, dateStrs: Set<string> }>();
@@ -161,7 +159,7 @@ export class WorkspaceCalendarPolicyService {
   }
 
   async checkLockDeadline(workspaceId: string, memberRole: string, workDates: string[]) {
-    if (memberRole === WorkspaceRoleEnum.ADMIN || memberRole === WorkspaceRoleEnum.OWNER) return;
+    if (this.calendarCommonService.isPrivileged(memberRole)) return;
 
     const policy = await this.getPolicy(workspaceId);
     const lockDeadlineDay = policy?.policyData?.lockDeadlineDay ?? 25;
@@ -171,9 +169,9 @@ export class WorkspaceCalendarPolicyService {
       const shiftDate = new Date(workDate);
       const targetYear = shiftDate.getUTCFullYear();
       const targetMonth = shiftDate.getUTCMonth(); // 0-11
-      
+
       const deadlineDate = new Date(Date.UTC(targetYear, targetMonth - 1, lockDeadlineDay, 23, 59, 59, 999));
-      
+
       if (currentDate.getTime() > deadlineDate.getTime()) {
         throw new RpcException({
           statusCode: HttpStatus.FORBIDDEN,
@@ -184,28 +182,9 @@ export class WorkspaceCalendarPolicyService {
     }
   }
 
-  private async checkAdminPermission(workspaceId: string, userId: string) {
-    const member = await firstValueFrom(
-      this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.GET_MEMBER, { workspaceId, userId })
-    );
-
-    if (!member) {
-      throw new RpcException({
-        statusCode: HttpStatus.FORBIDDEN,
-        ...CALENDAR_ERROR.NOT_WORKSPACE_MEMBER,
-      });
-    }
-
-    if (member.role !== WorkspaceRoleEnum.ADMIN && member.role !== WorkspaceRoleEnum.OWNER) {
-      throw new RpcException({
-        statusCode: HttpStatus.FORBIDDEN,
-        ...CALENDAR_ERROR.POLICY_MANAGEMENT_FORBIDDEN,
-      });
-    }
-  }
-
   async createPolicy(dto: CreateCalendarPolicyDto): Promise<WorkspaceCalendarPolicyResponseDto> {
-    await this.checkAdminPermission(dto.workspaceId, dto.userId);
+    const member = await this.calendarCommonService.fetchMember(dto.workspaceId, dto.userId);
+    this.calendarCommonService.assertPrivileged(member.role);
 
     const existingPolicy = await this.getPolicy(dto.workspaceId);
     if (existingPolicy) {
@@ -233,7 +212,8 @@ export class WorkspaceCalendarPolicyService {
   }
 
   async updatePolicy(dto: UpdateCalendarPolicyDto): Promise<WorkspaceCalendarPolicyResponseDto> {
-    await this.checkAdminPermission(dto.workspaceId, dto.userId);
+    const member = await this.calendarCommonService.fetchMember(dto.workspaceId, dto.userId);
+    this.calendarCommonService.assertPrivileged(member.role);
 
     const existingPolicyEntity = await this.policyRepository.findOne({ where: { workspaceId: dto.workspaceId } });
     if (!existingPolicyEntity) {
@@ -258,7 +238,8 @@ export class WorkspaceCalendarPolicyService {
   }
 
   async deletePolicy(dto: DeleteCalendarPolicyDto) {
-    await this.checkAdminPermission(dto.workspaceId, dto.userId);
+    const member = await this.calendarCommonService.fetchMember(dto.workspaceId, dto.userId);
+    this.calendarCommonService.assertPrivileged(member.role);
 
     try {
       const result = await this.policyRepository.delete({ workspaceId: dto.workspaceId });

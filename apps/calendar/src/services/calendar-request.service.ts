@@ -1,18 +1,18 @@
-import { Injectable, Logger, HttpStatus, Inject } from '@nestjs/common';
+import { Injectable, Logger, HttpStatus } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, EntityManager } from 'typeorm';
-import { RpcException, ClientProxy } from '@nestjs/microservices';
+import { RpcException } from '@nestjs/microservices';
 import { CalendarRequestEntity } from '../entity/calendar_request.entity';
 import { LeaveBalanceEntity } from '../entity/leave_balance.entity';
 import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto, ReviewCalendarRequestDto, ManualUnlockCalendarDto } from '../dto/calendar-request.dto';
 import { CalendarUserLockEntity } from '../entity/calendar_user_lock.entity';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
 import { CalendarRequestResponseDto } from '../dto/calendar-response.dto';
-import { WORKSPACE_MESSAGE_PATTERNS, NAME_SERVICE_TCP, CALENDAR_ERROR, DEFAULT_PAID_LEAVE_DAYS, WorkspaceRoleEnum } from '@slack/constants';
+import { CALENDAR_ERROR, DEFAULT_PAID_LEAVE_DAYS, AUTH_ERROR } from '@slack/constants';
 import { CalendarRequestType, CalendarRequestStatus, CalendarRequestAction } from '../types/calendar.enum';
-import { firstValueFrom } from 'rxjs';
 import { plainToInstance } from 'class-transformer';
 import { IOffsetResponse } from '@slack/common';
+import { CalendarCommonService } from './calendar-common.service';
 
 @Injectable()
 export class CalendarRequestService {
@@ -21,26 +21,8 @@ export class CalendarRequestService {
   constructor(
     @InjectRepository(CalendarRequestEntity)
     private readonly requestRepository: Repository<CalendarRequestEntity>,
-    @InjectRepository(LeaveBalanceEntity)
-    private readonly leaveBalanceRepository: Repository<LeaveBalanceEntity>,
-    @Inject(NAME_SERVICE_TCP.WORKSPACE_SERVICE)
-    private readonly workspaceClient: ClientProxy,
-  ) { }
-
-  private async getWorkspaceMember(workspaceId: string, userId: string) {
-    const member = await firstValueFrom(
-      this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.GET_MEMBER, { workspaceId, userId }),
-    );
-
-    if (!member) {
-      throw new RpcException({
-        statusCode: HttpStatus.FORBIDDEN,
-        ...CALENDAR_ERROR.NOT_WORKSPACE_MEMBER,
-      });
-    }
-
-    return member;
-  }
+    private readonly calendarCommonService: CalendarCommonService,
+  ) {}
 
   private async checkLeaveBalance(manager: EntityManager, workspaceId: string, userId: string, year: number, actualDuration: number) {
     const balance = await manager.findOne(LeaveBalanceEntity, {
@@ -75,7 +57,7 @@ export class CalendarRequestService {
     if (userId && request.userId !== userId) {
       throw new RpcException({
         statusCode: HttpStatus.FORBIDDEN,
-        ...CALENDAR_ERROR.REQUEST_FORBIDDEN_ACTION,
+        ...AUTH_ERROR.FORBIDDEN,
       });
     }
 
@@ -164,7 +146,7 @@ export class CalendarRequestService {
 
     try {
       // 1. Validate membership
-      const member = await this.getWorkspaceMember(workspaceId, userId);
+      await this.calendarCommonService.fetchMember(workspaceId, userId);
 
       const startObj = new Date(startTime as unknown as string);
       const endObj = new Date(endTime as unknown as string);
@@ -266,13 +248,10 @@ export class CalendarRequestService {
   async getRequests(dto: GetCalendarRequestsDto): Promise<IOffsetResponse<CalendarRequestResponseDto[]>> {
     const { workspaceId, userId, targetUserId, status, type, page = 1, limit = 20 } = dto;
 
-    // Check role to enforce permissions
-    const member = await this.getWorkspaceMember(workspaceId, userId);
+    const member = await this.calendarCommonService.fetchMember(workspaceId, userId);
 
-    let actualTargetUserId = targetUserId;
-    if (member.role === WorkspaceRoleEnum.MEMBER) {
-      actualTargetUserId = userId; // Regular members can only see their own requests
-    }
+    // Regular members can only see their own requests
+    const effectiveTargetUserId = this.calendarCommonService.isPrivileged(member.role) ? targetUserId : userId;
 
     const skip = (page - 1) * limit;
 
@@ -280,8 +259,8 @@ export class CalendarRequestService {
       .createQueryBuilder('request')
       .where('request.workspaceId = :workspaceId', { workspaceId });
 
-    if (actualTargetUserId) {
-      query.andWhere('request.userId = :actualTargetUserId', { actualTargetUserId });
+    if (effectiveTargetUserId) {
+      query.andWhere('request.userId = :effectiveTargetUserId', { effectiveTargetUserId });
     }
 
     if (status) {
@@ -315,14 +294,8 @@ export class CalendarRequestService {
 
     try {
       // 1. Verify reviewer is a manager/admin
-      const reviewer = await this.getWorkspaceMember(workspaceId, reviewerId);
-
-      if (reviewer.role === WorkspaceRoleEnum.MEMBER) {
-        throw new RpcException({
-          statusCode: HttpStatus.FORBIDDEN,
-          ...CALENDAR_ERROR.REVIEW_REQUEST_FORBIDDEN,
-        });
-      }
+      const reviewer = await this.calendarCommonService.fetchMember(workspaceId, reviewerId);
+      this.calendarCommonService.assertPrivileged(reviewer.role);
 
       return await this.requestRepository.manager.transaction(async (manager) => {
         // Dùng undefined cho userId để bỏ qua check người gửi đơn (vì đây là Manager duyệt)
@@ -363,23 +336,13 @@ export class CalendarRequestService {
 
     try {
       // 1. Verify reviewer is a manager/admin
-      const reviewer = await this.getWorkspaceMember(workspaceId, reviewerId);
-
-      if (reviewer.role === WorkspaceRoleEnum.MEMBER) {
-        throw new RpcException({
-          statusCode: HttpStatus.FORBIDDEN,
-          ...CALENDAR_ERROR.MANUAL_UNLOCK_FORBIDDEN,
-        });
-      }
+      const reviewer = await this.calendarCommonService.fetchMember(workspaceId, reviewerId);
+      this.calendarCommonService.assertPrivileged(reviewer.role);
 
       // 2. Insert or update CalendarUserLockEntity directly
       return await this.requestRepository.manager.transaction(async (manager) => {
         let lock = await manager.findOne(CalendarUserLockEntity, {
-          where: {
-            workspaceId,
-            userId: targetUserId,
-            targetMonth,
-          },
+          where: { workspaceId, userId: targetUserId, targetMonth },
         });
 
         if (!lock) {

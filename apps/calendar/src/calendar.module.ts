@@ -17,6 +17,7 @@ import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { getMicroserviceClientConfig } from '@slack/common';
 import { WorkspaceCalendarPolicyService } from './services/workspace-calendar-policy.service';
 import { CalendarRequestService } from './services/calendar-request.service';
+import { CalendarCommonService } from './services/calendar-common.service';
 
 import { CachedModule } from '@slack/cached';
 
@@ -40,10 +41,11 @@ import { CachedModule } from '@slack/cached';
   ],
   controllers: [CalendarController],
   providers: [
-    CalendarService, 
-    WorkShiftService, 
+    CalendarService,
+    CalendarCommonService,
+    WorkShiftService,
     WorkspaceCalendarPolicyService,
-    CalendarRequestService
+    CalendarRequestService,
   ],
 })
 export class CalendarModule {}
