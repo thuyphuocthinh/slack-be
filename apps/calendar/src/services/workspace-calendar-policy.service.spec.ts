@@ -1,7 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { RpcException } from '@nestjs/microservices';
 import { HttpStatus } from '@nestjs/common';
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { WorkspaceCalendarPolicyEntity } from '../entity/workspace_calendar_policy.entity';
@@ -10,30 +9,35 @@ import { CALENDAR_ERROR, WorkspaceRoleEnum } from '@slack/constants';
 import { ShiftLocation } from '../types/calendar.enum';
 import { WorkShiftValidationPayload } from '../types/calendar.type';
 import { CachedService } from '@slack/cached/cached.service';
-import { NAME_SERVICE_TCP } from '@slack/constants';
+import { CalendarCommonService } from './calendar-common.service';
 
 describe('WorkspaceCalendarPolicyService', () => {
   let service: WorkspaceCalendarPolicyService;
   let policyRepository: Repository<WorkspaceCalendarPolicyEntity>;
   let workShiftRepository: Repository<WorkShiftEntity>;
+  let calendarCommonService: jest.Mocked<Pick<CalendarCommonService, 'isPrivileged' | 'fetchMember' | 'assertPrivileged'>>;
 
   const mockWorkspaceId = 'workspace-1';
   const mockUserId = 'user-1';
 
   beforeEach(async () => {
+    calendarCommonService = {
+      isPrivileged: jest.fn().mockImplementation((role) => role === 'admin' || role === 'owner'),
+      fetchMember: jest.fn(),
+      assertPrivileged: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WorkspaceCalendarPolicyService,
         {
-          provide: NAME_SERVICE_TCP.WORKSPACE_SERVICE,
-          useValue: {
-            send: jest.fn(),
-          },
+          provide: CalendarCommonService,
+          useValue: calendarCommonService,
         },
         {
           provide: CachedService,
           useValue: {
-            getOrSetDetail: jest.fn((key, ttl, fetcher) => fetcher()),
+            getOrSetDetail: jest.fn((_key, _ttl, fetcher) => fetcher()),
             del: jest.fn(),
           },
         },
@@ -76,7 +80,7 @@ describe('WorkspaceCalendarPolicyService', () => {
 
   describe('validateShifts', () => {
     it('should pass validation when shifts are within limits (using defaults)', async () => {
-      jest.spyOn(policyRepository, 'findOne').mockResolvedValue(null); // use defaults
+      jest.spyOn(policyRepository, 'findOne').mockResolvedValue(null);
       jest.spyOn(workShiftRepository, 'find').mockResolvedValue([]);
 
       const shifts: WorkShiftValidationPayload[] = [
@@ -92,7 +96,6 @@ describe('WorkspaceCalendarPolicyService', () => {
     });
 
     it('should throw an error if WFH limit is exceeded', async () => {
-      // Mock default policy (max 4 WFH days)
       jest.spyOn(policyRepository, 'findOne').mockResolvedValue(null);
 
       // Existing shifts: 4 WFH days already this week (June 1-4)
@@ -102,7 +105,7 @@ describe('WorkspaceCalendarPolicyService', () => {
         { workDate: '2026-06-03', location: ShiftLocation.WFH, startTime: new Date(), endTime: new Date() },
         { workDate: '2026-06-04', location: ShiftLocation.WFH, startTime: new Date(), endTime: new Date() },
       ] as WorkShiftEntity[];
-      
+
       jest.spyOn(workShiftRepository, 'find').mockResolvedValue(existingShifts);
 
       const shifts: WorkShiftValidationPayload[] = [
@@ -172,8 +175,7 @@ describe('WorkspaceCalendarPolicyService', () => {
 
       jest.spyOn(workShiftRepository, 'find').mockResolvedValue(existingShifts);
 
-      // Updating 'shift-1' to take 205 hours. Should pass because total is 205 (which is <= 208)
-      // If it incorrectly counted the existing 200 hours, total would be 405.
+      // Updating 'shift-1' to 205 hours — should pass (205 <= 208)
       const shifts: WorkShiftValidationPayload[] = [
         {
           id: 'shift-1',
@@ -190,9 +192,7 @@ describe('WorkspaceCalendarPolicyService', () => {
 
   describe('checkLockDeadline', () => {
     it('should allow ADMIN and OWNER to bypass the lock check', async () => {
-      // Use a date that is clearly past the deadline
       const pastDates = ['2026-05-01'];
-      // Should not throw
       await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.ADMIN, pastDates)).resolves.not.toThrow();
       await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.OWNER, pastDates)).resolves.not.toThrow();
     });
@@ -200,12 +200,10 @@ describe('WorkspaceCalendarPolicyService', () => {
     it('should throw an error if the date is locked for a MEMBER', async () => {
       jest.spyOn(policyRepository, 'findOne').mockResolvedValue(null); // default 25th
 
-      // Set the system time to a fixed date using jest fake timers
       jest.useFakeTimers();
       jest.setSystemTime(new Date('2026-06-26T12:00:00Z')); // Today is June 26th
 
       const targetDates = ['2026-07-15']; // Target is July. Deadline was June 25th.
-      // So June 26th > June 25th -> Locked!
 
       await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.MEMBER, targetDates)).rejects.toMatchObject({
         error: {
@@ -225,7 +223,6 @@ describe('WorkspaceCalendarPolicyService', () => {
       jest.setSystemTime(new Date('2026-06-24T12:00:00Z')); // Today is June 24th
 
       const targetDates = ['2026-07-15']; // Target is July. Deadline is June 25th.
-      // So June 24th < June 25th -> Not locked!
 
       await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.MEMBER, targetDates)).resolves.not.toThrow();
 
