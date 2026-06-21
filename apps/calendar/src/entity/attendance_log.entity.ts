@@ -4,8 +4,11 @@ import {
   PrimaryGeneratedColumn,
   CreateDateColumn,
   Index,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import { AttendanceLogType } from '../types/calendar.enum';
+import { WorkShiftEntity } from './work_shift.entity';
 
 @Entity('attendance_logs')
 export class AttendanceLogEntity {
@@ -23,6 +26,10 @@ export class AttendanceLogEntity {
   @Column({ name: 'work_shift_id', type: 'uuid', nullable: true })
   @Index()
   workShiftId: string; // FK tới work_shifts — biết log này thuộc ca nào
+
+  @ManyToOne(() => WorkShiftEntity, shift => shift.attendanceLogs)
+  @JoinColumn({ name: 'work_shift_id' })
+  workShift: WorkShiftEntity;
 
   @Column({
     name: 'log_type',

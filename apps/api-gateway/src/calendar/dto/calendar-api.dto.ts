@@ -87,6 +87,11 @@ export class UpdateWorkShiftApiDto {
   @IsEnum(ShiftLocationApi)
   @IsOptional()
   location?: ShiftLocationApi;
+
+  @ApiPropertyOptional({ example: 'My shift note' })
+  @IsString()
+  @IsOptional()
+  notes?: string;
 }
 
 export class PolicyDataApiDto {

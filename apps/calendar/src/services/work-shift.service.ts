@@ -9,7 +9,7 @@ import { CalendarCommonService } from './calendar-common.service';
 import { WorkShiftResponseDto } from '../dto/calendar-response.dto';
 import { plainToInstance } from 'class-transformer';
 import { CALENDAR_ERROR, AUTH_ERROR } from '@slack/constants';
-import { ShiftStatus } from '../types/calendar.enum';
+import { ShiftLocation, ShiftStatus, AttendanceLogType } from '../types/calendar.enum';
 import { isUtcString } from '@slack/common/utils/time.util';
 import { WorkShiftValidationPayload } from '../types/calendar.type';
 
@@ -101,10 +101,22 @@ export class WorkShiftService {
           workDate: Between(startDate, endDate),
           ...(effectiveUserId && { userId: effectiveUserId }),
         },
+        relations: ['attendanceLogs'],
         order: { workDate: 'ASC', startTime: 'ASC' },
       });
 
-      return plainToInstance(WorkShiftResponseDto, shifts);
+      const responseDtos = plainToInstance(WorkShiftResponseDto, shifts);
+
+      responseDtos.forEach(dto => {
+        if (!dto.attendanceLogs || dto.attendanceLogs.length === 0) {
+          dto.inOutStatus = 'NOT_STARTED';
+        } else {
+          const logs = [...dto.attendanceLogs].sort((a, b) => b.recordedAt.getTime() - a.recordedAt.getTime());
+          dto.inOutStatus = logs[0].logType === AttendanceLogType.CHECK_IN ? 'IN' : 'OUT';
+        }
+      });
+
+      return responseDtos;
     } catch (error) {
       if (error instanceof RpcException) throw error;
       this.logger.error('Error fetching work shifts:', error);
@@ -141,6 +153,13 @@ export class WorkShiftService {
       // 4. Authorize requestor
       const requestor = await this.calendarCommonService.fetchMember(workspaceId, requestorId);
       this.calendarCommonService.assertSelfOrPrivileged(requestorId, userId, requestor.role);
+
+      if (updateData.notes !== undefined && requestorId !== userId) {
+        throw new RpcException({
+          statusCode: HttpStatus.FORBIDDEN,
+          message: 'Only the shift owner can update notes',
+        });
+      }
 
       // 5. Fetch target member for policy validation (reuse requestor if same user)
       const targetMember = requestorId === userId ? requestor : await this.calendarCommonService.fetchMember(workspaceId, userId);

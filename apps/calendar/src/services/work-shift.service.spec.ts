@@ -201,10 +201,34 @@ describe('WorkShiftService', () => {
           userId: validQuery.requestorId,
           workDate: expect.any(Object),
         }),
+        relations: ['attendanceLogs'],
         order: { workDate: 'ASC', startTime: 'ASC' },
       });
       expect(result).toBeInstanceOf(Array);
       expect(result[0]).toHaveProperty('id', 'shift-1');
+    });
+
+    it('should correctly map inOutStatus based on attendanceLogs', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      calendarCommonService.isPrivileged.mockReturnValue(false);
+      
+      const mockShiftsWithLogs = [
+        { ...mockShifts[0], attendanceLogs: [] },
+        { ...mockShifts[0], id: 'shift-2', attendanceLogs: [{ logType: 'CHECK_IN', recordedAt: new Date('2026-06-15T02:00:00Z') }] },
+        { ...mockShifts[0], id: 'shift-3', attendanceLogs: [
+            { logType: 'CHECK_IN', recordedAt: new Date('2026-06-15T02:00:00Z') },
+            { logType: 'CHECK_OUT', recordedAt: new Date('2026-06-15T11:00:00Z') }
+          ] 
+        }
+      ];
+      workShiftRepository.find.mockResolvedValue(mockShiftsWithLogs);
+
+      const result = await service.getWorkShifts(validQuery);
+
+      expect(result).toBeInstanceOf(Array);
+      expect(result[0]).toHaveProperty('inOutStatus', 'NOT_STARTED');
+      expect(result[1]).toHaveProperty('inOutStatus', 'IN');
+      expect(result[2]).toHaveProperty('inOutStatus', 'OUT');
     });
 
     it('should throw FORBIDDEN when member tries to view another user\'s shifts', async () => {
@@ -228,6 +252,7 @@ describe('WorkShiftService', () => {
 
       expect(workShiftRepository.find).toHaveBeenCalledWith({
         where: expect.objectContaining({ workspaceId: validQuery.workspaceId, userId: 'user-2' }),
+        relations: ['attendanceLogs'],
         order: { workDate: 'ASC', startTime: 'ASC' },
       });
     });
@@ -301,6 +326,35 @@ describe('WorkShiftService', () => {
       );
 
       expect(workShiftRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('should throw FORBIDDEN when someone other than the owner tries to update notes', async () => {
+      workShiftRepository.findOne.mockResolvedValue(existingShift);
+      calendarCommonService.fetchMember.mockResolvedValue(ADMIN); // Even admin cannot update notes
+      
+      const updateNotesDto = { ...dto, requestorId: 'admin-user', userId: 'user-1', notes: 'New Note' };
+
+      await expect(service.updateWorkShift(updateNotesDto)).rejects.toMatchObject(
+        new RpcException({ statusCode: HttpStatus.FORBIDDEN, message: 'Only the shift owner can update notes' }),
+      );
+
+      expect(workShiftRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('should successfully update notes if requestor is the owner', async () => {
+      workShiftRepository.findOne
+        .mockResolvedValueOnce(existingShift)
+        .mockResolvedValueOnce({ ...existingShift, notes: 'New Note' });
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+
+      const updateNotesDto = { ...dto, requestorId: 'user-1', userId: 'user-1', notes: 'New Note' };
+      const result = await service.updateWorkShift(updateNotesDto);
+
+      expect(workShiftRepository.update).toHaveBeenCalledWith(
+        { id: dto.id, workspaceId: dto.workspaceId, userId: dto.userId },
+        { location: dto.location, notes: 'New Note' },
+      );
+      expect(result).toHaveProperty('notes', 'New Note');
     });
 
     it('should allow admin to update another user\'s shift', async () => {
