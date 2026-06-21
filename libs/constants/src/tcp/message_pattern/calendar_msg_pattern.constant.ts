@@ -13,6 +13,7 @@ export const CALENDAR_MESSAGE_PATTERNS = {
   REJECT_LEAVE_REQUEST: 'calendar.reject_leave_request',
   CHECK_IN: 'calendar.check_in',
   CHECK_OUT: 'calendar.check_out',
+  GET_TODAY_ATTENDANCE: 'calendar.get_today_attendance',
   GET_MY_STATS: 'calendar.get_my_stats',
   GET_ORGANIZATION_REPORT: 'calendar.get_organization_report',
   EXPORT_EXCEL: 'calendar.export_excel',

@@ -5,6 +5,7 @@ import { HttpStatus } from '@nestjs/common';
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { WorkspaceCalendarPolicyEntity } from '../entity/workspace_calendar_policy.entity';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
+import { CalendarUserLockEntity } from '../entity/calendar_user_lock.entity';
 import { CALENDAR_ERROR, WorkspaceRoleEnum } from '@slack/constants';
 import { ShiftLocation } from '../types/calendar.enum';
 import { WorkShiftValidationPayload } from '../types/calendar.type';
@@ -15,6 +16,7 @@ describe('WorkspaceCalendarPolicyService', () => {
   let service: WorkspaceCalendarPolicyService;
   let policyRepository: Repository<WorkspaceCalendarPolicyEntity>;
   let workShiftRepository: Repository<WorkShiftEntity>;
+  let userLockRepository: Repository<CalendarUserLockEntity>;
   let calendarCommonService: jest.Mocked<Pick<CalendarCommonService, 'isPrivileged' | 'fetchMember' | 'assertPrivileged'>>;
 
   const mockWorkspaceId = 'workspace-1';
@@ -53,6 +55,12 @@ describe('WorkspaceCalendarPolicyService', () => {
             find: jest.fn(),
           },
         },
+        {
+          provide: getRepositoryToken(CalendarUserLockEntity),
+          useValue: {
+            findOne: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -61,6 +69,7 @@ describe('WorkspaceCalendarPolicyService', () => {
       getRepositoryToken(WorkspaceCalendarPolicyEntity),
     );
     workShiftRepository = module.get<Repository<WorkShiftEntity>>(getRepositoryToken(WorkShiftEntity));
+    userLockRepository = module.get<Repository<CalendarUserLockEntity>>(getRepositoryToken(CalendarUserLockEntity));
   });
 
   afterEach(() => {
@@ -193,19 +202,20 @@ describe('WorkspaceCalendarPolicyService', () => {
   describe('checkLockDeadline', () => {
     it('should allow ADMIN and OWNER to bypass the lock check', async () => {
       const pastDates = ['2026-05-01'];
-      await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.ADMIN, pastDates)).resolves.not.toThrow();
-      await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.OWNER, pastDates)).resolves.not.toThrow();
+      await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.ADMIN, mockUserId, pastDates)).resolves.not.toThrow();
+      await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.OWNER, mockUserId, pastDates)).resolves.not.toThrow();
     });
 
-    it('should throw an error if the date is locked for a MEMBER', async () => {
+    it('should throw if the date is locked for a MEMBER with no unlock record', async () => {
       jest.spyOn(policyRepository, 'findOne').mockResolvedValue(null); // default 25th
+      jest.spyOn(userLockRepository, 'findOne').mockResolvedValue(null); // no manual unlock
 
       jest.useFakeTimers();
       jest.setSystemTime(new Date('2026-06-26T12:00:00Z')); // Today is June 26th
 
       const targetDates = ['2026-07-15']; // Target is July. Deadline was June 25th.
 
-      await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.MEMBER, targetDates)).rejects.toMatchObject({
+      await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.MEMBER, mockUserId, targetDates)).rejects.toMatchObject({
         error: {
           statusCode: HttpStatus.FORBIDDEN,
           ...CALENDAR_ERROR.CALENDAR_LOCKED,
@@ -216,7 +226,7 @@ describe('WorkspaceCalendarPolicyService', () => {
       jest.useRealTimers();
     });
 
-    it('should not throw an error if the deadline has not passed for a MEMBER', async () => {
+    it('should not throw if the deadline has not passed for a MEMBER', async () => {
       jest.spyOn(policyRepository, 'findOne').mockResolvedValue(null); // default 25th
 
       jest.useFakeTimers();
@@ -224,7 +234,47 @@ describe('WorkspaceCalendarPolicyService', () => {
 
       const targetDates = ['2026-07-15']; // Target is July. Deadline is June 25th.
 
-      await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.MEMBER, targetDates)).resolves.not.toThrow();
+      await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.MEMBER, mockUserId, targetDates)).resolves.not.toThrow();
+
+      jest.useRealTimers();
+    });
+
+    it('should not throw if a MEMBER has an active manual unlock for the locked month', async () => {
+      jest.spyOn(policyRepository, 'findOne').mockResolvedValue(null); // default 25th
+      jest.spyOn(userLockRepository, 'findOne').mockResolvedValue({
+        isUnlocked: true,
+        unlockExpiresAt: new Date('2026-06-27T12:00:00Z'), // expires tomorrow
+      } as CalendarUserLockEntity);
+
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-06-26T12:00:00Z')); // Today is June 26th, past deadline
+
+      const targetDates = ['2026-07-15']; // July — deadline was June 25th
+
+      await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.MEMBER, mockUserId, targetDates)).resolves.not.toThrow();
+
+      jest.useRealTimers();
+    });
+
+    it('should throw if a MEMBER has an expired manual unlock for the locked month', async () => {
+      jest.spyOn(policyRepository, 'findOne').mockResolvedValue(null); // default 25th
+      jest.spyOn(userLockRepository, 'findOne').mockResolvedValue({
+        isUnlocked: true,
+        unlockExpiresAt: new Date('2026-06-25T00:00:00Z'), // expired before now
+      } as CalendarUserLockEntity);
+
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-06-26T12:00:00Z')); // Today is June 26th
+
+      const targetDates = ['2026-07-15'];
+
+      await expect(service.checkLockDeadline(mockWorkspaceId, WorkspaceRoleEnum.MEMBER, mockUserId, targetDates)).rejects.toMatchObject({
+        error: {
+          statusCode: HttpStatus.FORBIDDEN,
+          ...CALENDAR_ERROR.CALENDAR_LOCKED,
+          message: 'Lịch đăng ký cho tháng 7/2026 đã khóa từ ngày 25/6. Vui lòng liên hệ Admin.',
+        },
+      });
 
       jest.useRealTimers();
     });

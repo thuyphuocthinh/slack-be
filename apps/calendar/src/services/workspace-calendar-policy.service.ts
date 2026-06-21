@@ -4,6 +4,7 @@ import { Repository, Between } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
 import { WorkspaceCalendarPolicyEntity } from '../entity/workspace_calendar_policy.entity';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
+import { CalendarUserLockEntity } from '../entity/calendar_user_lock.entity';
 import { CALENDAR_ERROR } from '@slack/constants';
 import { getMondayOfWeek, getSundayOfWeek, getLastDayOfMonth, calculateDiffHours } from '@slack/common/utils/time.util';
 import { ShiftLocation } from '../types/calendar.enum';
@@ -25,6 +26,8 @@ export class WorkspaceCalendarPolicyService {
     private readonly policyRepository: Repository<WorkspaceCalendarPolicyEntity>,
     @InjectRepository(WorkShiftEntity)
     private readonly workShiftRepository: Repository<WorkShiftEntity>,
+    @InjectRepository(CalendarUserLockEntity)
+    private readonly userLockRepository: Repository<CalendarUserLockEntity>,
     private readonly calendarCommonService: CalendarCommonService,
     private readonly cachedService: CachedService,
   ) { }
@@ -60,7 +63,7 @@ export class WorkspaceCalendarPolicyService {
     const monthMap = new Map<string, { newHours: number, dateStrs: Set<string> }>();
 
     // 0. Check Lock Deadline
-    await this.checkLockDeadline(workspaceId, memberRole, shifts.map(s => s.workDate));
+    await this.checkLockDeadline(workspaceId, memberRole, userId, shifts.map(s => s.workDate));
 
     for (const shift of shifts) {
       if (shift.location === ShiftLocation.WFH) {
@@ -158,27 +161,41 @@ export class WorkspaceCalendarPolicyService {
     }
   }
 
-  async checkLockDeadline(workspaceId: string, memberRole: string, workDates: string[]) {
+  async checkLockDeadline(workspaceId: string, memberRole: string, userId: string, workDates: string[]) {
     if (this.calendarCommonService.isPrivileged(memberRole)) return;
 
     const policy = await this.getPolicy(workspaceId);
     const lockDeadlineDay = policy?.policyData?.lockDeadlineDay ?? 25;
     const currentDate = new Date();
+    const activeUnlockByMonth = new Map<string, boolean>();
 
     for (const workDate of workDates) {
       const shiftDate = new Date(workDate);
       const targetYear = shiftDate.getUTCFullYear();
       const targetMonth = shiftDate.getUTCMonth(); // 0-11
-
       const deadlineDate = new Date(Date.UTC(targetYear, targetMonth - 1, lockDeadlineDay, 23, 59, 59, 999));
 
-      if (currentDate.getTime() > deadlineDate.getTime()) {
-        throw new RpcException({
-          statusCode: HttpStatus.FORBIDDEN,
-          ...CALENDAR_ERROR.CALENDAR_LOCKED,
-          message: `Lịch đăng ký cho tháng ${targetMonth + 1}/${targetYear} đã khóa từ ngày ${lockDeadlineDay}/${targetMonth === 0 ? 12 : targetMonth}. Vui lòng liên hệ Admin.`,
+      if (currentDate.getTime() <= deadlineDate.getTime()) continue;
+
+      const targetMonthStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}`;
+
+      if (!activeUnlockByMonth.has(targetMonthStr)) {
+        const lockRecord = await this.userLockRepository.findOne({
+          where: { workspaceId, userId, targetMonth: targetMonthStr },
         });
+        activeUnlockByMonth.set(
+          targetMonthStr,
+          !!(lockRecord?.isUnlocked && lockRecord.unlockExpiresAt > currentDate),
+        );
       }
+
+      if (activeUnlockByMonth.get(targetMonthStr)) continue;
+
+      throw new RpcException({
+        statusCode: HttpStatus.FORBIDDEN,
+        ...CALENDAR_ERROR.CALENDAR_LOCKED,
+        message: `Lịch đăng ký cho tháng ${targetMonth + 1}/${targetYear} đã khóa từ ngày ${lockDeadlineDay}/${targetMonth === 0 ? 12 : targetMonth}. Vui lòng liên hệ Admin.`,
+      });
     }
   }
 

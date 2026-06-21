@@ -248,6 +248,28 @@ export class ReviewCalendarRequestApiDto {
   reviewNotes?: string;
 }
 
+export class CheckInApiDto {
+  @ApiProperty({ enum: ShiftLocationApi, description: 'OFFICE hoặc WFH' })
+  @IsEnum(ShiftLocationApi)
+  @IsNotEmpty()
+  location: ShiftLocationApi;
+
+  @ApiPropertyOptional({ description: 'UUID của ca làm việc (work shift) tương ứng' })
+  @IsUUID()
+  @IsOptional()
+  shiftId?: string;
+
+  @ApiPropertyOptional({ description: 'Base64 data URL ảnh khuôn mặt (bắt buộc khi WFH)' })
+  @IsString()
+  @IsOptional()
+  faceImageBase64?: string;
+
+  @ApiPropertyOptional({ description: 'Điểm khớp khuôn mặt 0.0–1.0 (bắt buộc khi WFH)' })
+  @IsNumber()
+  @IsOptional()
+  faceSimilarityScore?: number;
+}
+
 export class ManualUnlockCalendarApiDto {
   @ApiProperty({ description: 'User ID to unlock calendar for' })
   @IsUUID()
