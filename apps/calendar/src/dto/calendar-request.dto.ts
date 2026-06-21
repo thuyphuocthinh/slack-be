@@ -159,6 +159,10 @@ export class PolicyDataDto {
   @IsNumber()
   @IsOptional()
   lockDeadlineDay?: number;
+
+  @IsNumber()
+  @IsOptional()
+  maxPaidLeaveDaysPerYear?: number;
 }
 
 export class GetCalendarPolicyDto {
@@ -391,7 +395,7 @@ export class CheckInDto {
   faceSimilarityScore?: number;
 }
 
-export class CheckOutDto extends CheckInDto {}
+export class CheckOutDto extends CheckInDto { }
 
 export class GetTodayAttendanceDto {
   @IsUUID()

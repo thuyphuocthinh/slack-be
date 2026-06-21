@@ -110,6 +110,10 @@ export class PolicyDataApiDto {
   @ApiPropertyOptional({ example: 25, description: 'Day of the month when calendar is locked' })
   @IsOptional()
   lockDeadlineDay?: number;
+
+  @ApiPropertyOptional({ example: 12, description: 'Max paid leave days per year' })
+  @IsOptional()
+  maxPaidLeaveDaysPerYear?: number;
 }
 
 export class UpsertCalendarPolicyApiDto {

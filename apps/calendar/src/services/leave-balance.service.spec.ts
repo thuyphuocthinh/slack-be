@@ -8,10 +8,13 @@ import { LeaveBalanceEntity } from '../entity/leave_balance.entity';
 import { CalendarCommonService } from './calendar-common.service';
 import { CALENDAR_ERROR, AUTH_ERROR, DEFAULT_PAID_LEAVE_DAYS } from '@slack/constants';
 
+import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
+
 describe('LeaveBalanceService', () => {
   let service: LeaveBalanceService;
   let leaveBalanceRepo: Repository<LeaveBalanceEntity>;
   let calendarCommonService: CalendarCommonService;
+  let policyService: WorkspaceCalendarPolicyService;
 
   const mockWorkspaceId = 'ws-1';
   const mockUserId = 'user-1';
@@ -27,6 +30,10 @@ describe('LeaveBalanceService', () => {
     isPrivileged: jest.fn(),
   };
 
+  const mockPolicyService = {
+    getPolicy: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -39,12 +46,17 @@ describe('LeaveBalanceService', () => {
           provide: CalendarCommonService,
           useValue: mockCalendarCommonService,
         },
+        {
+          provide: WorkspaceCalendarPolicyService,
+          useValue: mockPolicyService,
+        },
       ],
     }).compile();
 
     service = module.get<LeaveBalanceService>(LeaveBalanceService);
     leaveBalanceRepo = module.get<Repository<LeaveBalanceEntity>>(getRepositoryToken(LeaveBalanceEntity));
     calendarCommonService = module.get<CalendarCommonService>(CalendarCommonService);
+    policyService = module.get<WorkspaceCalendarPolicyService>(WorkspaceCalendarPolicyService);
   });
 
   afterEach(() => {
@@ -78,9 +90,10 @@ describe('LeaveBalanceService', () => {
       });
     });
 
-    it('should return default balance if no record exists', async () => {
+    it('should return default balance with default paid leave if no record exists and no policy', async () => {
       mockCalendarCommonService.fetchMember.mockResolvedValueOnce({ id: mockUserId, role: 'MEMBER' });
       mockLeaveBalanceRepo.findOne.mockResolvedValueOnce(null);
+      mockPolicyService.getPolicy.mockResolvedValueOnce(null);
 
       const result = await service.getMyLeaveBalance(mockWorkspaceId, mockUserId, mockYear);
 
@@ -90,6 +103,23 @@ describe('LeaveBalanceService', () => {
         userId: mockUserId,
         year: mockYear,
         totalPaidLeave: DEFAULT_PAID_LEAVE_DAYS,
+        usedPaidLeave: 0,
+      });
+    });
+
+    it('should return default balance with maxPaidLeaveDaysPerYear from policy if exists', async () => {
+      mockCalendarCommonService.fetchMember.mockResolvedValueOnce({ id: mockUserId, role: 'MEMBER' });
+      mockLeaveBalanceRepo.findOne.mockResolvedValueOnce(null);
+      mockPolicyService.getPolicy.mockResolvedValueOnce({ policyData: { maxPaidLeaveDaysPerYear: 18 } });
+
+      const result = await service.getMyLeaveBalance(mockWorkspaceId, mockUserId, mockYear);
+
+      expect(result).toEqual({
+        id: 'default',
+        workspaceId: mockWorkspaceId,
+        userId: mockUserId,
+        year: mockYear,
+        totalPaidLeave: 18,
         usedPaidLeave: 0,
       });
     });
