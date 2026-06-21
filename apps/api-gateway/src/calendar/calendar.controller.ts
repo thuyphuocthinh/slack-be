@@ -24,9 +24,10 @@ export class CalendarController {
   @ApiOperation({ summary: 'Get list of work shifts with filters' })
   async getWorkShifts(
     @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
     @Query() query: GetWorkShiftsApiDto,
   ) {
-    return this.calendarService.getWorkShifts(workspaceId, query);
+    return this.calendarService.getWorkShifts(workspaceId, user.sub!, query);
   }
 
   @Put('work-shifts/:id')

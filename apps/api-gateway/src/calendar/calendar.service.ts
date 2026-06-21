@@ -19,6 +19,7 @@ export class CalendarService {
   ) {
     const payload = {
       workspaceId,
+      requestorId: userId,
       userId: dto.userId || userId,
       shifts: dto.shifts,
       location: dto.location,
@@ -37,9 +38,10 @@ export class CalendarService {
     );
   }
 
-  async getWorkShifts(workspaceId: string, query: GetWorkShiftsApiDto) {
+  async getWorkShifts(workspaceId: string, requestorId: string, query: GetWorkShiftsApiDto) {
     const payload = {
       workspaceId,
+      requestorId,
       startDate: query.startDate,
       endDate: query.endDate,
       userId: query.userId,
@@ -67,6 +69,7 @@ export class CalendarService {
     const payload = {
       id,
       workspaceId,
+      requestorId: userId,
       userId,
       ...dto,
     };
@@ -88,6 +91,7 @@ export class CalendarService {
     const payload = {
       id,
       workspaceId,
+      requestorId: userId,
       userId,
     };
 
