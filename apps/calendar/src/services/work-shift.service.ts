@@ -22,7 +22,7 @@ export class WorkShiftService {
     private readonly workShiftRepository: Repository<WorkShiftEntity>,
     private readonly policyService: WorkspaceCalendarPolicyService,
     private readonly calendarCommonService: CalendarCommonService,
-  ) {}
+  ) { }
 
   async bulkRegisterShifts(dto: BulkRegisterWorkShiftDto) {
     const { workspaceId, requestorId, userId, shifts, location } = dto;
@@ -155,7 +155,7 @@ export class WorkShiftService {
       if (updateData.notes !== undefined && requestorId !== userId) {
         throw new RpcException({
           statusCode: HttpStatus.FORBIDDEN,
-          message: 'Only the shift owner can update notes',
+          ...CALENDAR_ERROR.ONLY_OWNER_CAN_UPDATE_NOTES,
         });
       }
 
@@ -163,13 +163,18 @@ export class WorkShiftService {
       const targetMember = requestorId === userId ? requestor : await this.calendarCommonService.fetchMember(workspaceId, userId);
 
       // 6. Validate updated shift against policy
+      const newWorkDate = updateData.workDate ?? shift.workDate;
       const newLocation = updateData.location ?? shift.location;
       const newStartTime = updateData.startTime ? new Date(updateData.startTime) : shift.startTime;
       const newEndTime = updateData.endTime ? new Date(updateData.endTime) : shift.endTime;
 
+      const datesToCheck = [shift.workDate];
+      if (newWorkDate !== shift.workDate) datesToCheck.push(newWorkDate);
+      await this.policyService.checkLockDeadline(workspaceId, targetMember.role, userId, datesToCheck);
+
       await this.policyService.validateShifts(workspaceId, userId, targetMember.employmentType, targetMember.role, [{
         id: shift.id,
-        workDate: shift.workDate,
+        workDate: newWorkDate,
         startTime: newStartTime,
         endTime: newEndTime,
         location: newLocation,

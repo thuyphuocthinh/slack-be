@@ -363,7 +363,7 @@ describe('WorkShiftService', () => {
       const updateNotesDto = { ...dto, requestorId: 'admin-user', userId: 'user-1', notes: 'New Note' };
 
       await expect(service.updateWorkShift(updateNotesDto)).rejects.toMatchObject(
-        new RpcException({ statusCode: HttpStatus.FORBIDDEN, message: 'Only the shift owner can update notes' }),
+        new RpcException({ statusCode: HttpStatus.FORBIDDEN, ...CALENDAR_ERROR.ONLY_OWNER_CAN_UPDATE_NOTES }),
       );
 
       expect(workShiftRepository.update).not.toHaveBeenCalled();

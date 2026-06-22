@@ -58,6 +58,19 @@ export class WorkspaceCalendarPolicyService {
     const maxFullTimeHours = policy?.policyData?.maxFullTimeHours ?? 208;
     const maxPartTimeHours = policy?.policyData?.maxPartTimeHours ?? 120;
 
+    for (const shift of shifts) {
+      const workDateMs = new Date(`${shift.workDate}T00:00:00Z`).getTime();
+      const startMs = shift.startTime.getTime();
+      const diffDays = Math.abs(startMs - workDateMs) / (1000 * 60 * 60 * 24);
+      if (diffDays > 2) {
+        throw new RpcException({
+          statusCode: HttpStatus.BAD_REQUEST,
+          ...CALENDAR_ERROR.START_TIME_FAR_FROM_WORK_DATE,
+          message: `${CALENDAR_ERROR.START_TIME_FAR_FROM_WORK_DATE.message} (startTime: ${shift.startTime.toISOString()}, workDate: ${shift.workDate})`,
+        });
+      }
+    }
+
     const empType = memberEmploymentType || 'FULLTIME';
     const maxHours = empType === 'PARTTIME' ? maxPartTimeHours : maxFullTimeHours;
 
@@ -127,14 +140,20 @@ export class WorkspaceCalendarPolicyService {
 
   private validateInternalOverlaps(shifts: WorkShiftValidationPayload[]) {
     for (let i = 0; i < shifts.length; i++) {
+      if (shifts[i].startTime >= shifts[i].endTime) {
+        throw new RpcException({
+          statusCode: HttpStatus.BAD_REQUEST,
+          ...CALENDAR_ERROR.INVALID_TIME_RANGE,
+          message: `${CALENDAR_ERROR.INVALID_TIME_RANGE.message} (${shifts[i].workDate})`,
+        });
+      }
       for (let j = i + 1; j < shifts.length; j++) {
-        if (shifts[i].workDate === shifts[j].workDate &&
-            shifts[i].startTime < shifts[j].endTime &&
+        if (shifts[i].startTime < shifts[j].endTime &&
             shifts[i].endTime > shifts[j].startTime) {
           throw new RpcException({
             statusCode: HttpStatus.BAD_REQUEST,
             ...CALENDAR_ERROR.SHIFT_OVERLAP,
-            message: `Ca làm việc bị trùng lặp thời gian trong ngày ${shifts[i].workDate}`,
+            message: `Ca làm việc bị trùng lặp thời gian trong ngày ${shifts[i].workDate} và ${shifts[j].workDate}`,
           });
         }
       }
@@ -146,8 +165,7 @@ export class WorkspaceCalendarPolicyService {
     for (const newShift of shifts) {
       const overlaps = existingShifts.some(existing => {
         if (newShift.id && existing.id === newShift.id) return false;
-        return existing.workDate === newShift.workDate &&
-               newShift.startTime < existing.endTime &&
+        return newShift.startTime < existing.endTime &&
                newShift.endTime > existing.startTime;
       });
 

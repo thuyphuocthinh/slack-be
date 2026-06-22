@@ -279,11 +279,15 @@ describe('WorkspaceCalendarPolicyService', () => {
       // Generate 30 new shifts to register
       const shifts: WorkShiftValidationPayload[] = [];
       for (let i = 1; i <= 30; i++) {
+        const day = String((i % 28) + 1).padStart(2, '0');
+        const hourStart = String((i % 12) + 8).padStart(2, '0');
+        const hourEnd = String((i % 12) + 9).padStart(2, '0');
+        
         shifts.push({
           id: undefined,
-          workDate: `2026-06-${String(i).padStart(2, '0')}`,
-          startTime: new Date(`2026-06-01T08:00:00Z`),
-          endTime: new Date(`2026-06-01T09:00:00Z`),
+          workDate: `2026-06-${day}`,
+          startTime: new Date(`2026-06-${day}T${hourStart}:00:00Z`),
+          endTime: new Date(`2026-06-${day}T${hourEnd}:00:00Z`),
           location: ShiftLocation.OFFICE,
         });
       }

@@ -65,6 +65,7 @@ describe('CalendarRequestService', () => {
 
     policyService = {
       getPolicy: jest.fn().mockResolvedValue(null),
+      checkLockDeadline: jest.fn().mockResolvedValue(undefined),
     };
 
     queueService = {
@@ -179,6 +180,15 @@ describe('CalendarRequestService', () => {
       expect(manager.save).toHaveBeenCalled();
       expect(result).toHaveProperty('id', 'req-3');
     });
+
+    it('should throw FORBIDDEN if start time is in a locked month', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      policyService.checkLockDeadline.mockRejectedValueOnce(new RpcException({ statusCode: HttpStatus.FORBIDDEN, message: 'Locked' }));
+      
+      await expect(service.createRequest(dto)).rejects.toMatchObject({
+        error: expect.objectContaining({ statusCode: HttpStatus.FORBIDDEN, message: 'Locked' })
+      });
+    });
   });
 
   describe('updateRequest', () => {
@@ -206,11 +216,12 @@ describe('CalendarRequestService', () => {
     it('should throw BAD_REQUEST if request is not PENDING', async () => {
       manager.findOne.mockResolvedValue({ id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.APPROVED });
       await expect(service.updateRequest(dto)).rejects.toMatchObject({
-        error: expect.objectContaining({ statusCode: HttpStatus.BAD_REQUEST, code: CALENDAR_ERROR.REQUEST_ALREADY_PROCESSED.code }),
+        error: expect.objectContaining({ statusCode: HttpStatus.BAD_REQUEST, code: CALENDAR_ERROR.REQUEST_ALREADY_PROCESSED_OR_STARTED.code }),
       });
     });
 
     it('should throw BAD_REQUEST if there is an overlapping request during update', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
       manager.findOne.mockResolvedValue({ id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.PENDING, startTime: new Date('2026-06-20T00:00:00Z'), endTime: new Date('2026-06-20T10:00:00Z') });
       manager.createQueryBuilder().getOne.mockResolvedValueOnce({ id: 'existing-req' });
 
@@ -220,6 +231,7 @@ describe('CalendarRequestService', () => {
     });
 
     it('should update request successfully', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
       const mockReq = { id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.PENDING, startTime: new Date() };
       manager.findOne.mockResolvedValueOnce(mockReq);
       manager.save.mockResolvedValue({ ...mockReq, reason: 'Updated reason' });
@@ -229,6 +241,16 @@ describe('CalendarRequestService', () => {
       expect(manager.merge).toHaveBeenCalledWith(CalendarRequestEntity, mockReq, expect.objectContaining({ reason: 'Updated reason' }));
       expect(manager.save).toHaveBeenCalled();
       expect(result.reason).toBe('Updated reason');
+    });
+
+    it('should throw FORBIDDEN if new or old start time is in a locked month', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      manager.findOne.mockResolvedValueOnce({ id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.PENDING, startTime: new Date() });
+      policyService.checkLockDeadline.mockRejectedValueOnce(new RpcException({ statusCode: HttpStatus.FORBIDDEN, message: 'Locked' }));
+      
+      await expect(service.updateRequest(dto)).rejects.toMatchObject({
+        error: expect.objectContaining({ statusCode: HttpStatus.FORBIDDEN, message: 'Locked' })
+      });
     });
   });
 
@@ -254,7 +276,8 @@ describe('CalendarRequestService', () => {
     });
 
     it('should delete (soft cancel) request successfully if PENDING', async () => {
-      const mockReq = { id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.PENDING };
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      const mockReq = { id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.PENDING, requestType: CalendarRequestType.LEAVE_PAID, startTime: new Date() };
       manager.findOne.mockResolvedValue(mockReq);
       manager.save.mockResolvedValue(true);
 
@@ -264,6 +287,16 @@ describe('CalendarRequestService', () => {
         status: CalendarRequestStatus.CANCELLED
       }));
       expect(result).toHaveProperty('success', true);
+    });
+
+    it('should throw FORBIDDEN if deleted request is in a locked month', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      manager.findOne.mockResolvedValueOnce({ id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.PENDING, startTime: new Date() });
+      policyService.checkLockDeadline.mockRejectedValueOnce(new RpcException({ statusCode: HttpStatus.FORBIDDEN, message: 'Locked' }));
+      
+      await expect(service.deleteRequest(dto)).rejects.toMatchObject({
+        error: expect.objectContaining({ statusCode: HttpStatus.FORBIDDEN, message: 'Locked' })
+      });
     });
   });
 
@@ -348,13 +381,13 @@ describe('CalendarRequestService', () => {
       manager.findOne.mockResolvedValueOnce({ id: 'req-1', status: CalendarRequestStatus.APPROVED });
 
       await expect(service.reviewRequest(dto)).rejects.toMatchObject({
-        error: expect.objectContaining({ statusCode: HttpStatus.BAD_REQUEST, code: CALENDAR_ERROR.REQUEST_ALREADY_PROCESSED.code }),
+        error: expect.objectContaining({ statusCode: HttpStatus.BAD_REQUEST, code: CALENDAR_ERROR.REQUEST_ALREADY_PROCESSED_OR_STARTED.code }),
       });
     });
 
     it('should correctly REJECT a request', async () => {
       calendarCommonService.fetchMember.mockResolvedValue(ADMIN);
-      const mockReq = { id: 'req-1', status: CalendarRequestStatus.PENDING, requestType: CalendarRequestType.OFF_SHIFT };
+      const mockReq = { id: 'req-1', status: CalendarRequestStatus.PENDING, requestType: CalendarRequestType.OFF_SHIFT, startTime: new Date() };
       manager.findOne.mockResolvedValueOnce(mockReq);
       manager.save.mockResolvedValueOnce({ ...mockReq, status: CalendarRequestStatus.REJECTED, rejectReason: 'Looks good' });
 
@@ -390,6 +423,17 @@ describe('CalendarRequestService', () => {
       expect(manager.save).toHaveBeenCalledWith(LeaveBalanceEntity, expect.objectContaining({ usedPaidLeave: 7 }));
       expect(manager.createQueryBuilder).toHaveBeenCalled();
       expect(result.status).toBe(CalendarRequestStatus.APPROVED);
+    });
+
+    it('should throw FORBIDDEN if reviewed request is in a locked month', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(ADMIN); // reviewer and requester
+      manager.findOne.mockResolvedValueOnce({ id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.PENDING, requestType: CalendarRequestType.LEAVE_PAID, startTime: new Date() });
+      policyService.checkLockDeadline.mockRejectedValueOnce(new RpcException({ statusCode: HttpStatus.FORBIDDEN, message: 'Locked' }));
+      
+      const approveDto = { ...dto, action: CalendarRequestAction.APPROVE };
+      await expect(service.reviewRequest(approveDto)).rejects.toMatchObject({
+        error: expect.objectContaining({ statusCode: HttpStatus.FORBIDDEN, message: 'Locked' })
+      });
     });
 
     it('should correctly APPROVE a CALENDAR_OPEN_REQUEST and create lock entity', async () => {
