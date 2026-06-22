@@ -12,7 +12,7 @@ export class CalendarCommonService {
 
   async fetchMember(workspaceId: string, userId: string) {
     const member = await firstValueFrom(
-      this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.GET_MEMBER, { workspaceId, userId }),
+      this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.GET_MEMBER_DETAIL, { workspaceId, userId }),
     );
     if (!member) {
       throw new RpcException({
@@ -20,7 +20,8 @@ export class CalendarCommonService {
         ...AUTH_ERROR.FORBIDDEN,
       });
     }
-    return member;
+    const name = [member.firstName, member.lastName].filter(Boolean).join(' ') || 'Unknown User';
+    return { ...member, name };
   }
 
   async getWorkspaceMembers(workspaceId: string, userId: string) {
