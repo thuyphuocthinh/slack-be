@@ -12,7 +12,6 @@ import { ShiftLocation, ShiftStatus } from '../types/calendar.enum';
 import { AttendanceLogEntity } from './attendance_log.entity';
 
 @Entity('work_shifts')
-@Unique('IDX_UNIQUE_SHIFT_PER_DAY', ['userId', 'workspaceId', 'workDate'])
 export class WorkShiftEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

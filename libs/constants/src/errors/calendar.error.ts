@@ -7,6 +7,10 @@ export const CALENDAR_ERROR = {
     code: 'ERR.CALENDAR.0102',
     message: 'CALENDAR IS LOCKED FOR THIS PERIOD',
   },
+  SHIFT_OVERLAP: {
+    code: 'ERR.CALENDAR.0113',
+    message: 'SHIFT TIMES OVERLAP',
+  },
   WFH_LIMIT_EXCEEDED: {
     code: 'ERR.CALENDAR.0103',
     message: 'WFH DAYS LIMIT EXCEEDED FOR THIS MONTH',

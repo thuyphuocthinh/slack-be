@@ -57,17 +57,15 @@ export class WorkShiftService {
       // 4. Validate against policy
       await this.policyService.validateShifts(workspaceId, userId, targetMember.employmentType, targetMember.role, validationPayload);
 
-      // 5. Upsert and return
-      await this.workShiftRepository.upsert(shiftsToInsert, {
-        conflictPaths: ['userId', 'workspaceId', 'workDate'],
-        skipUpdateIfNoValuesChanged: true,
+      // 5. Insert and return
+      const result = await this.workShiftRepository.insert(shiftsToInsert);
+      const insertedIds = result.identifiers.map(id => id.id);
+
+      const insertedShifts = await this.workShiftRepository.find({
+        where: { id: In(insertedIds) },
       });
 
-      const upsertedShifts = await this.workShiftRepository.find({
-        where: { workspaceId, userId, workDate: In(shifts.map(s => s.workDate)) },
-      });
-
-      return plainToInstance(WorkShiftResponseDto, upsertedShifts);
+      return plainToInstance(WorkShiftResponseDto, insertedShifts);
     } catch (error) {
       if (error instanceof RpcException) throw error;
       this.logger.error('Error bulk registering shifts:', error);
