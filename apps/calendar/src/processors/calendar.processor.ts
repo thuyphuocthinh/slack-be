@@ -17,6 +17,8 @@ import {
   NotificationType,
   NotificationObjectType,
 } from '@slack/constants';
+import { CalendarRequestType } from '../types/calendar.enum';
+
 
 @Processor(EQueueName.CALENDAR_QUEUE, { concurrency: 5 })
 export class CalendarProcessor extends BaseProcessor<
@@ -68,6 +70,16 @@ export class CalendarProcessor extends BaseProcessor<
   ): Promise<void> {
     const { requestId, workspaceId, requesterId, requesterName, requestType, durationDays } = job.data;
 
+    const requestTypeMap: Record<string, string> = {
+      [CalendarRequestType.LEAVE_PAID]: 'nghỉ phép có lương',
+      [CalendarRequestType.LEAVE_UNPAID]: 'nghỉ không lương',
+      [CalendarRequestType.LEAVE_SICK]: 'nghỉ ốm',
+      [CalendarRequestType.OFF_SHIFT]: 'chờ xếp ca',
+      [CalendarRequestType.CALENDAR_OPEN_REQUEST]: 'mở lịch điểm danh',
+    };
+    
+    const translatedType = requestTypeMap[requestType] || requestType;
+
     // Notify all admins in the workspace about the new request
     const adminIds = await this.getWorkspaceAdmins(workspaceId);
 
@@ -76,7 +88,7 @@ export class CalendarProcessor extends BaseProcessor<
 
     if (recipientIds.length === 0) return;
 
-    const content = `${requesterName} đã gửi yêu cầu ${requestType} (${durationDays} ngày).`;
+    const content = `${requesterName} đã gửi yêu cầu ${translatedType} (${durationDays} ngày).`;
 
     const promises = recipientIds.map((adminId: string) => {
       return lastValueFrom(
@@ -110,7 +122,7 @@ export class CalendarProcessor extends BaseProcessor<
   ): Promise<void> {
     const { requestId, workspaceId, requesterId, reviewerId, reviewerName, status } = job.data;
 
-    const action = status === 'APPROVED' ? 'chấp thuận' : 'từ chối';
+    const action = status === 'APPROVED' ? 'được chấp thuận' : 'bị từ chối';
     const type = status === 'APPROVED'
       ? NotificationType.CALENDAR_REQUEST_APPROVED
       : NotificationType.CALENDAR_REQUEST_REJECTED;
@@ -119,7 +131,7 @@ export class CalendarProcessor extends BaseProcessor<
 
     // 1. Notify the original requester (if not the reviewer)
     if (requesterId !== reviewerId) {
-      const requesterContent = `Yêu cầu lịch làm việc của bạn đã bị ${action} bởi ${reviewerName}.`;
+      const requesterContent = `Yêu cầu lịch làm việc của bạn đã ${action} bởi ${reviewerName}.`;
       promises.push(
         lastValueFrom(
           this.notificationClient.send(NOTIFICATION_MESSAGE_PATTERNS.PUSH_NOTIFICATION, {
@@ -145,7 +157,7 @@ export class CalendarProcessor extends BaseProcessor<
     const adminIds = await this.getWorkspaceAdmins(workspaceId);
     const adminRecipients = adminIds.filter(id => id !== reviewerId);
 
-    const adminContent = `Yêu cầu lịch làm việc của một nhân viên vừa bị ${action} bởi ${reviewerName}.`;
+    const adminContent = `Yêu cầu lịch làm việc của một nhân viên vừa ${action} bởi ${reviewerName}.`;
     
     adminRecipients.forEach(adminId => {
       promises.push(

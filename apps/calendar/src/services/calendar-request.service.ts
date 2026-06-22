@@ -157,6 +157,37 @@ export class CalendarRequestService {
     await manager.save(CalendarUserLockEntity, lock);
   }
 
+  private async checkOverlappingRequest(
+    manager: EntityManager,
+    workspaceId: string,
+    userId: string,
+    startObj: Date,
+    endObj: Date,
+    excludeRequestId?: string,
+  ) {
+    const query = manager.createQueryBuilder(CalendarRequestEntity, 'req')
+      .where('req.workspaceId = :workspaceId', { workspaceId })
+      .andWhere('req.userId = :userId', { userId })
+      .andWhere('req.status IN (:...statuses)', { 
+        statuses: [CalendarRequestStatus.PENDING, CalendarRequestStatus.APPROVED] 
+      })
+      .andWhere('req.startTime < :endObj', { endObj })
+      .andWhere('req.endTime > :startObj', { startObj });
+
+    if (excludeRequestId) {
+      query.andWhere('req.id != :excludeRequestId', { excludeRequestId });
+    }
+
+    const overlappingRequest = await query.getOne();
+
+    if (overlappingRequest) {
+      throw new RpcException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        ...CALENDAR_ERROR.OVERLAPPING_REQUEST,
+      });
+    }
+  }
+
   async createRequest(dto: CreateCalendarRequestDto) {
     const { workspaceId, userId, requestType, startTime, endTime, durationDays, reason, metaData } = dto;
 
@@ -170,12 +201,15 @@ export class CalendarRequestService {
       const actualDuration = durationDays ?? 1.0;
 
       return await this.requestRepository.manager.transaction(async (manager) => {
-        // 2. If it's LEAVE_PAID, check balance with pessimistic lock to prevent concurrent overdrafts
+        // 2. Check for overlapping requests (PENDING or APPROVED)
+        await this.checkOverlappingRequest(manager, workspaceId, userId, startObj, endObj);
+
+        // 3. If it's LEAVE_PAID, check balance with pessimistic lock to prevent concurrent overdrafts
         if (requestType === CalendarRequestType.LEAVE_PAID) {
           await this.checkLeaveBalance(manager, workspaceId, userId, year, actualDuration);
         }
 
-        // 3. Save request
+        // 4. Save request
         const newRequest = manager.create(CalendarRequestEntity, {
           workspaceId,
           userId,
@@ -226,6 +260,8 @@ export class CalendarRequestService {
         const actualDuration = durationDays ?? request.durationDays;
         const actualRequestType = requestType ?? request.requestType;
         const year = startObj.getFullYear();
+
+        await this.checkOverlappingRequest(manager, workspaceId, userId, startObj, endObj, request.id);
 
         if (actualRequestType === CalendarRequestType.LEAVE_PAID) {
           await this.checkLeaveBalance(manager, workspaceId, userId, year, actualDuration);

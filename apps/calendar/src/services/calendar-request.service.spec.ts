@@ -10,12 +10,14 @@ import { CalendarRequestType, CalendarRequestStatus, CalendarRequestAction } fro
 import { CalendarCommonService } from './calendar-common.service';
 
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
+import { QueueService } from '@slack/queue';
 
 describe('CalendarRequestService', () => {
   let service: CalendarRequestService;
   let requestRepository: any;
   let calendarCommonService: jest.Mocked<Pick<CalendarCommonService, 'fetchMember' | 'isPrivileged' | 'assertPrivileged'>>;
   let policyService: any;
+  let queueService: any;
   let manager: any;
 
   const MEMBER = { id: 'user-1', role: 'member' };
@@ -36,6 +38,7 @@ describe('CalendarRequestService', () => {
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
         execute: jest.fn().mockResolvedValue({ affected: 1 }),
+        getOne: jest.fn().mockResolvedValue(null),
       }),
     };
 
@@ -46,6 +49,7 @@ describe('CalendarRequestService', () => {
       skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
       getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+      getOne: jest.fn().mockResolvedValue(null),
     };
 
     requestRepository = {
@@ -63,6 +67,10 @@ describe('CalendarRequestService', () => {
       getPolicy: jest.fn().mockResolvedValue(null),
     };
 
+    queueService = {
+      addJob: jest.fn().mockResolvedValue(null),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CalendarRequestService,
@@ -77,6 +85,10 @@ describe('CalendarRequestService', () => {
         {
           provide: WorkspaceCalendarPolicyService,
           useValue: policyService,
+        },
+        {
+          provide: QueueService,
+          useValue: queueService,
         },
       ],
     }).compile();
@@ -102,6 +114,15 @@ describe('CalendarRequestService', () => {
       calendarCommonService.fetchMember.mockRejectedValue(forbiddenError);
       await expect(service.createRequest(dto)).rejects.toMatchObject({
         error: expect.objectContaining({ statusCode: HttpStatus.FORBIDDEN }),
+      });
+    });
+
+    it('should throw BAD_REQUEST if there is an overlapping request', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      manager.createQueryBuilder().getOne.mockResolvedValueOnce({ id: 'existing-req' });
+
+      await expect(service.createRequest(dto)).rejects.toMatchObject({
+        error: expect.objectContaining({ statusCode: HttpStatus.BAD_REQUEST, code: CALENDAR_ERROR.OVERLAPPING_REQUEST.code }),
       });
     });
 
@@ -186,6 +207,15 @@ describe('CalendarRequestService', () => {
       manager.findOne.mockResolvedValue({ id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.APPROVED });
       await expect(service.updateRequest(dto)).rejects.toMatchObject({
         error: expect.objectContaining({ statusCode: HttpStatus.BAD_REQUEST, code: CALENDAR_ERROR.REQUEST_ALREADY_PROCESSED.code }),
+      });
+    });
+
+    it('should throw BAD_REQUEST if there is an overlapping request during update', async () => {
+      manager.findOne.mockResolvedValue({ id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.PENDING, startTime: new Date('2026-06-20T00:00:00Z'), endTime: new Date('2026-06-20T10:00:00Z') });
+      manager.createQueryBuilder().getOne.mockResolvedValueOnce({ id: 'existing-req' });
+
+      await expect(service.updateRequest(dto)).rejects.toMatchObject({
+        error: expect.objectContaining({ statusCode: HttpStatus.BAD_REQUEST, code: CALENDAR_ERROR.OVERLAPPING_REQUEST.code }),
       });
     });
 
