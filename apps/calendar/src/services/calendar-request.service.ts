@@ -310,8 +310,10 @@ export class CalendarRequestService {
           }
         }
 
-        await manager.remove(CalendarRequestEntity, request);
-        return { success: true, message: 'Deleted calendar request successfully' };
+        // Thay vì hard delete, chúng ta soft-cancel bằng cách chuyển trạng thái
+        request.status = CalendarRequestStatus.CANCELLED;
+        await manager.save(CalendarRequestEntity, request);
+        return { success: true, message: 'Cancelled calendar request successfully' };
       });
     } catch (error) {
       this.logger.error(`Error deleting calendar request: ${error.message}`, error.stack);

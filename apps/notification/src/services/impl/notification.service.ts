@@ -176,6 +176,23 @@ export class NotificationService {
 
   private async enqueueFcmPush(saved: Notification): Promise<void> {
     try {
+      // Gửi Firebase Push cho tất cả các loại thông báo quan trọng (bao gồm Chat, Task, Calendar)
+      // Để user nhận được thông báo Native OS khi họ đang offline (chưa mở app)
+      const allowedFcmTypes = [
+        NotificationType.MESSAGE_RECEIVED,
+        NotificationType.MENTIONED_IN_MESSAGE,
+        NotificationType.REPLY_IN_THREAD,
+        NotificationType.CALENDAR_REQUEST_CREATED,
+        NotificationType.CALENDAR_REQUEST_APPROVED,
+        NotificationType.CALENDAR_REQUEST_REJECTED,
+        NotificationType.TASK_ASSIGNED,
+        NotificationType.TASK_DUE_SOON,
+      ];
+
+      if (!allowedFcmTypes.includes(saved.type)) {
+        return;
+      }
+
       const actorName = String(saved.metadata?.['actorName'] || 'Slack Clone');
       const channelName = saved.metadata?.['channelName']
         ? `#${String(saved.metadata['channelName'])}`

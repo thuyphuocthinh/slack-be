@@ -253,14 +253,16 @@ describe('CalendarRequestService', () => {
       });
     });
 
-    it('should delete request successfully if PENDING', async () => {
+    it('should delete (soft cancel) request successfully if PENDING', async () => {
       const mockReq = { id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.PENDING };
       manager.findOne.mockResolvedValue(mockReq);
-      manager.remove.mockResolvedValue(true);
+      manager.save.mockResolvedValue(true);
 
       const result = await service.deleteRequest(dto);
 
-      expect(manager.remove).toHaveBeenCalledWith(CalendarRequestEntity, mockReq);
+      expect(manager.save).toHaveBeenCalledWith(CalendarRequestEntity, expect.objectContaining({
+        status: CalendarRequestStatus.CANCELLED
+      }));
       expect(result).toHaveProperty('success', true);
     });
   });
