@@ -24,6 +24,9 @@ import { CalendarCronService } from './services/calendar-cron.service';
 import { LeaveBalanceService } from './services/leave-balance.service';
 
 import { CachedModule } from '@slack/cached';
+import { QueueModule, EQueueName } from '@slack/queue';
+
+import { CalendarProcessor } from './processors/calendar.processor';
 
 @Module({
   imports: [
@@ -40,8 +43,11 @@ import { CachedModule } from '@slack/cached';
       UserFaceBaselineEntity,
       CalendarUserLockEntity,
     ]),
+    QueueModule.forRoot(),
+    QueueModule.forFeature([EQueueName.CALENDAR_QUEUE]),
     ClientsModule.registerAsync([
       getMicroserviceClientConfig(NAME_SERVICE_TCP.WORKSPACE_SERVICE, PORT_TCP.WORKSPACE_TCP_PORT),
+      getMicroserviceClientConfig(NAME_SERVICE_TCP.NOTIFICATION_SERVICE, PORT_TCP.NOTIFICATION_TCP_PORT),
     ]),
   ],
   controllers: [CalendarController],
@@ -54,6 +60,7 @@ import { CachedModule } from '@slack/cached';
     AttendanceService,
     CalendarCronService,
     LeaveBalanceService,
+    CalendarProcessor,
   ],
 })
 export class CalendarModule {}

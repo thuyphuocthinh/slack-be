@@ -85,6 +85,7 @@ export class WorkspaceMemberService {
 
     this.logger.log('Add member', JSON.stringify({ member }));
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+    this.cachedService.del(CACHE.WORKSPACE.KEYS.ADMINS(dto.workspaceId));
     this.cachedService.del(
       CACHE.WORKSPACE.KEYS.IS_MEMBER(dto.workspaceId, dto.userId),
     );
@@ -141,6 +142,7 @@ export class WorkspaceMemberService {
 
     this.logger.log('Remove member', JSON.stringify({ targetMember }));
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+    this.cachedService.del(CACHE.WORKSPACE.KEYS.ADMINS(dto.workspaceId));
     this.cachedService.del(
       CACHE.WORKSPACE.KEYS.IS_MEMBER(dto.workspaceId, dto.targetUserId),
     );
@@ -192,6 +194,7 @@ export class WorkspaceMemberService {
       CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(dto.userId),
     );
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+    this.cachedService.del(CACHE.WORKSPACE.KEYS.ADMINS(dto.workspaceId));
     this.cachedService.del(
       CACHE.WORKSPACE.KEYS.IS_MEMBER(dto.workspaceId, dto.userId),
     );
@@ -263,6 +266,7 @@ export class WorkspaceMemberService {
       JSON.stringify({ targetMember, updatedMember }),
     );
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+    this.cachedService.del(CACHE.WORKSPACE.KEYS.ADMINS(dto.workspaceId));
     this.cachedService.del(
       CACHE.WORKSPACE.KEYS.IS_MEMBER(dto.workspaceId, dto.targetUserId),
     );
@@ -317,6 +321,7 @@ export class WorkspaceMemberService {
 
     // Invalidate members list cache because roles changed
     await this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+    await this.cachedService.del(CACHE.WORKSPACE.KEYS.ADMINS(dto.workspaceId));
 
     // Invalidate individual membership cache
     this.cachedService.del(
@@ -426,6 +431,7 @@ export class WorkspaceMemberService {
     });
 
     await this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+    await this.cachedService.del(CACHE.WORKSPACE.KEYS.ADMINS(dto.workspaceId));
 
     // Invalidate individual membership cache
     const isMemberKeys = dto.userIds.map((userId) =>
@@ -510,6 +516,7 @@ export class WorkspaceMemberService {
 
     this.logger.log('Add member SSO', JSON.stringify({ member }));
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(dto.workspaceId));
+    this.cachedService.del(CACHE.WORKSPACE.KEYS.ADMINS(dto.workspaceId));
     this.cachedService.del(
       CACHE.WORKSPACE.KEYS.IS_MEMBER(dto.workspaceId, dto.userId),
     );
@@ -518,5 +525,23 @@ export class WorkspaceMemberService {
     );
 
     return this.commonService.mapMemberToDto(member);
+  }
+
+  async getWorkspaceAdmins(workspaceId: string): Promise<string[]> {
+    return this.cachedService.getOrSetDetail(
+      CACHE.WORKSPACE.KEYS.ADMINS(workspaceId),
+      TTL.LONG,
+      async () => {
+        const members = await this.memberRepository.find({
+          select: ['userId'],
+          where: {
+            workspaceId,
+            status: MembershipStatus.ACTIVE,
+            role: In([WorkspaceRoleEnum.OWNER, WorkspaceRoleEnum.ADMIN]),
+          },
+        });
+        return members.map((m) => m.userId);
+      },
+    );
   }
 }

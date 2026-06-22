@@ -11,6 +11,7 @@ export enum EQueueName {
   OUTBOUND_WEBHOOK_QUEUE = 'outbound_webhook',
   INCOMING_WEBHOOK_QUEUE = 'incoming_webhook',
   LINK_PREVIEW_QUEUE = 'link_preview',
+  CALENDAR_QUEUE = 'calendar',
 }
 
 export enum EJobName {
@@ -46,5 +47,9 @@ export enum EJobName {
   DISPATCH_OUTBOUND_WEBHOOK = 'dispatch_outbound_webhook',
   PROCESS_INCOMING_WEBHOOK = 'process_incoming_webhook',
   GENERATE_LINK_PREVIEW = 'generate_link_preview',
+
+  // Calendar
+  CALENDAR_REQUEST_CREATED = 'calendar_request_created',
+  CALENDAR_REQUEST_REVIEWED = 'calendar_request_reviewed',
 }
 

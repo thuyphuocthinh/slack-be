@@ -15,6 +15,9 @@ import { IOffsetResponse } from '@slack/common';
 import { CalendarCommonService } from './calendar-common.service';
 
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { EQueueName, EJobName } from '@slack/queue';
 
 @Injectable()
 export class CalendarRequestService {
@@ -25,6 +28,7 @@ export class CalendarRequestService {
     private readonly requestRepository: Repository<CalendarRequestEntity>,
     private readonly calendarCommonService: CalendarCommonService,
     private readonly policyService: WorkspaceCalendarPolicyService,
+    @InjectQueue(EQueueName.CALENDAR_QUEUE) private readonly calendarQueue: Queue,
   ) {}
 
   private async checkLeaveBalance(manager: EntityManager, workspaceId: string, userId: string, year: number, actualDuration: number) {
@@ -186,6 +190,18 @@ export class CalendarRequestService {
         });
 
         const saved = await manager.save(CalendarRequestEntity, newRequest);
+        
+        // Push notification job
+        const requester = await this.calendarCommonService.fetchMember(workspaceId, userId);
+        await this.calendarQueue.add(EJobName.CALENDAR_REQUEST_CREATED, {
+          requestId: saved.id,
+          workspaceId,
+          requesterId: userId,
+          requesterName: requester.name,
+          requestType,
+          durationDays: actualDuration,
+        });
+
         return plainToInstance(CalendarRequestResponseDto, saved);
       });
     } catch (error) {
@@ -347,6 +363,17 @@ export class CalendarRequestService {
         }
 
         const saved = await manager.save(CalendarRequestEntity, request);
+
+        // Push notification job
+        await this.calendarQueue.add(EJobName.CALENDAR_REQUEST_REVIEWED, {
+          requestId: saved.id,
+          workspaceId,
+          requesterId: saved.userId,
+          reviewerId,
+          reviewerName: reviewer.name,
+          status: saved.status,
+        });
+
         return plainToInstance(CalendarRequestResponseDto, saved);
       });
     } catch (error) {

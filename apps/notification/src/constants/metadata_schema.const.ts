@@ -127,6 +127,31 @@ export const NotificationMetadataSchema = {
     actorName: z.string(),
     workspaceId: z.string(),
   }),
+
+  // ======================
+  // CALENDAR
+  // ======================
+  [NotificationType.CALENDAR_REQUEST_CREATED]: z.object({
+    actorId: z.string(),
+    actorName: z.string(),
+    requestId: z.string(),
+    requestType: z.string(),
+    durationDays: z.number().optional(),
+  }).passthrough(),
+
+  [NotificationType.CALENDAR_REQUEST_APPROVED]: z.object({
+    actorId: z.string(),
+    actorName: z.string(),
+    requestId: z.string(),
+    status: z.string(),
+  }).passthrough(),
+
+  [NotificationType.CALENDAR_REQUEST_REJECTED]: z.object({
+    actorId: z.string(),
+    actorName: z.string(),
+    requestId: z.string(),
+    status: z.string(),
+  }).passthrough(),
 } as const;
 
 export type NotificationTemplateKey = NotificationType;

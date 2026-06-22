@@ -23,10 +23,23 @@ export enum NotificationType {
   // system
   SYSTEM_ANNOUNCEMENT = 'system_announcement',
   WORKSPACE_INVITED = 'workspace_invited',
+
+  // calendar
+  CALENDAR_REQUEST_CREATED = 'calendar_request_created',
+  CALENDAR_REQUEST_APPROVED = 'calendar_request_approved',
+  CALENDAR_REQUEST_REJECTED = 'calendar_request_rejected',
 }
 
 export enum NotificationStatus {
   UNREAD = 'unread',
   READ = 'read',
   ARCHIVED = 'archived',
+}
+
+export enum NotificationObjectType {
+  MESSAGE = 'MESSAGE',
+  CHANNEL = 'CHANNEL',
+  WORKSPACE = 'WORKSPACE',
+  TASK = 'TASK',
+  CALENDAR = 'CALENDAR',
 }

@@ -14,6 +14,7 @@ export const WORKSPACE_MESSAGE_PATTERNS = {
   GET_WORKSPACE: 'workspace.get',
   GET_WORKSPACES: 'workspace.get_all',
   GET_MEMBERS: 'workspace.get_members',
+  GET_WORKSPACE_ADMINS: 'workspace.get_workspace_admins',
   GET_INVITES: 'workspace.get_invites',
   GET_LINKS: 'workspace.get_links',
   CREATE_LINK: 'workspace.create_link',
