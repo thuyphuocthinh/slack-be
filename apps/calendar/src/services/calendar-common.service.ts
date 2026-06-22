@@ -23,6 +23,13 @@ export class CalendarCommonService {
     return member;
   }
 
+  async getWorkspaceMembers(workspaceId: string, userId: string) {
+    const members = await firstValueFrom(
+      this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.GET_MEMBERS, { workspaceId, userId }),
+    );
+    return members || [];
+  }
+
   isPrivileged(role: string): boolean {
     return role === WorkspaceRoleEnum.ADMIN || role === WorkspaceRoleEnum.OWNER;
   }

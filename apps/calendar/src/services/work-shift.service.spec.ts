@@ -32,7 +32,7 @@ describe('WorkShiftService', () => {
 
   beforeEach(async () => {
     workShiftRepository = {
-      upsert: jest.fn().mockResolvedValue({}),
+      insert: jest.fn().mockResolvedValue({ identifiers: [{ id: 'new-id-1' }] }),
       find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn(),
       update: jest.fn().mockResolvedValue({ affected: 1 }),
@@ -101,7 +101,7 @@ describe('WorkShiftService', () => {
 
       expect(calendarCommonService.fetchMember).toHaveBeenCalledWith(validDto.workspaceId, validDto.requestorId);
       expect(calendarCommonService.assertSelfOrPrivileged).toHaveBeenCalledWith(validDto.requestorId, validDto.userId, MEMBER.role);
-      expect(workShiftRepository.upsert).toHaveBeenCalled();
+      expect(workShiftRepository.insert).toHaveBeenCalled();
       expect(result).toBeInstanceOf(Array);
     });
 
@@ -112,7 +112,7 @@ describe('WorkShiftService', () => {
         new RpcException({ statusCode: HttpStatus.FORBIDDEN, ...AUTH_ERROR.FORBIDDEN }),
       );
 
-      expect(workShiftRepository.upsert).not.toHaveBeenCalled();
+      expect(workShiftRepository.insert).not.toHaveBeenCalled();
     });
 
     it('should throw FORBIDDEN when a member tries to register shifts for another user', async () => {
@@ -125,7 +125,7 @@ describe('WorkShiftService', () => {
         new RpcException({ statusCode: HttpStatus.FORBIDDEN, ...AUTH_ERROR.FORBIDDEN }),
       );
 
-      expect(workShiftRepository.upsert).not.toHaveBeenCalled();
+      expect(workShiftRepository.insert).not.toHaveBeenCalled();
     });
 
     it('should allow admin to register shifts for another user', async () => {
@@ -137,7 +137,35 @@ describe('WorkShiftService', () => {
       const dto = { ...validDto, requestorId: 'admin-user', userId: 'user-2' };
       const result = await service.bulkRegisterShifts(dto);
 
-      expect(workShiftRepository.upsert).toHaveBeenCalled();
+      expect(workShiftRepository.insert).toHaveBeenCalled();
+      expect(result).toBeInstanceOf(Array);
+    });
+
+    it('should successfully register multiple shifts on the same day', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      workShiftRepository.find.mockResolvedValue([]);
+
+      const multiShiftDto = {
+        ...validDto,
+        shifts: [
+          { workDate: '2026-06-20', startTime: '2026-06-20T02:00:00.000Z', endTime: '2026-06-20T06:00:00.000Z' },
+          { workDate: '2026-06-20', startTime: '2026-06-20T08:00:00.000Z', endTime: '2026-06-20T12:00:00.000Z' },
+        ],
+      };
+
+      const result = await service.bulkRegisterShifts(multiShiftDto);
+
+      expect(policyService.validateShifts).toHaveBeenCalledWith(
+        multiShiftDto.workspaceId,
+        multiShiftDto.userId,
+        MEMBER.employmentType,
+        MEMBER.role,
+        expect.arrayContaining([
+          expect.objectContaining({ startTime: new Date('2026-06-20T02:00:00.000Z') }),
+          expect.objectContaining({ startTime: new Date('2026-06-20T08:00:00.000Z') }),
+        ])
+      );
+      expect(workShiftRepository.insert).toHaveBeenCalled();
       expect(result).toBeInstanceOf(Array);
     });
 
@@ -153,12 +181,12 @@ describe('WorkShiftService', () => {
         new RpcException({ statusCode: HttpStatus.BAD_REQUEST, ...CALENDAR_ERROR.INVALID_TIME_UTC }),
       );
 
-      expect(workShiftRepository.upsert).not.toHaveBeenCalled();
+      expect(workShiftRepository.insert).not.toHaveBeenCalled();
     });
 
     it('should throw INTERNAL_SERVER_ERROR on repository failure', async () => {
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
-      workShiftRepository.upsert.mockRejectedValue(new Error('DB connection lost'));
+      workShiftRepository.insert.mockRejectedValue(new Error('DB connection lost'));
 
       await expect(service.bulkRegisterShifts(validDto)).rejects.toMatchObject(
         new RpcException({ statusCode: HttpStatus.INTERNAL_SERVER_ERROR, ...CALENDAR_ERROR.BULK_REGISTER_FAILED }),

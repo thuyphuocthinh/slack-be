@@ -69,13 +69,37 @@ export class LeaveBalanceService {
       const policy = await this.policyService.getPolicy(workspaceId);
       const maxPaidLeaveDays = policy?.policyData?.maxPaidLeaveDaysPerYear ?? DEFAULT_PAID_LEAVE_DAYS;
 
-      const balances = await this.leaveBalanceRepo.find({
+      // 1. Fetch all members in the workspace
+      const allMembers: any[] = await this.calendarCommonService.getWorkspaceMembers(workspaceId, requestorId);
+
+      // 2. Fetch existing balances
+      const existingBalances = await this.leaveBalanceRepo.find({
         where: { workspaceId, year },
       });
 
-      return balances.map((b) => {
-        b.totalPaidLeave = maxPaidLeaveDays;
-        return plainToInstance(LeaveBalanceResponseDto, b);
+      const balanceMap = new Map(existingBalances.map(b => [b.userId, b]));
+
+      // 3. Map all members to their balances, defaulting if no balance exists yet
+      return allMembers.map((member) => {
+        const existing = balanceMap.get(member.userId);
+        
+        const balanceDto = existing ? {
+          id: existing.id,
+          workspaceId: existing.workspaceId,
+          userId: existing.userId,
+          year: existing.year,
+          totalPaidLeave: maxPaidLeaveDays, // always override with current policy
+          usedPaidLeave: existing.usedPaidLeave,
+        } : {
+          id: `default-${member.userId}`,
+          workspaceId,
+          userId: member.userId,
+          year,
+          totalPaidLeave: maxPaidLeaveDays,
+          usedPaidLeave: 0,
+        };
+
+        return plainToInstance(LeaveBalanceResponseDto, balanceDto);
       });
     } catch (error) {
       if (error instanceof RpcException) throw error;

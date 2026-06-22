@@ -51,6 +51,8 @@ export class WorkspaceCalendarPolicyService {
     memberRole: string,
     shifts: WorkShiftValidationPayload[]
   ) {
+    if (!shifts || shifts.length === 0) return;
+
     const policy = await this.getPolicy(workspaceId);
     const maxWfhDaysPerWeek = policy?.policyData?.maxWfhDaysPerWeek ?? 4;
     const maxFullTimeHours = policy?.policyData?.maxFullTimeHours ?? 208;
@@ -59,48 +61,11 @@ export class WorkspaceCalendarPolicyService {
     const empType = memberEmploymentType || 'FULLTIME';
     const maxHours = empType === 'PARTTIME' ? maxPartTimeHours : maxFullTimeHours;
 
-    const wfhDatesSet = new Set<string>();
-    const monthMap = new Map<string, { newHours: number, dateStrs: Set<string> }>();
-
     // 0. Check Lock Deadline
     await this.checkLockDeadline(workspaceId, memberRole, userId, shifts.map(s => s.workDate));
 
-    for (const shift of shifts) {
-      if (shift.location === ShiftLocation.WFH) {
-        wfhDatesSet.add(shift.workDate);
-      }
-
-      const month = shift.workDate.substring(0, 7); // '2026-06'
-      if (!monthMap.has(month)) monthMap.set(month, { newHours: 0, dateStrs: new Set() });
-      const mapData = monthMap.get(month)!;
-      mapData.dateStrs.add(shift.workDate);
-      const hours = calculateDiffHours(shift.startTime, shift.endTime);
-      mapData.newHours += hours;
-    }
-
-    // 1. Calculate boundaries to fetch everything in ONE query
-    let minDate = '9999-12-31';
-    let maxDate = '0000-01-01';
-
-    const weekMap = new Map<string, Set<string>>();
-    for (const date of wfhDatesSet) {
-      const monday = getMondayOfWeek(date);
-      if (!weekMap.has(monday)) weekMap.set(monday, new Set());
-      weekMap.get(monday)!.add(date);
-
-      const sunday = getSundayOfWeek(monday);
-
-      if (monday < minDate) minDate = monday;
-      if (sunday > maxDate) maxDate = sunday;
-    }
-
-    for (const month of monthMap.keys()) {
-      const firstDay = `${month}-01`;
-      const lastDay = getLastDayOfMonth(month);
-
-      if (firstDay < minDate) minDate = firstDay;
-      if (lastDay > maxDate) maxDate = lastDay;
-    }
+    // 1. Setup boundaries & grouping maps (O(N))
+    const { wfhDatesSet, monthMap, minDate, maxDate, weekMap } = this.calculateShiftBoundaries(shifts);
 
     // 2. Fetch all existing shifts for the affected period in a SINGLE DB query
     let existingShifts: WorkShiftEntity[] = [];
@@ -114,18 +79,97 @@ export class WorkspaceCalendarPolicyService {
       });
     }
 
-    // 3. Validate WFH Days per Week Limit in memory
+    // 3. Validation Chain
+    this.validateInternalOverlaps(shifts);
+    this.validateExternalOverlaps(shifts, existingShifts);
+    this.validateWfhLimits(existingShifts, weekMap, maxWfhDaysPerWeek);
+    this.validateMaxHoursLimits(shifts, existingShifts, monthMap, maxHours);
+  }
+
+  private calculateShiftBoundaries(shifts: WorkShiftValidationPayload[]) {
+    const wfhDatesSet = new Set<string>();
+    const monthMap = new Map<string, { newHours: number, dateStrs: Set<string> }>();
+
+    for (const shift of shifts) {
+      if (shift.location === ShiftLocation.WFH) wfhDatesSet.add(shift.workDate);
+
+      const month = shift.workDate.substring(0, 7);
+      if (!monthMap.has(month)) monthMap.set(month, { newHours: 0, dateStrs: new Set() });
+      
+      const mapData = monthMap.get(month)!;
+      mapData.dateStrs.add(shift.workDate);
+      mapData.newHours += calculateDiffHours(shift.startTime, shift.endTime);
+    }
+
+    let minDate = '9999-12-31';
+    let maxDate = '0000-01-01';
+    const weekMap = new Map<string, Set<string>>();
+
+    for (const date of wfhDatesSet) {
+      const monday = getMondayOfWeek(date);
+      if (!weekMap.has(monday)) weekMap.set(monday, new Set());
+      weekMap.get(monday)!.add(date);
+
+      const sunday = getSundayOfWeek(monday);
+      if (monday < minDate) minDate = monday;
+      if (sunday > maxDate) maxDate = sunday;
+    }
+
+    for (const month of monthMap.keys()) {
+      const firstDay = `${month}-01`;
+      const lastDay = getLastDayOfMonth(month);
+      if (firstDay < minDate) minDate = firstDay;
+      if (lastDay > maxDate) maxDate = lastDay;
+    }
+
+    return { wfhDatesSet, monthMap, minDate, maxDate, weekMap };
+  }
+
+  private validateInternalOverlaps(shifts: WorkShiftValidationPayload[]) {
+    for (let i = 0; i < shifts.length; i++) {
+      for (let j = i + 1; j < shifts.length; j++) {
+        if (shifts[i].workDate === shifts[j].workDate &&
+            shifts[i].startTime < shifts[j].endTime &&
+            shifts[i].endTime > shifts[j].startTime) {
+          throw new RpcException({
+            statusCode: HttpStatus.BAD_REQUEST,
+            ...CALENDAR_ERROR.SHIFT_OVERLAP,
+            message: `Ca làm việc bị trùng lặp thời gian trong ngày ${shifts[i].workDate}`,
+          });
+        }
+      }
+    }
+  }
+
+  private validateExternalOverlaps(shifts: WorkShiftValidationPayload[], existingShifts: WorkShiftEntity[]) {
+    // Time complexity: O(N * E). N and E are typically small (< 31 per month) so this is very fast.
+    for (const newShift of shifts) {
+      const overlaps = existingShifts.some(existing => {
+        if (newShift.id && existing.id === newShift.id) return false;
+        return existing.workDate === newShift.workDate &&
+               newShift.startTime < existing.endTime &&
+               newShift.endTime > existing.startTime;
+      });
+
+      if (overlaps) {
+        throw new RpcException({
+          statusCode: HttpStatus.BAD_REQUEST,
+          ...CALENDAR_ERROR.SHIFT_OVERLAP,
+          message: `Ca làm việc bị trùng lặp với ca đã đăng ký trong ngày ${newShift.workDate}`,
+        });
+      }
+    }
+  }
+
+  private validateWfhLimits(existingShifts: WorkShiftEntity[], weekMap: Map<string, Set<string>>, maxWfhDaysPerWeek: number) {
     for (const [monday, newDates] of weekMap.entries()) {
       const sunday = getSundayOfWeek(monday);
-
       const wfhShiftsInWeek = existingShifts.filter(
         s => s.location === ShiftLocation.WFH && s.workDate >= monday && s.workDate <= sunday
       );
 
       const allWfhDatesInWeek = new Set(wfhShiftsInWeek.map(s => s.workDate));
-      for (const d of newDates) {
-        allWfhDatesInWeek.add(d);
-      }
+      for (const d of newDates) allWfhDatesInWeek.add(d);
 
       if (allWfhDatesInWeek.size > maxWfhDaysPerWeek) {
         throw new RpcException({
@@ -135,19 +179,24 @@ export class WorkspaceCalendarPolicyService {
         });
       }
     }
+  }
 
-    // 4. Validate Max Hours per Month Limit in memory
+  private validateMaxHoursLimits(
+    shifts: WorkShiftValidationPayload[],
+    existingShifts: WorkShiftEntity[],
+    monthMap: Map<string, { newHours: number, dateStrs: Set<string> }>,
+    maxHours: number
+  ) {
+    const updatedIds = new Set(shifts.map(s => s.id).filter(id => id));
+
     for (const [month, data] of monthMap.entries()) {
       const monthPrefix = `${month}-`;
       const shiftsInMonth = existingShifts.filter(s => s.workDate.startsWith(monthPrefix));
 
       let existingHours = 0;
       for (const s of shiftsInMonth) {
-        // Exclude the shifts we are updating or replacing
-        const isBeingUpdated = shifts.some(newShift => (s.id && newShift.id === s.id) || newShift.workDate === s.workDate);
-        if (!isBeingUpdated) {
-          const h = calculateDiffHours(s.startTime, s.endTime);
-          existingHours += h;
+        if (!updatedIds.has(s.id)) {
+          existingHours += calculateDiffHours(s.startTime, s.endTime);
         }
       }
 

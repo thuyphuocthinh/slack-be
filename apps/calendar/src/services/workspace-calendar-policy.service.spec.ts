@@ -11,6 +11,7 @@ import { ShiftLocation } from '../types/calendar.enum';
 import { WorkShiftValidationPayload } from '../types/calendar.type';
 import { CachedService } from '@slack/cached/cached.service';
 import { CalendarCommonService } from './calendar-common.service';
+import { RpcException } from '@nestjs/microservices';
 
 describe('WorkspaceCalendarPolicyService', () => {
   let service: WorkspaceCalendarPolicyService;
@@ -87,8 +88,8 @@ describe('WorkspaceCalendarPolicyService', () => {
     });
 
     it('should return policy containing maxPaidLeaveDaysPerYear', async () => {
-      const mockPolicy = { 
-        id: 'policy-2', 
+      const mockPolicy = {
+        id: 'policy-2',
         workspaceId: mockWorkspaceId,
         policyData: { maxPaidLeaveDaysPerYear: 20 }
       } as unknown as WorkspaceCalendarPolicyEntity;
@@ -115,6 +116,53 @@ describe('WorkspaceCalendarPolicyService', () => {
       ];
 
       await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', WorkspaceRoleEnum.OWNER, shifts)).resolves.not.toThrow();
+    });
+
+    it('should throw an error if new shifts overlap with each other', async () => {
+      jest.spyOn(policyRepository, 'findOne').mockResolvedValue(null);
+      jest.spyOn(workShiftRepository, 'find').mockResolvedValue([]);
+
+      const shifts: WorkShiftValidationPayload[] = [
+        {
+          workDate: '2026-06-01',
+          startTime: new Date('2026-06-01T08:00:00Z'),
+          endTime: new Date('2026-06-01T12:00:00Z'),
+          location: ShiftLocation.OFFICE,
+        },
+        {
+          workDate: '2026-06-01',
+          startTime: new Date('2026-06-01T10:00:00Z'), // Overlaps with 08:00-12:00
+          endTime: new Date('2026-06-01T14:00:00Z'),
+          location: ShiftLocation.OFFICE,
+        },
+      ];
+
+      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', WorkspaceRoleEnum.OWNER, shifts)).rejects.toMatchObject({
+        error: expect.objectContaining({ code: CALENDAR_ERROR.SHIFT_OVERLAP.code }),
+      });
+    });
+
+    it('should throw an error if new shift overlaps with existing shift in DB', async () => {
+      jest.spyOn(policyRepository, 'findOne').mockResolvedValue(null);
+
+      const existingShifts = [
+        { workDate: '2026-06-01', location: ShiftLocation.OFFICE, startTime: new Date('2026-06-01T13:00:00Z'), endTime: new Date('2026-06-01T17:00:00Z') },
+      ] as WorkShiftEntity[];
+
+      jest.spyOn(workShiftRepository, 'find').mockResolvedValue(existingShifts);
+
+      const shifts: WorkShiftValidationPayload[] = [
+        {
+          workDate: '2026-06-01',
+          startTime: new Date('2026-06-01T15:00:00Z'), // Overlaps with 13:00-17:00
+          endTime: new Date('2026-06-01T19:00:00Z'),
+          location: ShiftLocation.OFFICE,
+        },
+      ];
+
+      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', WorkspaceRoleEnum.OWNER, shifts)).rejects.toMatchObject({
+        error: expect.objectContaining({ code: CALENDAR_ERROR.SHIFT_OVERLAP.code }),
+      });
     });
 
     it('should throw an error if WFH limit is exceeded', async () => {
@@ -209,6 +257,46 @@ describe('WorkspaceCalendarPolicyService', () => {
       ];
 
       await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', WorkspaceRoleEnum.OWNER, shifts)).resolves.not.toThrow();
+    });
+
+    it('PERFORMANCE TEST: should validate a large number of shifts under 10ms', async () => {
+      jest.spyOn(policyRepository, 'findOne').mockResolvedValue(null);
+
+      // Generate 100 existing shifts
+      const existingShifts: WorkShiftEntity[] = [];
+      for (let i = 1; i <= 100; i++) {
+        existingShifts.push({
+          id: `existing-shift-${i}`,
+          workDate: `2026-06-${String((i % 28) + 1).padStart(2, '0')}`,
+          startTime: new Date(`2026-06-01T00:00:00Z`), // Using dummy non-overlapping data
+          endTime: new Date(`2026-06-01T01:00:00Z`),
+          location: ShiftLocation.OFFICE,
+        } as WorkShiftEntity);
+      }
+
+      jest.spyOn(workShiftRepository, 'find').mockResolvedValue(existingShifts);
+
+      // Generate 30 new shifts to register
+      const shifts: WorkShiftValidationPayload[] = [];
+      for (let i = 1; i <= 30; i++) {
+        shifts.push({
+          id: undefined,
+          workDate: `2026-06-${String(i).padStart(2, '0')}`,
+          startTime: new Date(`2026-06-01T08:00:00Z`),
+          endTime: new Date(`2026-06-01T09:00:00Z`),
+          location: ShiftLocation.OFFICE,
+        });
+      }
+
+      const start = performance.now();
+      await service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', WorkspaceRoleEnum.OWNER, shifts);
+      const end = performance.now();
+      const executionTime = end - start;
+
+      console.log(`[Performance Test] validateShifts execution time: ${executionTime.toFixed(2)} ms for N=30, E=100`);
+
+      // It should be extremely fast, definitely under 15ms.
+      expect(executionTime).toBeLessThan(15);
     });
   });
 
