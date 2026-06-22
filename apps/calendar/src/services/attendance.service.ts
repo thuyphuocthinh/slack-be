@@ -45,8 +45,7 @@ export class AttendanceService {
       if (allowedIps.length > 0 && ipAddress && !allowedIps.includes(ipAddress)) {
         throw new RpcException({
           statusCode: HttpStatus.FORBIDDEN,
-          ...CALENDAR_ERROR.CALENDAR_LOCKED,
-          message: 'IP không thuộc mạng văn phòng. Vui lòng kết nối WiFi văn phòng để chấm công.',
+          ...CALENDAR_ERROR.IP_NOT_IN_OFFICE_NETWORK,
         });
       }
     }
@@ -56,8 +55,7 @@ export class AttendanceService {
       if (faceSimilarityScore === undefined || faceSimilarityScore === null) {
         throw new RpcException({
           statusCode: HttpStatus.BAD_REQUEST,
-          ...CALENDAR_ERROR.CALENDAR_LOCKED,
-          message: 'WFH yêu cầu xác thực khuôn mặt. Vui lòng bật camera.',
+          ...CALENDAR_ERROR.WFH_REQUIRES_FACE_AUTH,
         });
       }
       if (faceSimilarityScore < threshold) {
@@ -136,8 +134,7 @@ export class AttendanceService {
       this.logger.error('checkIn error:', error);
       throw new RpcException({
         statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        ...CALENDAR_ERROR.BULK_REGISTER_FAILED,
-        message: 'Chấm công thất bại. Vui lòng thử lại.',
+        ...CALENDAR_ERROR.ATTENDANCE_FAILED,
       });
     }
   }
@@ -192,8 +189,7 @@ export class AttendanceService {
       this.logger.error('checkOut error:', error);
       throw new RpcException({
         statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        ...CALENDAR_ERROR.BULK_REGISTER_FAILED,
-        message: 'Chấm công thất bại. Vui lòng thử lại.',
+        ...CALENDAR_ERROR.ATTENDANCE_FAILED,
       });
     }
   }

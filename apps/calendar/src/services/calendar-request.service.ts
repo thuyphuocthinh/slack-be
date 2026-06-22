@@ -73,8 +73,7 @@ export class CalendarRequestService {
       if (!allowApprovedAndFuture || request.status !== CalendarRequestStatus.APPROVED || new Date() >= request.startTime) {
         throw new RpcException({
           statusCode: HttpStatus.BAD_REQUEST,
-          ...CALENDAR_ERROR.REQUEST_ALREADY_PROCESSED,
-          message: 'Đơn này đã được xử lý hoặc đã bắt đầu, không thể thao tác.',
+          ...CALENDAR_ERROR.REQUEST_ALREADY_PROCESSED_OR_STARTED,
         });
       }
     }
@@ -193,12 +192,25 @@ export class CalendarRequestService {
 
     try {
       // 1. Validate membership
-      await this.calendarCommonService.fetchMember(workspaceId, userId);
+      const member = await this.calendarCommonService.fetchMember(workspaceId, userId);
 
       const startObj = new Date(startTime as unknown as string);
       const endObj = new Date(endTime as unknown as string);
+      
+      if (startObj >= endObj) {
+        throw new RpcException({
+          statusCode: HttpStatus.BAD_REQUEST,
+          ...CALENDAR_ERROR.INVALID_TIME_RANGE,
+        });
+      }
+
       const year = startObj.getFullYear();
       const actualDuration = durationDays ?? 1.0;
+
+      // 1.5. Check lock deadline
+      if (requestType !== CalendarRequestType.CALENDAR_OPEN_REQUEST) {
+        await this.policyService.checkLockDeadline(workspaceId, member.role, userId, [startObj.toISOString()]);
+      }
 
       return await this.requestRepository.manager.transaction(async (manager) => {
         // 2. Check for overlapping requests (PENDING or APPROVED)
@@ -252,14 +264,33 @@ export class CalendarRequestService {
     const { id, workspaceId, userId, requestType, startTime, endTime, durationDays, reason, metaData } = dto;
 
     try {
+      const member = await this.calendarCommonService.fetchMember(workspaceId, userId);
+
       return await this.requestRepository.manager.transaction(async (manager) => {
         const request = await this.findAndValidateRequest(manager, id, workspaceId, userId);
 
         const startObj = startTime ? new Date(startTime as unknown as string) : request.startTime;
         const endObj = endTime ? new Date(endTime as unknown as string) : request.endTime;
+        
+        if (startObj >= endObj) {
+          throw new RpcException({
+            statusCode: HttpStatus.BAD_REQUEST,
+            ...CALENDAR_ERROR.INVALID_TIME_RANGE,
+          });
+        }
+
         const actualDuration = durationDays ?? request.durationDays;
         const actualRequestType = requestType ?? request.requestType;
         const year = startObj.getFullYear();
+
+        const datesToCheck = [request.startTime.toISOString()];
+        if (startObj.toISOString() !== request.startTime.toISOString()) {
+          datesToCheck.push(startObj.toISOString());
+        }
+
+        if (actualRequestType !== CalendarRequestType.CALENDAR_OPEN_REQUEST) {
+          await this.policyService.checkLockDeadline(workspaceId, member.role, userId, datesToCheck);
+        }
 
         await this.checkOverlappingRequest(manager, workspaceId, userId, startObj, endObj, request.id);
 
@@ -293,8 +324,14 @@ export class CalendarRequestService {
     const { id, workspaceId, userId } = dto;
 
     try {
+      const member = await this.calendarCommonService.fetchMember(workspaceId, userId);
+
       return await this.requestRepository.manager.transaction(async (manager) => {
         const request = await this.findAndValidateRequest(manager, id, workspaceId, userId, true);
+
+        if (request.requestType !== CalendarRequestType.CALENDAR_OPEN_REQUEST) {
+          await this.policyService.checkLockDeadline(workspaceId, member.role, userId, [request.startTime.toISOString()]);
+        }
 
         // Refund leave balance if deleting an APPROVED LEAVE_PAID request
         if (request.status === CalendarRequestStatus.APPROVED && request.requestType === CalendarRequestType.LEAVE_PAID) {
@@ -381,6 +418,11 @@ export class CalendarRequestService {
         // Dùng undefined cho userId để bỏ qua check người gửi đơn (vì đây là Manager duyệt)
         const request = await this.findAndValidateRequest(manager, id, workspaceId, undefined);
 
+        const requester = await this.calendarCommonService.fetchMember(workspaceId, request.userId);
+        if (request.requestType !== CalendarRequestType.CALENDAR_OPEN_REQUEST) {
+          await this.policyService.checkLockDeadline(workspaceId, requester.role, request.userId, [request.startTime.toISOString()]);
+        }
+
         request.status = action === CalendarRequestAction.APPROVE ? CalendarRequestStatus.APPROVED : CalendarRequestStatus.REJECTED;
         request.approvedBy = reviewerId;
 
@@ -401,8 +443,6 @@ export class CalendarRequestService {
         const saved = await manager.save(CalendarRequestEntity, request);
 
         // Notify users
-        const requester = await this.calendarCommonService.fetchMember(workspaceId, request.userId);
-
         this.queueService.addJob(EQueueName.CALENDAR_QUEUE, EJobName.CALENDAR_REQUEST_REVIEWED, {
           requestId: saved.id,
           workspaceId,

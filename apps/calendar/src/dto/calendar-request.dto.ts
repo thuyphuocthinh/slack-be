@@ -239,6 +239,7 @@ export class CreateCalendarRequestDto {
   endTime: string;
 
   @IsNumber()
+  @Min(0)
   @IsOptional()
   durationDays?: number;
 
@@ -281,6 +282,7 @@ export class UpdateCalendarRequestDto {
   endTime?: string;
 
   @IsNumber()
+  @Min(0)
   @IsOptional()
   durationDays?: number;
 

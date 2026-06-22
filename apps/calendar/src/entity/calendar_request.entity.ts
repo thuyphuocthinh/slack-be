@@ -24,6 +24,7 @@ export class CalendarRequestEntity {
   @Column({
     name: 'request_type',
     type: 'enum',
+    enumName: 'calendar_request_type_enum',
     enum: CalendarRequestType,
   })
   requestType: CalendarRequestType;
@@ -42,6 +43,7 @@ export class CalendarRequestEntity {
 
   @Column({
     type: 'enum',
+    enumName: 'calendar_request_status_enum',
     enum: CalendarRequestStatus,
     default: CalendarRequestStatus.PENDING,
   })
