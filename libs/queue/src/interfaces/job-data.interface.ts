@@ -128,6 +128,24 @@ export interface IGenerateLinkPreviewJobData {
   urls: string[];
 }
 
+export interface ICalendarRequestCreatedJobData {
+  requestId: string;
+  workspaceId: string;
+  requesterId: string;
+  requesterName: string;
+  requestType: string;
+  durationDays: number;
+}
+
+export interface ICalendarRequestReviewedJobData {
+  requestId: string;
+  workspaceId: string;
+  requesterId: string;
+  reviewerId: string;
+  reviewerName: string;
+  status: string; // APPROVED, REJECTED
+}
+
 export type TJobData = {
   [EJobName.SEND_VERIFICATION_EMAIL]: IEmailJobData;
   [EJobName.SEND_INVITE_EMAIL]: IInviteJobData;
@@ -146,5 +164,7 @@ export type TJobData = {
   [EJobName.SEND_GENERIC_EMAIL]: IGenericEmailJobData;
   [EJobName.PROCESS_INCOMING_WEBHOOK]: IProcessIncomingWebhookJobData;
   [EJobName.GENERATE_LINK_PREVIEW]: IGenerateLinkPreviewJobData;
+  [EJobName.CALENDAR_REQUEST_CREATED]: ICalendarRequestCreatedJobData;
+  [EJobName.CALENDAR_REQUEST_REVIEWED]: ICalendarRequestReviewedJobData;
 };
 

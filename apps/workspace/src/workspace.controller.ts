@@ -72,6 +72,11 @@ export class WorkspaceController {
     );
   }
 
+  @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.GET_WORKSPACE_ADMINS)
+  getWorkspaceAdmins(@Payload() dto: { workspaceId: string }) {
+    return this.memberService.getWorkspaceAdmins(dto.workspaceId);
+  }
+
   @MessagePattern(WORKSPACE_MESSAGE_PATTERNS.INVITE_MEMBER)
   inviteMember(@Payload() dto: InviteMemberRequestDto) {
     return this.inviteService.inviteMember(dto);
