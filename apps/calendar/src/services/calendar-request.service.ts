@@ -47,7 +47,7 @@ export class CalendarRequestService {
     }
   }
 
-  private async findAndValidateRequest(manager: EntityManager, id: string, workspaceId: string, userId?: string) {
+  private async findAndValidateRequest(manager: EntityManager, id: string, workspaceId: string, userId?: string, allowApprovedAndFuture = false) {
     const request = await manager.findOne(CalendarRequestEntity, {
       where: { id, workspaceId },
       lock: { mode: 'pessimistic_write' },
@@ -68,10 +68,13 @@ export class CalendarRequestService {
     }
 
     if (request.status !== CalendarRequestStatus.PENDING) {
-      throw new RpcException({
-        statusCode: HttpStatus.BAD_REQUEST,
-        ...CALENDAR_ERROR.REQUEST_ALREADY_PROCESSED,
-      });
+      if (!allowApprovedAndFuture || request.status !== CalendarRequestStatus.APPROVED || new Date() >= request.startTime) {
+        throw new RpcException({
+          statusCode: HttpStatus.BAD_REQUEST,
+          ...CALENDAR_ERROR.REQUEST_ALREADY_PROCESSED,
+          message: 'Đơn này đã được xử lý hoặc đã bắt đầu, không thể thao tác.',
+        });
+      }
     }
 
     return request;
@@ -241,7 +244,21 @@ export class CalendarRequestService {
 
     try {
       return await this.requestRepository.manager.transaction(async (manager) => {
-        const request = await this.findAndValidateRequest(manager, id, workspaceId, userId);
+        const request = await this.findAndValidateRequest(manager, id, workspaceId, userId, true);
+
+        // Refund leave balance if deleting an APPROVED LEAVE_PAID request
+        if (request.status === CalendarRequestStatus.APPROVED && request.requestType === CalendarRequestType.LEAVE_PAID) {
+          const year = request.startTime.getFullYear();
+          const balance = await manager.findOne(LeaveBalanceEntity, {
+            where: { workspaceId, userId: request.userId, year },
+            lock: { mode: 'pessimistic_write' },
+          });
+
+          if (balance) {
+            balance.usedPaidLeave = Math.max(0, balance.usedPaidLeave - request.durationDays);
+            await manager.save(LeaveBalanceEntity, balance);
+          }
+        }
 
         await manager.remove(CalendarRequestEntity, request);
         return { success: true, message: 'Deleted calendar request successfully' };

@@ -28,6 +28,7 @@ describe('LeaveBalanceService', () => {
   const mockCalendarCommonService = {
     fetchMember: jest.fn(),
     isPrivileged: jest.fn(),
+    getWorkspaceMembers: jest.fn(),
   };
 
   const mockPolicyService = {
@@ -148,23 +149,30 @@ describe('LeaveBalanceService', () => {
   describe('getWorkspaceLeaveBalances', () => {
     it('should return mapped balances if requestor is privileged', async () => {
       const mockBalances = [
-        { id: 'bal-1', userId: 'user-1', totalPaidLeave: 12, usedPaidLeave: 2 },
-        { id: 'bal-2', userId: 'user-2', totalPaidLeave: 12, usedPaidLeave: 5 },
+        { id: 'bal-1', userId: 'user-1', workspaceId: mockWorkspaceId, year: mockYear, totalPaidLeave: 12, usedPaidLeave: 2 },
+      ];
+      
+      const mockMembers = [
+        { userId: 'user-1', role: 'MEMBER' },
+        { userId: 'user-2', role: 'MEMBER' },
       ];
 
       mockCalendarCommonService.fetchMember.mockResolvedValueOnce({ id: mockUserId, role: 'ADMIN' });
       mockCalendarCommonService.isPrivileged.mockReturnValueOnce(true);
+      mockCalendarCommonService.getWorkspaceMembers.mockResolvedValueOnce(mockMembers);
       mockLeaveBalanceRepo.find.mockResolvedValueOnce(mockBalances);
 
       const result = await service.getWorkspaceLeaveBalances(mockWorkspaceId, mockUserId, mockYear);
 
       expect(calendarCommonService.fetchMember).toHaveBeenCalledWith(mockWorkspaceId, mockUserId);
+      expect(calendarCommonService.getWorkspaceMembers).toHaveBeenCalledWith(mockWorkspaceId, mockUserId);
       expect(calendarCommonService.isPrivileged).toHaveBeenCalledWith('ADMIN');
       expect(leaveBalanceRepo.find).toHaveBeenCalledWith({
         where: { workspaceId: mockWorkspaceId, year: mockYear },
       });
       expect(result).toHaveLength(2);
-      expect(result[0]).toMatchObject({ id: 'bal-1', usedPaidLeave: 2 });
+      expect(result[0]).toMatchObject({ id: 'bal-1', userId: 'user-1', usedPaidLeave: 2 });
+      expect(result[1]).toMatchObject({ id: 'default-user-2', userId: 'user-2', usedPaidLeave: 0 });
     });
 
     it('should throw FORBIDDEN if requestor is not privileged', async () => {
