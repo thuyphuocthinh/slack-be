@@ -157,14 +157,27 @@ export class AttendanceStatisticService {
       .where('recon.workspaceId = :workspaceId', { workspaceId })
       .andWhere('recon.workDate >= :startDate', { startDate })
       .andWhere('recon.workDate <= :endDate', { endDate })
-      .select(['recon.userId AS "userId"', 'recon.workDate AS "workDate"', 'recon.status AS "status"'])
+      .select('recon.userId', 'userId')
+      .addSelect('recon.workDate', 'workDate')
+      .addSelect('recon.status', 'status')
       .getRawMany();
 
     const userLogsMap: Record<string, Record<string, string>> = {};
     for (const log of rawLogs) {
       if (!userLogsMap[log.userId]) userLogsMap[log.userId] = {};
       
-      const day = new Date(log.workDate).getDate();
+      let day = 1;
+      if (typeof log.workDate === 'string') {
+        const parts = log.workDate.split('-');
+        if (parts.length >= 3) {
+          day = parseInt(parts[2].substring(0, 2), 10);
+        } else {
+          day = new Date(log.workDate).getDate();
+        }
+      } else if (log.workDate instanceof Date) {
+        day = log.workDate.getDate();
+      }
+
       let marker = '✓';
       if (log.status === DailyReconciliationStatus.LATE_EARLY) marker = 'M';
       if (log.status === DailyReconciliationStatus.ABSENT) marker = 'V';

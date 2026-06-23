@@ -176,8 +176,9 @@ export class CalendarController {
   async getTodayAttendance(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: JwtUser,
+    @Query('clientDate') clientDate: string,
   ) {
-    return this.calendarService.getTodayAttendance(workspaceId, user.sub!);
+    return this.calendarService.getTodayAttendance(workspaceId, user.sub!, clientDate);
   }
 
   @Get('leave-balances/my-balance')
