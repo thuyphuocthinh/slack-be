@@ -49,3 +49,10 @@ export function getLastDayOfMonth(monthStr: string): string {
 export function calculateDiffHours(startTime: Date, endTime: Date): number {
   return (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
 }
+
+/**
+ * Returns today's UTC date as a string (YYYY-MM-DD).
+ */
+export function todayUtc(): string {
+  return new Date().toISOString().slice(0, 10);
+}

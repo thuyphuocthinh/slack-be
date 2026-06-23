@@ -407,6 +407,10 @@ export class GetTodayAttendanceDto {
   @IsUUID()
   @IsNotEmpty()
   userId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  clientDate: string; // YYYY-MM-DD from client
 }
 
 export class ManualUnlockCalendarDto {
