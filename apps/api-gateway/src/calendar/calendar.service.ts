@@ -371,13 +371,14 @@ export class CalendarService {
     );
   }
 
-  async getTodayAttendance(workspaceId: string, userId: string) {
+  async getTodayAttendance(workspaceId: string, userId: string, clientDate: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
           this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_TODAY_ATTENDANCE, {
             workspaceId,
             userId,
+            clientDate,
           }),
         ),
       'getTodayAttendance',
