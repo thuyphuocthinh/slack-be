@@ -199,8 +199,9 @@ export class CalendarController {
     @CurrentUser() user: JwtUser,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
+    @Query('userId') targetUserId?: string,
   ) {
-    return this.calendarService.getPersonalStatisticSummary(workspaceId, user.sub!, startDate, endDate);
+    return this.calendarService.getPersonalStatisticSummary(workspaceId, targetUserId || user.sub!, startDate, endDate);
   }
 
   @Get('statistics/me/chart')
@@ -210,8 +211,9 @@ export class CalendarController {
     @CurrentUser() user: JwtUser,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
+    @Query('userId') targetUserId?: string,
   ) {
-    return this.calendarService.getPersonalChartData(workspaceId, user.sub!, startDate, endDate);
+    return this.calendarService.getPersonalChartData(workspaceId, targetUserId || user.sub!, startDate, endDate);
   }
 
   @Get('statistics/workspace/members')
