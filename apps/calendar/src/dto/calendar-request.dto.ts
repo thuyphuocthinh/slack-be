@@ -463,3 +463,35 @@ export class GetWorkspaceLeaveBalancesDto {
   @IsNotEmpty()
   year: number;
 }
+
+export class GetPersonalStatisticSummaryDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  startDate: string;
+
+  @IsString()
+  @IsNotEmpty()
+  endDate: string;
+}
+
+export class GetPersonalChartDataDto extends GetPersonalStatisticSummaryDto { }
+
+export class GetWorkspaceStatisticMembersDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  month: string; // YYYY-MM
+}
+
+export class ExportWorkspaceStatisticExcelDto extends GetWorkspaceStatisticMembersDto { }

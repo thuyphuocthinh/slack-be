@@ -414,4 +414,64 @@ export class CalendarService {
       'CalendarService',
     );
   }
+
+  async getPersonalStatisticSummary(workspaceId: string, userId: string, startDate: string, endDate: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_PERSONAL_STATISTIC_SUMMARY, {
+            workspaceId,
+            userId,
+            startDate,
+            endDate,
+          }),
+        ),
+      'getPersonalStatisticSummary',
+      'CalendarService',
+    );
+  }
+
+  async getPersonalChartData(workspaceId: string, userId: string, startDate: string, endDate: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_PERSONAL_CHART_DATA, {
+            workspaceId,
+            userId,
+            startDate,
+            endDate,
+          }),
+        ),
+      'getPersonalChartData',
+      'CalendarService',
+    );
+  }
+
+  async getWorkspaceStatisticMembers(workspaceId: string, month: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_WORKSPACE_STATISTIC_MEMBERS, {
+            workspaceId,
+            month,
+          }),
+        ),
+      'getWorkspaceStatisticMembers',
+      'CalendarService',
+    );
+  }
+
+  async exportWorkspaceStatisticExcel(workspaceId: string, month: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.EXPORT_WORKSPACE_STATISTIC_EXCEL, {
+            workspaceId,
+            month,
+          }),
+        ),
+      'exportWorkspaceStatisticExcel',
+      'CalendarService',
+    );
+  }
 }

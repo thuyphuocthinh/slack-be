@@ -22,6 +22,7 @@ import { CalendarCommonService } from './services/calendar-common.service';
 import { AttendanceService } from './services/attendance.service';
 import { CalendarCronService } from './services/calendar-cron.service';
 import { LeaveBalanceService } from './services/leave-balance.service';
+import { AttendanceStatisticService } from './services/attendance-statistic.service';
 
 import { CachedModule } from '@slack/cached';
 import { QueueModule, EQueueName } from '@slack/queue';
@@ -61,6 +62,7 @@ import { CalendarProcessor } from './processors/calendar.processor';
     CalendarCronService,
     LeaveBalanceService,
     CalendarProcessor,
+    AttendanceStatisticService,
   ],
 })
 export class CalendarModule {}

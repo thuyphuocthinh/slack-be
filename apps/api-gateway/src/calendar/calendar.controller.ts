@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, Put, Delete, Query, Ip } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Delete, Query, Ip, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CalendarService } from './calendar.service';
 import { BulkRegisterWorkShiftApiDto, CheckInApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto, CreateCalendarRequestApiDto, UpdateCalendarRequestApiDto, GetCalendarRequestsApiDto, ReviewCalendarRequestApiDto, ManualUnlockCalendarApiDto } from './dto/calendar-api.dto';
@@ -190,14 +191,53 @@ export class CalendarController {
     return this.calendarService.getMyLeaveBalance(workspaceId, user.sub!, targetYear);
   }
 
-  @Get('leave-balances')
-  @ApiOperation({ summary: 'Get all members leave balances for the workspace (Admin only)' })
-  async getWorkspaceLeaveBalances(
+  @Get('statistics/me/summary')
+  @ApiOperation({ summary: 'Get personal statistics summary (Role Member)' })
+  async getPersonalStatisticSummary(
     @Param('workspaceId') workspaceId: string,
-    @Query('year') year: string,
     @CurrentUser() user: JwtUser,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
   ) {
-    const targetYear = year ? parseInt(year, 10) : new Date().getFullYear();
-    return this.calendarService.getWorkspaceLeaveBalances(workspaceId, user.sub!, targetYear);
+    return this.calendarService.getPersonalStatisticSummary(workspaceId, user.sub!, startDate, endDate);
+  }
+
+  @Get('statistics/me/chart')
+  @ApiOperation({ summary: 'Get personal chart data (Role Member)' })
+  async getPersonalChartData(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+  ) {
+    return this.calendarService.getPersonalChartData(workspaceId, user.sub!, startDate, endDate);
+  }
+
+  @Get('statistics/workspace/members')
+  @ApiOperation({ summary: 'Get workspace members statistics (Role Admin)' })
+  async getWorkspaceStatisticMembers(
+    @Param('workspaceId') workspaceId: string,
+    @Query('month') month: string, // format YYYY-MM
+  ) {
+    return this.calendarService.getWorkspaceStatisticMembers(workspaceId, month);
+  }
+
+  @Get('statistics/workspace/export')
+  @ApiOperation({ summary: 'Export workspace statistics to Excel (Role Admin)' })
+  async exportWorkspaceStatisticExcel(
+    @Param('workspaceId') workspaceId: string,
+    @Query('month') month: string, // format YYYY-MM
+    @Res() res: Response,
+  ) {
+    const base64Data = await this.calendarService.exportWorkspaceStatisticExcel(workspaceId, month);
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename=Bang_Cham_Cong_Thang_${month}.xlsx`,
+      'Content-Length': buffer.length,
+    });
+
+    res.end(buffer);
   }
 }
