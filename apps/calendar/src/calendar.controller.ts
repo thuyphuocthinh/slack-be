@@ -12,7 +12,8 @@ import { WorkspaceCalendarPolicyService } from './services/workspace-calendar-po
 import { CalendarRequestService } from './services/calendar-request.service';
 import { AttendanceService } from './services/attendance.service';
 import { LeaveBalanceService } from './services/leave-balance.service';
-import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto, ReviewCalendarRequestDto, ManualUnlockCalendarDto, GetMyLeaveBalanceDto, GetWorkspaceLeaveBalancesDto } from './dto/calendar-request.dto';
+import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto, ReviewCalendarRequestDto, ManualUnlockCalendarDto, GetMyLeaveBalanceDto, GetWorkspaceLeaveBalancesDto, GetPersonalStatisticSummaryDto, GetPersonalChartDataDto, GetWorkspaceStatisticMembersDto, ExportWorkspaceStatisticExcelDto } from './dto/calendar-request.dto';
+import { AttendanceStatisticService } from './services/attendance-statistic.service';
 
 @Controller()
 export class CalendarController {
@@ -23,6 +24,7 @@ export class CalendarController {
     private readonly requestService: CalendarRequestService,
     private readonly attendanceService: AttendanceService,
     private readonly leaveBalanceService: LeaveBalanceService,
+    private readonly statisticService: AttendanceStatisticService,
   ) {}
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.BULK_REGISTER_SHIFTS)
@@ -118,5 +120,27 @@ export class CalendarController {
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_WORKSPACE_LEAVE_BALANCES)
   async getWorkspaceLeaveBalances(@Payload() dto: GetWorkspaceLeaveBalancesDto) {
     return this.leaveBalanceService.getWorkspaceLeaveBalances(dto.workspaceId, dto.requestorId, dto.year);
+  }
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_PERSONAL_STATISTIC_SUMMARY)
+  async getPersonalStatisticSummary(@Payload() dto: GetPersonalStatisticSummaryDto) {
+    return this.statisticService.getPersonalSummary(dto.workspaceId, dto.userId, dto.startDate, dto.endDate);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_PERSONAL_CHART_DATA)
+  async getPersonalChartData(@Payload() dto: GetPersonalChartDataDto) {
+    return this.statisticService.getPersonalChartData(dto.workspaceId, dto.userId, dto.startDate, dto.endDate);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_WORKSPACE_STATISTIC_MEMBERS)
+  async getWorkspaceStatisticMembers(@Payload() dto: GetWorkspaceStatisticMembersDto) {
+    return this.statisticService.getWorkspaceMembers(dto.workspaceId, dto.month);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.EXPORT_WORKSPACE_STATISTIC_EXCEL)
+  async exportWorkspaceStatisticExcel(@Payload() dto: ExportWorkspaceStatisticExcelDto) {
+    // Return base64 or buffer. We'll return buffer directly
+    // since NestJS microservices can serialize Buffer.
+    const buffer = await this.statisticService.exportWorkspaceExcel(dto.workspaceId, dto.month);
+    return buffer.toString('base64');
   }
 }

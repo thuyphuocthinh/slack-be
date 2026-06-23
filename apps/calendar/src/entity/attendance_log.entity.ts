@@ -11,6 +11,7 @@ import { AttendanceLogType } from '../types/calendar.enum';
 import { WorkShiftEntity } from './work_shift.entity';
 
 @Entity('attendance_logs')
+@Index('idx_attendance_logs_recent', ['workspaceId', 'userId', 'logType', 'recordedAt'])
 export class AttendanceLogEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

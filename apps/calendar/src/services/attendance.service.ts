@@ -1,6 +1,6 @@
 import { Injectable, HttpStatus, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Between, DataSource, EntityManager } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
 import { AttendanceLogEntity } from '../entity/attendance_log.entity';
 import { DailyReconciliationEntity } from '../entity/daily_reconciliation.entity';
@@ -9,6 +9,7 @@ import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.serv
 import { CheckInDto, CheckOutDto, GetTodayAttendanceDto } from '../dto/calendar-request.dto';
 import { AttendanceLogType, DailyReconciliationStatus, ShiftLocation } from '../types/calendar.enum';
 import { CALENDAR_ERROR } from '@slack/constants';
+import { todayUtc } from '@slack/common/utils/time.util';
 
 const DEFAULT_FACE_SIMILARITY_THRESHOLD = 0.6;
 const LATE_GRACE_MINUTES = 15;
@@ -25,10 +26,12 @@ export class AttendanceService {
     @InjectRepository(WorkShiftEntity)
     private readonly shiftRepository: Repository<WorkShiftEntity>,
     private readonly policyService: WorkspaceCalendarPolicyService,
-  ) {}
+    private readonly dataSource: DataSource,
+  ) { }
 
-  private todayUtc(): string {
-    return new Date().toISOString().slice(0, 10);
+  private async resolveShift(shiftId: string | undefined, userId: string, workspaceId: string) {
+    if (!shiftId) return null;
+    return this.shiftRepository.findOne({ where: { id: shiftId, userId, workspaceId } });
   }
 
   private async validateLocation(
@@ -68,24 +71,58 @@ export class AttendanceService {
     }
   }
 
-  private async resolveShift(shiftId: string | undefined, userId: string, workspaceId: string) {
-    if (!shiftId) return null;
-    return this.shiftRepository.findOne({ where: { id: shiftId, userId, workspaceId } });
+  private validateTimeWindow(shift: WorkShiftEntity | null, now: Date) {
+    if (!shift) {
+      throw new RpcException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        ...CALENDAR_ERROR.SHIFT_REQUIRED_FOR_ATTENDANCE,
+      });
+    }
+
+    // Allow check-in/out between: [startTime - 2 hours] and [endTime + 4 hours]
+    const startWindow = new Date(shift.startTime).getTime() - 2 * 3_600_000;
+    const endWindow = new Date(shift.endTime).getTime() + 4 * 3_600_000;
+    const currentTime = now.getTime();
+
+    if (currentTime < startWindow || currentTime > endWindow) {
+      throw new RpcException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        ...CALENDAR_ERROR.NOT_IN_SHIFT_TIME,
+      });
+    }
+  }
+
+  private async getLatestLog(manager: EntityManager, workspaceId: string, userId: string, shiftId: string): Promise<AttendanceLogEntity | null> {
+    return manager.findOne(AttendanceLogEntity, {
+      where: { workspaceId, userId, workShiftId: shiftId },
+      order: { recordedAt: 'DESC' },
+    });
+  }
+
+  private mapToResponse(reconciliation: DailyReconciliationEntity | null) {
+    if (!reconciliation) return null;
+    return {
+      id: reconciliation.id,
+      workDate: reconciliation.workDate,
+      firstCheckIn: reconciliation.firstCheckIn ? reconciliation.firstCheckIn.toISOString() : null,
+      lastCheckOut: reconciliation.lastCheckOut ? reconciliation.lastCheckOut.toISOString() : null,
+      actualWorkHours: reconciliation.actualWorkHours,
+      status: reconciliation.status,
+    };
   }
 
   async checkIn(dto: CheckInDto) {
     const { workspaceId, userId, location, shiftId, ipAddress, faceImageKey, faceSimilarityScore } = dto;
+    const now = new Date();
 
     const shift = await this.resolveShift(shiftId, userId, workspaceId);
-    // Use location from DB shift (prevents client spoofing); fallback to dto.location
-    const resolvedLocation: ShiftLocation = shift ? shift.location : location;
+    this.validateTimeWindow(shift, now);
 
+    const resolvedLocation: ShiftLocation = shift ? shift.location : location;
     await this.validateLocation(workspaceId, resolvedLocation, ipAddress, faceSimilarityScore);
 
-    const now = new Date();
-    const workDate = this.todayUtc();
+    const workDate = shift?.workDate ?? todayUtc();
 
-    // Determine late status
     let reconciliationStatus = DailyReconciliationStatus.NORMAL;
     if (shift?.startTime) {
       const graceMs = LATE_GRACE_MINUTES * 60_000;
@@ -95,40 +132,52 @@ export class AttendanceService {
     }
 
     try {
-      const log = this.logRepository.create({
-        workspaceId,
-        userId,
-        logType: AttendanceLogType.CHECK_IN,
-        recordedAt: now,
-        ipAddress,
-        faceImageKey,
-        faceSimilarityScore,
-      });
-      await this.logRepository.save(log);
+      return await this.dataSource.transaction(async (manager) => {
+        let reconciliation = await manager.findOne(DailyReconciliationEntity, {
+          where: { workspaceId, userId, workDate },
+          lock: { mode: 'pessimistic_write' },
+        });
 
-      const existing = await this.reconciliationRepository.findOne({
-        where: { workspaceId, userId, workDate },
-      });
-
-      if (existing) {
-        if (!existing.firstCheckIn) {
-          existing.firstCheckIn = now;
-          existing.status = reconciliationStatus;
-          await this.reconciliationRepository.save(existing);
+        const latestLog = await this.getLatestLog(manager, workspaceId, userId, shift?.id!);
+        if (latestLog && latestLog.logType === AttendanceLogType.CHECK_IN) {
+          throw new RpcException({
+            statusCode: HttpStatus.BAD_REQUEST,
+            ...CALENDAR_ERROR.ALREADY_CHECKED_IN,
+          });
         }
-        return { log, reconciliation: existing };
-      }
 
-      const reconciliation = this.reconciliationRepository.create({
-        workspaceId,
-        userId,
-        workDate,
-        firstCheckIn: now,
-        status: reconciliationStatus,
+        const log = manager.create(AttendanceLogEntity, {
+          workspaceId,
+          userId,
+          workShiftId: shift?.id,
+          logType: AttendanceLogType.CHECK_IN,
+          recordedAt: now,
+          ipAddress,
+          faceImageKey,
+          faceSimilarityScore,
+        });
+        await manager.save(log);
+
+        if (reconciliation) {
+          if (!reconciliation.firstCheckIn) {
+            reconciliation.firstCheckIn = now;
+            reconciliation.status = reconciliationStatus;
+            await manager.save(reconciliation);
+          }
+        } else {
+          reconciliation = manager.create(DailyReconciliationEntity, {
+            workspaceId,
+            userId,
+            workDate,
+            workShiftId: shift?.id,
+            firstCheckIn: now,
+            status: reconciliationStatus,
+          });
+          await manager.save(reconciliation);
+        }
+
+        return this.mapToResponse(reconciliation);
       });
-      await this.reconciliationRepository.save(reconciliation);
-
-      return { log, reconciliation };
     } catch (error) {
       if (error instanceof RpcException) throw error;
       this.logger.error('checkIn error:', error);
@@ -141,49 +190,73 @@ export class AttendanceService {
 
   async checkOut(dto: CheckOutDto) {
     const { workspaceId, userId, location, shiftId, ipAddress, faceImageKey, faceSimilarityScore } = dto;
+    const now = new Date();
 
     const shift = await this.resolveShift(shiftId, userId, workspaceId);
-    const resolvedLocation: ShiftLocation = shift ? shift.location : location;
+    this.validateTimeWindow(shift, now);
 
+    const resolvedLocation: ShiftLocation = shift ? shift.location : location;
     await this.validateLocation(workspaceId, resolvedLocation, ipAddress, faceSimilarityScore);
 
-    const now = new Date();
-    const workDate = this.todayUtc();
+    const workDate = shift?.workDate ?? todayUtc();
 
     try {
-      const log = this.logRepository.create({
-        workspaceId,
-        userId,
-        logType: AttendanceLogType.CHECK_OUT,
-        recordedAt: now,
-        ipAddress,
-        faceImageKey,
-        faceSimilarityScore,
-      });
-      await this.logRepository.save(log);
+      return await this.dataSource.transaction(async (manager) => {
+        let reconciliation = await manager.findOne(DailyReconciliationEntity, {
+          where: { workspaceId, userId, workDate },
+          lock: { mode: 'pessimistic_write' },
+        });
 
-      const reconciliation = await this.reconciliationRepository.findOne({
-        where: { workspaceId, userId, workDate },
-      });
-
-      if (reconciliation) {
-        reconciliation.lastCheckOut = now;
-        if (reconciliation.firstCheckIn) {
-          const diffMs = now.getTime() - reconciliation.firstCheckIn.getTime();
-          reconciliation.actualWorkHours = Math.round((diffMs / 3_600_000) * 100) / 100;
+        const latestLog = await this.getLatestLog(manager, workspaceId, userId, shift?.id!);
+        if (!latestLog || latestLog.logType === AttendanceLogType.CHECK_OUT) {
+          throw new RpcException({
+            statusCode: HttpStatus.BAD_REQUEST,
+            ...CALENDAR_ERROR.MISSING_CHECK_IN,
+          });
         }
-        // Mark early leave if checking out before shift ends (with grace period)
-        if (shift?.endTime) {
-          const graceMs = LATE_GRACE_MINUTES * 60_000;
-          if (now.getTime() < new Date(shift.endTime).getTime() - graceMs) {
-            reconciliation.status = DailyReconciliationStatus.LATE_EARLY;
+
+        const log = manager.create(AttendanceLogEntity, {
+          workspaceId,
+          userId,
+          workShiftId: shift?.id,
+          logType: AttendanceLogType.CHECK_OUT,
+          recordedAt: now,
+          ipAddress,
+          faceImageKey,
+          faceSimilarityScore,
+        });
+        await manager.save(log);
+
+        if (reconciliation) {
+          if (latestLog.recordedAt < now) {
+            const sessionStart = latestLog.recordedAt;
+            const diffMs = now.getTime() - sessionStart.getTime();
+            const additionalHours = diffMs / 3_600_000;
+            reconciliation.actualWorkHours = reconciliation.actualWorkHours + additionalHours;
           }
-        }
-        await this.reconciliationRepository.save(reconciliation);
-        return { log, reconciliation };
-      }
 
-      return { log, reconciliation: null };
+          reconciliation.lastCheckOut = now;
+
+          reconciliation.status = DailyReconciliationStatus.NORMAL;
+          if (shift?.startTime && reconciliation.firstCheckIn) {
+            const graceMs = LATE_GRACE_MINUTES * 60_000;
+            if (reconciliation.firstCheckIn.getTime() > new Date(shift.startTime).getTime() + graceMs) {
+              reconciliation.status = DailyReconciliationStatus.LATE_EARLY;
+            }
+          }
+          if (shift?.endTime) {
+            const graceMs = LATE_GRACE_MINUTES * 60_000;
+            if (now.getTime() < new Date(shift.endTime).getTime() - graceMs) {
+              reconciliation.status = DailyReconciliationStatus.LATE_EARLY;
+            }
+          }
+
+          await manager.save(reconciliation);
+          return this.mapToResponse(reconciliation);
+        }
+
+        return null;
+      });
     } catch (error) {
       if (error instanceof RpcException) throw error;
       this.logger.error('checkOut error:', error);
@@ -195,11 +268,11 @@ export class AttendanceService {
   }
 
   async getTodayAttendance(dto: GetTodayAttendanceDto) {
-    const { workspaceId, userId } = dto;
-    const workDate = this.todayUtc();
+    const { workspaceId, userId, clientDate } = dto;
+    const workDate = clientDate;
     const reconciliation = await this.reconciliationRepository.findOne({
       where: { workspaceId, userId, workDate },
     });
-    return reconciliation ?? null;
+    return this.mapToResponse(reconciliation);
   }
 }
