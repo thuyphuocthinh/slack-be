@@ -25,73 +25,72 @@ export class SyncService {
        return;
     }
 
-    // Wrap in transaction to apply pessimistic lock, preventing concurrent jobs for the same shift
-    await this.mappingRepo.manager.transaction(async (manager) => {
-      // 1. Upsert mapping safely
-      let mapping = await manager.findOne(CalendarSyncMappingEntity, {
+    // 1. Get Access Token OUTSIDE the transaction
+    const accessToken = await this.authService.getValidAccessToken(connection.id);
+
+    // 2. Safely Upsert Mapping (short-lived transaction)
+    let mapping = await this.mappingRepo.manager.transaction(async (manager) => {
+      let m = await manager.findOne(CalendarSyncMappingEntity, {
         where: { integrationId: connection.id, shiftId: data.shiftId },
         lock: { mode: 'pessimistic_write' },
       });
 
-      if (!mapping) {
+      if (!m) {
         try {
-          mapping = manager.create(CalendarSyncMappingEntity, {
+          m = manager.create(CalendarSyncMappingEntity, {
             integrationId: connection.id,
             shiftId: data.shiftId,
           });
-          mapping = await manager.save(mapping);
+          m = await manager.save(m);
         } catch (error) {
-          // If unique constraint violation, another process inserted it, fetch it with lock
-          mapping = await manager.findOne(CalendarSyncMappingEntity, {
+          m = await manager.findOne(CalendarSyncMappingEntity, {
             where: { integrationId: connection.id, shiftId: data.shiftId },
             lock: { mode: 'pessimistic_write' },
           });
-          if (!mapping) throw error;
+          if (!m) throw error;
         }
       }
+      return m;
+    });
 
-      // 2. Deterministic Google Event ID
-      const googleEventId = mapping.id.replace(/-/g, '');
+    // 3. Call Google API OUTSIDE the transaction
+    const googleEventId = mapping.id.replace(/-/g, '');
+    const eventParams = {
+      summary: `Work Shift - ${data.location}`,
+      start: { dateTime: new Date(data.startDate).toISOString() },
+      end: { dateTime: new Date(data.endDate).toISOString() },
+    };
 
-      const accessToken = await this.authService.getValidAccessToken(connection.id);
-
-      const eventParams = {
-        summary: `Work Shift - ${data.location}`,
-        start: { dateTime: new Date(data.startDate).toISOString() },
-        end: { dateTime: new Date(data.endDate).toISOString() },
-      };
-
-      try {
-        if (mapping.externalEventId) {
-          // Update existing event
-          await this.googleCalendarProvider.updateEvent(accessToken, googleEventId, eventParams);
-        } else {
-          // Create new event
-          try {
-            await this.googleCalendarProvider.createEvent(accessToken, googleEventId, eventParams);
-          } catch (err) {
-            if (err.code === 409) {
-              this.logger.warn(`Event ${googleEventId} already exists, updating instead (Idempotency)`);
-              await this.googleCalendarProvider.updateEvent(accessToken, googleEventId, eventParams);
-            } else {
-              throw err;
-            }
+    try {
+      if (mapping.externalEventId) {
+        await this.googleCalendarProvider.updateEvent(accessToken, googleEventId, eventParams);
+      } else {
+        try {
+          await this.googleCalendarProvider.createEvent(accessToken, googleEventId, eventParams);
+        } catch (err) {
+          if (err.code === 409) {
+            this.logger.warn(`Event ${googleEventId} already exists, updating instead (Idempotency)`);
+            await this.googleCalendarProvider.updateEvent(accessToken, googleEventId, eventParams);
+          } else {
+            throw err;
           }
         }
-
-        mapping.externalEventId = googleEventId;
-        mapping.syncStatus = CalendarSyncStatus.SUCCESS;
-        mapping.lastSyncedAt = new Date();
-        mapping.lastError = null;
-        await manager.save(mapping);
-      } catch (error) {
-         this.logger.error(`Failed to sync shift ${data.shiftId} to GCAL: ${error.message}`);
-         mapping.syncStatus = CalendarSyncStatus.FAILED;
-         mapping.lastError = error.message;
-         await manager.save(mapping);
-         throw error; // Let BullMQ retry
       }
-    });
+
+      // 4. Update success status
+      mapping.externalEventId = googleEventId;
+      mapping.syncStatus = CalendarSyncStatus.SUCCESS;
+      mapping.lastSyncedAt = new Date();
+      mapping.lastError = null;
+      await this.mappingRepo.save(mapping);
+      
+    } catch (error) {
+       this.logger.error(`Failed to sync shift ${data.shiftId} to GCAL: ${error.message}`);
+       mapping.syncStatus = CalendarSyncStatus.FAILED;
+       mapping.lastError = error.message;
+       await this.mappingRepo.save(mapping);
+       throw error; 
+    }
   }
 
   async deleteShiftFromGoogleCalendar(data: IDeleteCalendarShiftJobData) {
