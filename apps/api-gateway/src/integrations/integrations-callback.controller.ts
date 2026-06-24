@@ -5,6 +5,7 @@ import { IntegrationsService } from './integrations.service';
 import { AuthCallbackQueryDto } from './dto/integrations-api.dto';
 import { IntegrationProvider } from '@slack/constants';
 import { RateLimit } from '../common/guards/rate-limit.decorator';
+import { Public } from '@slack/common';
 
 @ApiTags('Integrations')
 @Controller('integrations')
@@ -12,6 +13,7 @@ export class IntegrationsCallbackController {
   constructor(private readonly integrationsService: IntegrationsService) { }
 
   @Get('callback/:provider')
+  @Public()
   @RateLimit({ limit: 10, window: 60 })
   @ApiOperation({ summary: 'OAuth2 Callback URL for providers to redirect to' })
   @ApiParam({ name: 'provider', enum: IntegrationProvider })
