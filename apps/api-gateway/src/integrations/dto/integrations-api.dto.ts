@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsString, IsNotEmpty, IsEnum, IsOptional, IsArray } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { IntegrationProvider, IntegrationTargetType } from '@slack/constants';
 
 export class GenerateAuthUrlQueryDto {
@@ -19,6 +20,7 @@ export class GenerateAuthUrlQueryDto {
   targetType?: IntegrationTargetType;
 
   @ApiPropertyOptional({ type: [String] })
+  @Transform(({ value }) => Array.isArray(value) ? value : [value])
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
