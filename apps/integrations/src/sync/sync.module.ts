@@ -11,6 +11,7 @@ import { QueueModule, EQueueName } from '@slack/queue';
   imports: [
     TypeOrmModule.forFeature([CalendarSyncMappingEntity]),
     AuthModule,
+    QueueModule.forRoot(),
     QueueModule.forFeature([EQueueName.INTEGRATION_SYNC_QUEUE]),
   ],
   controllers: [],
