@@ -8,11 +8,13 @@ import { RpcException } from '@nestjs/microservices';
 import { ShiftLocation } from '../types/calendar.enum';
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { CalendarCommonService } from './calendar-common.service';
+import { QueueService, EQueueName, EJobName } from '@slack/queue';
 
 describe('WorkShiftService', () => {
   let service: WorkShiftService;
   let policyService: jest.Mocked<Pick<WorkspaceCalendarPolicyService, 'validateShifts' | 'checkLockDeadline'>>;
   let calendarCommonService: jest.Mocked<Pick<CalendarCommonService, 'fetchMember' | 'isPrivileged' | 'assertSelfOrPrivileged' | 'assertPrivileged'>>;
+  let queueService: jest.Mocked<Pick<QueueService, 'addJob' | 'addBulkJobs'>>;
   let workShiftRepository: any;
 
   const MEMBER = { id: 'member-1', role: 'member', employmentType: 'FULLTIME' };
@@ -51,6 +53,11 @@ describe('WorkShiftService', () => {
       checkLockDeadline: jest.fn().mockResolvedValue(undefined),
     };
 
+    queueService = {
+      addJob: jest.fn().mockResolvedValue(null),
+      addBulkJobs: jest.fn().mockResolvedValue(null),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WorkShiftService,
@@ -65,6 +72,10 @@ describe('WorkShiftService', () => {
         {
           provide: CalendarCommonService,
           useValue: calendarCommonService,
+        },
+        {
+          provide: QueueService,
+          useValue: queueService,
         },
       ],
     }).compile();
@@ -95,13 +106,22 @@ describe('WorkShiftService', () => {
 
     it('should successfully register shifts when user registers for themselves', async () => {
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
-      workShiftRepository.find.mockResolvedValue([]);
+      const mockInsertedShifts = [{
+        id: 'new-id-1', userId: validDto.userId, workspaceId: validDto.workspaceId, 
+        startTime: new Date(validDto.shifts[0].startTime), endTime: new Date(validDto.shifts[0].endTime), 
+        location: validDto.location
+      }];
+      workShiftRepository.find.mockResolvedValue(mockInsertedShifts);
 
       const result = await service.bulkRegisterShifts(validDto);
 
       expect(calendarCommonService.fetchMember).toHaveBeenCalledWith(validDto.workspaceId, validDto.requestorId);
       expect(calendarCommonService.assertSelfOrPrivileged).toHaveBeenCalledWith(validDto.requestorId, validDto.userId, MEMBER.role);
       expect(workShiftRepository.insert).toHaveBeenCalled();
+      expect(queueService.addBulkJobs).toHaveBeenCalledWith(
+        EQueueName.INTEGRATION_SYNC_QUEUE,
+        expect.any(Array),
+      );
       expect(result).toBeInstanceOf(Array);
     });
 
@@ -132,9 +152,14 @@ describe('WorkShiftService', () => {
       calendarCommonService.fetchMember
         .mockResolvedValueOnce(ADMIN)   // requestor
         .mockResolvedValueOnce(MEMBER); // target user
-      workShiftRepository.find.mockResolvedValue([]);
-
       const dto = { ...validDto, requestorId: 'admin-user', userId: 'user-2' };
+      const mockInsertedShifts = [{
+        id: 'new-id-1', userId: dto.userId, workspaceId: dto.workspaceId, 
+        startTime: new Date(validDto.shifts[0].startTime), endTime: new Date(validDto.shifts[0].endTime), 
+        location: validDto.location
+      }];
+      workShiftRepository.find.mockResolvedValue(mockInsertedShifts);
+
       const result = await service.bulkRegisterShifts(dto);
 
       expect(workShiftRepository.insert).toHaveBeenCalled();
@@ -143,8 +168,6 @@ describe('WorkShiftService', () => {
 
     it('should successfully register multiple shifts on the same day', async () => {
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
-      workShiftRepository.find.mockResolvedValue([]);
-
       const multiShiftDto = {
         ...validDto,
         shifts: [
@@ -152,6 +175,12 @@ describe('WorkShiftService', () => {
           { workDate: '2026-06-20', startTime: '2026-06-20T08:00:00.000Z', endTime: '2026-06-20T12:00:00.000Z' },
         ],
       };
+
+      const mockInsertedShifts = [
+        { id: 'new-id-1', userId: multiShiftDto.userId, workspaceId: multiShiftDto.workspaceId, startTime: new Date(multiShiftDto.shifts[0].startTime), endTime: new Date(multiShiftDto.shifts[0].endTime), location: multiShiftDto.location },
+        { id: 'new-id-2', userId: multiShiftDto.userId, workspaceId: multiShiftDto.workspaceId, startTime: new Date(multiShiftDto.shifts[1].startTime), endTime: new Date(multiShiftDto.shifts[1].endTime), location: multiShiftDto.location }
+      ];
+      workShiftRepository.find.mockResolvedValue(mockInsertedShifts);
 
       const result = await service.bulkRegisterShifts(multiShiftDto);
 
@@ -330,6 +359,11 @@ describe('WorkShiftService', () => {
         { id: dto.id, workspaceId: dto.workspaceId, userId: dto.userId },
         { location: dto.location },
       );
+      expect(queueService.addJob).toHaveBeenCalledWith(
+        EQueueName.INTEGRATION_SYNC_QUEUE,
+        EJobName.SYNC_CALENDAR_SHIFT,
+        expect.objectContaining({ shiftId: 'shift-1', location: ShiftLocation.WFH })
+      );
       expect(result).toHaveProperty('id', 'shift-1');
       expect(result).toHaveProperty('location', ShiftLocation.WFH);
     });
@@ -453,6 +487,11 @@ describe('WorkShiftService', () => {
         workspaceId: dto.workspaceId,
         userId: dto.userId,
       });
+      expect(queueService.addJob).toHaveBeenCalledWith(
+        EQueueName.INTEGRATION_SYNC_QUEUE,
+        EJobName.DELETE_CALENDAR_SHIFT,
+        { shiftId: dto.id, userId: dto.userId }
+      );
       expect(result).toEqual('Work shift deleted successfully');
     });
 
@@ -498,6 +537,54 @@ describe('WorkShiftService', () => {
 
       await expect(service.deleteWorkShift(dto)).rejects.toMatchObject(
         new RpcException({ statusCode: HttpStatus.INTERNAL_SERVER_ERROR, ...CALENDAR_ERROR.DELETE_SHIFT_FAILED }),
+      );
+    });
+  });
+
+  // ─── syncCalendar ────────────────────────────────────────────────────────────
+
+  describe('syncCalendar', () => {
+    const dto = {
+      workspaceId: 'workspace-1',
+      userId: 'user-1',
+    };
+
+    it('should chunk and add bulk jobs', async () => {
+      const mockShifts = Array.from({ length: 600 }).map((_, i) => ({
+        id: `shift-${i}`,
+        userId: 'user-1',
+        workspaceId: 'workspace-1',
+        startTime: new Date('2026-06-15T02:00:00Z'),
+        endTime: new Date('2026-06-15T11:00:00Z'),
+        location: ShiftLocation.OFFICE,
+      }));
+
+      // 1st call: returns 500
+      // 2nd call: returns 100
+      // 3rd call: returns 0
+      workShiftRepository.find
+        .mockResolvedValueOnce(mockShifts.slice(0, 500))
+        .mockResolvedValueOnce(mockShifts.slice(500, 600))
+        .mockResolvedValueOnce([]);
+
+      const result = await service.syncCalendar(dto);
+
+      expect(workShiftRepository.find).toHaveBeenCalledTimes(3);
+      expect(queueService.addBulkJobs).toHaveBeenCalledTimes(2); // 2 batches
+      expect(result).toEqual({
+        message: 'Successfully queued 600 shifts for synchronization.',
+        totalQueued: 600,
+      });
+    });
+
+    it('should handle repository failure gracefully', async () => {
+      workShiftRepository.find.mockRejectedValue(new Error('DB failure'));
+
+      await expect(service.syncCalendar(dto)).rejects.toMatchObject(
+        new RpcException({
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: 'Failed to queue shifts for synchronization',
+        })
       );
     });
   });

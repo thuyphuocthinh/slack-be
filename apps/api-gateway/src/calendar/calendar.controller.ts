@@ -52,6 +52,15 @@ export class CalendarController {
     return this.calendarService.deleteWorkShift(id, workspaceId, user.sub!);
   }
 
+  @Post('work-shifts/sync')
+  @ApiOperation({ summary: 'Bulk sync all work shifts to connected integrations (e.g., Google Calendar)' })
+  async syncCalendar(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.calendarService.syncCalendar(workspaceId, user.sub!);
+  }
+
   @Get('policy')
   @ApiOperation({ summary: 'Get workspace calendar policy' })
   async getPolicy(@Param('workspaceId') workspaceId: string) {

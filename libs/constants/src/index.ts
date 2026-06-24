@@ -17,6 +17,7 @@ export * from './errors/webhook.error';
 export * from './errors/app.error';
 export * from './errors/canvas.error';
 export * from './errors/oauth.error';
+export * from './errors/integration.error';
 
 export * from './tcp/tcp.constant';
 export * from './tcp/message_pattern/notification_msg_pattern.constant';
@@ -41,6 +42,7 @@ export * from './types/notification.enum';
 export * from './types/channel.enum';
 export * from './types/billing.enum';
 export * from './types/oauth.enum';
+export * from './types/integration.enum';
 export * from './socket/socket.enum';
 export * from './errors/billing.error';
 export * from './errors/calendar.error';
