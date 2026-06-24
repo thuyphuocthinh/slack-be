@@ -24,6 +24,7 @@ import { BillingModule } from './billing/billing.module';
 import { AiModule } from './ai/ai.module';
 import { CanvasModule } from './canvas/canvas.module';
 import { CalendarModule } from './calendar/calendar.module';
+import { IntegrationsModule } from './integrations/integrations.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { CalendarModule } from './calendar/calendar.module';
     BillingModule,
     AiModule,
     CanvasModule,
+    IntegrationsModule,
     CalendarModule,
 
     JwtModule.register({

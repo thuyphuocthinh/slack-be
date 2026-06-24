@@ -92,6 +92,7 @@
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "firebase-admin": "^14.0.0",
+    "googleapis": "^173.0.0",
     "handlebars": "^4.7.9",
     "ioredis": "^5.10.1",
     "ipaddr.js": "^2.4.0",

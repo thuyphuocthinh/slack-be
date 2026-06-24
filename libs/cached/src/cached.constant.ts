@@ -227,6 +227,16 @@ export const CACHE = {
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:calendar:v1:policy:ws_${workspaceId}`,
     },
   },
+  INTEGRATION: {
+    _VER: 'v1',
+    SETTINGS: {
+      OAUTH_STATE_TTL: 900, // 15 phút — thời gian tối đa cho user hoàn thành OAuth flow
+    },
+    KEYS: {
+      OAUTH_STATE: (stateId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:integration:v1:oauth_state:${stateId}`,
+    },
+  },
 };
 
 /*
