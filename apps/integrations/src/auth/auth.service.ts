@@ -62,6 +62,20 @@ export class AuthService {
     };
   }
 
+  async getConnectionByProvider(userId: string, provider: IntegrationProvider): Promise<{ id: string; userId: string; provider: string } | null> {
+    const connection = await this.integrationRepo.findOne({
+      where: { userId, provider, status: IntegrationStatus.CONNECTED },
+      select: ['id', 'userId', 'provider'],
+    });
+    if (!connection) return null;
+    
+    return {
+      id: connection.id,
+      userId: connection.userId,
+      provider: connection.provider,
+    };
+  }
+
   async generateAuthUrl(payload: GenerateAuthUrlRequestDto): Promise<GenerateAuthUrlResponseDto> {
     const strategy = this.getStrategy(payload.provider);
     

@@ -146,6 +146,20 @@ export interface ICalendarRequestReviewedJobData {
   status: string; // APPROVED, REJECTED
 }
 
+export interface ISyncCalendarShiftJobData {
+  shiftId: string;
+  userId: string;
+  workspaceId: string;
+  startDate: string;
+  endDate: string;
+  location: string;
+}
+
+export interface IDeleteCalendarShiftJobData {
+  shiftId: string;
+  userId: string;
+}
+
 export type TJobData = {
   [EJobName.SEND_VERIFICATION_EMAIL]: IEmailJobData;
   [EJobName.SEND_INVITE_EMAIL]: IInviteJobData;
@@ -166,5 +180,7 @@ export type TJobData = {
   [EJobName.GENERATE_LINK_PREVIEW]: IGenerateLinkPreviewJobData;
   [EJobName.CALENDAR_REQUEST_CREATED]: ICalendarRequestCreatedJobData;
   [EJobName.CALENDAR_REQUEST_REVIEWED]: ICalendarRequestReviewedJobData;
+  [EJobName.SYNC_CALENDAR_SHIFT]: ISyncCalendarShiftJobData;
+  [EJobName.DELETE_CALENDAR_SHIFT]: IDeleteCalendarShiftJobData;
 };
 

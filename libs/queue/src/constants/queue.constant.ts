@@ -12,6 +12,7 @@ export enum EQueueName {
   INCOMING_WEBHOOK_QUEUE = 'incoming_webhook',
   LINK_PREVIEW_QUEUE = 'link_preview',
   CALENDAR_QUEUE = 'calendar',
+  INTEGRATION_SYNC_QUEUE = 'integration_sync',
 }
 
 export enum EJobName {
@@ -51,5 +52,9 @@ export enum EJobName {
   // Calendar
   CALENDAR_REQUEST_CREATED = 'calendar_request_created',
   CALENDAR_REQUEST_REVIEWED = 'calendar_request_reviewed',
+
+  // Integrations Sync
+  SYNC_CALENDAR_SHIFT = 'sync_calendar_shift',
+  DELETE_CALENDAR_SHIFT = 'delete_calendar_shift',
 }
 

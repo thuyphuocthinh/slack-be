@@ -13,5 +13,6 @@ import { UserIntegrationEntity } from './entity/user-integration.entity';
   ],
   controllers: [AuthController],
   providers: [AuthService, GoogleStrategy],
+  exports: [AuthService],
 })
 export class AuthModule { }

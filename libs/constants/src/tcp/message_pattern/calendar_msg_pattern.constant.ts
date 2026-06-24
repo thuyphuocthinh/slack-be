@@ -4,6 +4,7 @@ export const CALENDAR_MESSAGE_PATTERNS = {
   GET_ALL_SHIFTS: 'calendar.get_all_shifts',
   UPDATE_WORK_SHIFT: 'calendar.update_work_shift',
   DELETE_WORK_SHIFT: 'calendar.delete_work_shift',
+  SYNC_CALENDAR: 'calendar.sync_calendar',
   CREATE_LEAVE_REQUEST: 'calendar.create_leave_request',
   UPDATE_LEAVE_REQUEST: 'calendar.update_leave_request',
   DELETE_LEAVE_REQUEST: 'calendar.delete_leave_request',

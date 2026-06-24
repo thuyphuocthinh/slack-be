@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, In } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
-import { BulkRegisterWorkShiftDto, GetWorkShiftsDto, UpdateWorkShiftDto, DeleteWorkShiftDto } from '../dto/calendar-request.dto';
+import { BulkRegisterWorkShiftDto, GetWorkShiftsDto, UpdateWorkShiftDto, DeleteWorkShiftDto, SyncCalendarDto } from '../dto/calendar-request.dto';
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { CalendarCommonService } from './calendar-common.service';
 import { WorkShiftResponseDto } from '../dto/calendar-response.dto';
@@ -12,6 +12,7 @@ import { CALENDAR_ERROR, AUTH_ERROR } from '@slack/constants';
 import { ShiftLocation, ShiftStatus, AttendanceLogType } from '../types/calendar.enum';
 import { isUtcString } from '@slack/common/utils/time.util';
 import { WorkShiftValidationPayload } from '../types/calendar.type';
+import { QueueService, EQueueName, EJobName } from '@slack/queue';
 
 @Injectable()
 export class WorkShiftService {
@@ -22,6 +23,7 @@ export class WorkShiftService {
     private readonly workShiftRepository: Repository<WorkShiftEntity>,
     private readonly policyService: WorkspaceCalendarPolicyService,
     private readonly calendarCommonService: CalendarCommonService,
+    private readonly queueService: QueueService,
   ) { }
 
   async bulkRegisterShifts(dto: BulkRegisterWorkShiftDto) {
@@ -64,6 +66,25 @@ export class WorkShiftService {
       const insertedShifts = await this.workShiftRepository.find({
         where: { id: In(insertedIds) },
       });
+
+      // 6. Push to Sync Queue
+      if (insertedShifts.length > 0) {
+        const syncJobs = insertedShifts.map(shift => ({
+          name: EJobName.SYNC_CALENDAR_SHIFT as const,
+          data: {
+            shiftId: shift.id,
+            userId: shift.userId,
+            workspaceId: shift.workspaceId,
+            startDate: shift.startTime.toISOString(),
+            endDate: shift.endTime.toISOString(),
+            location: shift.location,
+          },
+        }));
+        // Fire and forget
+        this.queueService.addBulkJobs(EQueueName.INTEGRATION_SYNC_QUEUE, syncJobs).catch(err => {
+          this.logger.error('Failed to dispatch sync bulk jobs', err);
+        });
+      }
 
       return plainToInstance(WorkShiftResponseDto, insertedShifts);
     } catch (error) {
@@ -184,6 +205,23 @@ export class WorkShiftService {
       await this.workShiftRepository.update({ id, workspaceId, userId }, updateData);
 
       const updatedShift = await this.workShiftRepository.findOne({ where: { id } });
+
+      // 8. Push to Sync Queue
+      if (updatedShift) {
+        this.queueService.addJob(
+          EQueueName.INTEGRATION_SYNC_QUEUE,
+          EJobName.SYNC_CALENDAR_SHIFT,
+          {
+            shiftId: updatedShift.id,
+            userId: updatedShift.userId,
+            workspaceId: updatedShift.workspaceId,
+            startDate: updatedShift.startTime.toISOString(),
+            endDate: updatedShift.endTime.toISOString(),
+            location: updatedShift.location,
+          }
+        ).catch(err => this.logger.error('Failed to dispatch sync job', err));
+      }
+
       return plainToInstance(WorkShiftResponseDto, updatedShift);
     } catch (error) {
       if (error instanceof RpcException) throw error;
@@ -215,6 +253,13 @@ export class WorkShiftService {
       // 4. Delete
       await this.workShiftRepository.delete({ id, workspaceId, userId });
 
+      // 5. Push delete to Sync Queue
+      this.queueService.addJob(
+        EQueueName.INTEGRATION_SYNC_QUEUE,
+        EJobName.DELETE_CALENDAR_SHIFT,
+        { shiftId: id, userId }
+      ).catch(err => this.logger.error('Failed to dispatch delete sync job', err));
+
       return 'Work shift deleted successfully';
     } catch (error) {
       if (error instanceof RpcException) throw error;
@@ -222,6 +267,53 @@ export class WorkShiftService {
       throw new RpcException({
         statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
         ...CALENDAR_ERROR.DELETE_SHIFT_FAILED,
+      });
+    }
+  }
+
+  async syncCalendar(dto: SyncCalendarDto) {
+    const { workspaceId, userId } = dto;
+    let skip = 0;
+    const batchSize = 500;
+    let totalSynced = 0;
+
+    try {
+      while (true) {
+        const shifts = await this.workShiftRepository.find({
+          where: { workspaceId, userId },
+          skip,
+          take: batchSize,
+        });
+
+        if (shifts.length === 0) break;
+
+        const syncJobs = shifts.map(shift => ({
+          name: EJobName.SYNC_CALENDAR_SHIFT as const,
+          data: {
+            shiftId: shift.id,
+            userId: shift.userId,
+            workspaceId: shift.workspaceId,
+            startDate: shift.startTime.toISOString(),
+            endDate: shift.endTime.toISOString(),
+            location: shift.location,
+          },
+        }));
+
+        await this.queueService.addBulkJobs(EQueueName.INTEGRATION_SYNC_QUEUE, syncJobs);
+        
+        totalSynced += shifts.length;
+        skip += batchSize;
+      }
+
+      return {
+        message: `Successfully queued ${totalSynced} shifts for synchronization.`,
+        totalQueued: totalSynced,
+      };
+    } catch (error) {
+      this.logger.error('Error in bulk syncCalendar:', error);
+      throw new RpcException({
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'Failed to queue shifts for synchronization',
       });
     }
   }

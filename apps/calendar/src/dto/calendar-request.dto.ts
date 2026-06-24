@@ -495,3 +495,13 @@ export class GetWorkspaceStatisticMembersDto {
 }
 
 export class ExportWorkspaceStatisticExcelDto extends GetWorkspaceStatisticMembersDto { }
+
+export class SyncCalendarDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
+}

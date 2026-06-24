@@ -22,3 +22,9 @@ export enum IntegrationStatus {
   CONNECTED = 'connected',
   DISCONNECTED = 'disconnected',
 }
+
+export enum CalendarSyncStatus {
+  PENDING = 'pending',
+  SUCCESS = 'success',
+  FAILED = 'failed',
+}

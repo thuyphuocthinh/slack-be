@@ -113,6 +113,25 @@ export class CalendarService {
     );
   }
 
+  async syncCalendar(workspaceId: string, userId: string) {
+    const payload = {
+      workspaceId,
+      userId,
+    };
+
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.SYNC_CALENDAR,
+            payload,
+          ),
+        ),
+      'syncCalendar',
+      'CalendarService',
+    );
+  }
+
   async getPolicy(workspaceId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>

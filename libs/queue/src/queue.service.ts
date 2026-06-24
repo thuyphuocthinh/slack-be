@@ -50,6 +50,42 @@ export class QueueService {
     }
   }
 
+  async addBulkJobs<T extends keyof TJobData>(
+    queueName: EQueueName,
+    jobs: { name: T; data: TJobData[T]; opts?: JobsOptions }[],
+  ) {
+    try {
+      const queue = this.moduleRef.get<Queue>(getQueueToken(queueName), {
+        strict: false,
+      });
+
+      if (!queue) {
+        throw new Error(`Queue ${queueName} not found or not registered`);
+      }
+
+      const defaultOpts = {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 1000 },
+        removeOnComplete: true,
+        removeOnFail: { age: 24 * 3600 },
+      };
+
+      const jobsWithOpts = jobs.map((job) => ({
+        ...job,
+        opts: { ...defaultOpts, ...job.opts },
+      }));
+
+      await queue.addBulk(jobsWithOpts);
+      this.logger.log(`Added ${jobs.length} bulk jobs to queue ${queueName}`);
+    } catch (error) {
+      this.logger.error(
+        `Failed to add bulk jobs to queue ${queueName}: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
+  }
+
   async removeJob(queueName: EQueueName, jobId: string) {
     try {
       const queue = this.moduleRef.get<Queue>(getQueueToken(queueName), {

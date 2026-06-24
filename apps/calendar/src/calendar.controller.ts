@@ -12,7 +12,7 @@ import { WorkspaceCalendarPolicyService } from './services/workspace-calendar-po
 import { CalendarRequestService } from './services/calendar-request.service';
 import { AttendanceService } from './services/attendance.service';
 import { LeaveBalanceService } from './services/leave-balance.service';
-import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto, ReviewCalendarRequestDto, ManualUnlockCalendarDto, GetMyLeaveBalanceDto, GetWorkspaceLeaveBalancesDto, GetPersonalStatisticSummaryDto, GetPersonalChartDataDto, GetWorkspaceStatisticMembersDto, ExportWorkspaceStatisticExcelDto } from './dto/calendar-request.dto';
+import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto, ReviewCalendarRequestDto, ManualUnlockCalendarDto, GetMyLeaveBalanceDto, GetWorkspaceLeaveBalancesDto, GetPersonalStatisticSummaryDto, GetPersonalChartDataDto, GetWorkspaceStatisticMembersDto, ExportWorkspaceStatisticExcelDto, SyncCalendarDto } from './dto/calendar-request.dto';
 import { AttendanceStatisticService } from './services/attendance-statistic.service';
 
 @Controller()
@@ -45,6 +45,11 @@ export class CalendarController {
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.DELETE_WORK_SHIFT)
   async deleteWorkShift(@Payload() dto: DeleteWorkShiftDto) {
     return this.workShiftService.deleteWorkShift(dto);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.SYNC_CALENDAR)
+  async syncCalendar(@Payload() dto: SyncCalendarDto) {
+    return this.workShiftService.syncCalendar(dto);
   }
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_CALENDAR_POLICY)
