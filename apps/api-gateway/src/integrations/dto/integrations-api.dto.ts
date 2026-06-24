@@ -35,4 +35,24 @@ export class AuthCallbackQueryDto {
   @IsString()
   @IsNotEmpty()
   state: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  scope?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  authuser?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  prompt?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  iss?: string;
 }
