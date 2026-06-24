@@ -17,12 +17,12 @@ export interface ISyncProcessResult {
 
 export type TSyncJobData = ISyncCalendarShiftJobData | IDeleteCalendarShiftJobData;
 
-@Injectable()
+
 @Processor(EQueueName.INTEGRATION_SYNC_QUEUE, {
-  concurrency: 5,
+  concurrency: 5, // Xử lý đồng thời 5 jobs
   limiter: {
-    max: 5,
-    duration: 1000,
+    max: 10, // Tối đa 10 jobs
+    duration: 1000, // trên mỗi 1000ms (1 giây)
   },
 })
 export class SyncProcessor extends BaseProcessor<TSyncJobData, ISyncProcessResult, EJobName> {

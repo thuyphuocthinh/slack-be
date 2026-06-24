@@ -5,11 +5,13 @@ import { SyncService } from './sync.service';
 import { SyncProcessor } from './sync.processor';
 import { GoogleCalendarProvider } from './providers/google-calendar.provider';
 import { AuthModule } from '../auth/auth.module';
+import { QueueModule, EQueueName } from '@slack/queue';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([CalendarSyncMappingEntity]),
     AuthModule,
+    QueueModule.forFeature([EQueueName.INTEGRATION_SYNC_QUEUE]),
   ],
   controllers: [],
   providers: [
