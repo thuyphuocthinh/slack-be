@@ -11,7 +11,7 @@ import { RateLimit } from '../common/guards/rate-limit.decorator';
 @ApiTags('Integrations')
 @Controller('workspaces/:workspaceId/integrations')
 export class IntegrationsController {
-  constructor(private readonly integrationsService: IntegrationsService) {}
+  constructor(private readonly integrationsService: IntegrationsService) { }
 
   @Get('my-connections')
   @ApiBearerAuth()
@@ -33,14 +33,14 @@ export class IntegrationsController {
     @Res() res: Response,
   ) {
     const authUrl = await this.integrationsService.generateAuthUrl(
-      user.sub!, 
-      workspaceId, 
+      user.sub!,
+      workspaceId,
       provider,
       query.scopes,
       query.targetType as any,
       query.returnUrl
     );
-    return res.redirect(authUrl);
+    return res.json({ authUrl });
   }
 
   @Get('callback/:provider')
@@ -53,7 +53,7 @@ export class IntegrationsController {
     @Res() res: Response,
   ) {
     const result = await this.integrationsService.handleCallback(provider, query.code, query.state);
-    
+
     // Redirect back to returnUrl if present, else fallback to settings
     const redirectUrl = result.returnUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/integrations/success`;
     return res.redirect(redirectUrl);
