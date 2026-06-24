@@ -17,7 +17,8 @@ export class IntegrationsController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get all external integration connections for the current user' })
   async getMyConnections(@CurrentUser() user: JwtUser) {
-    return this.integrationsService.getMyConnections(user.sub!);
+    const res = await this.integrationsService.getMyConnections(user.sub!);
+    return res.connections;
   }
 
   @Get('auth/:provider')
@@ -30,7 +31,6 @@ export class IntegrationsController {
     @Param('provider') provider: string,
     @Query() query: GenerateAuthUrlQueryDto,
     @CurrentUser() user: JwtUser,
-    @Res() res: Response,
   ) {
     const authUrl = await this.integrationsService.generateAuthUrl(
       user.sub!,
@@ -40,10 +40,8 @@ export class IntegrationsController {
       query.targetType as any,
       query.returnUrl
     );
-    return res.json({ authUrl });
+    return { authUrl };
   }
-
-
 
   @Delete(':provider')
   @ApiBearerAuth()
