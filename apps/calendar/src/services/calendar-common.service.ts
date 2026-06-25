@@ -2,26 +2,32 @@ import { Injectable, HttpStatus, Inject } from '@nestjs/common';
 import { RpcException, ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom } from 'rxjs';
 import { WORKSPACE_MESSAGE_PATTERNS, NAME_SERVICE_TCP, WorkspaceRoleEnum, AUTH_ERROR } from '@slack/constants';
+import { CachedService, TTL, CACHE } from '@slack/cached';
 
 @Injectable()
 export class CalendarCommonService {
   constructor(
     @Inject(NAME_SERVICE_TCP.WORKSPACE_SERVICE)
     private readonly workspaceClient: ClientProxy,
+    private readonly cachedService: CachedService,
   ) {}
 
   async fetchMember(workspaceId: string, userId: string) {
-    const member = await firstValueFrom(
-      this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.GET_MEMBER_DETAIL, { workspaceId, userId }),
-    );
-    if (!member) {
-      throw new RpcException({
-        statusCode: HttpStatus.FORBIDDEN,
-        ...AUTH_ERROR.FORBIDDEN,
-      });
-    }
-    const name = [member.firstName, member.lastName].filter(Boolean).join(' ') || 'Unknown User';
-    return { ...member, name };
+    const cacheKey = CACHE.CALENDAR.KEYS.MEMBER(workspaceId, userId);
+    
+    return this.cachedService.getOrSetDetail(cacheKey, TTL.SHORT, async () => {
+      const member = await firstValueFrom(
+        this.workspaceClient.send(WORKSPACE_MESSAGE_PATTERNS.GET_MEMBER_DETAIL, { workspaceId, userId }),
+      );
+      if (!member) {
+        throw new RpcException({
+          statusCode: HttpStatus.FORBIDDEN,
+          ...AUTH_ERROR.FORBIDDEN,
+        });
+      }
+      const name = [member.firstName, member.lastName].filter(Boolean).join(' ') || 'Unknown User';
+      return { ...member, name };
+    });
   }
 
   async getWorkspaceMembers(workspaceId: string, userId: string) {

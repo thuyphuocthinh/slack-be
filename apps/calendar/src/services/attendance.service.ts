@@ -1,10 +1,11 @@
 import { Injectable, HttpStatus, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, DataSource, EntityManager } from 'typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
 import { AttendanceLogEntity } from '../entity/attendance_log.entity';
 import { DailyReconciliationEntity } from '../entity/daily_reconciliation.entity';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
+import { UserFaceBaselineEntity } from '../entity/user_face_baseline.entity';
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { CheckInDto, CheckOutDto, GetTodayAttendanceDto } from '../dto/calendar-request.dto';
 import { AttendanceLogType, DailyReconciliationStatus, ShiftLocation } from '../types/calendar.enum';
@@ -25,6 +26,8 @@ export class AttendanceService {
     private readonly reconciliationRepository: Repository<DailyReconciliationEntity>,
     @InjectRepository(WorkShiftEntity)
     private readonly shiftRepository: Repository<WorkShiftEntity>,
+    @InjectRepository(UserFaceBaselineEntity)
+    private readonly faceBaselineRepository: Repository<UserFaceBaselineEntity>,
     private readonly policyService: WorkspaceCalendarPolicyService,
     private readonly dataSource: DataSource,
   ) { }
@@ -36,9 +39,10 @@ export class AttendanceService {
 
   private async validateLocation(
     workspaceId: string,
+    userId: string,
     location: ShiftLocation,
     ipAddress?: string,
-    faceSimilarityScore?: number,
+    faceDescriptor?: number[],
   ) {
     const policy = await this.policyService.getPolicy(workspaceId);
     const policyData = policy?.policyData as Record<string, any> | undefined;
@@ -53,22 +57,47 @@ export class AttendanceService {
       }
     }
 
-    if (location === ShiftLocation.WFH) {
-      const threshold: number = policyData?.faceSimilarityThreshold ?? DEFAULT_FACE_SIMILARITY_THRESHOLD;
-      if (faceSimilarityScore === undefined || faceSimilarityScore === null) {
-        throw new RpcException({
-          statusCode: HttpStatus.BAD_REQUEST,
-          ...CALENDAR_ERROR.WFH_REQUIRES_FACE_AUTH,
-        });
-      }
-      if (faceSimilarityScore < threshold) {
-        throw new RpcException({
-          statusCode: HttpStatus.FORBIDDEN,
-          ...CALENDAR_ERROR.CALENDAR_LOCKED,
-          message: `Độ khớp khuôn mặt quá thấp (${Math.round(faceSimilarityScore * 100)}%). Yêu cầu tối thiểu ${Math.round(threshold * 100)}%.`,
-        });
-      }
+    const threshold: number = policyData?.faceSimilarityThreshold ?? DEFAULT_FACE_SIMILARITY_THRESHOLD;
+
+    if (!faceDescriptor || faceDescriptor.length === 0) {
+      throw new RpcException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        ...CALENDAR_ERROR.WFH_REQUIRES_FACE_AUTH,
+        message: 'Khuôn mặt chưa được nhận diện. Vui lòng thử lại.',
+      });
     }
+
+    const faceBaseline = await this.faceBaselineRepository.findOne({
+      where: { workspaceId, userId },
+    });
+
+    if (!faceBaseline || !faceBaseline.faceDescriptor) {
+      throw new RpcException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        ...CALENDAR_ERROR.WFH_REQUIRES_FACE_AUTH,
+        message: 'Chưa có dữ liệu khuôn mặt gốc (Baseline). Vui lòng yêu cầu HR cập nhật.',
+      });
+    }
+
+    const distance = this.euclideanDistance(faceDescriptor, faceBaseline.faceDescriptor);
+
+    if (distance > threshold) {
+      throw new RpcException({
+        statusCode: HttpStatus.FORBIDDEN,
+        ...CALENDAR_ERROR.CALENDAR_LOCKED,
+        message: `Khuôn mặt không khớp. Khoảng cách: ${distance.toFixed(2)} (Cho phép <= ${threshold}).`,
+      });
+    }
+  }
+
+  private euclideanDistance(descriptor1: number[], descriptor2: number[]): number {
+    if (descriptor1.length !== descriptor2.length) return 1.0;
+    let sum = 0;
+    for (let i = 0; i < descriptor1.length; i++) {
+      const diff = descriptor1[i] - descriptor2[i];
+      sum += diff * diff;
+    }
+    return Math.sqrt(sum);
   }
 
   private validateTimeWindow(shift: WorkShiftEntity | null, now: Date) {
@@ -112,14 +141,14 @@ export class AttendanceService {
   }
 
   async checkIn(dto: CheckInDto) {
-    const { workspaceId, userId, location, shiftId, ipAddress, faceImageKey, faceSimilarityScore } = dto;
+    const { workspaceId, userId, location, shiftId, ipAddress, faceImageKey, faceDescriptor } = dto;
     const now = new Date();
 
     const shift = await this.resolveShift(shiftId, userId, workspaceId);
     this.validateTimeWindow(shift, now);
 
     const resolvedLocation: ShiftLocation = shift ? shift.location : location;
-    await this.validateLocation(workspaceId, resolvedLocation, ipAddress, faceSimilarityScore);
+    await this.validateLocation(workspaceId, userId, resolvedLocation, ipAddress, faceDescriptor);
 
     const workDate = shift?.workDate ?? todayUtc();
 
@@ -154,7 +183,7 @@ export class AttendanceService {
           recordedAt: now,
           ipAddress,
           faceImageKey,
-          faceSimilarityScore,
+          faceSimilarityScore: 1.0, // Legacy field, keeping dummy value if needed
         });
         await manager.save(log);
 
@@ -189,14 +218,14 @@ export class AttendanceService {
   }
 
   async checkOut(dto: CheckOutDto) {
-    const { workspaceId, userId, location, shiftId, ipAddress, faceImageKey, faceSimilarityScore } = dto;
+    const { workspaceId, userId, location, shiftId, ipAddress, faceImageKey, faceDescriptor } = dto;
     const now = new Date();
 
     const shift = await this.resolveShift(shiftId, userId, workspaceId);
     this.validateTimeWindow(shift, now);
 
     const resolvedLocation: ShiftLocation = shift ? shift.location : location;
-    await this.validateLocation(workspaceId, resolvedLocation, ipAddress, faceSimilarityScore);
+    await this.validateLocation(workspaceId, userId, resolvedLocation, ipAddress, faceDescriptor);
 
     const workDate = shift?.workDate ?? todayUtc();
 
@@ -223,7 +252,7 @@ export class AttendanceService {
           recordedAt: now,
           ipAddress,
           faceImageKey,
-          faceSimilarityScore,
+          faceSimilarityScore: 1.0, // Legacy field
         });
         await manager.save(log);
 

@@ -114,6 +114,12 @@ export class PolicyDataApiDto {
   @ApiPropertyOptional({ example: 12, description: 'Max paid leave days per year' })
   @IsOptional()
   maxPaidLeaveDaysPerYear?: number;
+
+  @ApiPropertyOptional({ type: [String], description: 'Danh sách IP cho phép chấm công tại OFFICE' })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  allowedOfficeIps?: string[];
 }
 
 export class UpsertCalendarPolicyApiDto {
@@ -273,10 +279,11 @@ export class CheckInApiDto {
   @IsOptional()
   faceImageBase64?: string;
 
-  @ApiPropertyOptional({ description: 'Điểm khớp khuôn mặt 0.0–1.0 (bắt buộc khi WFH)' })
-  @IsNumber()
+  @ApiPropertyOptional({ type: [Number], description: 'Mảng 128 số thực trích xuất từ khuôn mặt' })
+  @IsArray()
+  @IsNumber({}, { each: true })
   @IsOptional()
-  faceSimilarityScore?: number;
+  faceDescriptor?: number[];
 }
 
 export class ManualUnlockCalendarApiDto {
