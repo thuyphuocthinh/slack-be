@@ -7,10 +7,11 @@ import { DailyReconciliationEntity } from '../entity/daily_reconciliation.entity
 import { WorkShiftEntity } from '../entity/work_shift.entity';
 import { UserFaceBaselineEntity } from '../entity/user_face_baseline.entity';
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
-import { CheckInDto, CheckOutDto, GetTodayAttendanceDto } from '../dto/calendar-request.dto';
+import { CheckInDto, CheckOutDto, GetTodayAttendanceDto, SaveFaceBaselineDto } from '../dto/calendar-request.dto';
 import { AttendanceLogType, DailyReconciliationStatus, ShiftLocation } from '../types/calendar.enum';
 import { CALENDAR_ERROR } from '@slack/constants';
 import { todayUtc } from '@slack/common/utils/time.util';
+import { CachedService, TTL, CACHE } from '@slack/cached';
 
 const DEFAULT_FACE_SIMILARITY_THRESHOLD = 0.6;
 const LATE_GRACE_MINUTES = 15;
@@ -30,6 +31,7 @@ export class AttendanceService {
     private readonly faceBaselineRepository: Repository<UserFaceBaselineEntity>,
     private readonly policyService: WorkspaceCalendarPolicyService,
     private readonly dataSource: DataSource,
+    private readonly cachedService: CachedService,
   ) { }
 
   private async resolveShift(shiftId: string | undefined, userId: string, workspaceId: string) {
@@ -67,9 +69,11 @@ export class AttendanceService {
       });
     }
 
-    const faceBaseline = await this.faceBaselineRepository.findOne({
-      where: { workspaceId, userId },
-    });
+    const faceBaseline = await this.cachedService.getOrSetDetail<UserFaceBaselineEntity | null>(
+      CACHE.CALENDAR.KEYS.FACE_BASELINE(workspaceId, userId),
+      TTL.MEDIUM,
+      () => this.faceBaselineRepository.findOne({ where: { workspaceId, userId } }),
+    );
 
     if (!faceBaseline || !faceBaseline.faceDescriptor) {
       throw new RpcException({
@@ -303,5 +307,20 @@ export class AttendanceService {
       where: { workspaceId, userId, workDate },
     });
     return this.mapToResponse(reconciliation);
+  }
+
+  async saveFaceBaseline(dto: SaveFaceBaselineDto) {
+    const { workspaceId, userId, faceImageKey, faceDescriptor } = dto;
+
+    await this.faceBaselineRepository.upsert(
+      { workspaceId, userId, faceBaselineKey: faceImageKey ?? '', faceDescriptor },
+      ['userId', 'workspaceId'],
+    );
+
+    await this.cachedService.invalidateDetail(
+      CACHE.CALENDAR.KEYS.FACE_BASELINE(workspaceId, userId),
+    );
+
+    return { success: true };
   }
 }

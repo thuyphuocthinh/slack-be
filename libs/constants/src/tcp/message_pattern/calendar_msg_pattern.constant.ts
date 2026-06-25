@@ -31,4 +31,5 @@ export const CALENDAR_MESSAGE_PATTERNS = {
   UPDATE_HOLIDAY: 'calendar.update_holiday',
   DELETE_HOLIDAY: 'calendar.delete_holiday',
   AUTO_FILL_HOLIDAYS: 'calendar.auto_fill_holidays',
+  SAVE_FACE_BASELINE: 'calendar.save_face_baseline',
 } as const;

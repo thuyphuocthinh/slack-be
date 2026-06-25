@@ -13,6 +13,8 @@ import { WorkShiftEntity } from '../entity/work_shift.entity';
 import { UserFaceBaselineEntity } from '../entity/user_face_baseline.entity';
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { AttendanceLogType, DailyReconciliationStatus, ShiftLocation } from '../types/calendar.enum';
+import { CachedService } from '@slack/cached/cached.service';
+import { CACHE } from '@slack/cached/cached.constant';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -69,6 +71,7 @@ describe('AttendanceService', () => {
   let policyService: jest.Mocked<Pick<WorkspaceCalendarPolicyService, 'getPolicy'>>;
   let dataSource: any;
   let manager: any;
+  let cachedService: any;
 
   beforeEach(async () => {
     manager = {
@@ -105,6 +108,12 @@ describe('AttendanceService', () => {
 
     faceBaselineRepo = {
       findOne: jest.fn().mockResolvedValue({ faceDescriptor: new Array(128).fill(0.1) }),
+      upsert: jest.fn().mockResolvedValue({ identifiers: [], generatedMaps: [], raw: [] }),
+    };
+
+    cachedService = {
+      getOrSetDetail: jest.fn((_key, _ttl, fetcher) => fetcher()),
+      invalidateDetail: jest.fn().mockResolvedValue(undefined),
     };
 
     policyService = {
@@ -120,6 +129,7 @@ describe('AttendanceService', () => {
         { provide: getRepositoryToken(UserFaceBaselineEntity), useValue: faceBaselineRepo },
         { provide: WorkspaceCalendarPolicyService, useValue: policyService },
         { provide: DataSource, useValue: dataSource },
+        { provide: CachedService, useValue: cachedService },
       ],
     }).compile();
 
@@ -459,17 +469,104 @@ describe('AttendanceService', () => {
       manager.findOne.mockClear();
       logRepo.findOne.mockResolvedValue({ logType: AttendanceLogType.CHECK_IN, recordedAt: new Date(minutesAgo(120)) });
       reconcRepo.findOne.mockResolvedValue(makeReconciliation());
-      
+
       await service.checkOut(dto);
-      
+
       // manager.findOne should be called first for DailyReconciliationEntity
       const firstCall = manager.findOne.mock.calls[0];
       const secondCall = manager.findOne.mock.calls[1];
-      
+
       expect(firstCall[0]).toBe(DailyReconciliationEntity);
       expect(firstCall[1].lock).toEqual({ mode: 'pessimistic_write' });
-      
+
       expect(secondCall[0]).toBe(AttendanceLogEntity);
+    });
+  });
+
+  // ─── saveFaceBaseline ────────────────────────────────────────────────────
+
+  describe('saveFaceBaseline', () => {
+    const descriptor = new Array(128).fill(0.5);
+
+    it('upserts with the correct payload and returns { success: true }', async () => {
+      const result = await service.saveFaceBaseline({
+        workspaceId: WS,
+        userId: USER,
+        faceImageKey: 'cloudinary/face.jpg',
+        faceDescriptor: descriptor,
+      });
+
+      expect(faceBaselineRepo.upsert).toHaveBeenCalledWith(
+        { workspaceId: WS, userId: USER, faceBaselineKey: 'cloudinary/face.jpg', faceDescriptor: descriptor },
+        ['userId', 'workspaceId'],
+      );
+      expect(result).toEqual({ success: true });
+    });
+
+    it('defaults faceBaselineKey to empty string when faceImageKey is omitted', async () => {
+      await service.saveFaceBaseline({ workspaceId: WS, userId: USER, faceDescriptor: descriptor });
+
+      expect(faceBaselineRepo.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ faceBaselineKey: '' }),
+        expect.anything(),
+      );
+    });
+
+    it('invalidates the Redis cache with the correct key after upsert', async () => {
+      await service.saveFaceBaseline({
+        workspaceId: WS,
+        userId: USER,
+        faceImageKey: 'cloudinary/face.jpg',
+        faceDescriptor: descriptor,
+      });
+
+      const expectedKey = CACHE.CALENDAR.KEYS.FACE_BASELINE(WS, USER);
+      expect(cachedService.invalidateDetail).toHaveBeenCalledWith(expectedKey);
+    });
+
+    it('invalidates cache even when faceImageKey is omitted', async () => {
+      await service.saveFaceBaseline({ workspaceId: WS, userId: USER, faceDescriptor: descriptor });
+
+      expect(cachedService.invalidateDetail).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ─── validateLocation — cache integration ───────────────────────────────
+
+  describe('validateLocation — Redis cache integration', () => {
+    const wfhDto = {
+      workspaceId: WS,
+      userId: USER,
+      location: ShiftLocation.WFH,
+      shiftId: SHIFT_ID,
+      faceDescriptor: new Array(128).fill(0.1),
+    };
+
+    it('reads face baseline via cachedService.getOrSetDetail with correct key and TTL', async () => {
+      shiftRepo.findOne.mockResolvedValue(makeShift({ location: ShiftLocation.WFH }));
+      policyService.getPolicy.mockResolvedValue({ policyData: {} } as any);
+      reconcRepo.findOne.mockResolvedValue(null);
+
+      await service.checkIn(wfhDto);
+
+      const expectedKey = CACHE.CALENDAR.KEYS.FACE_BASELINE(WS, USER);
+      expect(cachedService.getOrSetDetail).toHaveBeenCalledWith(
+        expectedKey,
+        expect.any(Number),
+        expect.any(Function),
+      );
+    });
+
+    it('fetcher inside getOrSetDetail calls faceBaselineRepository.findOne', async () => {
+      shiftRepo.findOne.mockResolvedValue(makeShift({ location: ShiftLocation.WFH }));
+      policyService.getPolicy.mockResolvedValue({ policyData: {} } as any);
+      reconcRepo.findOne.mockResolvedValue(null);
+
+      await service.checkIn(wfhDto);
+
+      expect(faceBaselineRepo.findOne).toHaveBeenCalledWith({
+        where: { workspaceId: WS, userId: USER },
+      });
     });
   });
 });

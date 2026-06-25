@@ -6,7 +6,7 @@ import { CALENDAR_MESSAGE_PATTERNS } from '@slack/constants';
 import {
   BulkRegisterWorkShiftDto, GetWorkShiftsDto, UpdateWorkShiftDto, DeleteWorkShiftDto,
   GetCalendarPolicyDto, CreateCalendarPolicyDto, UpdateCalendarPolicyDto, DeleteCalendarPolicyDto,
-  CheckInDto, CheckOutDto, GetTodayAttendanceDto,
+  CheckInDto, CheckOutDto, GetTodayAttendanceDto, SaveFaceBaselineDto,
 } from './dto/calendar-request.dto';
 import { WorkspaceCalendarPolicyService } from './services/workspace-calendar-policy.service';
 import { CalendarRequestService } from './services/calendar-request.service';
@@ -102,6 +102,11 @@ export class CalendarController {
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.UNLOCK_USER_CALENDAR)
   async manualUnlock(@Payload() dto: ManualUnlockCalendarDto) {
     return this.requestService.manualUnlock(dto);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.SAVE_FACE_BASELINE)
+  async saveFaceBaseline(@Payload() dto: SaveFaceBaselineDto) {
+    return this.attendanceService.saveFaceBaseline(dto);
   }
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.CHECK_IN)

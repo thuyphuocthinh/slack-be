@@ -598,3 +598,22 @@ export class AutoFillHolidaysDto {
   @IsNotEmpty()
   countryCode: string;
 }
+
+export class SaveFaceBaselineDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsString()
+  @IsOptional()
+  faceImageKey?: string;
+
+  @IsArray()
+  @IsNumber({}, { each: true })
+  @IsNotEmpty()
+  faceDescriptor: number[];
+}

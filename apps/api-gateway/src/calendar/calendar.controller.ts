@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Put, Delete, Query, Ip, Res } from 
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CalendarService } from './calendar.service';
-import { BulkRegisterWorkShiftApiDto, CheckInApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto, CreateCalendarRequestApiDto, UpdateCalendarRequestApiDto, GetCalendarRequestsApiDto, ReviewCalendarRequestApiDto, ManualUnlockCalendarApiDto, CreateHolidayApiDto, UpdateHolidayApiDto, AutoFillHolidaysApiDto } from './dto/calendar-api.dto';
+import { BulkRegisterWorkShiftApiDto, CheckInApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto, CreateCalendarRequestApiDto, UpdateCalendarRequestApiDto, GetCalendarRequestsApiDto, ReviewCalendarRequestApiDto, ManualUnlockCalendarApiDto, CreateHolidayApiDto, UpdateHolidayApiDto, AutoFillHolidaysApiDto, SaveFaceBaselineApiDto } from './dto/calendar-api.dto';
 import { CurrentUser, type JwtUser } from '@slack/common';
 
 @ApiTags('Calendar')
@@ -156,6 +156,16 @@ export class CalendarController {
     @Body() dto: ManualUnlockCalendarApiDto,
   ) {
     return this.calendarService.manualUnlock(workspaceId, user.sub!, dto);
+  }
+
+  @Post('face-baseline')
+  @ApiOperation({ summary: 'Save or update face baseline for the current user (required for WFH check-in)' })
+  async saveFaceBaseline(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: SaveFaceBaselineApiDto,
+  ) {
+    return this.calendarService.saveFaceBaseline(workspaceId, user.sub!, dto);
   }
 
   @Post('check-in')

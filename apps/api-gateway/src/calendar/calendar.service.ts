@@ -4,7 +4,7 @@ import { NAME_SERVICE_TCP, CALENDAR_MESSAGE_PATTERNS } from '@slack/constants';
 import { firstValueFrom } from 'rxjs';
 import { v2 as cloudinary } from 'cloudinary';
 import { MicroserviceErrorHandler } from '../common/microservice_error.handler';
-import { BulkRegisterWorkShiftApiDto, CheckInApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto } from './dto/calendar-api.dto';
+import { BulkRegisterWorkShiftApiDto, CheckInApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto, SaveFaceBaselineApiDto } from './dto/calendar-api.dto';
 
 @Injectable()
 export class CalendarService {
@@ -386,6 +386,24 @@ export class CalendarService {
           }),
         ),
       'checkOut',
+      'CalendarService',
+    );
+  }
+
+  async saveFaceBaseline(workspaceId: string, userId: string, dto: SaveFaceBaselineApiDto) {
+    const faceImageKey = await this.uploadFaceImage(dto.faceImageBase64);
+
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.SAVE_FACE_BASELINE, {
+            workspaceId,
+            userId,
+            faceImageKey,
+            faceDescriptor: dto.faceDescriptor,
+          }),
+        ),
+      'saveFaceBaseline',
       'CalendarService',
     );
   }
