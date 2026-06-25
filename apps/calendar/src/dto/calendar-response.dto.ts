@@ -75,6 +75,9 @@ export class PolicyDataResponseDto {
 
   @Expose()
   maxPaidLeaveDaysPerYear?: number;
+
+  @Expose()
+  allowedOfficeIps?: string[];
 }
 
 @Exclude()
@@ -163,6 +166,30 @@ export class LeaveBalanceResponseDto {
 
   @Expose()
   usedPaidLeave: number;
+
+  @Expose()
+  createdAt: Date;
+
+  @Expose()
+  updatedAt: Date;
+}
+
+@Exclude()
+export class WorkspaceHolidayResponseDto {
+  @Expose()
+  id: string;
+
+  @Expose()
+  workspaceId: string;
+
+  @Expose()
+  name: string;
+
+  @Expose()
+  date: string;
+
+  @Expose()
+  isRecurringYearly: boolean;
 
   @Expose()
   createdAt: Date;

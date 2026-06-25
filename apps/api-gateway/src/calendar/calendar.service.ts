@@ -494,4 +494,79 @@ export class CalendarService {
       'CalendarService',
     );
   }
+
+  async getHolidays(workspaceId: string, year: number) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_HOLIDAYS, {
+            workspaceId,
+            year,
+          }),
+        ),
+      'getHolidays',
+      'CalendarService',
+    );
+  }
+
+  async createHoliday(workspaceId: string, requestorId: string, dto: any) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.CREATE_HOLIDAY, {
+            workspaceId,
+            requestorId,
+            ...dto,
+          }),
+        ),
+      'createHoliday',
+      'CalendarService',
+    );
+  }
+
+  async updateHoliday(workspaceId: string, requestorId: string, id: string, dto: any) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.UPDATE_HOLIDAY, {
+            workspaceId,
+            requestorId,
+            id,
+            ...dto,
+          }),
+        ),
+      'updateHoliday',
+      'CalendarService',
+    );
+  }
+
+  async deleteHoliday(workspaceId: string, requestorId: string, id: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.DELETE_HOLIDAY, {
+            workspaceId,
+            requestorId,
+            id,
+          }),
+        ),
+      'deleteHoliday',
+      'CalendarService',
+    );
+  }
+
+  async autoFillHolidays(workspaceId: string, requestorId: string, dto: any) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.AUTO_FILL_HOLIDAYS, {
+            workspaceId,
+            requestorId,
+            ...dto,
+          }),
+        ),
+      'autoFillHolidays',
+      'CalendarService',
+    );
+  }
 }

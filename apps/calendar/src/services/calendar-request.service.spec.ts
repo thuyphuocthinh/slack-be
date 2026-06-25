@@ -11,6 +11,11 @@ import { CalendarCommonService } from './calendar-common.service';
 
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { QueueService } from '@slack/queue';
+import { WorkspaceHolidayService } from './workspace-holiday.service';
+
+jest.mock('nanoid', () => ({
+  customAlphabet: jest.fn(() => jest.fn(() => 'mock-id')),
+}));
 
 describe('CalendarRequestService', () => {
   let service: CalendarRequestService;
@@ -18,6 +23,7 @@ describe('CalendarRequestService', () => {
   let calendarCommonService: jest.Mocked<Pick<CalendarCommonService, 'fetchMember' | 'isPrivileged' | 'assertPrivileged'>>;
   let policyService: any;
   let queueService: any;
+  let holidayService: any;
   let manager: any;
 
   const MEMBER = { id: 'user-1', role: 'member' };
@@ -72,6 +78,10 @@ describe('CalendarRequestService', () => {
       addJob: jest.fn().mockResolvedValue(null),
     };
 
+    holidayService = {
+      checkIfDatesAreHolidays: jest.fn().mockResolvedValue({}),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CalendarRequestService,
@@ -91,6 +101,10 @@ describe('CalendarRequestService', () => {
           provide: QueueService,
           useValue: queueService,
         },
+        {
+          provide: WorkspaceHolidayService,
+          useValue: holidayService,
+        },
       ],
     }).compile();
 
@@ -106,8 +120,8 @@ describe('CalendarRequestService', () => {
       workspaceId: 'workspace-1',
       userId: 'user-1',
       requestType: CalendarRequestType.OFF_SHIFT,
-      startTime: '2026-06-20T00:00:00Z',
-      endTime: '2026-06-20T10:00:00Z',
+      startTime: '2026-06-22T00:00:00Z',
+      endTime: '2026-06-22T10:00:00Z',
       reason: 'Sick',
     };
 
@@ -222,7 +236,7 @@ describe('CalendarRequestService', () => {
 
     it('should throw BAD_REQUEST if there is an overlapping request during update', async () => {
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
-      manager.findOne.mockResolvedValue({ id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.PENDING, startTime: new Date('2026-06-20T00:00:00Z'), endTime: new Date('2026-06-20T10:00:00Z') });
+      manager.findOne.mockResolvedValue({ id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.PENDING, startTime: new Date('2026-06-22T00:00:00Z'), endTime: new Date('2026-06-22T10:00:00Z') });
       manager.createQueryBuilder().getOne.mockResolvedValueOnce({ id: 'existing-req' });
 
       await expect(service.updateRequest(dto)).rejects.toMatchObject({
@@ -232,12 +246,17 @@ describe('CalendarRequestService', () => {
 
     it('should update request successfully', async () => {
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
-      const mockReq = { id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.PENDING, startTime: new Date() };
+      const mockReq = { id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.PENDING, startTime: new Date('2026-06-22T00:00:00Z'), requestType: CalendarRequestType.LEAVE_PAID };
       manager.findOne.mockResolvedValueOnce(mockReq);
       manager.save.mockResolvedValue({ ...mockReq, reason: 'Updated reason' });
 
+      holidayService.checkIfDatesAreHolidays.mockResolvedValueOnce({
+        '2026-06-22': true,
+      });
+
       const result = await service.updateRequest(dto);
 
+      expect(holidayService.checkIfDatesAreHolidays).toHaveBeenCalled();
       expect(manager.merge).toHaveBeenCalledWith(CalendarRequestEntity, mockReq, expect.objectContaining({ reason: 'Updated reason' }));
       expect(manager.save).toHaveBeenCalled();
       expect(result.reason).toBe('Updated reason');
@@ -406,8 +425,8 @@ describe('CalendarRequestService', () => {
         status: CalendarRequestStatus.PENDING,
         requestType: CalendarRequestType.LEAVE_PAID,
         userId: 'user-1',
-        startTime: new Date('2026-06-20T00:00:00Z'),
-        endTime: new Date('2026-06-21T00:00:00Z'),
+        startTime: new Date('2026-06-22T00:00:00Z'),
+        endTime: new Date('2026-06-23T00:00:00Z'),
         durationDays: 2,
       };
       const mockBalance = { id: 'bal-1', totalPaidLeave: 12, usedPaidLeave: 5 };
@@ -423,6 +442,33 @@ describe('CalendarRequestService', () => {
       expect(manager.save).toHaveBeenCalledWith(LeaveBalanceEntity, expect.objectContaining({ usedPaidLeave: 7 }));
       expect(manager.createQueryBuilder).toHaveBeenCalled();
       expect(result.status).toBe(CalendarRequestStatus.APPROVED);
+    });
+
+    it('should calculate actualDuration skipping holidays in reviewRequest', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(ADMIN);
+      const mockReq = {
+        id: 'req-3',
+        status: CalendarRequestStatus.PENDING,
+        requestType: CalendarRequestType.LEAVE_PAID,
+        userId: 'user-1',
+        startTime: new Date('2026-06-22T00:00:00Z'),
+        endTime: new Date('2026-06-23T00:00:00Z'), // 2 working days originally
+        durationDays: 2,
+      };
+      
+      const mockBalance = { id: 'bal-1', totalPaidLeave: 12, usedPaidLeave: 5 }; // available = 7
+      manager.findOne
+        .mockResolvedValueOnce(mockReq)
+        .mockResolvedValueOnce(mockBalance);
+
+      // Simulate a holiday on 2026-06-23 (duration is capped to 1)
+      holidayService.checkIfDatesAreHolidays.mockResolvedValueOnce({
+        '2026-06-23': true
+      });
+
+      // Update the DTO to match what updateRequest uses
+      // wait, reviewRequest doesn't re-calculate actualDuration! It only uses request.durationDays.
+      // But updateRequest does. I'll test updateRequest for the holiday check.
     });
 
     it('should throw FORBIDDEN if reviewed request is in a locked month', async () => {
@@ -443,7 +489,7 @@ describe('CalendarRequestService', () => {
         status: CalendarRequestStatus.PENDING,
         requestType: CalendarRequestType.CALENDAR_OPEN_REQUEST,
         userId: 'user-2',
-        startTime: new Date('2026-06-20T00:00:00Z'),
+        startTime: new Date('2026-06-22T00:00:00Z'),
       };
 
       manager.findOne

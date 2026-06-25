@@ -26,4 +26,9 @@ export const CALENDAR_MESSAGE_PATTERNS = {
   DELETE_CALENDAR_POLICY: 'calendar.delete_policy',
   GET_MY_LEAVE_BALANCE: 'calendar.get_my_leave_balance',
   GET_WORKSPACE_LEAVE_BALANCES: 'calendar.get_workspace_leave_balances',
+  GET_HOLIDAYS: 'calendar.get_holidays',
+  CREATE_HOLIDAY: 'calendar.create_holiday',
+  UPDATE_HOLIDAY: 'calendar.update_holiday',
+  DELETE_HOLIDAY: 'calendar.delete_holiday',
+  AUTO_FILL_HOLIDAYS: 'calendar.auto_fill_holidays',
 } as const;

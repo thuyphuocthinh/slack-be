@@ -12,8 +12,9 @@ import { WorkspaceCalendarPolicyService } from './services/workspace-calendar-po
 import { CalendarRequestService } from './services/calendar-request.service';
 import { AttendanceService } from './services/attendance.service';
 import { LeaveBalanceService } from './services/leave-balance.service';
-import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto, ReviewCalendarRequestDto, ManualUnlockCalendarDto, GetMyLeaveBalanceDto, GetWorkspaceLeaveBalancesDto, GetPersonalStatisticSummaryDto, GetPersonalChartDataDto, GetWorkspaceStatisticMembersDto, ExportWorkspaceStatisticExcelDto, SyncCalendarDto } from './dto/calendar-request.dto';
+import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto, ReviewCalendarRequestDto, ManualUnlockCalendarDto, GetMyLeaveBalanceDto, GetWorkspaceLeaveBalancesDto, GetPersonalStatisticSummaryDto, GetPersonalChartDataDto, GetWorkspaceStatisticMembersDto, ExportWorkspaceStatisticExcelDto, SyncCalendarDto, GetHolidaysDto, CreateHolidayDto, UpdateHolidayDto, DeleteHolidayDto, AutoFillHolidaysDto } from './dto/calendar-request.dto';
 import { AttendanceStatisticService } from './services/attendance-statistic.service';
+import { WorkspaceHolidayService } from './services/workspace-holiday.service';
 
 @Controller()
 export class CalendarController {
@@ -25,6 +26,7 @@ export class CalendarController {
     private readonly attendanceService: AttendanceService,
     private readonly leaveBalanceService: LeaveBalanceService,
     private readonly statisticService: AttendanceStatisticService,
+    private readonly holidayService: WorkspaceHolidayService,
   ) {}
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.BULK_REGISTER_SHIFTS)
@@ -147,5 +149,30 @@ export class CalendarController {
     // since NestJS microservices can serialize Buffer.
     const buffer = await this.statisticService.exportWorkspaceExcel(dto.workspaceId, dto.month);
     return buffer.toString('base64');
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_HOLIDAYS)
+  async getHolidays(@Payload() dto: GetHolidaysDto) {
+    return this.holidayService.getHolidays(dto.workspaceId, dto.year);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.CREATE_HOLIDAY)
+  async createHoliday(@Payload() dto: CreateHolidayDto) {
+    return this.holidayService.createHoliday(dto);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.UPDATE_HOLIDAY)
+  async updateHoliday(@Payload() dto: UpdateHolidayDto) {
+    return this.holidayService.updateHoliday(dto);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.DELETE_HOLIDAY)
+  async deleteHoliday(@Payload() dto: DeleteHolidayDto) {
+    return this.holidayService.deleteHoliday(dto);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.AUTO_FILL_HOLIDAYS)
+  async autoFillHolidays(@Payload() dto: AutoFillHolidaysDto) {
+    return this.holidayService.autoFillHolidays(dto);
   }
 }

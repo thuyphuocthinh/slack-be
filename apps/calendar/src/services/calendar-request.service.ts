@@ -13,6 +13,8 @@ import { CalendarRequestType, CalendarRequestStatus, CalendarRequestAction } fro
 import { plainToInstance } from 'class-transformer';
 import { IOffsetResponse } from '@slack/common';
 import { CalendarCommonService } from './calendar-common.service';
+import { WorkspaceHolidayService } from './workspace-holiday.service';
+import { WorkspaceHolidayResponseDto } from '../dto/calendar-response.dto';
 
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { EQueueName, EJobName, QueueService } from '@slack/queue';
@@ -27,7 +29,39 @@ export class CalendarRequestService {
     private readonly calendarCommonService: CalendarCommonService,
     private readonly policyService: WorkspaceCalendarPolicyService,
     private readonly queueService: QueueService,
+    private readonly holidayService: WorkspaceHolidayService,
   ) {}
+
+  private async calculateMaxWorkingDays(workspaceId: string, startTime: Date, endTime: Date): Promise<number> {
+    const workingDays = [1, 2, 3, 4, 5]; // Mon - Fri
+
+    let loopDate = new Date(startTime);
+    loopDate.setUTCHours(0, 0, 0, 0);
+    const endLoopDate = new Date(endTime);
+    endLoopDate.setUTCHours(23, 59, 59, 999);
+
+    const datesToCheck: string[] = [];
+    while (loopDate <= endLoopDate) {
+      const dayOfWeek = loopDate.getUTCDay();
+      if (workingDays.includes(dayOfWeek)) {
+        datesToCheck.push(loopDate.toISOString().split('T')[0]);
+      }
+      loopDate.setUTCDate(loopDate.getUTCDate() + 1);
+    }
+
+    if (datesToCheck.length === 0) return 0;
+
+    const holidaysMap = await this.holidayService.checkIfDatesAreHolidays(workspaceId, datesToCheck);
+    
+    let maxWorkingDays = 0;
+    for (const date of datesToCheck) {
+      if (!holidaysMap[date]) {
+        maxWorkingDays++;
+      }
+    }
+
+    return maxWorkingDays;
+  }
 
   private async checkLeaveBalance(manager: EntityManager, workspaceId: string, userId: string, year: number, actualDuration: number) {
     const balance = await manager.findOne(LeaveBalanceEntity, {
@@ -205,7 +239,14 @@ export class CalendarRequestService {
       }
 
       const year = startObj.getFullYear();
-      const actualDuration = durationDays ?? 1.0;
+      let actualDuration = durationDays ?? 1.0;
+
+      if (requestType === CalendarRequestType.LEAVE_PAID || requestType === CalendarRequestType.LEAVE_UNPAID) {
+        const maxWorkingDays = await this.calculateMaxWorkingDays(workspaceId, startObj, endObj);
+        if (actualDuration > maxWorkingDays) {
+          actualDuration = maxWorkingDays;
+        }
+      }
 
       // 1.5. Check lock deadline
       if (requestType !== CalendarRequestType.CALENDAR_OPEN_REQUEST) {
@@ -279,8 +320,15 @@ export class CalendarRequestService {
           });
         }
 
-        const actualDuration = durationDays ?? request.durationDays;
         const actualRequestType = requestType ?? request.requestType;
+        let actualDuration = durationDays ?? request.durationDays;
+
+        if (actualRequestType === CalendarRequestType.LEAVE_PAID || actualRequestType === CalendarRequestType.LEAVE_UNPAID) {
+          const maxWorkingDays = await this.calculateMaxWorkingDays(workspaceId, startObj, endObj);
+          if (actualDuration > maxWorkingDays) {
+            actualDuration = maxWorkingDays;
+          }
+        }
         const year = startObj.getFullYear();
 
         const datesToCheck = [request.startTime.toISOString()];
