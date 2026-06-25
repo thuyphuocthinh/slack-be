@@ -225,6 +225,8 @@ export const CACHE = {
     KEYS: {
       POLICY: (workspaceId: string): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:calendar:v1:policy:ws_${workspaceId}`,
+      MEMBER: (workspaceId: string, userId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:calendar:v1:member:ws_${workspaceId}:u_${userId}`,
     },
   },
   INTEGRATION: {

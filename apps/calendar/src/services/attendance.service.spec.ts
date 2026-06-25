@@ -1,5 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { HttpStatus } from '@nestjs/common';
+jest.mock('nanoid', () => ({
+  customAlphabet: jest.fn(() => jest.fn(() => 'mock-id')),
+}));
 import { RpcException } from '@nestjs/microservices';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -7,6 +10,7 @@ import { AttendanceService } from './attendance.service';
 import { AttendanceLogEntity } from '../entity/attendance_log.entity';
 import { DailyReconciliationEntity } from '../entity/daily_reconciliation.entity';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
+import { UserFaceBaselineEntity } from '../entity/user_face_baseline.entity';
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { AttendanceLogType, DailyReconciliationStatus, ShiftLocation } from '../types/calendar.enum';
 
@@ -61,6 +65,7 @@ describe('AttendanceService', () => {
   let logRepo: any;
   let reconcRepo: any;
   let shiftRepo: any;
+  let faceBaselineRepo: any;
   let policyService: jest.Mocked<Pick<WorkspaceCalendarPolicyService, 'getPolicy'>>;
   let dataSource: any;
   let manager: any;
@@ -98,6 +103,10 @@ describe('AttendanceService', () => {
       findOne: jest.fn().mockResolvedValue(makeShift()),
     };
 
+    faceBaselineRepo = {
+      findOne: jest.fn().mockResolvedValue({ faceDescriptor: new Array(128).fill(0.1) }),
+    };
+
     policyService = {
       getPolicy: jest.fn().mockResolvedValue({ policyData: {} }),
     };
@@ -108,6 +117,7 @@ describe('AttendanceService', () => {
         { provide: getRepositoryToken(AttendanceLogEntity), useValue: logRepo }, // Not directly used in methods anymore, but kept for deps
         { provide: getRepositoryToken(DailyReconciliationEntity), useValue: reconcRepo },
         { provide: getRepositoryToken(WorkShiftEntity), useValue: shiftRepo },
+        { provide: getRepositoryToken(UserFaceBaselineEntity), useValue: faceBaselineRepo },
         { provide: WorkspaceCalendarPolicyService, useValue: policyService },
         { provide: DataSource, useValue: dataSource },
       ],
@@ -127,6 +137,7 @@ describe('AttendanceService', () => {
       workspaceId: WS, userId: USER,
       location: ShiftLocation.OFFICE,
       shiftId: SHIFT_ID,
+      faceDescriptor: new Array(128).fill(0.1),
     };
 
     it('throws BAD_REQUEST when checking in too early (more than 2 hours)', async () => {
@@ -166,6 +177,7 @@ describe('AttendanceService', () => {
       location: ShiftLocation.OFFICE,
       ipAddress: '10.0.0.1',
       shiftId: SHIFT_ID,
+      faceDescriptor: new Array(128).fill(0.1), // exact match with mock baseline
     };
 
     it('passes when allowedOfficeIps is empty', async () => {
@@ -188,6 +200,7 @@ describe('AttendanceService', () => {
       await expect(
         service.checkIn({
           ...baseDto,
+          faceDescriptor: undefined, // WFH requires faceDescriptor
           location: ShiftLocation.OFFICE, // spoofed
         }),
       ).rejects.toBeInstanceOf(RpcException);
@@ -201,21 +214,40 @@ describe('AttendanceService', () => {
       workspaceId: WS, userId: USER,
       location: ShiftLocation.WFH,
       shiftId: SHIFT_ID,
+      faceDescriptor: new Array(128).fill(0.1),
     };
 
-    it('throws BAD_REQUEST when faceSimilarityScore is missing', async () => {
+    it('throws BAD_REQUEST when faceDescriptor is missing', async () => {
       shiftRepo.findOne.mockResolvedValueOnce(makeShift({ location: ShiftLocation.WFH }));
-      await expect(service.checkIn(baseDto)).rejects.toBeInstanceOf(RpcException);
+      await expect(service.checkIn({ ...baseDto, faceDescriptor: undefined })).rejects.toBeInstanceOf(RpcException);
     });
 
-    it('passes when score meets the threshold', async () => {
+    it('throws BAD_REQUEST when Baseline is missing', async () => {
+      shiftRepo.findOne.mockResolvedValueOnce(makeShift({ location: ShiftLocation.WFH }));
+      faceBaselineRepo.findOne.mockResolvedValueOnce(null);
+      await expect(service.checkIn(baseDto)).rejects.toMatchObject({
+        error: expect.objectContaining({ message: expect.stringContaining('Chưa có dữ liệu khuôn mặt gốc') }),
+      });
+    });
+
+    it('throws FORBIDDEN when faceDescriptor distance is too far (spoofing)', async () => {
+      shiftRepo.findOne.mockResolvedValueOnce(makeShift({ location: ShiftLocation.WFH }));
+      // Generate a descriptor that has distance > 0.6
+      await expect(service.checkIn({ ...baseDto, faceDescriptor: new Array(128).fill(0.9) })).rejects.toMatchObject({
+        error: expect.objectContaining({ statusCode: HttpStatus.FORBIDDEN }),
+      });
+    });
+
+    it('passes when distance meets the threshold', async () => {
       shiftRepo.findOne.mockResolvedValueOnce(makeShift({ location: ShiftLocation.WFH }));
       policyService.getPolicy.mockResolvedValue({
-        policyData: { faceSimilarityThreshold: 0.8 },
+        policyData: { faceSimilarityThreshold: 0.6 },
       } as any);
       reconcRepo.findOne.mockResolvedValue(null);
+      
+      // Since baseline is 0.1 array, passing 0.1 array distance = 0
       await expect(
-        service.checkIn({ ...baseDto, faceSimilarityScore: 0.85 }),
+        service.checkIn(baseDto),
       ).resolves.toBeDefined();
     });
   });
@@ -227,6 +259,7 @@ describe('AttendanceService', () => {
       workspaceId: WS, userId: USER,
       location: ShiftLocation.OFFICE,
       shiftId: SHIFT_ID,
+      faceDescriptor: new Array(128).fill(0.1),
     };
 
     it('creates a new DailyReconciliation when none exists', async () => {
@@ -267,6 +300,7 @@ describe('AttendanceService', () => {
       workspaceId: WS, userId: USER,
       location: ShiftLocation.OFFICE,
       shiftId: SHIFT_ID,
+      faceDescriptor: new Array(128).fill(0.1),
     };
 
     it('throws BAD_REQUEST if no check-in log exists for today', async () => {
@@ -332,7 +366,7 @@ describe('AttendanceService', () => {
   // ─── STATE MACHINE & ADDITIVE LOGIC (10 EDGE CASES) ─────────────────────
   
   describe('State Machine & Additive Logic Edge Cases', () => {
-    const dto = { workspaceId: WS, userId: USER, location: ShiftLocation.OFFICE, shiftId: SHIFT_ID };
+    const dto = { workspaceId: WS, userId: USER, location: ShiftLocation.OFFICE, shiftId: SHIFT_ID, faceDescriptor: new Array(128).fill(0.1) };
 
     it('1. State Machine: Throws ALREADY_CHECKED_IN if double check-in', async () => {
       logRepo.findOne.mockResolvedValue({ logType: AttendanceLogType.CHECK_IN, recordedAt: new Date(minutesAgo(30)) });

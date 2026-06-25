@@ -163,6 +163,11 @@ export class PolicyDataDto {
   @IsNumber()
   @IsOptional()
   maxPaidLeaveDaysPerYear?: number;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  allowedOfficeIps?: string[];
 }
 
 export class GetCalendarPolicyDto {
@@ -390,11 +395,10 @@ export class CheckInDto {
   @IsOptional()
   faceImageKey?: string;
 
-  @IsNumber()
-  @Min(0)
-  @Max(1)
+  @IsArray()
+  @IsNumber({}, { each: true })
   @IsOptional()
-  faceSimilarityScore?: number;
+  faceDescriptor?: number[];
 }
 
 export class CheckOutDto extends CheckInDto { }
