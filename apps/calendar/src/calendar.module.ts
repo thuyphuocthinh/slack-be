@@ -13,6 +13,7 @@ import { AttendanceLogEntity } from './entity/attendance_log.entity';
 import { DailyReconciliationEntity } from './entity/daily_reconciliation.entity';
 import { UserFaceBaselineEntity } from './entity/user_face_baseline.entity';
 import { CalendarUserLockEntity } from './entity/calendar_user_lock.entity';
+import { WorkspaceHolidayEntity } from './entity/workspace_holiday.entity';
 import { ClientsModule } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { getMicroserviceClientConfig } from '@slack/common';
@@ -23,6 +24,7 @@ import { AttendanceService } from './services/attendance.service';
 import { CalendarCronService } from './services/calendar-cron.service';
 import { LeaveBalanceService } from './services/leave-balance.service';
 import { AttendanceStatisticService } from './services/attendance-statistic.service';
+import { WorkspaceHolidayService } from './services/workspace-holiday.service';
 
 import { CachedModule } from '@slack/cached';
 import { QueueModule, EQueueName } from '@slack/queue';
@@ -43,6 +45,7 @@ import { CalendarProcessor } from './processors/calendar.processor';
       DailyReconciliationEntity,
       UserFaceBaselineEntity,
       CalendarUserLockEntity,
+      WorkspaceHolidayEntity,
     ]),
     QueueModule.forRoot(),
     QueueModule.forFeature([
@@ -66,6 +69,7 @@ import { CalendarProcessor } from './processors/calendar.processor';
     LeaveBalanceService,
     CalendarProcessor,
     AttendanceStatisticService,
+    WorkspaceHolidayService,
   ],
 })
 export class CalendarModule {}

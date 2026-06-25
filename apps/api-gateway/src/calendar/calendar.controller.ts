@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Put, Delete, Query, Ip, Res } from 
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CalendarService } from './calendar.service';
-import { BulkRegisterWorkShiftApiDto, CheckInApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto, CreateCalendarRequestApiDto, UpdateCalendarRequestApiDto, GetCalendarRequestsApiDto, ReviewCalendarRequestApiDto, ManualUnlockCalendarApiDto } from './dto/calendar-api.dto';
+import { BulkRegisterWorkShiftApiDto, CheckInApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto, CreateCalendarRequestApiDto, UpdateCalendarRequestApiDto, GetCalendarRequestsApiDto, ReviewCalendarRequestApiDto, ManualUnlockCalendarApiDto, CreateHolidayApiDto, UpdateHolidayApiDto, AutoFillHolidaysApiDto } from './dto/calendar-api.dto';
 import { CurrentUser, type JwtUser } from '@slack/common';
 
 @ApiTags('Calendar')
@@ -251,5 +251,58 @@ export class CalendarController {
     });
 
     res.end(buffer);
+  }
+
+  // --- HOLIDAYS ---
+
+  @Get('holidays')
+  @ApiOperation({ summary: 'Get workspace holidays for a specific year' })
+  async getHolidays(
+    @Param('workspaceId') workspaceId: string,
+    @Query('year') year?: string,
+  ) {
+    const targetYear = year ? parseInt(year, 10) : new Date().getFullYear();
+    return this.calendarService.getHolidays(workspaceId, targetYear);
+  }
+
+  @Post('holidays')
+  @ApiOperation({ summary: 'Create a new holiday (Admin/Manager)' })
+  async createHoliday(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: CreateHolidayApiDto,
+  ) {
+    return this.calendarService.createHoliday(workspaceId, user.sub!, dto);
+  }
+
+  @Put('holidays/:id')
+  @ApiOperation({ summary: 'Update a holiday (Admin/Manager)' })
+  async updateHoliday(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: UpdateHolidayApiDto,
+  ) {
+    return this.calendarService.updateHoliday(workspaceId, user.sub!, id, dto);
+  }
+
+  @Delete('holidays/:id')
+  @ApiOperation({ summary: 'Delete a holiday (Admin/Manager)' })
+  async deleteHoliday(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.calendarService.deleteHoliday(workspaceId, user.sub!, id);
+  }
+
+  @Post('holidays/auto-fill')
+  @ApiOperation({ summary: 'Auto fill holidays for a specific country (Admin/Manager)' })
+  async autoFillHolidays(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: AutoFillHolidaysApiDto,
+  ) {
+    return this.calendarService.autoFillHolidays(workspaceId, user.sub!, dto);
   }
 }

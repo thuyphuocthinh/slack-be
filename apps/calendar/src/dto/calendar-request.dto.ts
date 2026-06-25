@@ -509,3 +509,92 @@ export class SyncCalendarDto {
   @IsNotEmpty()
   userId: string;
 }
+
+export class GetHolidaysDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsNumber()
+  @IsNotEmpty()
+  year: number;
+}
+
+export class CreateHolidayDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  requestorId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be in YYYY-MM-DD format' })
+  date: string;
+
+  @IsOptional()
+  isRecurringYearly?: boolean;
+}
+
+export class UpdateHolidayDto {
+  @IsUUID()
+  @IsNotEmpty()
+  id: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  requestorId: string;
+
+  @IsString()
+  @IsOptional()
+  name?: string;
+
+  @IsString()
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be in YYYY-MM-DD format' })
+  date?: string;
+
+  @IsOptional()
+  isRecurringYearly?: boolean;
+}
+
+export class DeleteHolidayDto {
+  @IsUUID()
+  @IsNotEmpty()
+  id: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  requestorId: string;
+}
+
+export class AutoFillHolidaysDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  requestorId: string;
+
+  @IsNumber()
+  @IsNotEmpty()
+  year: number;
+
+  @IsString()
+  @IsNotEmpty()
+  countryCode: string;
+}

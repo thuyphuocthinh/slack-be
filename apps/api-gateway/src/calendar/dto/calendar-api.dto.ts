@@ -303,3 +303,48 @@ export class ManualUnlockCalendarApiDto {
   @IsOptional()
   reason?: string;
 }
+
+export class CreateHolidayApiDto {
+  @ApiProperty({ example: 'Tết Dương Lịch' })
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @ApiProperty({ example: '2026-01-01', description: 'YYYY-MM-DD' })
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be in YYYY-MM-DD format' })
+  date: string;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  isRecurringYearly?: boolean;
+}
+
+export class UpdateHolidayApiDto {
+  @ApiPropertyOptional({ example: 'Tết Dương Lịch' })
+  @IsString()
+  @IsOptional()
+  name?: string;
+
+  @ApiPropertyOptional({ example: '2026-01-01', description: 'YYYY-MM-DD' })
+  @IsString()
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be in YYYY-MM-DD format' })
+  date?: string;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  isRecurringYearly?: boolean;
+}
+
+export class AutoFillHolidaysApiDto {
+  @ApiProperty({ example: 2026 })
+  @IsNumber()
+  @IsNotEmpty()
+  year: number;
+
+  @ApiProperty({ example: 'VN', description: 'Country code e.g. VN, US' })
+  @IsString()
+  @IsNotEmpty()
+  countryCode: string;
+}

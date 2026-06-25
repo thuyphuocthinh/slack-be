@@ -173,3 +173,27 @@ export class LeaveBalanceResponseDto {
   @Expose()
   updatedAt: Date;
 }
+
+@Exclude()
+export class WorkspaceHolidayResponseDto {
+  @Expose()
+  id: string;
+
+  @Expose()
+  workspaceId: string;
+
+  @Expose()
+  name: string;
+
+  @Expose()
+  date: string;
+
+  @Expose()
+  isRecurringYearly: boolean;
+
+  @Expose()
+  createdAt: Date;
+
+  @Expose()
+  updatedAt: Date;
+}

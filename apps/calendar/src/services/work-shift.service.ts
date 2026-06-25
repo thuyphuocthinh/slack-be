@@ -6,12 +6,13 @@ import { WorkShiftEntity } from '../entity/work_shift.entity';
 import { BulkRegisterWorkShiftDto, GetWorkShiftsDto, UpdateWorkShiftDto, DeleteWorkShiftDto, SyncCalendarDto } from '../dto/calendar-request.dto';
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { CalendarCommonService } from './calendar-common.service';
-import { WorkShiftResponseDto } from '../dto/calendar-response.dto';
+import { WorkShiftResponseDto, WorkspaceHolidayResponseDto } from '../dto/calendar-response.dto';
 import { plainToInstance } from 'class-transformer';
 import { CALENDAR_ERROR, AUTH_ERROR } from '@slack/constants';
 import { ShiftLocation, ShiftStatus, AttendanceLogType } from '../types/calendar.enum';
 import { isUtcString } from '@slack/common/utils/time.util';
 import { WorkShiftValidationPayload } from '../types/calendar.type';
+import { WorkspaceHolidayService } from './workspace-holiday.service';
 import { QueueService, EQueueName, EJobName } from '@slack/queue';
 
 @Injectable()
@@ -24,6 +25,7 @@ export class WorkShiftService {
     private readonly policyService: WorkspaceCalendarPolicyService,
     private readonly calendarCommonService: CalendarCommonService,
     private readonly queueService: QueueService,
+    private readonly holidayService: WorkspaceHolidayService,
   ) { }
 
   async bulkRegisterShifts(dto: BulkRegisterWorkShiftDto) {
@@ -38,10 +40,17 @@ export class WorkShiftService {
       const targetMember = requestorId === userId ? requestor : await this.calendarCommonService.fetchMember(workspaceId, userId);
 
       // 3. Build shift records and validate UTC times
+      const datesToCheck = shifts.map(s => s.workDate);
+      const holidaysMap = await this.holidayService.checkIfDatesAreHolidays(workspaceId, datesToCheck);
+
       const shiftsToInsert: Partial<WorkShiftEntity>[] = [];
       const validationPayload: WorkShiftValidationPayload[] = [];
 
       for (const shift of shifts) {
+        if (holidaysMap[shift.workDate]) {
+          continue; // Bỏ qua đăng ký ca vào ngày lễ
+        }
+
         if (!isUtcString(shift.startTime) || !isUtcString(shift.endTime)) {
           throw new RpcException({
             statusCode: HttpStatus.BAD_REQUEST,
@@ -54,6 +63,10 @@ export class WorkShiftService {
 
         shiftsToInsert.push({ workspaceId, userId, workDate: shift.workDate, startTime, endTime, location, status: ShiftStatus.APPROVED });
         validationPayload.push({ workDate: shift.workDate, startTime, endTime, location });
+      }
+
+      if (shiftsToInsert.length === 0) {
+        return []; // Nếu tất cả đều là ngày lễ thì trả về rỗng, không lỗi
       }
 
       // 4. Validate against policy

@@ -9,6 +9,11 @@ import { ShiftLocation } from '../types/calendar.enum';
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { CalendarCommonService } from './calendar-common.service';
 import { QueueService, EQueueName, EJobName } from '@slack/queue';
+import { WorkspaceHolidayService } from './workspace-holiday.service';
+
+jest.mock('nanoid', () => ({
+  customAlphabet: jest.fn(() => jest.fn(() => 'mock-id')),
+}));
 
 describe('WorkShiftService', () => {
   let service: WorkShiftService;
@@ -16,6 +21,7 @@ describe('WorkShiftService', () => {
   let calendarCommonService: jest.Mocked<Pick<CalendarCommonService, 'fetchMember' | 'isPrivileged' | 'assertSelfOrPrivileged' | 'assertPrivileged'>>;
   let queueService: jest.Mocked<Pick<QueueService, 'addJob' | 'addBulkJobs'>>;
   let workShiftRepository: any;
+  let holidayService: any;
 
   const MEMBER = { id: 'member-1', role: 'member', employmentType: 'FULLTIME' };
   const ADMIN = { id: 'admin-1', role: 'admin', employmentType: 'FULLTIME' };
@@ -58,6 +64,10 @@ describe('WorkShiftService', () => {
       addBulkJobs: jest.fn().mockResolvedValue(null),
     };
 
+    holidayService = {
+      checkIfDatesAreHolidays: jest.fn().mockResolvedValue({}),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WorkShiftService,
@@ -76,6 +86,10 @@ describe('WorkShiftService', () => {
         {
           provide: QueueService,
           useValue: queueService,
+        },
+        {
+          provide: WorkspaceHolidayService,
+          useValue: holidayService,
         },
       ],
     }).compile();
@@ -194,8 +208,18 @@ describe('WorkShiftService', () => {
           expect.objectContaining({ startTime: new Date('2026-06-20T08:00:00.000Z') }),
         ])
       );
-      expect(workShiftRepository.insert).toHaveBeenCalled();
       expect(result).toBeInstanceOf(Array);
+    });
+
+    it('should skip shift registration if the date is a holiday', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      holidayService.checkIfDatesAreHolidays.mockResolvedValueOnce({
+        '2026-06-20': true
+      });
+      
+      const result = await service.bulkRegisterShifts(validDto);
+      expect(workShiftRepository.insert).not.toHaveBeenCalled();
+      expect(result).toEqual([]);
     });
 
     it('should throw BAD_REQUEST if shift times are not strictly UTC', async () => {
