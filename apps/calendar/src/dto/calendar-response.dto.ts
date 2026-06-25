@@ -75,6 +75,9 @@ export class PolicyDataResponseDto {
 
   @Expose()
   maxPaidLeaveDaysPerYear?: number;
+
+  @Expose()
+  allowedOfficeIps?: string[];
 }
 
 @Exclude()
