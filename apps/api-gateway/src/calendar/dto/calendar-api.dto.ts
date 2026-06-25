@@ -286,6 +286,19 @@ export class CheckInApiDto {
   faceDescriptor?: number[];
 }
 
+export class SaveFaceBaselineApiDto {
+  @ApiProperty({ description: 'Base64 data URL ảnh khuôn mặt baseline' })
+  @IsString()
+  @IsNotEmpty()
+  faceImageBase64: string;
+
+  @ApiProperty({ type: [Number], description: 'Mảng 128 số thực trích xuất từ khuôn mặt' })
+  @IsArray()
+  @IsNumber({}, { each: true })
+  @IsNotEmpty()
+  faceDescriptor: number[];
+}
+
 export class ManualUnlockCalendarApiDto {
   @ApiProperty({ description: 'User ID to unlock calendar for' })
   @IsUUID()

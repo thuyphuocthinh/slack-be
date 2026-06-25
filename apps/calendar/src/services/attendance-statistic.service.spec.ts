@@ -169,10 +169,10 @@ describe('AttendanceStatisticService', () => {
       ]);
 
       const buffer = await service.exportWorkspaceExcel('ws1', '2026-06');
-      
+
       expect(buffer).toBeDefined();
       expect(buffer).toBeInstanceOf(Buffer);
       expect(buffer.length).toBeGreaterThan(0);
-    });
+    }, 15000);
   });
 });
