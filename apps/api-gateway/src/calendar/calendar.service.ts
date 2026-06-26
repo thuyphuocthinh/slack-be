@@ -329,6 +329,20 @@ export class CalendarService {
     );
   }
 
+  async getMonthLockStatus(workspaceId: string, requestorId: string, targetMonth: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.GET_MONTH_LOCK_STATUS,
+            { workspaceId, requestorId, targetMonth },
+          ),
+        ),
+      'getMonthLockStatus',
+      'CalendarService',
+    );
+  }
+
   private async uploadFaceImage(base64: string): Promise<string | undefined> {
     try {
       const result = await this.cloudinaryClient.uploader.upload(base64, {
@@ -453,12 +467,13 @@ export class CalendarService {
     );
   }
 
-  async getPersonalStatisticSummary(workspaceId: string, userId: string, startDate: string, endDate: string) {
+  async getPersonalStatisticSummary(workspaceId: string, requestorId: string, userId: string, startDate: string, endDate: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
           this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_PERSONAL_STATISTIC_SUMMARY, {
             workspaceId,
+            requestorId,
             userId,
             startDate,
             endDate,
@@ -469,12 +484,13 @@ export class CalendarService {
     );
   }
 
-  async getPersonalChartData(workspaceId: string, userId: string, startDate: string, endDate: string) {
+  async getPersonalChartData(workspaceId: string, requestorId: string, userId: string, startDate: string, endDate: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
           this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_PERSONAL_CHART_DATA, {
             workspaceId,
+            requestorId,
             userId,
             startDate,
             endDate,
@@ -485,12 +501,13 @@ export class CalendarService {
     );
   }
 
-  async getWorkspaceStatisticMembers(workspaceId: string, month: string) {
+  async getWorkspaceStatisticMembers(workspaceId: string, requestorId: string, month: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
           this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_WORKSPACE_STATISTIC_MEMBERS, {
             workspaceId,
+            requestorId,
             month,
           }),
         ),
@@ -499,12 +516,13 @@ export class CalendarService {
     );
   }
 
-  async exportWorkspaceStatisticExcel(workspaceId: string, month: string) {
+  async exportWorkspaceStatisticExcel(workspaceId: string, requestorId: string, month: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
           this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.EXPORT_WORKSPACE_STATISTIC_EXCEL, {
             workspaceId,
+            requestorId,
             month,
           }),
         ),

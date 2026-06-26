@@ -1,7 +1,7 @@
 import { Injectable, HttpStatus, Logger } from '@nestjs/common';
 import Holidays from 'date-holidays';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, Between, In } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
 import { WorkspaceHolidayEntity } from '../entity/workspace_holiday.entity';
 import { CALENDAR_ERROR, SYSTEM_ERRORS } from '@slack/constants';
@@ -179,16 +179,17 @@ export class WorkspaceHolidayService {
           };
         });
 
-      // Upsert logic to prevent duplicate error
-      for (const h of defaultHolidays) {
-        const existing = await this.holidayRepository.findOne({ where: { workspaceId: dto.workspaceId, date: h.date } });
-        if (!existing) {
-          const entity = this.holidayRepository.create({
-            workspaceId: dto.workspaceId,
-            ...h
-          });
-          await this.holidayRepository.save(entity);
-        }
+      const existingHolidays = await this.holidayRepository.find({
+        where: { workspaceId: dto.workspaceId, date: In(defaultHolidays.map(h => h.date)) },
+      });
+      const existingDatesSet = new Set(existingHolidays.map(h => h.date));
+
+      const toInsert = defaultHolidays
+        .filter(h => !existingDatesSet.has(h.date))
+        .map(h => this.holidayRepository.create({ workspaceId: dto.workspaceId, ...h }));
+
+      if (toInsert.length > 0) {
+        await this.holidayRepository.save(toInsert);
       }
 
       await this.cachedService.invalidateList(CACHE.CALENDAR.TRACKERS.HOLIDAYS_VERSION(dto.workspaceId));

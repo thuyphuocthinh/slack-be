@@ -1,15 +1,16 @@
 import { Injectable, Logger, HttpStatus } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, In } from 'typeorm';
+import { DataSource, Repository, Between, In } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
+import { DailyReconciliationEntity } from '../entity/daily_reconciliation.entity';
 import { BulkRegisterWorkShiftDto, GetWorkShiftsDto, UpdateWorkShiftDto, DeleteWorkShiftDto, SyncCalendarDto } from '../dto/calendar-request.dto';
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { CalendarCommonService } from './calendar-common.service';
-import { WorkShiftResponseDto, WorkspaceHolidayResponseDto } from '../dto/calendar-response.dto';
+import { WorkShiftResponseDto } from '../dto/calendar-response.dto';
 import { plainToInstance } from 'class-transformer';
 import { CALENDAR_ERROR, AUTH_ERROR } from '@slack/constants';
-import { ShiftLocation, ShiftStatus, AttendanceLogType } from '../types/calendar.enum';
+import { ShiftStatus, AttendanceLogType, InOutStatus } from '../types/calendar.enum';
 import { isUtcString } from '@slack/common/utils/time.util';
 import { WorkShiftValidationPayload } from '../types/calendar.type';
 import { WorkspaceHolidayService } from './workspace-holiday.service';
@@ -22,6 +23,9 @@ export class WorkShiftService {
   constructor(
     @InjectRepository(WorkShiftEntity)
     private readonly workShiftRepository: Repository<WorkShiftEntity>,
+    @InjectRepository(DailyReconciliationEntity)
+    private readonly reconciliationRepository: Repository<DailyReconciliationEntity>,
+    private readonly dataSource: DataSource,
     private readonly policyService: WorkspaceCalendarPolicyService,
     private readonly calendarCommonService: CalendarCommonService,
     private readonly queueService: QueueService,
@@ -69,15 +73,18 @@ export class WorkShiftService {
         return []; // Nếu tất cả đều là ngày lễ thì trả về rỗng, không lỗi
       }
 
-      // 4. Validate against policy
-      await this.policyService.validateShifts(workspaceId, userId, targetMember.employmentType, targetMember.role, validationPayload);
+      // 4. Check lock deadline (read-only, can run before transaction)
+      await this.policyService.checkLockDeadline(workspaceId, targetMember.role, userId, validationPayload.map(s => s.workDate));
 
-      // 5. Insert and return
-      const result = await this.workShiftRepository.insert(shiftsToInsert);
-      const insertedIds = result.identifiers.map(id => id.id);
+      // 5. Validate then insert inside a single SERIALIZABLE transaction to prevent
+      //    concurrent duplicate registrations from slipping past the overlap check.
+      const insertedShifts = await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+        await this.policyService.validateShifts(workspaceId, userId, targetMember.employmentType, validationPayload, manager);
 
-      const insertedShifts = await this.workShiftRepository.find({
-        where: { id: In(insertedIds) },
+        const result = await manager.insert(WorkShiftEntity, shiftsToInsert);
+        const insertedIds = result.identifiers.map(id => id.id);
+
+        return manager.find(WorkShiftEntity, { where: { id: In(insertedIds) } });
       });
 
       // 6. Push to Sync Queue
@@ -139,13 +146,27 @@ export class WorkShiftService {
 
       const responseDtos = plainToInstance(WorkShiftResponseDto, shifts);
 
+      // Batch-fetch actual worked hours from daily reconciliation records
+      const workDates = [...new Set(shifts.map(s => s.workDate))];
+      const userIds = [...new Set(shifts.map(s => s.userId))];
+      let reconciliations: DailyReconciliationEntity[] = [];
+      if (workDates.length > 0 && userIds.length > 0) {
+        reconciliations = await this.reconciliationRepository.find({
+          where: { workspaceId, userId: In(userIds), workDate: In(workDates) },
+          select: ['userId', 'workDate', 'actualWorkHours'],
+        });
+      }
+      const reconciliationMap = new Map(reconciliations.map(r => [`${r.userId}:${r.workDate}`, r.actualWorkHours]));
+
       responseDtos.forEach(dto => {
         if (!dto.attendanceLogs || dto.attendanceLogs.length === 0) {
-          dto.inOutStatus = 'NOT_STARTED';
+          dto.inOutStatus = InOutStatus.NOT_STARTED;
         } else {
           const logs = [...dto.attendanceLogs].sort((a, b) => b.recordedAt.getTime() - a.recordedAt.getTime());
-          dto.inOutStatus = logs[0].logType === AttendanceLogType.CHECK_IN ? 'IN' : 'OUT';
+          dto.inOutStatus = logs[0].logType === AttendanceLogType.CHECK_IN ? InOutStatus.IN : InOutStatus.OUT;
         }
+        const workedHours = reconciliationMap.get(`${dto.userId}:${dto.workDate}`);
+        if (workedHours !== undefined && workedHours > 0) dto.actualWorkHours = workedHours;
       });
 
       return responseDtos;
@@ -206,7 +227,7 @@ export class WorkShiftService {
       if (newWorkDate !== shift.workDate) datesToCheck.push(newWorkDate);
       await this.policyService.checkLockDeadline(workspaceId, targetMember.role, userId, datesToCheck);
 
-      await this.policyService.validateShifts(workspaceId, userId, targetMember.employmentType, targetMember.role, [{
+      await this.policyService.validateShifts(workspaceId, userId, targetMember.employmentType, [{
         id: shift.id,
         workDate: newWorkDate,
         startTime: newStartTime,
@@ -218,6 +239,9 @@ export class WorkShiftService {
       await this.workShiftRepository.update({ id, workspaceId, userId }, updateData);
 
       const updatedShift = await this.workShiftRepository.findOne({ where: { id } });
+      if (!updatedShift) {
+        throw new RpcException({ statusCode: HttpStatus.NOT_FOUND, ...CALENDAR_ERROR.SHIFT_NOT_FOUND });
+      }
 
       // 8. Push to Sync Queue
       if (updatedShift) {

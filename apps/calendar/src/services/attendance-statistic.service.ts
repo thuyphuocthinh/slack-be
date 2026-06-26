@@ -4,20 +4,25 @@ import { Repository } from 'typeorm';
 import { DailyReconciliationEntity } from '../entity/daily_reconciliation.entity';
 import { DailyReconciliationStatus } from '../types/calendar.enum';
 import { StatisticSummaryResponseDto, WorkspaceMemberStatisticResponseDto, PersonalChartDataResponseDto } from '../dto/attendance-statistic.dto';
+import { CalendarCommonService } from './calendar-common.service';
 
 @Injectable()
 export class AttendanceStatisticService {
   constructor(
     @InjectRepository(DailyReconciliationEntity)
     private readonly reconcRepository: Repository<DailyReconciliationEntity>,
+    private readonly calendarCommonService: CalendarCommonService,
   ) {}
 
   async getPersonalSummary(
     workspaceId: string,
+    requestorId: string,
     userId: string,
     startDate: string,
     endDate: string,
   ): Promise<StatisticSummaryResponseDto> {
+    const requestor = await this.calendarCommonService.fetchMember(workspaceId, requestorId);
+    this.calendarCommonService.assertSelfOrPrivileged(requestorId, userId, requestor.role);
     const qb = this.reconcRepository.createQueryBuilder('recon');
     
     qb.where('recon.workspaceId = :workspaceId', { workspaceId })
@@ -51,8 +56,11 @@ export class AttendanceStatisticService {
 
   async getWorkspaceMembers(
     workspaceId: string,
+    requestorId: string,
     month: string, // YYYY-MM
   ): Promise<WorkspaceMemberStatisticResponseDto[]> {
+    const requestor = await this.calendarCommonService.fetchMember(workspaceId, requestorId);
+    this.calendarCommonService.assertPrivileged(requestor.role);
     const startDate = `${month}-01`;
     const [year, m] = month.split('-');
     const endDay = new Date(Number(year), Number(m), 0).getDate();
@@ -80,23 +88,35 @@ export class AttendanceStatisticService {
       )
       .groupBy('recon.userId');
 
-    const rawResults = await qb.getRawMany();
+    const [rawResults, allMembers] = await Promise.all([
+      qb.getRawMany(),
+      this.calendarCommonService.getWorkspaceMembers(workspaceId, requestorId),
+    ]);
 
-    return rawResults.map((r) => ({
-      userId: r.userId,
-      totalWorkHours: Number(r.totalWorkHours || 0),
-      lateDays: Number(r.lateDays || 0),
-      absentDays: Number(r.absentDays || 0),
-      leaveDays: Number(r.leaveDays || 0),
-    }));
+    const reconMap = new Map(rawResults.map(r => [r.userId, r]));
+
+    return allMembers.map((member: any) => {
+      const r = reconMap.get(member.userId);
+      return {
+        userId: member.userId,
+        totalWorkHours: Number(r?.totalWorkHours || 0),
+        lateDays: Number(r?.lateDays || 0),
+        absentDays: Number(r?.absentDays || 0),
+        leaveDays: Number(r?.leaveDays || 0),
+      };
+    });
   }
 
   async getPersonalChartData(
     workspaceId: string,
+    requestorId: string,
     userId: string,
     startDate: string,
     endDate: string,
   ): Promise<PersonalChartDataResponseDto[]> {
+    const requestor = await this.calendarCommonService.fetchMember(workspaceId, requestorId);
+    this.calendarCommonService.assertSelfOrPrivileged(requestorId, userId, requestor.role);
+
     const qb = this.reconcRepository.createQueryBuilder('recon');
     
     qb.where('recon.workspaceId = :workspaceId', { workspaceId })
@@ -120,9 +140,10 @@ export class AttendanceStatisticService {
 
   async exportWorkspaceExcel(
     workspaceId: string,
+    requestorId: string,
     month: string, // YYYY-MM
   ): Promise<Buffer> {
-    const membersData = await this.getWorkspaceMembers(workspaceId, month);
+    const membersData = await this.getWorkspaceMembers(workspaceId, requestorId, month);
 
     const ExcelJS = require('exceljs');
     const workbook = new ExcelJS.Workbook();
@@ -186,10 +207,10 @@ export class AttendanceStatisticService {
       userLogsMap[log.userId][`day_${day}`] = marker;
     }
 
-    for (const userId of Object.keys(userLogsMap)) {
-      const row: any = { userId };
+    for (const memberStat of membersData) {
+      const row: any = { userId: memberStat.userId };
       for (let i = 1; i <= 31; i++) {
-        row[`day_${i}`] = userLogsMap[userId][`day_${i}`] || '';
+        row[`day_${i}`] = userLogsMap[memberStat.userId]?.[`day_${i}`] || '';
       }
       detailSheet.addRow(row);
     }

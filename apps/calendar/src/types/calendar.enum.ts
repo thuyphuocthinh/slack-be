@@ -35,6 +35,12 @@ export enum AttendanceLogType {
   CHECK_OUT = 'CHECK_OUT',
 }
 
+export enum InOutStatus {
+  IN = 'IN',
+  OUT = 'OUT',
+  NOT_STARTED = 'NOT_STARTED',
+}
+
 export enum DailyReconciliationStatus {
   NORMAL = 'NORMAL',
   LATE_EARLY = 'LATE_EARLY',

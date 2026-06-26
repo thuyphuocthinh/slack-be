@@ -88,7 +88,7 @@ export class AttendanceService {
     if (distance > threshold) {
       throw new RpcException({
         statusCode: HttpStatus.FORBIDDEN,
-        ...CALENDAR_ERROR.CALENDAR_LOCKED,
+        ...CALENDAR_ERROR.FACE_NOT_MATCH,
         message: `Khuôn mặt không khớp. Khoảng cách: ${distance.toFixed(2)} (Cho phép <= ${threshold}).`,
       });
     }
@@ -125,7 +125,7 @@ export class AttendanceService {
     }
   }
 
-  private async getLatestLog(manager: EntityManager, workspaceId: string, userId: string, shiftId: string): Promise<AttendanceLogEntity | null> {
+  private async getLatestLog(manager: EntityManager, workspaceId: string, userId: string, shiftId: string | undefined): Promise<AttendanceLogEntity | null> {
     return manager.findOne(AttendanceLogEntity, {
       where: { workspaceId, userId, workShiftId: shiftId },
       order: { recordedAt: 'DESC' },
@@ -171,7 +171,7 @@ export class AttendanceService {
           lock: { mode: 'pessimistic_write' },
         });
 
-        const latestLog = await this.getLatestLog(manager, workspaceId, userId, shift?.id!);
+        const latestLog = await this.getLatestLog(manager, workspaceId, userId, shift?.id);
         if (latestLog && latestLog.logType === AttendanceLogType.CHECK_IN) {
           throw new RpcException({
             statusCode: HttpStatus.BAD_REQUEST,
@@ -240,7 +240,7 @@ export class AttendanceService {
           lock: { mode: 'pessimistic_write' },
         });
 
-        const latestLog = await this.getLatestLog(manager, workspaceId, userId, shift?.id!);
+        const latestLog = await this.getLatestLog(manager, workspaceId, userId, shift?.id);
         if (!latestLog || latestLog.logType === AttendanceLogType.CHECK_OUT) {
           throw new RpcException({
             statusCode: HttpStatus.BAD_REQUEST,
@@ -288,7 +288,37 @@ export class AttendanceService {
           return this.mapToResponse(reconciliation);
         }
 
-        return null;
+        // Edge case: check-in log exists but reconciliation record is missing (e.g. partial transaction failure).
+        // Reconstruct from the check-in log so hours are not silently lost.
+        const sessionStart = latestLog.recordedAt;
+        const additionalHours = (now.getTime() - sessionStart.getTime()) / 3_600_000;
+
+        let status = DailyReconciliationStatus.NORMAL;
+        if (shift?.startTime) {
+          const graceMs = LATE_GRACE_MINUTES * 60_000;
+          if (sessionStart.getTime() > new Date(shift.startTime).getTime() + graceMs) {
+            status = DailyReconciliationStatus.LATE_EARLY;
+          }
+        }
+        if (shift?.endTime) {
+          const graceMs = LATE_GRACE_MINUTES * 60_000;
+          if (now.getTime() < new Date(shift.endTime).getTime() - graceMs) {
+            status = DailyReconciliationStatus.LATE_EARLY;
+          }
+        }
+
+        reconciliation = manager.create(DailyReconciliationEntity, {
+          workspaceId,
+          userId,
+          workDate,
+          workShiftId: shift?.id,
+          firstCheckIn: sessionStart,
+          lastCheckOut: now,
+          actualWorkHours: additionalHours,
+          status,
+        });
+        await manager.save(reconciliation);
+        return this.mapToResponse(reconciliation);
       });
     } catch (error) {
       if (error instanceof RpcException) throw error;

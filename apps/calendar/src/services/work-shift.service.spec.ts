@@ -198,11 +198,16 @@ describe('WorkShiftService', () => {
 
       const result = await service.bulkRegisterShifts(multiShiftDto);
 
+      expect(policyService.checkLockDeadline).toHaveBeenCalledWith(
+        multiShiftDto.workspaceId,
+        MEMBER.role,
+        multiShiftDto.userId,
+        expect.arrayContaining(['2026-06-20', '2026-06-20']),
+      );
       expect(policyService.validateShifts).toHaveBeenCalledWith(
         multiShiftDto.workspaceId,
         multiShiftDto.userId,
         MEMBER.employmentType,
-        MEMBER.role,
         expect.arrayContaining([
           expect.objectContaining({ startTime: new Date('2026-06-20T02:00:00.000Z') }),
           expect.objectContaining({ startTime: new Date('2026-06-20T08:00:00.000Z') }),
@@ -244,6 +249,26 @@ describe('WorkShiftService', () => {
       await expect(service.bulkRegisterShifts(validDto)).rejects.toMatchObject(
         new RpcException({ statusCode: HttpStatus.INTERNAL_SERVER_ERROR, ...CALENDAR_ERROR.BULK_REGISTER_FAILED }),
       );
+    });
+
+    it('should call checkLockDeadline explicitly before validateShifts', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      const mockInsertedShifts = [{
+        id: 'new-id-1', userId: validDto.userId, workspaceId: validDto.workspaceId,
+        startTime: new Date(validDto.shifts[0].startTime), endTime: new Date(validDto.shifts[0].endTime),
+        location: validDto.location,
+      }];
+      workShiftRepository.find.mockResolvedValue(mockInsertedShifts);
+
+      await service.bulkRegisterShifts(validDto);
+
+      expect(policyService.checkLockDeadline).toHaveBeenCalledWith(
+        validDto.workspaceId,
+        MEMBER.role,
+        validDto.userId,
+        [validDto.shifts[0].workDate],
+      );
+      expect(policyService.validateShifts).toHaveBeenCalled();
     });
   });
 

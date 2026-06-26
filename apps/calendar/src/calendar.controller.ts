@@ -12,7 +12,7 @@ import { WorkspaceCalendarPolicyService } from './services/workspace-calendar-po
 import { CalendarRequestService } from './services/calendar-request.service';
 import { AttendanceService } from './services/attendance.service';
 import { LeaveBalanceService } from './services/leave-balance.service';
-import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto, ReviewCalendarRequestDto, ManualUnlockCalendarDto, GetMyLeaveBalanceDto, GetWorkspaceLeaveBalancesDto, GetPersonalStatisticSummaryDto, GetPersonalChartDataDto, GetWorkspaceStatisticMembersDto, ExportWorkspaceStatisticExcelDto, SyncCalendarDto, GetHolidaysDto, CreateHolidayDto, UpdateHolidayDto, DeleteHolidayDto, AutoFillHolidaysDto } from './dto/calendar-request.dto';
+import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto, ReviewCalendarRequestDto, ManualUnlockCalendarDto, GetMonthLockStatusDto, GetMyLeaveBalanceDto, GetWorkspaceLeaveBalancesDto, GetPersonalStatisticSummaryDto, GetPersonalChartDataDto, GetWorkspaceStatisticMembersDto, ExportWorkspaceStatisticExcelDto, SyncCalendarDto, GetHolidaysDto, CreateHolidayDto, UpdateHolidayDto, DeleteHolidayDto, AutoFillHolidaysDto } from './dto/calendar-request.dto';
 import { AttendanceStatisticService } from './services/attendance-statistic.service';
 import { WorkspaceHolidayService } from './services/workspace-holiday.service';
 
@@ -104,6 +104,11 @@ export class CalendarController {
     return this.requestService.manualUnlock(dto);
   }
 
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_MONTH_LOCK_STATUS)
+  async getMonthLockStatus(@Payload() dto: GetMonthLockStatusDto) {
+    return this.requestService.getMonthLockStatus(dto.workspaceId, dto.requestorId, dto.targetMonth);
+  }
+
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.SAVE_FACE_BASELINE)
   async saveFaceBaseline(@Payload() dto: SaveFaceBaselineDto) {
     return this.attendanceService.saveFaceBaseline(dto);
@@ -135,24 +140,22 @@ export class CalendarController {
   }
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_PERSONAL_STATISTIC_SUMMARY)
   async getPersonalStatisticSummary(@Payload() dto: GetPersonalStatisticSummaryDto) {
-    return this.statisticService.getPersonalSummary(dto.workspaceId, dto.userId, dto.startDate, dto.endDate);
+    return this.statisticService.getPersonalSummary(dto.workspaceId, dto.requestorId, dto.userId, dto.startDate, dto.endDate);
   }
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_PERSONAL_CHART_DATA)
   async getPersonalChartData(@Payload() dto: GetPersonalChartDataDto) {
-    return this.statisticService.getPersonalChartData(dto.workspaceId, dto.userId, dto.startDate, dto.endDate);
+    return this.statisticService.getPersonalChartData(dto.workspaceId, dto.requestorId, dto.userId, dto.startDate, dto.endDate);
   }
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_WORKSPACE_STATISTIC_MEMBERS)
   async getWorkspaceStatisticMembers(@Payload() dto: GetWorkspaceStatisticMembersDto) {
-    return this.statisticService.getWorkspaceMembers(dto.workspaceId, dto.month);
+    return this.statisticService.getWorkspaceMembers(dto.workspaceId, dto.requestorId, dto.month);
   }
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.EXPORT_WORKSPACE_STATISTIC_EXCEL)
   async exportWorkspaceStatisticExcel(@Payload() dto: ExportWorkspaceStatisticExcelDto) {
-    // Return base64 or buffer. We'll return buffer directly
-    // since NestJS microservices can serialize Buffer.
-    const buffer = await this.statisticService.exportWorkspaceExcel(dto.workspaceId, dto.month);
+    const buffer = await this.statisticService.exportWorkspaceExcel(dto.workspaceId, dto.requestorId, dto.month);
     return buffer.toString('base64');
   }
 

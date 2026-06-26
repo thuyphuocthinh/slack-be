@@ -2,6 +2,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HttpStatus } from '@nestjs/common';
+
+jest.mock('nanoid', () => ({
+  customAlphabet: jest.fn(() => jest.fn(() => 'mock-id')),
+}));
+
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { WorkspaceCalendarPolicyEntity } from '../entity/workspace_calendar_policy.entity';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
@@ -115,7 +120,7 @@ describe('WorkspaceCalendarPolicyService', () => {
         },
       ];
 
-      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', WorkspaceRoleEnum.OWNER, shifts)).resolves.not.toThrow();
+      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', shifts)).resolves.not.toThrow();
     });
 
     it('should throw an error if new shifts overlap with each other', async () => {
@@ -137,7 +142,7 @@ describe('WorkspaceCalendarPolicyService', () => {
         },
       ];
 
-      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', WorkspaceRoleEnum.OWNER, shifts)).rejects.toMatchObject({
+      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', shifts)).rejects.toMatchObject({
         error: expect.objectContaining({ code: CALENDAR_ERROR.SHIFT_OVERLAP.code }),
       });
     });
@@ -160,7 +165,7 @@ describe('WorkspaceCalendarPolicyService', () => {
         },
       ];
 
-      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', WorkspaceRoleEnum.OWNER, shifts)).rejects.toMatchObject({
+      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', shifts)).rejects.toMatchObject({
         error: expect.objectContaining({ code: CALENDAR_ERROR.SHIFT_OVERLAP.code }),
       });
     });
@@ -187,7 +192,7 @@ describe('WorkspaceCalendarPolicyService', () => {
         },
       ];
 
-      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', WorkspaceRoleEnum.OWNER, shifts)).rejects.toMatchObject({
+      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', shifts)).rejects.toMatchObject({
         error: {
           statusCode: HttpStatus.BAD_REQUEST,
           ...CALENDAR_ERROR.WFH_LIMIT_EXCEEDED,
@@ -220,7 +225,7 @@ describe('WorkspaceCalendarPolicyService', () => {
         },
       ];
 
-      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', WorkspaceRoleEnum.OWNER, shifts)).rejects.toMatchObject({
+      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', shifts)).rejects.toMatchObject({
         error: {
           statusCode: HttpStatus.BAD_REQUEST,
           ...CALENDAR_ERROR.MAX_HOURS_EXCEEDED,
@@ -256,7 +261,7 @@ describe('WorkspaceCalendarPolicyService', () => {
         },
       ];
 
-      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', WorkspaceRoleEnum.OWNER, shifts)).resolves.not.toThrow();
+      await expect(service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', shifts)).resolves.not.toThrow();
     });
 
     it('PERFORMANCE TEST: should validate a large number of shifts under 10ms', async () => {
@@ -293,7 +298,7 @@ describe('WorkspaceCalendarPolicyService', () => {
       }
 
       const start = performance.now();
-      await service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', WorkspaceRoleEnum.OWNER, shifts);
+      await service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', shifts);
       const end = performance.now();
       const executionTime = end - start;
 
@@ -301,6 +306,25 @@ describe('WorkspaceCalendarPolicyService', () => {
 
       // It should be extremely fast, definitely under 15ms.
       expect(executionTime).toBeLessThan(15);
+    });
+
+    it('should NOT check lock deadline — that is the caller\'s responsibility', async () => {
+      jest.spyOn(policyRepository, 'findOne').mockResolvedValue(null);
+      jest.spyOn(workShiftRepository, 'find').mockResolvedValue([]);
+      const lockSpy = jest.spyOn(service, 'checkLockDeadline');
+
+      const shifts: WorkShiftValidationPayload[] = [
+        {
+          workDate: '2026-06-01',
+          startTime: new Date('2026-06-01T09:00:00Z'),
+          endTime: new Date('2026-06-01T17:00:00Z'),
+          location: ShiftLocation.OFFICE,
+        },
+      ];
+
+      await service.validateShifts(mockWorkspaceId, mockUserId, 'FULLTIME', shifts);
+
+      expect(lockSpy).not.toHaveBeenCalled();
     });
   });
 
