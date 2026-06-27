@@ -1,8 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+jest.mock('nanoid', () => ({
+  customAlphabet: jest.fn(() => jest.fn(() => 'mock-id')),
+}));
 import { CalendarCronService } from './calendar-cron.service';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
 import { DailyReconciliationEntity } from '../entity/daily_reconciliation.entity';
+import { CalendarUserLockEntity } from '../entity/calendar_user_lock.entity';
+import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { DailyReconciliationStatus, ShiftLocation } from '../types/calendar.enum';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -55,6 +60,8 @@ describe('CalendarCronService', () => {
   let service: CalendarCronService;
   let shiftRepo: any;
   let reconcRepo: any;
+  let lockRepo: any;
+  let policyService: jest.Mocked<Pick<WorkspaceCalendarPolicyService, 'getPolicy'>>;
 
   beforeEach(async () => {
     shiftRepo = {
@@ -68,11 +75,22 @@ describe('CalendarCronService', () => {
       findOne: jest.fn().mockResolvedValue(null),
     };
 
+    lockRepo = {
+      delete: jest.fn().mockResolvedValue({ affected: 0 }),
+    };
+
+    policyService = {
+      // Default: no explicit gracePeriodMinutes → falls back to 15 in buildGraceMap
+      getPolicy: jest.fn().mockResolvedValue({ policyData: {} }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CalendarCronService,
         { provide: getRepositoryToken(WorkShiftEntity), useValue: shiftRepo },
         { provide: getRepositoryToken(DailyReconciliationEntity), useValue: reconcRepo },
+        { provide: getRepositoryToken(CalendarUserLockEntity), useValue: lockRepo },
+        { provide: WorkspaceCalendarPolicyService, useValue: policyService },
       ],
     }).compile();
 
@@ -346,6 +364,70 @@ describe('CalendarCronService', () => {
       expect(saved.standardWorkHours).toBe(8);     // 4 + 4
       expect(saved.workShiftId).toBe('shift-am');  // primary shift
       expect(saved.status).toBe(DailyReconciliationStatus.LATE_EARLY);
+    });
+
+    it('reads gracePeriodMinutes from workspace policy — check-in beyond policy grace is LATE_EARLY even if within 15-min default', async () => {
+      // Policy sets grace to 5 min for this workspace
+      policyService.getPolicy.mockResolvedValue({ policyData: { gracePeriodMinutes: 5 } } as any);
+
+      const shift = makeShift({ startTime: t('2026-06-21T01:00:00Z') });
+      // Checked in 10 minutes late — within default (15) but beyond policy (5)
+      const recon = makeReconciliation({
+        firstCheckIn: t('2026-06-21T01:10:00Z'),
+        lastCheckOut: t('2026-06-21T10:00:00Z'),
+      });
+      shiftRepo.find.mockResolvedValue([shift]);
+      reconcRepo.findOne.mockResolvedValue(recon);
+
+      await service.runManually(WORK_DATE);
+
+      const saved = reconcRepo.save.mock.calls[0][0];
+      expect(saved.lateMinutes).toBe(10);
+      expect(saved.status).toBe(DailyReconciliationStatus.LATE_EARLY); // 10 > 5 → LATE_EARLY
+    });
+
+    it('calls policyService.getPolicy once per unique workspace, not once per shift', async () => {
+      // Two users in the same workspace — policy should be fetched once
+      const shiftA = makeShift({ id: 'sa', userId: 'u-a' });
+      const shiftB = makeShift({ id: 'sb', userId: 'u-b' });
+      shiftRepo.find.mockResolvedValue([shiftA, shiftB]);
+      reconcRepo.findOne.mockResolvedValue(null);
+
+      await service.runManually(WORK_DATE);
+
+      expect(policyService.getPolicy).toHaveBeenCalledTimes(1);
+      expect(policyService.getPolicy).toHaveBeenCalledWith(WS);
+    });
+
+    it('fetches policy for each workspace separately when shifts span multiple workspaces', async () => {
+      const WS2 = 'workspace-2';
+      const shiftWS1 = makeShift({ id: 'sw1', workspaceId: WS });
+      const shiftWS2 = makeShift({ id: 'sw2', workspaceId: WS2 });
+      shiftRepo.find.mockResolvedValue([shiftWS1, shiftWS2]);
+      reconcRepo.findOne.mockResolvedValue(null);
+
+      await service.runManually(WORK_DATE);
+
+      expect(policyService.getPolicy).toHaveBeenCalledTimes(2);
+      expect(policyService.getPolicy).toHaveBeenCalledWith(WS);
+      expect(policyService.getPolicy).toHaveBeenCalledWith(WS2);
+    });
+  });
+
+  // ─── cleanupExpiredLocks ─────────────────────────────────────────────────
+
+  describe('cleanupExpiredLocks', () => {
+    it('deletes lock records with unlockExpiresAt in the past', async () => {
+      lockRepo.delete.mockResolvedValue({ affected: 3 });
+      await service.cleanupExpiredLocks();
+      expect(lockRepo.delete).toHaveBeenCalledWith(
+        expect.objectContaining({ unlockExpiresAt: expect.anything() }),
+      );
+    });
+
+    it('does not throw when no expired records exist', async () => {
+      lockRepo.delete.mockResolvedValue({ affected: 0 });
+      await expect(service.cleanupExpiredLocks()).resolves.not.toThrow();
     });
   });
 

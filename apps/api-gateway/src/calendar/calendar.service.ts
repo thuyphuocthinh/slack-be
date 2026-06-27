@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+﻿import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, CALENDAR_MESSAGE_PATTERNS } from '@slack/constants';
 import { firstValueFrom } from 'rxjs';
@@ -329,6 +329,20 @@ export class CalendarService {
     );
   }
 
+  async getMyLockStatus(workspaceId: string, userId: string, targetMonth: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.GET_MY_LOCK_STATUS,
+            { workspaceId, userId, targetMonth },
+          ),
+        ),
+      'getMyLockStatus',
+      'CalendarService',
+    );
+  }
+
   async getMonthLockStatus(workspaceId: string, requestorId: string, targetMonth: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
@@ -606,3 +620,4 @@ export class CalendarService {
     );
   }
 }
+

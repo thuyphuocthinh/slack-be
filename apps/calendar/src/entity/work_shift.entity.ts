@@ -5,13 +5,16 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
-  Unique,
   OneToMany,
 } from 'typeorm';
 import { ShiftLocation, ShiftStatus } from '../types/calendar.enum';
 import { AttendanceLogEntity } from './attendance_log.entity';
 
 @Entity('work_shifts')
+// Composite index phục vụ resolveShift (check-in/out) và leave approval find-shifts
+@Index('IDX_WORK_SHIFT_WS_USER_DATE', ['workspaceId', 'userId', 'workDate'])
+// Composite index phục vụ cron dailyReconciliation (query toàn bộ shifts theo ngày)
+@Index('IDX_WORK_SHIFT_DATE_WS', ['workDate', 'workspaceId'])
 export class WorkShiftEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

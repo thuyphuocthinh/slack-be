@@ -33,4 +33,5 @@ export const CALENDAR_MESSAGE_PATTERNS = {
   AUTO_FILL_HOLIDAYS: 'calendar.auto_fill_holidays',
   SAVE_FACE_BASELINE: 'calendar.save_face_baseline',
   GET_MONTH_LOCK_STATUS: 'calendar.get_month_lock_status',
+  GET_MY_LOCK_STATUS: 'calendar.get_my_lock_status',
 } as const;

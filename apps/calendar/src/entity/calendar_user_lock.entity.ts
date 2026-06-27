@@ -9,6 +9,8 @@ import {
 
 @Entity('calendar_user_locks')
 @Index('IDX_USER_LOCK', ['userId', 'workspaceId', 'targetMonth'], { unique: true })
+// Partial-style index phục vụ cleanupExpiredLocks cron (LessThan query trên unlockExpiresAt)
+@Index('IDX_LOCK_EXPIRES_AT', ['unlockExpiresAt'])
 export class CalendarUserLockEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

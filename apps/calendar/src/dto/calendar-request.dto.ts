@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+﻿import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
@@ -442,6 +442,21 @@ export class ManualUnlockCalendarDto {
   reason?: string;
 }
 
+export class GetMyLockStatusDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsString()
+  @Matches(/^\d{4}-\d{2}$/, { message: 'targetMonth must be in YYYY-MM format' })
+  @IsNotEmpty()
+  targetMonth: string;
+}
+
 export class GetMonthLockStatusDto {
   @IsUUID()
   @IsNotEmpty()
@@ -644,3 +659,4 @@ export class SaveFaceBaselineDto {
   @IsNotEmpty()
   faceDescriptor: number[];
 }
+

@@ -14,15 +14,12 @@ import { todayUtc } from '@slack/common/utils/time.util';
 import { CachedService, TTL, CACHE } from '@slack/cached';
 
 const DEFAULT_FACE_SIMILARITY_THRESHOLD = 0.6;
-const LATE_GRACE_MINUTES = 15;
 
 @Injectable()
 export class AttendanceService {
   private readonly logger = new Logger(AttendanceService.name);
 
   constructor(
-    @InjectRepository(AttendanceLogEntity)
-    private readonly logRepository: Repository<AttendanceLogEntity>,
     @InjectRepository(DailyReconciliationEntity)
     private readonly reconciliationRepository: Repository<DailyReconciliationEntity>,
     @InjectRepository(WorkShiftEntity)
@@ -39,13 +36,17 @@ export class AttendanceService {
     return this.shiftRepository.findOne({ where: { id: shiftId, userId, workspaceId } });
   }
 
+  /**
+   * Validates location/face auth and returns the workspace grace period in minutes.
+   * Throws RpcException on any validation failure.
+   */
   private async validateLocation(
     workspaceId: string,
     userId: string,
     location: ShiftLocation,
     ipAddress?: string,
     faceDescriptor?: number[],
-  ) {
+  ): Promise<number> {
     const policy = await this.policyService.getPolicy(workspaceId);
     const policyData = policy?.policyData as Record<string, any> | undefined;
 
@@ -64,8 +65,8 @@ export class AttendanceService {
     if (!faceDescriptor || faceDescriptor.length === 0) {
       throw new RpcException({
         statusCode: HttpStatus.BAD_REQUEST,
-        ...CALENDAR_ERROR.WFH_REQUIRES_FACE_AUTH,
-        message: 'Khuôn mặt chưa được nhận diện. Vui lòng thử lại.',
+        ...CALENDAR_ERROR.FACE_AUTH_REQUIRED,
+        message: 'Cần xác thực khuôn mặt để chấm công. Vui lòng bật camera và thử lại.',
       });
     }
 
@@ -92,6 +93,8 @@ export class AttendanceService {
         message: `Khuôn mặt không khớp. Khoảng cách: ${distance.toFixed(2)} (Cho phép <= ${threshold}).`,
       });
     }
+
+    return policyData?.gracePeriodMinutes ?? 15;
   }
 
   private euclideanDistance(descriptor1: number[], descriptor2: number[]): number {
@@ -152,13 +155,12 @@ export class AttendanceService {
     this.validateTimeWindow(shift, now);
 
     const resolvedLocation: ShiftLocation = shift ? shift.location : location;
-    await this.validateLocation(workspaceId, userId, resolvedLocation, ipAddress, faceDescriptor);
+    const graceMs = (await this.validateLocation(workspaceId, userId, resolvedLocation, ipAddress, faceDescriptor)) * 60_000;
 
     const workDate = shift?.workDate ?? todayUtc();
 
     let reconciliationStatus = DailyReconciliationStatus.NORMAL;
     if (shift?.startTime) {
-      const graceMs = LATE_GRACE_MINUTES * 60_000;
       if (now.getTime() > new Date(shift.startTime).getTime() + graceMs) {
         reconciliationStatus = DailyReconciliationStatus.LATE_EARLY;
       }
@@ -187,7 +189,7 @@ export class AttendanceService {
           recordedAt: now,
           ipAddress,
           faceImageKey,
-          faceSimilarityScore: 1.0, // Legacy field, keeping dummy value if needed
+          faceSimilarityScore: 1.0,
         });
         await manager.save(log);
 
@@ -229,7 +231,7 @@ export class AttendanceService {
     this.validateTimeWindow(shift, now);
 
     const resolvedLocation: ShiftLocation = shift ? shift.location : location;
-    await this.validateLocation(workspaceId, userId, resolvedLocation, ipAddress, faceDescriptor);
+    const graceMs = (await this.validateLocation(workspaceId, userId, resolvedLocation, ipAddress, faceDescriptor)) * 60_000;
 
     const workDate = shift?.workDate ?? todayUtc();
 
@@ -256,7 +258,7 @@ export class AttendanceService {
           recordedAt: now,
           ipAddress,
           faceImageKey,
-          faceSimilarityScore: 1.0, // Legacy field
+          faceSimilarityScore: 1.0,
         });
         await manager.save(log);
 
@@ -264,21 +266,18 @@ export class AttendanceService {
           if (latestLog.recordedAt < now) {
             const sessionStart = latestLog.recordedAt;
             const diffMs = now.getTime() - sessionStart.getTime();
-            const additionalHours = diffMs / 3_600_000;
-            reconciliation.actualWorkHours = reconciliation.actualWorkHours + additionalHours;
+            reconciliation.actualWorkHours = reconciliation.actualWorkHours + diffMs / 3_600_000;
           }
 
           reconciliation.lastCheckOut = now;
 
           reconciliation.status = DailyReconciliationStatus.NORMAL;
           if (shift?.startTime && reconciliation.firstCheckIn) {
-            const graceMs = LATE_GRACE_MINUTES * 60_000;
             if (reconciliation.firstCheckIn.getTime() > new Date(shift.startTime).getTime() + graceMs) {
               reconciliation.status = DailyReconciliationStatus.LATE_EARLY;
             }
           }
           if (shift?.endTime) {
-            const graceMs = LATE_GRACE_MINUTES * 60_000;
             if (now.getTime() < new Date(shift.endTime).getTime() - graceMs) {
               reconciliation.status = DailyReconciliationStatus.LATE_EARLY;
             }
@@ -288,20 +287,17 @@ export class AttendanceService {
           return this.mapToResponse(reconciliation);
         }
 
-        // Edge case: check-in log exists but reconciliation record is missing (e.g. partial transaction failure).
-        // Reconstruct from the check-in log so hours are not silently lost.
+        // Edge case: check-in log exists but reconciliation record is missing.
         const sessionStart = latestLog.recordedAt;
         const additionalHours = (now.getTime() - sessionStart.getTime()) / 3_600_000;
 
         let status = DailyReconciliationStatus.NORMAL;
         if (shift?.startTime) {
-          const graceMs = LATE_GRACE_MINUTES * 60_000;
           if (sessionStart.getTime() > new Date(shift.startTime).getTime() + graceMs) {
             status = DailyReconciliationStatus.LATE_EARLY;
           }
         }
         if (shift?.endTime) {
-          const graceMs = LATE_GRACE_MINUTES * 60_000;
           if (now.getTime() < new Date(shift.endTime).getTime() - graceMs) {
             status = DailyReconciliationStatus.LATE_EARLY;
           }

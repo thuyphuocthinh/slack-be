@@ -12,6 +12,8 @@ import { WorkShiftEntity } from './work_shift.entity';
 
 @Entity('attendance_logs')
 @Index('idx_attendance_logs_recent', ['workspaceId', 'userId', 'logType', 'recordedAt'])
+// Composite index phục vụ getLatestLog (check-in/out): filter by workspaceId+userId+workShiftId, sort by recordedAt DESC
+@Index('IDX_ATTENDANCE_LOG_SHIFT_RECENT', ['workspaceId', 'userId', 'workShiftId', 'recordedAt'])
 export class AttendanceLogEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
