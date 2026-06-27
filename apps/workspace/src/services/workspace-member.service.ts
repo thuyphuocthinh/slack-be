@@ -339,30 +339,37 @@ export class WorkspaceMemberService {
     userId: string,
   ): Promise<WorkspaceMemberResponseDto[]> {
     await this.commonService.isMemberOfWorkspace(workspaceId, userId);
-    return this.cachedService.getOrSetDetail(
+    
+    // 1. Fetch only relations from cache
+    const members = await this.cachedService.getOrSetDetail(
       CACHE.WORKSPACE.KEYS.MEMBERS(workspaceId),
       TTL.LONG,
       async () => {
-        const members = await this.memberRepository.find({
+        return await this.memberRepository.find({
           where: { workspaceId, status: MembershipStatus.ACTIVE },
-        });
-
-        const userIds = [...new Set(members.map((m) => m.userId))];
-
-        const users = await firstValueFrom(
-          this.userClient.send(USER_MESSAGE_PATTERNS.GET_BATCH_USER_BY_IDS, {
-            ids: userIds,
-          }),
-        );
-
-        const userMap = new Map(users.map((u) => [u.id, u]));
-
-        return members.map((member) => {
-          const user = userMap.get(member.userId) as UserType;
-          return this.commonService.mapMemberWithUserToDto(member, user);
         });
       },
     );
+
+    // 2. Extract user IDs
+    const userIds = [...new Set(members.map((m) => m.userId))];
+
+    if (!userIds.length) return [];
+
+    // 3. Fetch latest user profiles from user service
+    const users = await firstValueFrom(
+      this.userClient.send(USER_MESSAGE_PATTERNS.GET_BATCH_USER_BY_IDS, {
+        ids: userIds,
+      }),
+    );
+
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    // 4. Compose latest profile data with member relations
+    return members.map((member) => {
+      const user = userMap.get(member.userId) as UserType;
+      return this.commonService.mapMemberWithUserToDto(member as WorkspaceMemberEntity, user);
+    });
   }
 
   async addBatchMembers(
