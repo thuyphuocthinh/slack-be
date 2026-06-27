@@ -199,35 +199,18 @@ export class UserService {
   }
 
   async getBatchUserByIds(ids: string[]): Promise<IUserResponse[]> {
-    const users = await this.userRepository.find({
-      where: { id: In(ids), status: UserStatus.ACTIVE },
-      select: [
-        'id',
-        'firstName',
-        'lastName',
-        'email',
-        'avatarUrl',
-        'status',
-        'systemRole',
-        'createdAt',
-      ],
-    });
-
-    const twoFaStatuses = await this.twoFactorService.getBatchTwoFactorStatus(
-      users.map((u) => u.id),
-    );
-
-    return users.map((user) => ({
-      id: user.id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-      avatarUrl: user.avatarUrl,
-      createdAt: user.createdAt,
-      systemRole: user.systemRole,
-      status: user.status,
-      isTwoFactorEnabled: twoFaStatuses[user.id] || false,
-    }));
+    if (!ids || !ids.length) return [];
+    
+    // Leverage getUserById to benefit from individual user cache (CACHE.USER.KEYS.DETAIL)
+    const promises = ids.map((id) => this.getUserById(id));
+    const results = await Promise.allSettled(promises);
+    
+    return results
+      .filter(
+        (result): result is PromiseFulfilledResult<IUserResponse> =>
+          result.status === 'fulfilled' && result.value !== null,
+      )
+      .map((result) => result.value);
   }
 
   async findUsersByEmail(email: string): Promise<IUserResponse[]> {
