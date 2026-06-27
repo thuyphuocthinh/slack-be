@@ -1,6 +1,6 @@
 import { Injectable, HttpStatus } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, Between, EntityManager } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
 import { WorkspaceCalendarPolicyEntity } from '../entity/workspace_calendar_policy.entity';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
@@ -48,8 +48,8 @@ export class WorkspaceCalendarPolicyService {
     workspaceId: string,
     userId: string,
     memberEmploymentType: string | undefined,
-    memberRole: string,
-    shifts: WorkShiftValidationPayload[]
+    shifts: WorkShiftValidationPayload[],
+    manager?: EntityManager,
   ) {
     if (!shifts || shifts.length === 0) return;
 
@@ -74,16 +74,15 @@ export class WorkspaceCalendarPolicyService {
     const empType = memberEmploymentType || 'FULLTIME';
     const maxHours = empType === 'PARTTIME' ? maxPartTimeHours : maxFullTimeHours;
 
-    // 0. Check Lock Deadline
-    await this.checkLockDeadline(workspaceId, memberRole, userId, shifts.map(s => s.workDate));
-
     // 1. Setup boundaries & grouping maps (O(N))
     const { wfhDatesSet, monthMap, minDate, maxDate, weekMap } = this.calculateShiftBoundaries(shifts);
 
     // 2. Fetch all existing shifts for the affected period in a SINGLE DB query
+    // Uses the provided transaction manager when available to read within the same transaction.
+    const shiftRepo = manager ? manager.getRepository(WorkShiftEntity) : this.workShiftRepository;
     let existingShifts: WorkShiftEntity[] = [];
     if (minDate <= maxDate) {
-      existingShifts = await this.workShiftRepository.find({
+      existingShifts = await shiftRepo.find({
         where: {
           workspaceId,
           userId,
@@ -239,12 +238,12 @@ export class WorkspaceCalendarPolicyService {
     for (const workDate of workDates) {
       const shiftDate = new Date(workDate);
       const targetYear = shiftDate.getUTCFullYear();
-      const targetMonth = shiftDate.getUTCMonth(); // 0-11
-      const deadlineDate = new Date(Date.UTC(targetYear, targetMonth - 1, lockDeadlineDay, 23, 59, 59, 999));
+      const targetMonthIndex = shiftDate.getUTCMonth(); // 0-indexed: 0=Jan … 11=Dec
+      const deadlineDate = new Date(Date.UTC(targetYear, targetMonthIndex, lockDeadlineDay, 23, 59, 59, 999));
 
       if (currentDate.getTime() <= deadlineDate.getTime()) continue;
 
-      const targetMonthStr = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}`;
+      const targetMonthStr = `${targetYear}-${String(targetMonthIndex + 1).padStart(2, '0')}`;
 
       if (!activeUnlockByMonth.has(targetMonthStr)) {
         const lockRecord = await this.userLockRepository.findOne({
@@ -261,7 +260,7 @@ export class WorkspaceCalendarPolicyService {
       throw new RpcException({
         statusCode: HttpStatus.FORBIDDEN,
         ...CALENDAR_ERROR.CALENDAR_LOCKED,
-        message: `Lịch đăng ký cho tháng ${targetMonth + 1}/${targetYear} đã khóa từ ngày ${lockDeadlineDay}/${targetMonth === 0 ? 12 : targetMonth}. Vui lòng liên hệ Admin.`,
+        message: `Lịch đăng ký cho tháng ${targetMonthIndex + 1}/${targetYear} đã khóa từ ngày ${lockDeadlineDay}/${targetMonthIndex + 1}/${targetYear}. Vui lòng liên hệ Admin.`,
       });
     }
   }

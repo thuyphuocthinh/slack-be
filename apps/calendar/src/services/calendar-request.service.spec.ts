@@ -5,6 +5,8 @@ import { RpcException } from '@nestjs/microservices';
 import { CalendarRequestService } from './calendar-request.service';
 import { CalendarRequestEntity } from '../entity/calendar_request.entity';
 import { LeaveBalanceEntity } from '../entity/leave_balance.entity';
+import { DailyReconciliationEntity } from '../entity/daily_reconciliation.entity';
+import { DailyReconciliationStatus } from '../types/calendar.enum';
 import { CALENDAR_ERROR, AUTH_ERROR } from '@slack/constants';
 import { CalendarRequestType, CalendarRequestStatus, CalendarRequestAction } from '../types/calendar.enum';
 import { CalendarCommonService } from './calendar-common.service';
@@ -34,8 +36,10 @@ describe('CalendarRequestService', () => {
     manager = {
       transaction: jest.fn((cb) => cb(manager)),
       findOne: jest.fn(),
+      find: jest.fn().mockResolvedValue([]),
       create: jest.fn(),
       save: jest.fn(),
+      delete: jest.fn().mockResolvedValue({ affected: 1 }),
       remove: jest.fn(),
       merge: jest.fn((_entity, obj, data) => Object.assign(obj, data)),
       createQueryBuilder: jest.fn().mockReturnValue({
@@ -246,7 +250,7 @@ describe('CalendarRequestService', () => {
 
     it('should update request successfully', async () => {
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
-      const mockReq = { id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.PENDING, startTime: new Date('2026-06-22T00:00:00Z'), requestType: CalendarRequestType.LEAVE_PAID };
+      const mockReq = { id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.PENDING, startTime: new Date('2026-06-22T00:00:00Z'), endTime: new Date('2026-06-22T23:59:59Z'), requestType: CalendarRequestType.LEAVE_PAID };
       manager.findOne.mockResolvedValueOnce(mockReq);
       manager.save.mockResolvedValue({ ...mockReq, reason: 'Updated reason' });
 
@@ -312,10 +316,59 @@ describe('CalendarRequestService', () => {
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
       manager.findOne.mockResolvedValueOnce({ id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.PENDING, startTime: new Date() });
       policyService.checkLockDeadline.mockRejectedValueOnce(new RpcException({ statusCode: HttpStatus.FORBIDDEN, message: 'Locked' }));
-      
+
       await expect(service.deleteRequest(dto)).rejects.toMatchObject({
         error: expect.objectContaining({ statusCode: HttpStatus.FORBIDDEN, message: 'Locked' })
       });
+    });
+
+    it('should delete reconciliation records when cancelling an APPROVED LEAVE_PAID request', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      const futureStart = new Date('2026-07-07T01:00:00Z'); // Monday
+      const futureEnd = new Date('2026-07-08T23:59:59Z');   // Tuesday
+      const mockReq = {
+        id: 'req-1',
+        userId: 'user-1',
+        workspaceId: 'workspace-1',
+        status: CalendarRequestStatus.APPROVED,
+        requestType: CalendarRequestType.LEAVE_PAID,
+        startTime: futureStart,
+        endTime: futureEnd,
+        durationDays: 2,
+      };
+      manager.findOne.mockResolvedValueOnce(mockReq); // findAndValidateRequest
+      manager.save.mockResolvedValue({ ...mockReq, status: CalendarRequestStatus.CANCELLED });
+
+      await service.deleteRequest(dto);
+
+      expect(manager.delete).toHaveBeenCalledWith(
+        DailyReconciliationEntity,
+        expect.objectContaining({
+          workspaceId: 'workspace-1',
+          userId: 'user-1',
+          workDate: expect.anything(), // In([...])
+        }),
+      );
+    });
+
+    it('should NOT delete reconciliation records when cancelling a PENDING leave request', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      const mockReq = {
+        id: 'req-1',
+        userId: 'user-1',
+        workspaceId: 'workspace-1',
+        status: CalendarRequestStatus.PENDING,
+        requestType: CalendarRequestType.LEAVE_PAID,
+        startTime: new Date('2026-07-07T01:00:00Z'),
+        endTime: new Date('2026-07-07T23:59:59Z'),
+        durationDays: 1,
+      };
+      manager.findOne.mockResolvedValueOnce(mockReq);
+      manager.save.mockResolvedValue({ ...mockReq, status: CalendarRequestStatus.CANCELLED });
+
+      await service.deleteRequest(dto);
+
+      expect(manager.delete).not.toHaveBeenCalledWith(DailyReconciliationEntity, expect.anything());
     });
   });
 
@@ -418,30 +471,107 @@ describe('CalendarRequestService', () => {
       expect(result.rejectReason).toBe('Looks good');
     });
 
-    it('should correctly APPROVE a LEAVE_PAID request, deduct balance and delete shifts', async () => {
+    it('should correctly APPROVE a LEAVE_PAID request, deduct balance, delete shifts and create reconciliation records', async () => {
       calendarCommonService.fetchMember.mockResolvedValue(ADMIN);
       const mockReq = {
         id: 'req-1',
         status: CalendarRequestStatus.PENDING,
         requestType: CalendarRequestType.LEAVE_PAID,
         userId: 'user-1',
-        startTime: new Date('2026-06-22T00:00:00Z'),
-        endTime: new Date('2026-06-23T00:00:00Z'),
+        workspaceId: 'workspace-1',
+        startTime: new Date('2026-06-22T00:00:00Z'), // Monday
+        endTime: new Date('2026-06-23T00:00:00Z'),   // Tuesday
         durationDays: 2,
       };
       const mockBalance = { id: 'bal-1', totalPaidLeave: 12, usedPaidLeave: 5 };
 
       manager.findOne
-        .mockResolvedValueOnce(mockReq)
-        .mockResolvedValueOnce(mockBalance);
+        .mockResolvedValueOnce(mockReq)     // findAndValidateRequest
+        .mockResolvedValueOnce(mockBalance); // balance check in handleLeaveApproval
+      manager.find.mockResolvedValueOnce([]); // batch reconciliation lookup → no existing records
 
+      manager.create.mockImplementation((_entity: any, data: any) => ({ ...data }));
       manager.save.mockResolvedValue({ ...mockReq, status: CalendarRequestStatus.APPROVED });
 
       const result = await service.reviewRequest(dto);
 
+      // balance deducted
       expect(manager.save).toHaveBeenCalledWith(LeaveBalanceEntity, expect.objectContaining({ usedPaidLeave: 7 }));
+      // shifts deleted
       expect(manager.createQueryBuilder).toHaveBeenCalled();
+      // reconciliation records created for both leave days
+      expect(manager.create).toHaveBeenCalledWith(DailyReconciliationEntity, expect.objectContaining({
+        workDate: '2026-06-22',
+        status: DailyReconciliationStatus.LEAVE_PAID_APPROVED,
+      }));
+      expect(manager.create).toHaveBeenCalledWith(DailyReconciliationEntity, expect.objectContaining({
+        workDate: '2026-06-23',
+        status: DailyReconciliationStatus.LEAVE_PAID_APPROVED,
+      }));
       expect(result.status).toBe(CalendarRequestStatus.APPROVED);
+    });
+
+    it('should create LEAVE_UNPAID_APPROVED reconciliation records when approving LEAVE_UNPAID', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(ADMIN);
+      const mockReq = {
+        id: 'req-4',
+        status: CalendarRequestStatus.PENDING,
+        requestType: CalendarRequestType.LEAVE_UNPAID,
+        userId: 'user-1',
+        workspaceId: 'workspace-1',
+        startTime: new Date('2026-06-22T00:00:00Z'), // Monday
+        endTime: new Date('2026-06-22T23:59:59Z'),   // same day
+        durationDays: 1,
+      };
+
+      manager.findOne.mockResolvedValueOnce(mockReq); // findAndValidateRequest
+      manager.find.mockResolvedValueOnce([]);        // batch reconciliation lookup → no existing
+
+      manager.create.mockImplementation((_entity: any, data: any) => ({ ...data }));
+      manager.save.mockResolvedValue({ ...mockReq, status: CalendarRequestStatus.APPROVED });
+
+      const approveDto = { ...dto, id: 'req-4' };
+      await service.reviewRequest(approveDto);
+
+      expect(manager.create).toHaveBeenCalledWith(DailyReconciliationEntity, expect.objectContaining({
+        workDate: '2026-06-22',
+        status: DailyReconciliationStatus.LEAVE_UNPAID_APPROVED,
+      }));
+      // leave balance must NOT be touched for unpaid leave
+      expect(manager.save).not.toHaveBeenCalledWith(LeaveBalanceEntity, expect.anything());
+    });
+
+    it('should update existing reconciliation record status when approving leave on a day already reconciled', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(ADMIN);
+      const mockReq = {
+        id: 'req-5',
+        status: CalendarRequestStatus.PENDING,
+        requestType: CalendarRequestType.LEAVE_PAID,
+        userId: 'user-1',
+        workspaceId: 'workspace-1',
+        startTime: new Date('2026-06-22T00:00:00Z'),
+        endTime: new Date('2026-06-22T23:59:59Z'),
+        durationDays: 1,
+      };
+      const mockBalance = { id: 'bal-1', totalPaidLeave: 12, usedPaidLeave: 5 };
+      const existingReconciliation = { id: 'rec-1', workDate: '2026-06-22', status: DailyReconciliationStatus.LATE_EARLY };
+
+      manager.findOne
+        .mockResolvedValueOnce(mockReq)    // findAndValidateRequest
+        .mockResolvedValueOnce(mockBalance); // balance check
+      manager.find.mockResolvedValueOnce([existingReconciliation]); // batch → returns existing record
+
+      manager.save.mockResolvedValue({ ...mockReq, status: CalendarRequestStatus.APPROVED });
+
+      const approveDto = { ...dto, id: 'req-5' };
+      await service.reviewRequest(approveDto);
+
+      // should update the existing record's status in-place, not create a new one
+      expect(manager.create).not.toHaveBeenCalledWith(DailyReconciliationEntity, expect.anything());
+      expect(manager.save).toHaveBeenCalledWith(
+        DailyReconciliationEntity,
+        expect.arrayContaining([expect.objectContaining({ id: 'rec-1', status: DailyReconciliationStatus.LEAVE_PAID_APPROVED })]),
+      );
     });
 
     it('should calculate actualDuration skipping holidays in reviewRequest', async () => {
@@ -471,15 +601,22 @@ describe('CalendarRequestService', () => {
       // But updateRequest does. I'll test updateRequest for the holiday check.
     });
 
-    it('should throw FORBIDDEN if reviewed request is in a locked month', async () => {
-      calendarCommonService.fetchMember.mockResolvedValue(ADMIN); // reviewer and requester
-      manager.findOne.mockResolvedValueOnce({ id: 'req-1', userId: 'user-1', status: CalendarRequestStatus.PENDING, requestType: CalendarRequestType.LEAVE_PAID, startTime: new Date() });
-      policyService.checkLockDeadline.mockRejectedValueOnce(new RpcException({ statusCode: HttpStatus.FORBIDDEN, message: 'Locked' }));
-      
-      const approveDto = { ...dto, action: CalendarRequestAction.APPROVE };
-      await expect(service.reviewRequest(approveDto)).rejects.toMatchObject({
-        error: expect.objectContaining({ statusCode: HttpStatus.FORBIDDEN, message: 'Locked' })
-      });
+    it('should NOT call checkLockDeadline — manager can approve even after lock deadline', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(ADMIN);
+      const mockReq = {
+        id: 'req-1',
+        userId: 'user-1',
+        status: CalendarRequestStatus.PENDING,
+        requestType: CalendarRequestType.OFF_SHIFT,
+        startTime: new Date(),
+      };
+      manager.findOne.mockResolvedValueOnce(mockReq);
+      manager.save.mockResolvedValue({ ...mockReq, status: CalendarRequestStatus.REJECTED });
+
+      const rejectDto = { ...dto, action: CalendarRequestAction.REJECT };
+      await service.reviewRequest(rejectDto);
+
+      expect(policyService.checkLockDeadline).not.toHaveBeenCalled();
     });
 
     it('should correctly APPROVE a CALENDAR_OPEN_REQUEST and create lock entity', async () => {

@@ -148,6 +148,16 @@ export class CalendarController {
     return this.calendarService.reviewRequest(id, workspaceId, user.sub!, dto);
   }
 
+  @Get('lock-status')
+  @ApiOperation({ summary: 'Get active unlock status for all members in a given month (Manager/Admin only)' })
+  async getMonthLockStatus(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+    @Query('targetMonth') targetMonth: string,
+  ) {
+    return this.calendarService.getMonthLockStatus(workspaceId, user.sub!, targetMonth);
+  }
+
   @Post('manual-unlock')
   @ApiOperation({ summary: 'Manually unlock calendar for a specific user (Manager/Admin only)' })
   async manualUnlock(
@@ -220,7 +230,7 @@ export class CalendarController {
     @Query('endDate') endDate: string,
     @Query('userId') targetUserId?: string,
   ) {
-    return this.calendarService.getPersonalStatisticSummary(workspaceId, targetUserId || user.sub!, startDate, endDate);
+    return this.calendarService.getPersonalStatisticSummary(workspaceId, user.sub!, targetUserId || user.sub!, startDate, endDate);
   }
 
   @Get('statistics/me/chart')
@@ -232,26 +242,28 @@ export class CalendarController {
     @Query('endDate') endDate: string,
     @Query('userId') targetUserId?: string,
   ) {
-    return this.calendarService.getPersonalChartData(workspaceId, targetUserId || user.sub!, startDate, endDate);
+    return this.calendarService.getPersonalChartData(workspaceId, user.sub!, targetUserId || user.sub!, startDate, endDate);
   }
 
   @Get('statistics/workspace/members')
   @ApiOperation({ summary: 'Get workspace members statistics (Role Admin)' })
   async getWorkspaceStatisticMembers(
     @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
     @Query('month') month: string, // format YYYY-MM
   ) {
-    return this.calendarService.getWorkspaceStatisticMembers(workspaceId, month);
+    return this.calendarService.getWorkspaceStatisticMembers(workspaceId, user.sub!, month);
   }
 
   @Get('statistics/workspace/export')
   @ApiOperation({ summary: 'Export workspace statistics to Excel (Role Admin)' })
   async exportWorkspaceStatisticExcel(
     @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
     @Query('month') month: string, // format YYYY-MM
     @Res() res: Response,
   ) {
-    const base64Data = await this.calendarService.exportWorkspaceStatisticExcel(workspaceId, month);
+    const base64Data = await this.calendarService.exportWorkspaceStatisticExcel(workspaceId, user.sub!, month);
     const buffer = Buffer.from(base64Data, 'base64');
 
     res.set({

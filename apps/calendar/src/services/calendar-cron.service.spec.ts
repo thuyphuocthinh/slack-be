@@ -128,7 +128,7 @@ describe('CalendarCronService', () => {
       const shiftEnd = minutesAgo(30);    // ended 30 min ago
       const checkIn = minutesAgo(150);   // checked in 2.5 hours ago
       const shift = makeShift({ startTime: minutesAgo(180), endTime: shiftEnd });
-      const recon = makeReconciliation({ firstCheckIn: checkIn, lastCheckOut: null });
+      const recon = makeReconciliation({ firstCheckIn: checkIn, lastCheckOut: undefined });
       shiftRepo.find.mockResolvedValue([shift]);
       reconcRepo.findOne.mockResolvedValue(recon);
 
@@ -236,7 +236,7 @@ describe('CalendarCronService', () => {
 
     it('links workShiftId on existing reconciliation', async () => {
       const shift = makeShift({ id: 'shift-xyz' });
-      const recon = makeReconciliation({ workShiftId: null, firstCheckIn: t('2026-06-21T01:00:00Z'), lastCheckOut: t('2026-06-21T10:00:00Z') });
+      const recon = makeReconciliation({ workShiftId: undefined, firstCheckIn: t('2026-06-21T01:00:00Z'), lastCheckOut: t('2026-06-21T10:00:00Z') });
       shiftRepo.find.mockResolvedValue([shift]);
       reconcRepo.findOne.mockResolvedValue(recon);
 
@@ -262,7 +262,7 @@ describe('CalendarCronService', () => {
       expect(result.absent).toBe(1);
     });
 
-    it('handles multiple shifts and returns correct aggregate counts', async () => {
+    it('handles multiple shifts for different users and returns correct aggregate counts', async () => {
       shiftRepo.find.mockResolvedValue([
         makeShift({ id: 's1', userId: 'u1' }),
         makeShift({ id: 's2', userId: 'u2' }),
@@ -272,7 +272,7 @@ describe('CalendarCronService', () => {
       reconcRepo.findOne
         .mockResolvedValueOnce(null) // u1 → ABSENT
         .mockResolvedValueOnce(      // u2 → has check-in, no checkout → auto-close
-          makeReconciliation({ userId: 'u2', firstCheckIn: t('2026-06-21T01:00:00Z'), lastCheckOut: null }),
+          makeReconciliation({ userId: 'u2', firstCheckIn: t('2026-06-21T01:00:00Z'), lastCheckOut: undefined }),
         )
         .mockResolvedValueOnce(      // u3 → full attendance → updated
           makeReconciliation({ userId: 'u3', firstCheckIn: t('2026-06-21T01:00:00Z'), lastCheckOut: t('2026-06-21T10:00:00Z') }),
@@ -280,6 +280,7 @@ describe('CalendarCronService', () => {
 
       const result = await service.runManually(WORK_DATE);
 
+      // totalShifts = number of user-day groups (3 users, 3 groups)
       expect(result).toEqual({
         workDate: WORK_DATE,
         totalShifts: 3,
@@ -287,6 +288,64 @@ describe('CalendarCronService', () => {
         closed: 1,
         updated: 2,
       });
+    });
+
+    it('creates only ONE reconciliation record when a user has two shifts on the same day', async () => {
+      // Same user (USER_A), same workDate, two non-overlapping shifts: 4h AM + 4h PM
+      const shiftAM = makeShift({ id: 'shift-am', startTime: t('2026-06-21T01:00:00Z'), endTime: t('2026-06-21T05:00:00Z') });
+      const shiftPM = makeShift({ id: 'shift-pm', startTime: t('2026-06-21T06:00:00Z'), endTime: t('2026-06-21T10:00:00Z') });
+      shiftRepo.find.mockResolvedValue([shiftAM, shiftPM]);
+      reconcRepo.findOne.mockResolvedValue(null); // no existing record
+
+      const result = await service.runManually(WORK_DATE);
+
+      // Only one group → one findOne call and one create/save call
+      expect(reconcRepo.findOne).toHaveBeenCalledTimes(1);
+      expect(reconcRepo.create).toHaveBeenCalledTimes(1);
+      expect(reconcRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+        standardWorkHours: 8,        // 4h AM + 4h PM
+        workShiftId: 'shift-am',     // primary = earliest shift
+        status: DailyReconciliationStatus.ABSENT,
+      }));
+      // totalShifts = 1 group (not 2 raw shifts)
+      expect(result.totalShifts).toBe(1);
+      expect(result.absent).toBe(1);
+    });
+
+    it('creates separate reconciliation records for the same user in different workspaces', async () => {
+      const WS2 = 'workspace-2';
+      const shiftWS1 = makeShift({ id: 'shift-ws1', workspaceId: WS, userId: USER_A });
+      const shiftWS2 = makeShift({ id: 'shift-ws2', workspaceId: WS2, userId: USER_A });
+      shiftRepo.find.mockResolvedValue([shiftWS1, shiftWS2]);
+      reconcRepo.findOne.mockResolvedValue(null); // both → ABSENT
+
+      const result = await service.runManually(WORK_DATE);
+
+      // Two separate groups (different workspaces) → two independent reconciliation records
+      expect(reconcRepo.findOne).toHaveBeenCalledTimes(2);
+      expect(reconcRepo.create).toHaveBeenCalledTimes(2);
+      expect(result.totalShifts).toBe(2);
+      expect(result.absent).toBe(2);
+    });
+
+    it('uses first shift startTime for lateMinutes and last shift endTime for earlyLeaveMinutes with two shifts', async () => {
+      const shiftAM = makeShift({ id: 'shift-am', startTime: t('2026-06-21T01:00:00Z'), endTime: t('2026-06-21T05:00:00Z') });
+      const shiftPM = makeShift({ id: 'shift-pm', startTime: t('2026-06-21T06:00:00Z'), endTime: t('2026-06-21T10:00:00Z') });
+      const recon = makeReconciliation({
+        firstCheckIn: t('2026-06-21T01:25:00Z'),  // 25 min late vs first shift (01:00)
+        lastCheckOut: t('2026-06-21T09:30:00Z'),   // 30 min early vs last shift (10:00)
+      });
+      shiftRepo.find.mockResolvedValue([shiftAM, shiftPM]);
+      reconcRepo.findOne.mockResolvedValue(recon);
+
+      await service.runManually(WORK_DATE);
+
+      const saved = reconcRepo.save.mock.calls[0][0];
+      expect(saved.lateMinutes).toBe(25);          // vs shiftAM.startTime
+      expect(saved.earlyLeaveMinutes).toBe(30);    // vs shiftPM.endTime
+      expect(saved.standardWorkHours).toBe(8);     // 4 + 4
+      expect(saved.workShiftId).toBe('shift-am');  // primary shift
+      expect(saved.status).toBe(DailyReconciliationStatus.LATE_EARLY);
     });
   });
 

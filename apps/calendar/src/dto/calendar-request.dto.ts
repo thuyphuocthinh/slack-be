@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsISO8601,
   IsNotEmpty,
@@ -343,6 +344,7 @@ export class GetCalendarRequestsDto {
 
   @IsNumber()
   @Min(1)
+  @Max(100)
   @Type(() => Number)
   @IsOptional()
   limit?: number = 20;
@@ -440,6 +442,21 @@ export class ManualUnlockCalendarDto {
   reason?: string;
 }
 
+export class GetMonthLockStatusDto {
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  requestorId: string;
+
+  @IsString()
+  @Matches(/^\d{4}-\d{2}$/, { message: 'targetMonth must be in YYYY-MM format' })
+  @IsNotEmpty()
+  targetMonth: string;
+}
+
 export class GetMyLeaveBalanceDto {
   @IsUUID()
   @IsNotEmpty()
@@ -475,14 +492,18 @@ export class GetPersonalStatisticSummaryDto {
 
   @IsUUID()
   @IsNotEmpty()
+  requestorId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
   userId: string;
 
   @IsString()
-  @IsNotEmpty()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'startDate must be in YYYY-MM-DD format' })
   startDate: string;
 
   @IsString()
-  @IsNotEmpty()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'endDate must be in YYYY-MM-DD format' })
   endDate: string;
 }
 
@@ -493,9 +514,13 @@ export class GetWorkspaceStatisticMembersDto {
   @IsNotEmpty()
   workspaceId: string;
 
-  @IsString()
+  @IsUUID()
   @IsNotEmpty()
-  month: string; // YYYY-MM
+  requestorId: string;
+
+  @IsString()
+  @Matches(/^\d{4}-\d{2}$/, { message: 'month must be in YYYY-MM format' })
+  month: string;
 }
 
 export class ExportWorkspaceStatisticExcelDto extends GetWorkspaceStatisticMembersDto { }
@@ -537,6 +562,7 @@ export class CreateHolidayDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be in YYYY-MM-DD format' })
   date: string;
 
+  @IsBoolean()
   @IsOptional()
   isRecurringYearly?: boolean;
 }
@@ -563,6 +589,7 @@ export class UpdateHolidayDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be in YYYY-MM-DD format' })
   date?: string;
 
+  @IsBoolean()
   @IsOptional()
   isRecurringYearly?: boolean;
 }

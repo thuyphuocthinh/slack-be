@@ -1,21 +1,20 @@
 import { Injectable, Logger, HttpStatus } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, EntityManager } from 'typeorm';
+import { Repository, EntityManager, In } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
 import { CalendarRequestEntity } from '../entity/calendar_request.entity';
 import { LeaveBalanceEntity } from '../entity/leave_balance.entity';
 import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto, ReviewCalendarRequestDto, ManualUnlockCalendarDto } from '../dto/calendar-request.dto';
 import { CalendarUserLockEntity } from '../entity/calendar_user_lock.entity';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
+import { DailyReconciliationEntity } from '../entity/daily_reconciliation.entity';
 import { CalendarRequestResponseDto } from '../dto/calendar-response.dto';
 import { CALENDAR_ERROR, DEFAULT_PAID_LEAVE_DAYS, AUTH_ERROR } from '@slack/constants';
-import { CalendarRequestType, CalendarRequestStatus, CalendarRequestAction } from '../types/calendar.enum';
+import { CalendarRequestType, CalendarRequestStatus, CalendarRequestAction, DailyReconciliationStatus } from '../types/calendar.enum';
 import { plainToInstance } from 'class-transformer';
 import { IOffsetResponse } from '@slack/common';
 import { CalendarCommonService } from './calendar-common.service';
 import { WorkspaceHolidayService } from './workspace-holiday.service';
-import { WorkspaceHolidayResponseDto } from '../dto/calendar-response.dto';
-
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { EQueueName, EJobName, QueueService } from '@slack/queue';
 
@@ -30,37 +29,29 @@ export class CalendarRequestService {
     private readonly policyService: WorkspaceCalendarPolicyService,
     private readonly queueService: QueueService,
     private readonly holidayService: WorkspaceHolidayService,
-  ) {}
+  ) { }
+
+  private getWorkdaysBetween(startTime: Date, endTime: Date): string[] {
+    const WORKING_DAYS = [1, 2, 3, 4, 5];
+    const dates: string[] = [];
+    const cursor = new Date(startTime);
+    cursor.setUTCHours(0, 0, 0, 0);
+    const end = new Date(endTime);
+    end.setUTCHours(23, 59, 59, 999);
+    while (cursor <= end) {
+      if (WORKING_DAYS.includes(cursor.getUTCDay())) {
+        dates.push(cursor.toISOString().split('T')[0]);
+      }
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return dates;
+  }
 
   private async calculateMaxWorkingDays(workspaceId: string, startTime: Date, endTime: Date): Promise<number> {
-    const workingDays = [1, 2, 3, 4, 5]; // Mon - Fri
-
-    let loopDate = new Date(startTime);
-    loopDate.setUTCHours(0, 0, 0, 0);
-    const endLoopDate = new Date(endTime);
-    endLoopDate.setUTCHours(23, 59, 59, 999);
-
-    const datesToCheck: string[] = [];
-    while (loopDate <= endLoopDate) {
-      const dayOfWeek = loopDate.getUTCDay();
-      if (workingDays.includes(dayOfWeek)) {
-        datesToCheck.push(loopDate.toISOString().split('T')[0]);
-      }
-      loopDate.setUTCDate(loopDate.getUTCDate() + 1);
-    }
-
+    const datesToCheck = this.getWorkdaysBetween(startTime, endTime);
     if (datesToCheck.length === 0) return 0;
-
     const holidaysMap = await this.holidayService.checkIfDatesAreHolidays(workspaceId, datesToCheck);
-    
-    let maxWorkingDays = 0;
-    for (const date of datesToCheck) {
-      if (!holidaysMap[date]) {
-        maxWorkingDays++;
-      }
-    }
-
-    return maxWorkingDays;
+    return datesToCheck.filter(d => !holidaysMap[d]).length;
   }
 
   private async checkLeaveBalance(manager: EntityManager, workspaceId: string, userId: string, year: number, actualDuration: number) {
@@ -115,7 +106,7 @@ export class CalendarRequestService {
     return request;
   }
 
-  private async handleLeaveApproval(manager: EntityManager, request: CalendarRequestEntity) {
+  private async handleLeaveApproval(manager: EntityManager, request: CalendarRequestEntity): Promise<number> {
     if (request.requestType === CalendarRequestType.LEAVE_PAID) {
       const year = request.startTime.getFullYear();
       const policy = await this.policyService.getPolicy(request.workspaceId);
@@ -134,11 +125,9 @@ export class CalendarRequestService {
           totalPaidLeave: maxPaidLeaveDays,
           usedPaidLeave: 0,
         });
-      } else {
-        balance.totalPaidLeave = maxPaidLeaveDays;
       }
 
-      const available = balance.totalPaidLeave - balance.usedPaidLeave;
+      const available = maxPaidLeaveDays - balance.usedPaidLeave;
       if (available < request.durationDays) {
         throw new RpcException({
           statusCode: HttpStatus.BAD_REQUEST,
@@ -155,7 +144,7 @@ export class CalendarRequestService {
     const startDateStr = request.startTime.toISOString().split('T')[0];
     const endDateStr = request.endTime.toISOString().split('T')[0];
 
-    await manager.createQueryBuilder()
+    const deleteResult = await manager.createQueryBuilder()
       .delete()
       .from(WorkShiftEntity)
       .where('workspaceId = :workspaceId', { workspaceId: request.workspaceId })
@@ -163,6 +152,42 @@ export class CalendarRequestService {
       .andWhere('workDate >= :startDateStr', { startDateStr })
       .andWhere('workDate <= :endDateStr', { endDateStr })
       .execute();
+
+    const deletedShiftsCount = deleteResult.affected ?? 0;
+
+    // Tạo reconciliation record cho từng ngày làm việc trong khoảng nghỉ,
+    // đảm bảo thống kê cuối tháng hiển thị đúng trạng thái thay vì bị trống hoặc ABSENT.
+    const reconciliationStatus = request.requestType === CalendarRequestType.LEAVE_PAID
+      ? DailyReconciliationStatus.LEAVE_PAID_APPROVED
+      : DailyReconciliationStatus.LEAVE_UNPAID_APPROVED;
+
+    const workdays = this.getWorkdaysBetween(request.startTime, request.endTime);
+    if (workdays.length === 0) return deletedShiftsCount;
+
+    const holidaysMap = await this.holidayService.checkIfDatesAreHolidays(request.workspaceId, workdays);
+    const leaveDates = workdays.filter(d => !holidaysMap[d]);
+
+    const existingRecords = await manager.find(DailyReconciliationEntity, {
+      where: { workspaceId: request.workspaceId, userId: request.userId, workDate: In(leaveDates) },
+    });
+    const existingMap = new Map(existingRecords.map(r => [r.workDate, r]));
+
+    const toSave = leaveDates.map(workDate => {
+      const existing = existingMap.get(workDate);
+      if (existing) {
+        existing.status = reconciliationStatus;
+        return existing;
+      }
+      return manager.create(DailyReconciliationEntity, {
+        workspaceId: request.workspaceId,
+        userId: request.userId,
+        workDate,
+        status: reconciliationStatus,
+      });
+    });
+
+    await manager.save(DailyReconciliationEntity, toSave);
+    return deletedShiftsCount;
   }
 
   private async handleCalendarOpenApproval(manager: EntityManager, request: CalendarRequestEntity, reviewerId: string) {
@@ -201,8 +226,8 @@ export class CalendarRequestService {
     const query = manager.createQueryBuilder(CalendarRequestEntity, 'req')
       .where('req.workspaceId = :workspaceId', { workspaceId })
       .andWhere('req.userId = :userId', { userId })
-      .andWhere('req.status IN (:...statuses)', { 
-        statuses: [CalendarRequestStatus.PENDING, CalendarRequestStatus.APPROVED] 
+      .andWhere('req.status IN (:...statuses)', {
+        statuses: [CalendarRequestStatus.PENDING, CalendarRequestStatus.APPROVED]
       })
       .andWhere('req.startTime < :endObj', { endObj })
       .andWhere('req.endTime > :startObj', { startObj });
@@ -230,7 +255,7 @@ export class CalendarRequestService {
 
       const startObj = new Date(startTime as unknown as string);
       const endObj = new Date(endTime as unknown as string);
-      
+
       if (startObj >= endObj) {
         throw new RpcException({
           statusCode: HttpStatus.BAD_REQUEST,
@@ -250,7 +275,7 @@ export class CalendarRequestService {
 
       // 1.5. Check lock deadline
       if (requestType !== CalendarRequestType.CALENDAR_OPEN_REQUEST) {
-        await this.policyService.checkLockDeadline(workspaceId, member.role, userId, [startObj.toISOString()]);
+        await this.policyService.checkLockDeadline(workspaceId, member.role, userId, [startObj.toISOString().split('T')[0]]);
       }
 
       return await this.requestRepository.manager.transaction(async (manager) => {
@@ -275,17 +300,16 @@ export class CalendarRequestService {
         });
 
         const saved = await manager.save(CalendarRequestEntity, newRequest);
-        
+
         // Push notification job
-        const requester = await this.calendarCommonService.fetchMember(workspaceId, userId);
         this.queueService.addJob(EQueueName.CALENDAR_QUEUE, EJobName.CALENDAR_REQUEST_CREATED, {
           requestId: saved.id,
           workspaceId,
           requesterId: userId,
-          requesterName: requester.name,
+          requesterName: member.name,
           requestType,
           durationDays: actualDuration,
-        });
+        }).catch(err => this.logger.error('Failed to dispatch CALENDAR_REQUEST_CREATED job', err));
 
         return plainToInstance(CalendarRequestResponseDto, saved);
       });
@@ -312,7 +336,7 @@ export class CalendarRequestService {
 
         const startObj = startTime ? new Date(startTime as unknown as string) : request.startTime;
         const endObj = endTime ? new Date(endTime as unknown as string) : request.endTime;
-        
+
         if (startObj >= endObj) {
           throw new RpcException({
             statusCode: HttpStatus.BAD_REQUEST,
@@ -331,9 +355,9 @@ export class CalendarRequestService {
         }
         const year = startObj.getFullYear();
 
-        const datesToCheck = [request.startTime.toISOString()];
+        const datesToCheck = [request.startTime.toISOString().split('T')[0]];
         if (startObj.toISOString() !== request.startTime.toISOString()) {
-          datesToCheck.push(startObj.toISOString());
+          datesToCheck.push(startObj.toISOString().split('T')[0]);
         }
 
         if (actualRequestType !== CalendarRequestType.CALENDAR_OPEN_REQUEST) {
@@ -378,7 +402,7 @@ export class CalendarRequestService {
         const request = await this.findAndValidateRequest(manager, id, workspaceId, userId, true);
 
         if (request.requestType !== CalendarRequestType.CALENDAR_OPEN_REQUEST) {
-          await this.policyService.checkLockDeadline(workspaceId, member.role, userId, [request.startTime.toISOString()]);
+          await this.policyService.checkLockDeadline(workspaceId, member.role, userId, [request.startTime.toISOString().split('T')[0]]);
         }
 
         // Refund leave balance if deleting an APPROVED LEAVE_PAID request
@@ -395,7 +419,34 @@ export class CalendarRequestService {
           }
         }
 
-        // Thay vì hard delete, chúng ta soft-cancel bằng cách chuyển trạng thái
+        // Revert reconciliation records created when leave was approved
+        if (
+          request.status === CalendarRequestStatus.APPROVED &&
+          (request.requestType === CalendarRequestType.LEAVE_PAID || request.requestType === CalendarRequestType.LEAVE_UNPAID)
+        ) {
+          const workdays = this.getWorkdaysBetween(request.startTime, request.endTime);
+          if (workdays.length > 0) {
+            await manager.delete(DailyReconciliationEntity, {
+              workspaceId: request.workspaceId,
+              userId: request.userId,
+              workDate: In(workdays),
+              status: In([DailyReconciliationStatus.LEAVE_PAID_APPROVED, DailyReconciliationStatus.LEAVE_UNPAID_APPROVED]),
+            });
+          }
+        }
+
+        // Revoke unlock window when cancelling an approved CALENDAR_OPEN_REQUEST
+        if (request.status === CalendarRequestStatus.APPROVED && request.requestType === CalendarRequestType.CALENDAR_OPEN_REQUEST) {
+          const targetMonthStr = request.startTime.toISOString().substring(0, 7);
+          const lock = await manager.findOne(CalendarUserLockEntity, {
+            where: { workspaceId: request.workspaceId, userId: request.userId, targetMonth: targetMonthStr },
+          });
+          if (lock) {
+            lock.isUnlocked = false;
+            await manager.save(CalendarUserLockEntity, lock);
+          }
+        }
+
         request.status = CalendarRequestStatus.CANCELLED;
         await manager.save(CalendarRequestEntity, request);
         return { success: true, message: 'Cancelled calendar request successfully' };
@@ -467,9 +518,6 @@ export class CalendarRequestService {
         const request = await this.findAndValidateRequest(manager, id, workspaceId, undefined);
 
         const requester = await this.calendarCommonService.fetchMember(workspaceId, request.userId);
-        if (request.requestType !== CalendarRequestType.CALENDAR_OPEN_REQUEST) {
-          await this.policyService.checkLockDeadline(workspaceId, requester.role, request.userId, [request.startTime.toISOString()]);
-        }
 
         request.status = action === CalendarRequestAction.APPROVE ? CalendarRequestStatus.APPROVED : CalendarRequestStatus.REJECTED;
         request.approvedBy = reviewerId;
@@ -480,9 +528,10 @@ export class CalendarRequestService {
           request.metaData = { ...(request.metaData || {}), reviewNotes };
         }
 
+        let deletedShiftsCount = 0;
         if (action === CalendarRequestAction.APPROVE) {
           if (request.requestType === CalendarRequestType.LEAVE_PAID || request.requestType === CalendarRequestType.LEAVE_UNPAID) {
-            await this.handleLeaveApproval(manager, request);
+            deletedShiftsCount = await this.handleLeaveApproval(manager, request);
           } else if (request.requestType === CalendarRequestType.CALENDAR_OPEN_REQUEST) {
             await this.handleCalendarOpenApproval(manager, request, reviewerId);
           }
@@ -498,7 +547,8 @@ export class CalendarRequestService {
           reviewerId: reviewerId,
           reviewerName: reviewer.name,
           status: saved.status,
-        });
+          deletedShiftsCount,
+        }).catch(err => this.logger.error('Failed to dispatch CALENDAR_REQUEST_REVIEWED job', err));
 
         return plainToInstance(CalendarRequestResponseDto, saved);
       });
@@ -554,5 +604,21 @@ export class CalendarRequestService {
         ...CALENDAR_ERROR.MANUAL_UNLOCK_FAILED,
       });
     }
+  }
+
+  async getMonthLockStatus(workspaceId: string, requestorId: string, targetMonth: string) {
+    const requestor = await this.calendarCommonService.fetchMember(workspaceId, requestorId);
+    this.calendarCommonService.assertPrivileged(requestor.role);
+
+    const now = new Date();
+    const locks = await this.requestRepository.manager.find(CalendarUserLockEntity, {
+      where: { workspaceId, targetMonth },
+    });
+
+    return locks.map(lock => ({
+      userId: lock.userId,
+      isUnlocked: lock.isUnlocked && lock.unlockExpiresAt != null && lock.unlockExpiresAt > now,
+      unlockExpiresAt: lock.unlockExpiresAt?.toISOString() ?? null,
+    }));
   }
 }

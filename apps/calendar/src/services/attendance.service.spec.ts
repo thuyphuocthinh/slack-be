@@ -336,11 +336,14 @@ describe('AttendanceService', () => {
       expect(saved.actualWorkHours).toBeLessThanOrEqual(2.1);
     });
 
-    it('returns null when no record found (edge case)', async () => {
+    it('creates a reconciliation record when no prior record found (edge case)', async () => {
       logRepo.findOne.mockResolvedValue({ recordedAt: new Date(minutesAgo(120)) });
       reconcRepo.findOne.mockResolvedValue(null);
       const result = await service.checkOut(dto);
-      expect(result).toBeNull();
+      expect(result).not.toBeNull();
+      expect(result?.actualWorkHours).toBeGreaterThan(1.9);
+      expect(result?.firstCheckIn).toBeTruthy();
+      expect(result?.lastCheckOut).toBeTruthy();
     });
 
     it('sets status LATE_EARLY when checking out before shift ends (beyond grace)', async () => {

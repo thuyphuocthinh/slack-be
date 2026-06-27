@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { LessThan, Repository } from 'typeorm';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
 import { DailyReconciliationEntity } from '../entity/daily_reconciliation.entity';
+import { CalendarUserLockEntity } from '../entity/calendar_user_lock.entity';
 import { DailyReconciliationStatus } from '../types/calendar.enum';
 
 const GRACE_MINUTES = 15;
@@ -17,6 +18,8 @@ export class CalendarCronService {
     private readonly shiftRepository: Repository<WorkShiftEntity>,
     @InjectRepository(DailyReconciliationEntity)
     private readonly reconciliationRepository: Repository<DailyReconciliationEntity>,
+    @InjectRepository(CalendarUserLockEntity)
+    private readonly lockRepository: Repository<CalendarUserLockEntity>,
   ) {}
 
   /**
@@ -43,33 +46,56 @@ export class CalendarCronService {
 
     const now = new Date();
     const counts = { absent: 0, closed: 0, updated: 0 };
+    const shiftGroups = this.groupShiftsByUser(shifts);
 
-    for (const shift of shifts) {
+    for (const [groupKey, group] of shiftGroups) {
       try {
-        await this.reconcileShift(shift, now, counts);
+        await this.reconcileDay(group, now, counts);
       } catch (err) {
         this.logger.error(
-          `[DailyReconciliation] Failed for shift ${shift.id} (user ${shift.userId}): ${err?.message}`,
+          `[DailyReconciliation] Failed for ${groupKey} on ${workDate}: ${err?.message}`,
         );
       }
     }
 
     this.logger.log(
       `[DailyReconciliation] Done for ${workDate} — ` +
-        `total: ${shifts.length}, absent: ${counts.absent}, auto-closed: ${counts.closed}, updated: ${counts.updated}`,
+        `groups: ${shiftGroups.size}, absent: ${counts.absent}, auto-closed: ${counts.closed}, updated: ${counts.updated}`,
     );
   }
 
-  private async reconcileShift(
-    shift: WorkShiftEntity,
+  // Groups shifts by (workspaceId, userId) and sorts each group by startTime ascending.
+  // Key format: "workspaceId:userId" — ensures users in multiple workspaces are never mixed.
+  // A user can have multiple non-overlapping shifts on the same day; they must
+  // be reconciled together so only one DailyReconciliationEntity is written per workspace.
+  private groupShiftsByUser(shifts: WorkShiftEntity[]): Map<string, WorkShiftEntity[]> {
+    const groups = new Map<string, WorkShiftEntity[]>();
+    for (const shift of shifts) {
+      const key = `${shift.workspaceId}:${shift.userId}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(shift);
+    }
+    for (const group of groups.values()) {
+      group.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+    }
+    return groups;
+  }
+
+  // Reconciles all shifts for one user on one day into a single DailyReconciliationEntity.
+  // shifts must be sorted by startTime ascending (guaranteed by groupShiftsByUser).
+  private async reconcileDay(
+    shifts: WorkShiftEntity[],
     now: Date,
     counts: { absent: number; closed: number; updated: number },
   ) {
-    const { workspaceId, userId, workDate } = shift;
-    const shiftStart = new Date(shift.startTime);
-    const shiftEnd = new Date(shift.endTime);
-    const standardWorkHours =
-      Math.round(((shiftEnd.getTime() - shiftStart.getTime()) / 3_600_000) * 100) / 100;
+    const primaryShift = shifts[0];
+    const lastShift = shifts[shifts.length - 1];
+    const { workspaceId, userId, workDate } = primaryShift;
+    const shiftStart = new Date(primaryShift.startTime);
+    const shiftEnd = new Date(lastShift.endTime);
+    const standardWorkHours = Math.round(
+      shifts.reduce((sum, s) => sum + (new Date(s.endTime).getTime() - new Date(s.startTime).getTime()) / 3_600_000, 0) * 100,
+    ) / 100;
 
     let record = await this.reconciliationRepository.findOne({
       where: { workspaceId, userId, workDate },
@@ -82,7 +108,7 @@ export class CalendarCronService {
           workspaceId,
           userId,
           workDate,
-          workShiftId: shift.id,
+          workShiftId: primaryShift.id,
           standardWorkHours,
           status: DailyReconciliationStatus.ABSENT,
         }),
@@ -99,15 +125,15 @@ export class CalendarCronService {
       return;
     }
 
-    // Checked in but never checked out → auto-close at shift.endTime (or now if shift hasn't ended yet)
+    // Checked in but never checked out → auto-close at last shift's endTime
     if (record.firstCheckIn && !record.lastCheckOut) {
       const effectiveOut = shiftEnd < now ? shiftEnd : now;
       record.lastCheckOut = effectiveOut;
       counts.closed++;
     }
 
-    // Fill metadata fields
-    record.workShiftId = shift.id;
+    // Fill metadata: link to primary (earliest) shift, sum standard hours across all shifts
+    record.workShiftId = primaryShift.id;
     record.standardWorkHours = standardWorkHours;
 
     if (record.firstCheckIn) {
@@ -142,6 +168,22 @@ export class CalendarCronService {
    * Manual trigger for testing — call via a dedicated endpoint or NestJS REPL.
    * Accepts an optional date override (YYYY-MM-DD) so QA can simulate any day.
    */
+  /**
+   * Runs every Sunday at 02:00 Asia/Ho_Chi_Minh.
+   * Deletes CalendarUserLockEntity records whose unlock window has expired.
+   * Expired records are safe to remove — checkLockDeadline already ignores them
+   * (it checks `isUnlocked && unlockExpiresAt > now`), but they accumulate indefinitely.
+   */
+  @Cron('0 2 * * 0', {
+    name: 'cleanup-expired-locks',
+    timeZone: 'Asia/Ho_Chi_Minh',
+  })
+  async cleanupExpiredLocks() {
+    const now = new Date();
+    const result = await this.lockRepository.delete({ unlockExpiresAt: LessThan(now) });
+    this.logger.log(`[CleanupExpiredLocks] Deleted ${result.affected ?? 0} expired lock records`);
+  }
+
   async runManually(workDate?: string) {
     const targetDate = workDate ?? new Date().toISOString().slice(0, 10);
     this.logger.log(`[DailyReconciliation] Manual run for ${targetDate}`);
@@ -149,18 +191,19 @@ export class CalendarCronService {
     const shifts = await this.shiftRepository.find({ where: { workDate: targetDate } });
     const now = new Date();
     const counts = { absent: 0, closed: 0, updated: 0 };
+    const shiftGroups = this.groupShiftsByUser(shifts);
 
-    for (const shift of shifts) {
+    for (const [groupKey, group] of shiftGroups) {
       try {
-        await this.reconcileShift({ ...shift, workDate: targetDate }, now, counts);
+        await this.reconcileDay(group, now, counts);
       } catch (err) {
-        this.logger.error(`[DailyReconciliation] Manual run error for shift ${shift.id}: ${err?.message}`);
+        this.logger.error(`[DailyReconciliation] Manual run error for ${groupKey}: ${err?.message}`);
       }
     }
 
     return {
       workDate: targetDate,
-      totalShifts: shifts.length,
+      totalShifts: shiftGroups.size,
       ...counts,
     };
   }

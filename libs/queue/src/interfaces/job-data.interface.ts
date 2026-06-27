@@ -144,6 +144,7 @@ export interface ICalendarRequestReviewedJobData {
   reviewerId: string;
   reviewerName: string;
   status: string; // APPROVED, REJECTED
+  deletedShiftsCount?: number;
 }
 
 export interface ISyncCalendarShiftJobData {
