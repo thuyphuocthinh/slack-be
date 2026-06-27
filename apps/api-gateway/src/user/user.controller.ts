@@ -27,6 +27,8 @@ import {
 import { CurrentUser, SystemRoles, type JwtUser } from '@slack/common';
 import { SystemRoleEnum } from '@slack/constants';
 
+import { Public } from '@slack/common';
+
 @Controller('users')
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -160,5 +162,17 @@ export class UserController {
   ) {
     this.logger.log(`Save FCM token for user: ${user.sub}, device: ${deviceId}`);
     return await this.userService.saveFcmToken(user.sub, data.token, deviceId);
+  }
+
+  @Public()
+  @ApiOperation({ summary: 'Get basic profiles by user IDs' })
+  @ApiResponse({ status: 200, description: 'User profiles retrieved successfully' })
+  @Get('profiles')
+  async getProfiles(@Query('userIds') userIds: string) {
+    if (!userIds) return [];
+    const ids = userIds.split(',').filter(id => id.trim() !== '');
+    if (ids.length === 0) return [];
+    this.logger.log(`Get user profiles for user IDs: ${userIds}`);
+    return await this.userService.getBatchUserByIds(ids);
   }
 }

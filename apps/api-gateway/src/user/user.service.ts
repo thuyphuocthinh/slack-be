@@ -185,4 +185,17 @@ export class UserService {
       'UserService',
     );
   }
+
+  async getBatchUserByIds(ids: string[]) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.userClient.send(USER_MESSAGE_PATTERNS.GET_BATCH_USER_BY_IDS, {
+            ids,
+          }),
+        ),
+      'getBatchUserByIds',
+      'UserService',
+    );
+  }
 }
