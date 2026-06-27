@@ -1,12 +1,13 @@
 import { Injectable, Logger, HttpStatus } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, EntityManager, In } from 'typeorm';
+import { Repository, EntityManager, In, Between } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
 import { CalendarRequestEntity } from '../entity/calendar_request.entity';
 import { LeaveBalanceEntity } from '../entity/leave_balance.entity';
 import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto, ReviewCalendarRequestDto, ManualUnlockCalendarDto } from '../dto/calendar-request.dto';
 import { CalendarUserLockEntity } from '../entity/calendar_user_lock.entity';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
+import { AttendanceLogEntity } from '../entity/attendance_log.entity';
 import { DailyReconciliationEntity } from '../entity/daily_reconciliation.entity';
 import { CalendarRequestResponseDto } from '../dto/calendar-response.dto';
 import { CALENDAR_ERROR, DEFAULT_PAID_LEAVE_DAYS, AUTH_ERROR } from '@slack/constants';
@@ -143,6 +144,25 @@ export class CalendarRequestService {
     // Xóa ca làm việc trong khoảng thời gian nghỉ
     const startDateStr = request.startTime.toISOString().split('T')[0];
     const endDateStr = request.endTime.toISOString().split('T')[0];
+
+    // Trước khi xóa shifts, null-out workShiftId trong attendance logs liên quan
+    // để tránh FK violation hoặc orphaned records
+    const shiftsInRange = await manager.find(WorkShiftEntity, {
+      where: {
+        workspaceId: request.workspaceId,
+        userId: request.userId,
+        workDate: Between(startDateStr, endDateStr),
+      },
+      select: ['id'],
+    });
+    if (shiftsInRange.length > 0) {
+      const shiftIds = shiftsInRange.map(s => s.id);
+      await manager.createQueryBuilder()
+        .update(AttendanceLogEntity)
+        .set({ workShiftId: null })
+        .where('workShiftId IN (:...shiftIds)', { shiftIds })
+        .execute();
+    }
 
     const deleteResult = await manager.createQueryBuilder()
       .delete()
@@ -604,6 +624,18 @@ export class CalendarRequestService {
         ...CALENDAR_ERROR.MANUAL_UNLOCK_FAILED,
       });
     }
+  }
+
+  async getMyLockStatus(workspaceId: string, userId: string, targetMonth: string) {
+    const now = new Date();
+    const lock = await this.requestRepository.manager.findOne(CalendarUserLockEntity, {
+      where: { workspaceId, userId, targetMonth },
+    });
+    const isUnlocked = !!(lock?.isUnlocked && lock.unlockExpiresAt != null && lock.unlockExpiresAt > now);
+    return {
+      isUnlocked,
+      unlockExpiresAt: isUnlocked ? lock!.unlockExpiresAt!.toISOString() : null,
+    };
   }
 
   async getMonthLockStatus(workspaceId: string, requestorId: string, targetMonth: string) {

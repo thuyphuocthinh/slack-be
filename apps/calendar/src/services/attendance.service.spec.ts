@@ -123,7 +123,6 @@ describe('AttendanceService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AttendanceService,
-        { provide: getRepositoryToken(AttendanceLogEntity), useValue: logRepo }, // Not directly used in methods anymore, but kept for deps
         { provide: getRepositoryToken(DailyReconciliationEntity), useValue: reconcRepo },
         { provide: getRepositoryToken(WorkShiftEntity), useValue: shiftRepo },
         { provide: getRepositoryToken(UserFaceBaselineEntity), useValue: faceBaselineRepo },
@@ -431,7 +430,9 @@ describe('AttendanceService', () => {
       
       await service.checkOut(dto);
       const saved = manager.save.mock.calls.find((args) => args[0].workDate)[0] as DailyReconciliationEntity;
-      expect(saved.actualWorkHours).toBe(5.5); // Remains completely unchanged
+      // recordedAt is created just before `now` in the service — a few ms may be added;
+      // toBeCloseTo(5.5, 3) allows up to 0.001h (~3.6s) tolerance which covers test jitter
+      expect(saved.actualWorkHours).toBeCloseTo(5.5, 3);
     });
 
     it('7. Validation: Rejects check-in exactly 1 millisecond outside the 2-hour pre-window', async () => {

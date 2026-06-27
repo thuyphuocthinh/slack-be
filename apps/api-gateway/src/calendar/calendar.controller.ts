@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Delete, Query, Ip, Res } from '@nestjs/common';
+﻿import { Body, Controller, Get, Param, Post, Put, Delete, Query, Ip, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CalendarService } from './calendar.service';
@@ -146,6 +146,16 @@ export class CalendarController {
     @Body() dto: ReviewCalendarRequestApiDto,
   ) {
     return this.calendarService.reviewRequest(id, workspaceId, user.sub!, dto);
+  }
+
+  @Get('my-lock-status')
+  @ApiOperation({ summary: 'Lấy trạng thái mở khóa cá nhân của tháng hiện tại (dành cho mọi user)' })
+  async getMyLockStatus(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+    @Query('targetMonth') targetMonth: string,
+  ) {
+    return this.calendarService.getMyLockStatus(workspaceId, user.sub!, targetMonth);
   }
 
   @Get('lock-status')
@@ -328,3 +338,4 @@ export class CalendarController {
     return this.calendarService.autoFillHolidays(workspaceId, user.sub!, dto);
   }
 }
+

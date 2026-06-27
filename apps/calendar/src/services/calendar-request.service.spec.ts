@@ -44,6 +44,8 @@ describe('CalendarRequestService', () => {
       merge: jest.fn((_entity, obj, data) => Object.assign(obj, data)),
       createQueryBuilder: jest.fn().mockReturnValue({
         delete: jest.fn().mockReturnThis(),
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
         from: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
@@ -559,7 +561,9 @@ describe('CalendarRequestService', () => {
       manager.findOne
         .mockResolvedValueOnce(mockReq)    // findAndValidateRequest
         .mockResolvedValueOnce(mockBalance); // balance check
-      manager.find.mockResolvedValueOnce([existingReconciliation]); // batch → returns existing record
+      manager.find
+        .mockResolvedValueOnce([])                       // Fix #3: shifts in range to null attendance logs (none)
+        .mockResolvedValueOnce([existingReconciliation]); // batch reconciliation lookup
 
       manager.save.mockResolvedValue({ ...mockReq, status: CalendarRequestStatus.APPROVED });
 

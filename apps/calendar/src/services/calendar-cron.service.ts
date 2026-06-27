@@ -5,9 +5,8 @@ import { LessThan, Repository } from 'typeorm';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
 import { DailyReconciliationEntity } from '../entity/daily_reconciliation.entity';
 import { CalendarUserLockEntity } from '../entity/calendar_user_lock.entity';
+import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { DailyReconciliationStatus } from '../types/calendar.enum';
-
-const GRACE_MINUTES = 15;
 
 @Injectable()
 export class CalendarCronService {
@@ -20,6 +19,7 @@ export class CalendarCronService {
     private readonly reconciliationRepository: Repository<DailyReconciliationEntity>,
     @InjectRepository(CalendarUserLockEntity)
     private readonly lockRepository: Repository<CalendarUserLockEntity>,
+    private readonly policyService: WorkspaceCalendarPolicyService,
   ) {}
 
   /**
@@ -44,13 +44,15 @@ export class CalendarCronService {
       return;
     }
 
+    const graceMap = await this.buildGraceMap(shifts);
     const now = new Date();
     const counts = { absent: 0, closed: 0, updated: 0 };
     const shiftGroups = this.groupShiftsByUser(shifts);
 
     for (const [groupKey, group] of shiftGroups) {
       try {
-        await this.reconcileDay(group, now, counts);
+        const graceMinutes = graceMap.get(group[0].workspaceId) ?? 15;
+        await this.reconcileDay(group, now, counts, graceMinutes);
       } catch (err) {
         this.logger.error(
           `[DailyReconciliation] Failed for ${groupKey} on ${workDate}: ${err?.message}`,
@@ -62,6 +64,17 @@ export class CalendarCronService {
       `[DailyReconciliation] Done for ${workDate} — ` +
         `groups: ${shiftGroups.size}, absent: ${counts.absent}, auto-closed: ${counts.closed}, updated: ${counts.updated}`,
     );
+  }
+
+  private async buildGraceMap(shifts: WorkShiftEntity[]): Promise<Map<string, number>> {
+    const workspaceIds = [...new Set(shifts.map(s => s.workspaceId))];
+    const map = new Map<string, number>();
+    for (const wsId of workspaceIds) {
+      const policy = await this.policyService.getPolicy(wsId);
+      const policyData = policy?.policyData as Record<string, any> | undefined;
+      map.set(wsId, policyData?.gracePeriodMinutes ?? 15);
+    }
+    return map;
   }
 
   // Groups shifts by (workspaceId, userId) and sorts each group by startTime ascending.
@@ -87,6 +100,7 @@ export class CalendarCronService {
     shifts: WorkShiftEntity[],
     now: Date,
     counts: { absent: number; closed: number; updated: number },
+    graceMinutes: number,
   ) {
     const primaryShift = shifts[0];
     const lastShift = shifts[shifts.length - 1];
@@ -154,7 +168,7 @@ export class CalendarCronService {
     // Final status: LATE_EARLY if either metric exceeds grace, else NORMAL
     if (!record.firstCheckIn) {
       record.status = DailyReconciliationStatus.ABSENT;
-    } else if (record.lateMinutes > GRACE_MINUTES || record.earlyLeaveMinutes > GRACE_MINUTES) {
+    } else if (record.lateMinutes > graceMinutes || record.earlyLeaveMinutes > graceMinutes) {
       record.status = DailyReconciliationStatus.LATE_EARLY;
     } else {
       record.status = DailyReconciliationStatus.NORMAL;
@@ -164,10 +178,6 @@ export class CalendarCronService {
     counts.updated++;
   }
 
-  /**
-   * Manual trigger for testing — call via a dedicated endpoint or NestJS REPL.
-   * Accepts an optional date override (YYYY-MM-DD) so QA can simulate any day.
-   */
   /**
    * Runs every Sunday at 02:00 Asia/Ho_Chi_Minh.
    * Deletes CalendarUserLockEntity records whose unlock window has expired.
@@ -189,13 +199,15 @@ export class CalendarCronService {
     this.logger.log(`[DailyReconciliation] Manual run for ${targetDate}`);
 
     const shifts = await this.shiftRepository.find({ where: { workDate: targetDate } });
+    const graceMap = await this.buildGraceMap(shifts);
     const now = new Date();
     const counts = { absent: 0, closed: 0, updated: 0 };
     const shiftGroups = this.groupShiftsByUser(shifts);
 
     for (const [groupKey, group] of shiftGroups) {
       try {
-        await this.reconcileDay(group, now, counts);
+        const graceMinutes = graceMap.get(group[0].workspaceId) ?? 15;
+        await this.reconcileDay(group, now, counts, graceMinutes);
       } catch (err) {
         this.logger.error(`[DailyReconciliation] Manual run error for ${groupKey}: ${err?.message}`);
       }
