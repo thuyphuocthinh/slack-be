@@ -12,6 +12,7 @@ import { plainToInstance } from 'class-transformer';
 import { CALENDAR_ERROR, AUTH_ERROR } from '@slack/constants';
 import { ShiftStatus, AttendanceLogType, InOutStatus } from '../types/calendar.enum';
 import { isUtcString } from '@slack/common/utils/time.util';
+import { withSerializableRetry } from '@slack/common';
 import { WorkShiftValidationPayload } from '../types/calendar.type';
 import { WorkspaceHolidayService } from './workspace-holiday.service';
 import { QueueService, EQueueName, EJobName } from '@slack/queue';
@@ -227,23 +228,25 @@ export class WorkShiftService {
       if (newWorkDate !== shift.workDate) datesToCheck.push(newWorkDate);
       await this.policyService.checkLockDeadline(workspaceId, targetMember.role, userId, datesToCheck);
 
-      const updatedShift = await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
-        await this.policyService.validateShifts(workspaceId, userId, targetMember.employmentType, [{
-          id: shift.id,
-          workDate: newWorkDate,
-          startTime: newStartTime,
-          endTime: newEndTime,
-          location: newLocation,
-        }], manager);
+      const updatedShift = await withSerializableRetry(() =>
+        this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+          await this.policyService.validateShifts(workspaceId, userId, targetMember.employmentType, [{
+            id: shift.id,
+            workDate: newWorkDate,
+            startTime: newStartTime,
+            endTime: newEndTime,
+            location: newLocation,
+          }], manager);
 
-        await manager.update(WorkShiftEntity, { id, workspaceId, userId }, updateData);
+          await manager.update(WorkShiftEntity, { id, workspaceId, userId }, updateData);
 
-        const updated = await manager.findOne(WorkShiftEntity, { where: { id } });
-        if (!updated) {
-          throw new RpcException({ statusCode: HttpStatus.NOT_FOUND, ...CALENDAR_ERROR.SHIFT_NOT_FOUND });
-        }
-        return updated;
-      });
+          const updated = await manager.findOne(WorkShiftEntity, { where: { id } });
+          if (!updated) {
+            throw new RpcException({ statusCode: HttpStatus.NOT_FOUND, ...CALENDAR_ERROR.SHIFT_NOT_FOUND });
+          }
+          return updated;
+        }),
+      );
 
       // 8. Push to Sync Queue
       if (updatedShift) {

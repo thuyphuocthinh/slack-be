@@ -56,24 +56,40 @@ export class CalendarRequestService {
     return datesToCheck.filter(d => !holidaysMap[d]).length;
   }
 
-  private async checkLeaveBalance(manager: EntityManager, workspaceId: string, userId: string, year: number, actualDuration: number) {
-    const balance = await manager.findOne(LeaveBalanceEntity, {
+  private async checkLeaveBalance(
+    manager: EntityManager,
+    workspaceId: string,
+    userId: string,
+    year: number,
+    durationDays: number,
+    maxPaidLeaveDays: number,
+  ): Promise<void> {
+    let balance = await manager.findOne(LeaveBalanceEntity, {
       where: { workspaceId, userId, year },
       lock: { mode: 'pessimistic_write' },
     });
 
-    const policy = await this.policyService.getPolicy(workspaceId);
-    const maxPaidLeaveDays = policy?.policyData?.maxPaidLeaveDaysPerYear ?? DEFAULT_PAID_LEAVE_DAYS;
+    if (!balance) {
+      balance = manager.create(LeaveBalanceEntity, {
+        workspaceId,
+        userId,
+        year,
+        totalPaidLeave: maxPaidLeaveDays,
+        usedPaidLeave: 0,
+      });
+    }
 
-    const available = balance ? maxPaidLeaveDays - balance.usedPaidLeave : maxPaidLeaveDays;
-
-    if (available < actualDuration) {
+    const available = maxPaidLeaveDays - balance.usedPaidLeave;
+    if (available < durationDays) {
       throw new RpcException({
         statusCode: HttpStatus.BAD_REQUEST,
         ...CALENDAR_ERROR.INSUFFICIENT_LEAVE_BALANCE,
-        message: `${CALENDAR_ERROR.INSUFFICIENT_LEAVE_BALANCE.message}. Bạn còn ${available} ngày phép năm.`,
+        message: `Không đủ ngày phép. Hiện tại nhân viên chỉ còn ${available} ngày.`,
       });
     }
+
+    balance.usedPaidLeave += durationDays;
+    await manager.save(LeaveBalanceEntity, balance);
   }
 
   private async findAndValidateRequest(manager: EntityManager, id: string, workspaceId: string, userId?: string, allowApprovedAndFuture = false) {
@@ -115,33 +131,7 @@ export class CalendarRequestService {
     if (request.requestType === CalendarRequestType.LEAVE_PAID) {
       const year = request.startTime.getFullYear();
       const maxPaidLeaveDays = policy?.policyData?.maxPaidLeaveDaysPerYear ?? DEFAULT_PAID_LEAVE_DAYS;
-
-      let balance = await manager.findOne(LeaveBalanceEntity, {
-        where: { workspaceId: request.workspaceId, userId: request.userId, year },
-        lock: { mode: 'pessimistic_write' },
-      });
-
-      if (!balance) {
-        balance = manager.create(LeaveBalanceEntity, {
-          workspaceId: request.workspaceId,
-          userId: request.userId,
-          year,
-          totalPaidLeave: maxPaidLeaveDays,
-          usedPaidLeave: 0,
-        });
-      }
-
-      const available = maxPaidLeaveDays - balance.usedPaidLeave;
-      if (available < request.durationDays) {
-        throw new RpcException({
-          statusCode: HttpStatus.BAD_REQUEST,
-          ...CALENDAR_ERROR.INSUFFICIENT_LEAVE_BALANCE,
-          message: `Không đủ ngày phép. Hiện tại nhân viên chỉ còn ${available} ngày.`,
-        });
-      }
-
-      balance.usedPaidLeave += request.durationDays;
-      await manager.save(LeaveBalanceEntity, balance);
+      await this.checkLeaveBalance(manager, request.workspaceId, request.userId, year, request.durationDays, maxPaidLeaveDays);
     }
 
     // Xóa ca làm việc trong khoảng thời gian nghỉ

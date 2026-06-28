@@ -4,6 +4,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CalendarService } from './calendar.service';
 import { BulkRegisterWorkShiftApiDto, CheckInApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto, CreateCalendarRequestApiDto, UpdateCalendarRequestApiDto, GetCalendarRequestsApiDto, ReviewCalendarRequestApiDto, ManualUnlockCalendarApiDto, CreateHolidayApiDto, UpdateHolidayApiDto, AutoFillHolidaysApiDto, SaveFaceBaselineApiDto } from './dto/calendar-api.dto';
 import { CurrentUser, type JwtUser } from '@slack/common';
+import { RateLimit } from '../common/guards/rate-limit.decorator';
 
 @ApiTags('Calendar')
 @Controller('workspaces/:workspaceId/calendar')
@@ -189,6 +190,7 @@ export class CalendarController {
   }
 
   @Post('check-in')
+  @RateLimit({ limit: 5, window: 60 })
   @ApiOperation({ summary: 'Record check-in (OFFICE validates IP, WFH requires face similarity)' })
   async checkIn(
     @Param('workspaceId') workspaceId: string,
@@ -200,6 +202,7 @@ export class CalendarController {
   }
 
   @Post('check-out')
+  @RateLimit({ limit: 5, window: 60 })
   @ApiOperation({ summary: 'Record check-out' })
   async checkOut(
     @Param('workspaceId') workspaceId: string,

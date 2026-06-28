@@ -9,9 +9,9 @@ import { UserFaceBaselineEntity } from '../entity/user_face_baseline.entity';
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { CheckInDto, CheckOutDto, GetTodayAttendanceDto, SaveFaceBaselineDto } from '../dto/calendar-request.dto';
 import { AttendanceLogType, DailyReconciliationStatus, ShiftLocation } from '../types/calendar.enum';
-import { CALENDAR_ERROR } from '@slack/constants';
+import { CALENDAR_ERROR, SYSTEM_ERRORS } from '@slack/constants';
 import { todayUtc } from '@slack/common/utils/time.util';
-import { CachedService, TTL, CACHE } from '@slack/cached';
+import { CachedService, RateLimitService, TTL, CACHE } from '@slack/cached';
 
 const DEFAULT_FACE_SIMILARITY_THRESHOLD = 0.6;
 
@@ -29,6 +29,7 @@ export class AttendanceService {
     private readonly policyService: WorkspaceCalendarPolicyService,
     private readonly dataSource: DataSource,
     private readonly cachedService: CachedService,
+    private readonly rateLimitService: RateLimitService,
   ) { }
 
   private async resolveShift(shiftId: string | undefined, userId: string, workspaceId: string) {
@@ -153,6 +154,15 @@ export class AttendanceService {
     const { workspaceId, userId, location, shiftId, ipAddress, faceImageKey, faceDescriptor } = dto;
     const now = new Date();
 
+    const allowed = await this.rateLimitService.isAllowed(
+      CACHE.CALENDAR.KEYS.RATE_LIMIT_ATTENDANCE(workspaceId, userId),
+      5,
+      60,
+    );
+    if (!allowed) {
+      throw new RpcException({ statusCode: HttpStatus.TOO_MANY_REQUESTS, ...SYSTEM_ERRORS.RATE_LIMIT_EXCEEDED });
+    }
+
     const shift = await this.resolveShift(shiftId, userId, workspaceId);
     this.validateTimeWindow(shift, now);
 
@@ -229,6 +239,15 @@ export class AttendanceService {
   async checkOut(dto: CheckOutDto) {
     const { workspaceId, userId, location, shiftId, ipAddress, faceImageKey, faceDescriptor } = dto;
     const now = new Date();
+
+    const allowed = await this.rateLimitService.isAllowed(
+      CACHE.CALENDAR.KEYS.RATE_LIMIT_ATTENDANCE(workspaceId, userId),
+      5,
+      60,
+    );
+    if (!allowed) {
+      throw new RpcException({ statusCode: HttpStatus.TOO_MANY_REQUESTS, ...SYSTEM_ERRORS.RATE_LIMIT_EXCEEDED });
+    }
 
     const shift = await this.resolveShift(shiftId, userId, workspaceId);
     this.validateTimeWindow(shift, now);
