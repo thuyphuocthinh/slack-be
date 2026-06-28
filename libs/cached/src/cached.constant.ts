@@ -231,6 +231,8 @@ export const CACHE = {
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:calendar:v1:face_baseline:ws_${workspaceId}:u_${userId}`,
       HOLIDAYS: (workspaceId: string, year: number, version: number): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:calendar:v1:holidays:ws_${workspaceId}:y_${year}:v_${version}`,
+      RATE_LIMIT_ATTENDANCE: (workspaceId: string, userId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:calendar:v1:rate:attendance:ws_${workspaceId}:u_${userId}`,
     },
     TRACKERS: {
       HOLIDAYS_VERSION: (workspaceId: string): string =>

@@ -49,15 +49,20 @@ export class CalendarCronService {
     const counts = { absent: 0, closed: 0, updated: 0 };
     const shiftGroups = this.groupShiftsByUser(shifts);
 
-    for (const [groupKey, group] of shiftGroups) {
-      try {
-        const graceMinutes = graceMap.get(group[0].workspaceId) ?? 15;
-        await this.reconcileDay(group, now, counts, graceMinutes);
-      } catch (err) {
-        this.logger.error(
-          `[DailyReconciliation] Failed for ${groupKey} on ${workDate}: ${err?.message}`,
-        );
-      }
+    const BATCH_SIZE = 50;
+    const entries = [...shiftGroups.entries()];
+    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+      const batch = entries.slice(i, i + BATCH_SIZE);
+      await Promise.allSettled(
+        batch.map(([groupKey, group]) => {
+          const graceMinutes = graceMap.get(group[0].workspaceId) ?? 15;
+          return this.reconcileDay(group, now, counts, graceMinutes).catch(err => {
+            this.logger.error(
+              `[DailyReconciliation] Failed for ${groupKey} on ${workDate}: ${err?.message}`,
+            );
+          });
+        }),
+      );
     }
 
     this.logger.log(
@@ -68,13 +73,14 @@ export class CalendarCronService {
 
   private async buildGraceMap(shifts: WorkShiftEntity[]): Promise<Map<string, number>> {
     const workspaceIds = [...new Set(shifts.map(s => s.workspaceId))];
-    const map = new Map<string, number>();
-    for (const wsId of workspaceIds) {
-      const policy = await this.policyService.getPolicy(wsId);
-      const policyData = policy?.policyData as Record<string, any> | undefined;
-      map.set(wsId, policyData?.gracePeriodMinutes ?? 15);
-    }
-    return map;
+    const entries = await Promise.all(
+      workspaceIds.map(async wsId => {
+        const policy = await this.policyService.getPolicy(wsId);
+        const policyData = policy?.policyData as Record<string, any> | undefined;
+        return [wsId, policyData?.gracePeriodMinutes ?? 15] as const;
+      }),
+    );
+    return new Map(entries);
   }
 
   // Groups shifts by (workspaceId, userId) and sorts each group by startTime ascending.
@@ -204,13 +210,18 @@ export class CalendarCronService {
     const counts = { absent: 0, closed: 0, updated: 0 };
     const shiftGroups = this.groupShiftsByUser(shifts);
 
-    for (const [groupKey, group] of shiftGroups) {
-      try {
-        const graceMinutes = graceMap.get(group[0].workspaceId) ?? 15;
-        await this.reconcileDay(group, now, counts, graceMinutes);
-      } catch (err) {
-        this.logger.error(`[DailyReconciliation] Manual run error for ${groupKey}: ${err?.message}`);
-      }
+    const BATCH_SIZE = 50;
+    const entries = [...shiftGroups.entries()];
+    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+      const batch = entries.slice(i, i + BATCH_SIZE);
+      await Promise.allSettled(
+        batch.map(([groupKey, group]) => {
+          const graceMinutes = graceMap.get(group[0].workspaceId) ?? 15;
+          return this.reconcileDay(group, now, counts, graceMinutes).catch(err => {
+            this.logger.error(`[DailyReconciliation] Manual run error for ${groupKey}: ${err?.message}`);
+          });
+        }),
+      );
     }
 
     return {
