@@ -77,6 +77,7 @@ describe('CalendarRequestService', () => {
 
     policyService = {
       getPolicy: jest.fn().mockResolvedValue(null),
+      getPolicyDirect: jest.fn().mockResolvedValue(null),
       checkLockDeadline: jest.fn().mockResolvedValue(undefined),
     };
 
@@ -147,15 +148,16 @@ describe('CalendarRequestService', () => {
       });
     });
 
-    it('should throw BAD_REQUEST if LEAVE_PAID and balance is insufficient', async () => {
+    it('should allow LEAVE_PAID creation without balance check (balance is checked at approval time)', async () => {
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
-      manager.findOne.mockResolvedValue({ totalPaidLeave: 12, usedPaidLeave: 12 }); // 0 left
+      manager.create.mockReturnValue({ id: 'req-no-balance' });
+      manager.save.mockResolvedValue({ id: 'req-no-balance' });
 
       const leavePaidDto = { ...dto, requestType: CalendarRequestType.LEAVE_PAID, durationDays: 1 };
+      const result = await service.createRequest(leavePaidDto);
 
-      await expect(service.createRequest(leavePaidDto)).rejects.toMatchObject({
-        error: expect.objectContaining({ statusCode: HttpStatus.BAD_REQUEST, code: CALENDAR_ERROR.INSUFFICIENT_LEAVE_BALANCE.code }),
-      });
+      // Balance check intentionally moved to handleLeaveApproval — createRequest always succeeds if input is valid
+      expect(result).toHaveProperty('id', 'req-no-balance');
     });
 
     it('should save request successfully if balance is sufficient for LEAVE_PAID', async () => {
@@ -204,10 +206,66 @@ describe('CalendarRequestService', () => {
     it('should throw FORBIDDEN if start time is in a locked month', async () => {
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
       policyService.checkLockDeadline.mockRejectedValueOnce(new RpcException({ statusCode: HttpStatus.FORBIDDEN, message: 'Locked' }));
-      
+
       await expect(service.createRequest(dto)).rejects.toMatchObject({
         error: expect.objectContaining({ statusCode: HttpStatus.FORBIDDEN, message: 'Locked' })
       });
+    });
+
+    it('should count Saturday as a working day when policy workingDays includes Saturday', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      policyService.getPolicy.mockResolvedValue({ policyData: { workingDays: [1, 2, 3, 4, 5, 6], maxPaidLeaveDaysPerYear: 12 } });
+      manager.findOne.mockResolvedValue({ totalPaidLeave: 12, usedPaidLeave: 5 }); // 7 left
+      manager.create.mockReturnValue({ id: 'req-sat' });
+      manager.save.mockResolvedValue({ id: 'req-sat' });
+
+      // Friday (2026-06-26) to Saturday (2026-06-27) = 2 working days under Mon-Sat policy
+      const satDto: any = {
+        workspaceId: 'workspace-1',
+        userId: 'user-1',
+        requestType: CalendarRequestType.LEAVE_PAID,
+        startTime: '2026-06-26T00:00:00Z',
+        endTime: '2026-06-27T23:59:59Z',
+        durationDays: 2,
+        reason: 'Weekend worker',
+      };
+
+      const result = await service.createRequest(satDto);
+
+      expect(policyService.getPolicy).toHaveBeenCalled();
+      // actualDuration NOT capped (2 working days = 2) — save called with durationDays 2
+      expect(manager.create).toHaveBeenCalledWith(
+        CalendarRequestEntity,
+        expect.objectContaining({ durationDays: 2 }),
+      );
+      expect(result).toHaveProperty('id', 'req-sat');
+    });
+
+    it('should cap durationDays to 1 when Saturday is outside default Mon-Fri workingDays', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      policyService.getPolicy.mockResolvedValue(null); // default Mon-Fri
+      manager.findOne.mockResolvedValue({ totalPaidLeave: 12, usedPaidLeave: 5 }); // 7 left
+      manager.create.mockReturnValue({ id: 'req-fri' });
+      manager.save.mockResolvedValue({ id: 'req-fri' });
+
+      // Friday (2026-06-26) to Saturday (2026-06-27) — only 1 working day (Friday)
+      const satDto: any = {
+        workspaceId: 'workspace-1',
+        userId: 'user-1',
+        requestType: CalendarRequestType.LEAVE_PAID,
+        startTime: '2026-06-26T00:00:00Z',
+        endTime: '2026-06-27T23:59:59Z',
+        durationDays: 2,
+        reason: 'Test',
+      };
+
+      await service.createRequest(satDto);
+
+      // Saturday not in workingDays → maxWorkingDays = 1 → actualDuration capped to 1
+      expect(manager.create).toHaveBeenCalledWith(
+        CalendarRequestEntity,
+        expect.objectContaining({ durationDays: 1 }),
+      );
     });
   });
 
@@ -370,6 +428,64 @@ describe('CalendarRequestService', () => {
 
       await service.deleteRequest(dto);
 
+      expect(manager.delete).not.toHaveBeenCalledWith(DailyReconciliationEntity, expect.anything());
+    });
+
+    it('should delete reconciliation for Saturday when workingDays includes Saturday', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      policyService.getPolicy.mockResolvedValue({ policyData: { workingDays: [1, 2, 3, 4, 5, 6] } });
+
+      // 2026-07-04 is a Saturday and is in the future (today = 2026-06-28)
+      const satStart = new Date('2026-07-04T00:00:00Z');
+      const satEnd = new Date('2026-07-04T23:59:59Z');
+      const mockReq = {
+        id: 'req-1',
+        userId: 'user-1',
+        workspaceId: 'workspace-1',
+        status: CalendarRequestStatus.APPROVED,
+        requestType: CalendarRequestType.LEAVE_PAID,
+        startTime: satStart,
+        endTime: satEnd,
+        durationDays: 1,
+      };
+      manager.findOne
+        .mockResolvedValueOnce(mockReq)  // findAndValidateRequest
+        .mockResolvedValueOnce(null);     // balance refund (no balance record)
+      manager.save.mockResolvedValue({ ...mockReq, status: CalendarRequestStatus.CANCELLED });
+
+      await service.deleteRequest(dto);
+
+      // Saturday is a workday → reconciliation for '2026-07-04' should be deleted
+      expect(manager.delete).toHaveBeenCalledWith(
+        DailyReconciliationEntity,
+        expect.objectContaining({ workspaceId: 'workspace-1', userId: 'user-1' }),
+      );
+    });
+
+    it('should NOT delete reconciliation for Saturday when policy uses default Mon-Fri', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      policyService.getPolicy.mockResolvedValue(null); // default Mon-Fri
+
+      const satStart = new Date('2026-07-04T00:00:00Z'); // Saturday
+      const satEnd = new Date('2026-07-04T23:59:59Z');
+      const mockReq = {
+        id: 'req-1',
+        userId: 'user-1',
+        workspaceId: 'workspace-1',
+        status: CalendarRequestStatus.APPROVED,
+        requestType: CalendarRequestType.LEAVE_PAID,
+        startTime: satStart,
+        endTime: satEnd,
+        durationDays: 0,
+      };
+      manager.findOne
+        .mockResolvedValueOnce(mockReq)
+        .mockResolvedValueOnce(null);
+      manager.save.mockResolvedValue({ ...mockReq, status: CalendarRequestStatus.CANCELLED });
+
+      await service.deleteRequest(dto);
+
+      // Saturday not in Mon-Fri workingDays → getWorkdaysBetween returns [] → no delete
       expect(manager.delete).not.toHaveBeenCalledWith(DailyReconciliationEntity, expect.anything());
     });
   });
@@ -646,6 +762,60 @@ describe('CalendarRequestService', () => {
       expect(manager.create).toHaveBeenCalled();
       expect(mockLock.isUnlocked).toBe(true);
       expect(mockLock).toHaveProperty('unlockExpiresAt');
+    });
+
+    it('should create reconciliation for Saturday when policy workingDays includes Saturday', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(ADMIN);
+      policyService.getPolicyDirect.mockResolvedValue({ policyData: { workingDays: [1, 2, 3, 4, 5, 6] } });
+
+      const mockReq = {
+        id: 'req-sat',
+        status: CalendarRequestStatus.PENDING,
+        requestType: CalendarRequestType.LEAVE_UNPAID,
+        userId: 'user-1',
+        workspaceId: 'workspace-1',
+        startTime: new Date('2026-06-27T00:00:00Z'), // Saturday
+        endTime: new Date('2026-06-27T23:59:59Z'),
+        durationDays: 1,
+      };
+
+      manager.findOne.mockResolvedValueOnce(mockReq);
+      manager.find.mockResolvedValueOnce([]); // shifts in range
+      manager.find.mockResolvedValueOnce([]); // existing reconciliation
+
+      manager.create.mockImplementation((_entity: any, data: any) => ({ ...data }));
+      manager.save.mockResolvedValue({ ...mockReq, status: CalendarRequestStatus.APPROVED });
+
+      await service.reviewRequest({ ...dto, id: 'req-sat' });
+
+      expect(manager.create).toHaveBeenCalledWith(DailyReconciliationEntity, expect.objectContaining({
+        workDate: '2026-06-27',
+        status: DailyReconciliationStatus.LEAVE_UNPAID_APPROVED,
+      }));
+    });
+
+    it('should NOT create reconciliation for Saturday when policy uses default Mon-Fri', async () => {
+      calendarCommonService.fetchMember.mockResolvedValue(ADMIN);
+      policyService.getPolicyDirect.mockResolvedValue(null); // default Mon-Fri
+
+      const mockReq = {
+        id: 'req-sat2',
+        status: CalendarRequestStatus.PENDING,
+        requestType: CalendarRequestType.LEAVE_UNPAID,
+        userId: 'user-1',
+        workspaceId: 'workspace-1',
+        startTime: new Date('2026-06-27T00:00:00Z'), // Saturday
+        endTime: new Date('2026-06-27T23:59:59Z'),
+        durationDays: 0,
+      };
+
+      manager.findOne.mockResolvedValueOnce(mockReq);
+      manager.save.mockResolvedValue({ ...mockReq, status: CalendarRequestStatus.APPROVED });
+
+      await service.reviewRequest({ ...dto, id: 'req-sat2' });
+
+      // Saturday not in Mon-Fri → getWorkdaysBetween returns [] → early return, no reconciliation
+      expect(manager.create).not.toHaveBeenCalledWith(DailyReconciliationEntity, expect.anything());
     });
   });
 

@@ -34,7 +34,7 @@ export class CalendarCronService {
     timeZone: 'Asia/Ho_Chi_Minh',
   })
   async dailyReconciliation() {
-    const workDate = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC date — acceptable since cron fires at 23:50 local)
+    const workDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
     this.logger.log(`[DailyReconciliation] Starting for ${workDate}`);
 
     const shifts = await this.shiftRepository.find({ where: { workDate } });

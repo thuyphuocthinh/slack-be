@@ -227,21 +227,23 @@ export class WorkShiftService {
       if (newWorkDate !== shift.workDate) datesToCheck.push(newWorkDate);
       await this.policyService.checkLockDeadline(workspaceId, targetMember.role, userId, datesToCheck);
 
-      await this.policyService.validateShifts(workspaceId, userId, targetMember.employmentType, [{
-        id: shift.id,
-        workDate: newWorkDate,
-        startTime: newStartTime,
-        endTime: newEndTime,
-        location: newLocation,
-      }]);
+      const updatedShift = await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+        await this.policyService.validateShifts(workspaceId, userId, targetMember.employmentType, [{
+          id: shift.id,
+          workDate: newWorkDate,
+          startTime: newStartTime,
+          endTime: newEndTime,
+          location: newLocation,
+        }], manager);
 
-      // 7. Apply update and return
-      await this.workShiftRepository.update({ id, workspaceId, userId }, updateData);
+        await manager.update(WorkShiftEntity, { id, workspaceId, userId }, updateData);
 
-      const updatedShift = await this.workShiftRepository.findOne({ where: { id } });
-      if (!updatedShift) {
-        throw new RpcException({ statusCode: HttpStatus.NOT_FOUND, ...CALENDAR_ERROR.SHIFT_NOT_FOUND });
-      }
+        const updated = await manager.findOne(WorkShiftEntity, { where: { id } });
+        if (!updated) {
+          throw new RpcException({ statusCode: HttpStatus.NOT_FOUND, ...CALENDAR_ERROR.SHIFT_NOT_FOUND });
+        }
+        return updated;
+      });
 
       // 8. Push to Sync Queue
       if (updatedShift) {
@@ -284,8 +286,11 @@ export class WorkShiftService {
       const requestor = await this.calendarCommonService.fetchMember(workspaceId, requestorId);
       this.calendarCommonService.assertSelfOrPrivileged(requestorId, userId, requestor.role);
 
-      // 3. Check lock deadline (admin/owner bypass via their role)
-      await this.policyService.checkLockDeadline(workspaceId, requestor.role, userId, [shift.workDate]);
+      // 3. Fetch target member for consistent lock enforcement (mirrors updateWorkShift)
+      const targetMember = requestorId === userId ? requestor : await this.calendarCommonService.fetchMember(workspaceId, userId);
+
+      // 4. Check lock deadline using target member's role
+      await this.policyService.checkLockDeadline(workspaceId, targetMember.role, userId, [shift.workDate]);
 
       // 4. Delete
       await this.workShiftRepository.delete({ id, workspaceId, userId });

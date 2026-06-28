@@ -46,7 +46,7 @@ export class AttendanceService {
     location: ShiftLocation,
     ipAddress?: string,
     faceDescriptor?: number[],
-  ): Promise<number> {
+  ): Promise<{ graceMinutes: number; similarityScore: number }> {
     const policy = await this.policyService.getPolicy(workspaceId);
     const policyData = policy?.policyData as Record<string, any> | undefined;
 
@@ -94,7 +94,8 @@ export class AttendanceService {
       });
     }
 
-    return policyData?.gracePeriodMinutes ?? 15;
+    const similarityScore = Math.max(0, 1.0 - distance);
+    return { graceMinutes: policyData?.gracePeriodMinutes ?? 15, similarityScore };
   }
 
   private euclideanDistance(descriptor1: number[], descriptor2: number[]): number {
@@ -132,6 +133,7 @@ export class AttendanceService {
     return manager.findOne(AttendanceLogEntity, {
       where: { workspaceId, userId, workShiftId: shiftId },
       order: { recordedAt: 'DESC' },
+      lock: { mode: 'pessimistic_write' },
     });
   }
 
@@ -155,7 +157,8 @@ export class AttendanceService {
     this.validateTimeWindow(shift, now);
 
     const resolvedLocation: ShiftLocation = shift ? shift.location : location;
-    const graceMs = (await this.validateLocation(workspaceId, userId, resolvedLocation, ipAddress, faceDescriptor)) * 60_000;
+    const { graceMinutes, similarityScore } = await this.validateLocation(workspaceId, userId, resolvedLocation, ipAddress, faceDescriptor);
+    const graceMs = graceMinutes * 60_000;
 
     const workDate = shift?.workDate ?? todayUtc();
 
@@ -189,7 +192,7 @@ export class AttendanceService {
           recordedAt: now,
           ipAddress,
           faceImageKey,
-          faceSimilarityScore: 1.0,
+          faceSimilarityScore: similarityScore,
         });
         await manager.save(log);
 
@@ -231,7 +234,8 @@ export class AttendanceService {
     this.validateTimeWindow(shift, now);
 
     const resolvedLocation: ShiftLocation = shift ? shift.location : location;
-    const graceMs = (await this.validateLocation(workspaceId, userId, resolvedLocation, ipAddress, faceDescriptor)) * 60_000;
+    const { graceMinutes, similarityScore } = await this.validateLocation(workspaceId, userId, resolvedLocation, ipAddress, faceDescriptor);
+    const graceMs = graceMinutes * 60_000;
 
     const workDate = shift?.workDate ?? todayUtc();
 
@@ -258,7 +262,7 @@ export class AttendanceService {
           recordedAt: now,
           ipAddress,
           faceImageKey,
-          faceSimilarityScore: 1.0,
+          faceSimilarityScore: similarityScore,
         });
         await manager.save(log);
 

@@ -32,15 +32,14 @@ export class CalendarRequestService {
     private readonly holidayService: WorkspaceHolidayService,
   ) { }
 
-  private getWorkdaysBetween(startTime: Date, endTime: Date): string[] {
-    const WORKING_DAYS = [1, 2, 3, 4, 5];
+  private getWorkdaysBetween(startTime: Date, endTime: Date, workingDays: number[] = [1, 2, 3, 4, 5]): string[] {
     const dates: string[] = [];
     const cursor = new Date(startTime);
     cursor.setUTCHours(0, 0, 0, 0);
     const end = new Date(endTime);
     end.setUTCHours(23, 59, 59, 999);
     while (cursor <= end) {
-      if (WORKING_DAYS.includes(cursor.getUTCDay())) {
+      if (workingDays.includes(cursor.getUTCDay())) {
         dates.push(cursor.toISOString().split('T')[0]);
       }
       cursor.setUTCDate(cursor.getUTCDate() + 1);
@@ -49,7 +48,9 @@ export class CalendarRequestService {
   }
 
   private async calculateMaxWorkingDays(workspaceId: string, startTime: Date, endTime: Date): Promise<number> {
-    const datesToCheck = this.getWorkdaysBetween(startTime, endTime);
+    const policy = await this.policyService.getPolicy(workspaceId);
+    const workingDays = policy?.policyData?.workingDays ?? [1, 2, 3, 4, 5];
+    const datesToCheck = this.getWorkdaysBetween(startTime, endTime, workingDays);
     if (datesToCheck.length === 0) return 0;
     const holidaysMap = await this.holidayService.checkIfDatesAreHolidays(workspaceId, datesToCheck);
     return datesToCheck.filter(d => !holidaysMap[d]).length;
@@ -108,9 +109,11 @@ export class CalendarRequestService {
   }
 
   private async handleLeaveApproval(manager: EntityManager, request: CalendarRequestEntity): Promise<number> {
+    const policy = await this.policyService.getPolicyDirect(request.workspaceId);
+    const workingDays: number[] = policy?.policyData?.workingDays ?? [1, 2, 3, 4, 5];
+
     if (request.requestType === CalendarRequestType.LEAVE_PAID) {
       const year = request.startTime.getFullYear();
-      const policy = await this.policyService.getPolicy(request.workspaceId);
       const maxPaidLeaveDays = policy?.policyData?.maxPaidLeaveDaysPerYear ?? DEFAULT_PAID_LEAVE_DAYS;
 
       let balance = await manager.findOne(LeaveBalanceEntity, {
@@ -181,7 +184,7 @@ export class CalendarRequestService {
       ? DailyReconciliationStatus.LEAVE_PAID_APPROVED
       : DailyReconciliationStatus.LEAVE_UNPAID_APPROVED;
 
-    const workdays = this.getWorkdaysBetween(request.startTime, request.endTime);
+    const workdays = this.getWorkdaysBetween(request.startTime, request.endTime, workingDays);
     if (workdays.length === 0) return deletedShiftsCount;
 
     const holidaysMap = await this.holidayService.checkIfDatesAreHolidays(request.workspaceId, workdays);
@@ -283,7 +286,6 @@ export class CalendarRequestService {
         });
       }
 
-      const year = startObj.getFullYear();
       let actualDuration = durationDays ?? 1.0;
 
       if (requestType === CalendarRequestType.LEAVE_PAID || requestType === CalendarRequestType.LEAVE_UNPAID) {
@@ -302,12 +304,7 @@ export class CalendarRequestService {
         // 2. Check for overlapping requests (PENDING or APPROVED)
         await this.checkOverlappingRequest(manager, workspaceId, userId, startObj, endObj);
 
-        // 3. If it's LEAVE_PAID, check balance with pessimistic lock to prevent concurrent overdrafts
-        if (requestType === CalendarRequestType.LEAVE_PAID) {
-          await this.checkLeaveBalance(manager, workspaceId, userId, year, actualDuration);
-        }
-
-        // 4. Save request
+        // 3. Save request
         const newRequest = manager.create(CalendarRequestEntity, {
           workspaceId,
           userId,
@@ -373,8 +370,6 @@ export class CalendarRequestService {
             actualDuration = maxWorkingDays;
           }
         }
-        const year = startObj.getFullYear();
-
         const datesToCheck = [request.startTime.toISOString().split('T')[0]];
         if (startObj.toISOString() !== request.startTime.toISOString()) {
           datesToCheck.push(startObj.toISOString().split('T')[0]);
@@ -385,10 +380,6 @@ export class CalendarRequestService {
         }
 
         await this.checkOverlappingRequest(manager, workspaceId, userId, startObj, endObj, request.id);
-
-        if (actualRequestType === CalendarRequestType.LEAVE_PAID) {
-          await this.checkLeaveBalance(manager, workspaceId, userId, year, actualDuration);
-        }
 
         manager.merge(CalendarRequestEntity, request, {
           ...(requestType && { requestType }),
@@ -444,7 +435,9 @@ export class CalendarRequestService {
           request.status === CalendarRequestStatus.APPROVED &&
           (request.requestType === CalendarRequestType.LEAVE_PAID || request.requestType === CalendarRequestType.LEAVE_UNPAID)
         ) {
-          const workdays = this.getWorkdaysBetween(request.startTime, request.endTime);
+          const deletePolicy = await this.policyService.getPolicy(workspaceId);
+          const deleteWorkingDays: number[] = deletePolicy?.policyData?.workingDays ?? [1, 2, 3, 4, 5];
+          const workdays = this.getWorkdaysBetween(request.startTime, request.endTime, deleteWorkingDays);
           if (workdays.length > 0) {
             await manager.delete(DailyReconciliationEntity, {
               workspaceId: request.workspaceId,
