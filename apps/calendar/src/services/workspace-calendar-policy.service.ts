@@ -44,6 +44,12 @@ export class WorkspaceCalendarPolicyService {
     );
   }
 
+  async getPolicyDirect(workspaceId: string): Promise<WorkspaceCalendarPolicyResponseDto | null> {
+    const policy = await this.policyRepository.findOne({ where: { workspaceId } });
+    if (!policy) return null;
+    return plainToInstance(WorkspaceCalendarPolicyResponseDto, policy);
+  }
+
   async validateShifts(
     workspaceId: string,
     userId: string,

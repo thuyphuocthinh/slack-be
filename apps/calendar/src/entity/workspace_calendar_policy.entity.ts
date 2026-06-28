@@ -30,7 +30,8 @@ export class WorkspaceCalendarPolicyEntity {
       "gracePeriodMinutes": 15,
       "faceSimilarityThreshold": 0.6,
       "holidays": ["2026-01-01", "2026-04-30"],
-      "maxPaidLeaveDaysPerYear": 12
+      "maxPaidLeaveDaysPerYear": 12,
+      "workingDays": [1, 2, 3, 4, 5]
     }
   */
 

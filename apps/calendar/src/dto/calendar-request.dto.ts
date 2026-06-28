@@ -11,6 +11,7 @@ import {
   ValidateNested,
   IsOptional,
   IsNumber,
+  IsInt,
   IsObject,
   Min,
   Max,
@@ -169,6 +170,11 @@ export class PolicyDataDto {
   @IsString({ each: true })
   @IsOptional()
   allowedOfficeIps?: string[];
+
+  @IsArray()
+  @IsInt({ each: true })
+  @IsOptional()
+  workingDays?: number[];
 }
 
 export class GetCalendarPolicyDto {

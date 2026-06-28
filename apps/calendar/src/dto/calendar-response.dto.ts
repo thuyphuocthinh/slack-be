@@ -81,6 +81,9 @@ export class PolicyDataResponseDto {
 
   @Expose()
   allowedOfficeIps?: string[];
+
+  @Expose()
+  workingDays?: number[];
 }
 
 @Exclude()
