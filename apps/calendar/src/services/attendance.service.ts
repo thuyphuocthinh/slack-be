@@ -52,7 +52,7 @@ export class AttendanceService {
 
     if (location === ShiftLocation.OFFICE) {
       const allowedIps: string[] = policyData?.allowedOfficeIps ?? [];
-      if (allowedIps.length > 0 && ipAddress && !allowedIps.includes(ipAddress)) {
+      if (allowedIps.length > 0 && (!ipAddress || !allowedIps.includes(ipAddress))) {
         throw new RpcException({
           statusCode: HttpStatus.FORBIDDEN,
           ...CALENDAR_ERROR.IP_NOT_IN_OFFICE_NETWORK,
