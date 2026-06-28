@@ -245,7 +245,9 @@ export class WorkspaceCalendarPolicyService {
       const shiftDate = new Date(workDate);
       const targetYear = shiftDate.getUTCFullYear();
       const targetMonthIndex = shiftDate.getUTCMonth(); // 0-indexed: 0=Jan … 11=Dec
-      const deadlineDate = new Date(Date.UTC(targetYear, targetMonthIndex, lockDeadlineDay, 23, 59, 59, 999));
+      const paddedMonth = String(targetMonthIndex + 1).padStart(2, '0');
+      const paddedDay = String(lockDeadlineDay).padStart(2, '0');
+      const deadlineDate = new Date(`${targetYear}-${paddedMonth}-${paddedDay}T23:59:59+07:00`);
 
       if (currentDate.getTime() <= deadlineDate.getTime()) continue;
 
