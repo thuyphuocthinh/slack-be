@@ -34,4 +34,6 @@ export const CALENDAR_MESSAGE_PATTERNS = {
   SAVE_FACE_BASELINE: 'calendar.save_face_baseline',
   GET_MONTH_LOCK_STATUS: 'calendar.get_month_lock_status',
   GET_MY_LOCK_STATUS: 'calendar.get_my_lock_status',
+  ENQUEUE_EXPORT_EXCEL: 'calendar.enqueue_export_excel',
+  GET_EXPORT_STATUS: 'calendar.get_export_status',
 } as const;

@@ -35,6 +35,7 @@ export class CalendarCronService {
   })
   async dailyReconciliation() {
     const workDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+    const t0 = performance.now();
     this.logger.log(`[DailyReconciliation] Starting for ${workDate}`);
 
     const shifts = await this.shiftRepository.find({ where: { workDate } });
@@ -52,6 +53,7 @@ export class CalendarCronService {
     const BATCH_SIZE = 50;
     const entries = [...shiftGroups.entries()];
     for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+      const batchT0 = performance.now();
       const batch = entries.slice(i, i + BATCH_SIZE);
       await Promise.allSettled(
         batch.map(([groupKey, group]) => {
@@ -63,11 +65,15 @@ export class CalendarCronService {
           });
         }),
       );
+      this.logger.log(
+        `[DailyReconciliation] Batch ${Math.floor(i / BATCH_SIZE) + 1} (users ${i + 1}–${Math.min(i + BATCH_SIZE, shiftGroups.size)}) — ${Math.round(performance.now() - batchT0)}ms`,
+      );
     }
 
+    const totalMs = Math.round(performance.now() - t0);
     this.logger.log(
       `[DailyReconciliation] Done for ${workDate} — ` +
-        `groups: ${shiftGroups.size}, absent: ${counts.absent}, auto-closed: ${counts.closed}, updated: ${counts.updated}`,
+        `groups: ${shiftGroups.size}, absent: ${counts.absent}, auto-closed: ${counts.closed}, updated: ${counts.updated}, total: ${totalMs}ms (${(totalMs / shiftGroups.size).toFixed(1)}ms/user)`,
     );
   }
 
@@ -117,71 +123,72 @@ export class CalendarCronService {
       shifts.reduce((sum, s) => sum + (new Date(s.endTime).getTime() - new Date(s.startTime).getTime()) / 3_600_000, 0) * 100,
     ) / 100;
 
-    let record = await this.reconciliationRepository.findOne({
-      where: { workspaceId, userId, workDate },
-    });
+    await this.reconciliationRepository.manager.transaction(async (manager) => {
+      let record = await manager.findOne(DailyReconciliationEntity, {
+        where: { workspaceId, userId, workDate },
+        lock: { mode: 'pessimistic_write' },
+      });
 
-    // No attendance at all → ABSENT
-    if (!record) {
-      await this.reconciliationRepository.save(
-        this.reconciliationRepository.create({
+      // No attendance at all → ABSENT
+      if (!record) {
+        await manager.save(DailyReconciliationEntity, manager.create(DailyReconciliationEntity, {
           workspaceId,
           userId,
           workDate,
           workShiftId: primaryShift.id,
           standardWorkHours,
           status: DailyReconciliationStatus.ABSENT,
-        }),
-      );
-      counts.absent++;
-      return;
-    }
+        }));
+        counts.absent++;
+        return;
+      }
 
-    // Leave-approved records are managed by CalendarRequestService — skip
-    if (
-      record.status === DailyReconciliationStatus.LEAVE_PAID_APPROVED ||
-      record.status === DailyReconciliationStatus.LEAVE_UNPAID_APPROVED
-    ) {
-      return;
-    }
+      // Leave-approved records are managed by CalendarRequestService — skip
+      if (
+        record.status === DailyReconciliationStatus.LEAVE_PAID_APPROVED ||
+        record.status === DailyReconciliationStatus.LEAVE_UNPAID_APPROVED
+      ) {
+        return;
+      }
 
-    // Checked in but never checked out → auto-close at last shift's endTime
-    if (record.firstCheckIn && !record.lastCheckOut) {
-      const effectiveOut = shiftEnd < now ? shiftEnd : now;
-      record.lastCheckOut = effectiveOut;
-      counts.closed++;
-    }
+      // Checked in but never checked out → auto-close at last shift's endTime
+      if (record.firstCheckIn && !record.lastCheckOut) {
+        const effectiveOut = shiftEnd < now ? shiftEnd : now;
+        record.lastCheckOut = effectiveOut;
+        counts.closed++;
+      }
 
-    // Fill metadata: link to primary (earliest) shift, sum standard hours across all shifts
-    record.workShiftId = primaryShift.id;
-    record.standardWorkHours = standardWorkHours;
+      // Fill metadata: link to primary (earliest) shift, sum standard hours across all shifts
+      record.workShiftId = primaryShift.id;
+      record.standardWorkHours = standardWorkHours;
 
-    if (record.firstCheckIn) {
-      const lateMsRaw = record.firstCheckIn.getTime() - shiftStart.getTime();
-      record.lateMinutes = Math.max(0, Math.floor(lateMsRaw / 60_000));
-    }
+      if (record.firstCheckIn) {
+        const lateMsRaw = record.firstCheckIn.getTime() - shiftStart.getTime();
+        record.lateMinutes = Math.max(0, Math.floor(lateMsRaw / 60_000));
+      }
 
-    if (record.lastCheckOut) {
-      const earlyMsRaw = shiftEnd.getTime() - record.lastCheckOut.getTime();
-      record.earlyLeaveMinutes = Math.max(0, Math.floor(earlyMsRaw / 60_000));
-    }
+      if (record.lastCheckOut) {
+        const earlyMsRaw = shiftEnd.getTime() - record.lastCheckOut.getTime();
+        record.earlyLeaveMinutes = Math.max(0, Math.floor(earlyMsRaw / 60_000));
+      }
 
-    if (record.firstCheckIn && record.lastCheckOut) {
-      const diffMs = record.lastCheckOut.getTime() - record.firstCheckIn.getTime();
-      record.actualWorkHours = Math.round((diffMs / 3_600_000) * 100) / 100;
-    }
+      if (record.firstCheckIn && record.lastCheckOut) {
+        const diffMs = record.lastCheckOut.getTime() - record.firstCheckIn.getTime();
+        record.actualWorkHours = Math.round((diffMs / 3_600_000) * 100) / 100;
+      }
 
-    // Final status: LATE_EARLY if either metric exceeds grace, else NORMAL
-    if (!record.firstCheckIn) {
-      record.status = DailyReconciliationStatus.ABSENT;
-    } else if (record.lateMinutes > graceMinutes || record.earlyLeaveMinutes > graceMinutes) {
-      record.status = DailyReconciliationStatus.LATE_EARLY;
-    } else {
-      record.status = DailyReconciliationStatus.NORMAL;
-    }
+      // Final status: LATE_EARLY if either metric exceeds grace, else NORMAL
+      if (!record.firstCheckIn) {
+        record.status = DailyReconciliationStatus.ABSENT;
+      } else if (record.lateMinutes > graceMinutes || record.earlyLeaveMinutes > graceMinutes) {
+        record.status = DailyReconciliationStatus.LATE_EARLY;
+      } else {
+        record.status = DailyReconciliationStatus.NORMAL;
+      }
 
-    await this.reconciliationRepository.save(record);
-    counts.updated++;
+      await manager.save(DailyReconciliationEntity, record);
+      counts.updated++;
+    });
   }
 
   /**

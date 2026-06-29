@@ -1,7 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { WorkShiftService } from './work-shift.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { WorkShiftEntity } from '../entity/work_shift.entity';
+import { DailyReconciliationEntity } from '../entity/daily_reconciliation.entity';
 import { CALENDAR_ERROR, AUTH_ERROR } from '@slack/constants';
 import { HttpStatus } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
@@ -22,6 +24,8 @@ describe('WorkShiftService', () => {
   let queueService: jest.Mocked<Pick<QueueService, 'addJob' | 'addBulkJobs'>>;
   let workShiftRepository: any;
   let holidayService: any;
+  let txManager: any;
+  let dataSource: any;
 
   const MEMBER = { id: 'member-1', role: 'member', employmentType: 'FULLTIME' };
   const ADMIN = { id: 'admin-1', role: 'admin', employmentType: 'FULLTIME' };
@@ -45,6 +49,21 @@ describe('WorkShiftService', () => {
       findOne: jest.fn(),
       update: jest.fn().mockResolvedValue({ affected: 1 }),
       delete: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+
+    txManager = {
+      findOne: jest.fn().mockImplementation((_entity: any, opts: any) => workShiftRepository.findOne(opts)),
+      find: jest.fn().mockImplementation((_entity: any, opts: any) => workShiftRepository.find(opts)),
+      insert: jest.fn().mockImplementation((_entity: any, data: any) => workShiftRepository.insert(data)),
+      update: jest.fn().mockImplementation((_entity: any, where: any, data: any) => workShiftRepository.update(where, data)),
+      delete: jest.fn().mockImplementation((_entity: any, criteria: any) => workShiftRepository.delete(criteria)),
+    };
+
+    dataSource = {
+      transaction: jest.fn().mockImplementation(async (...args: any[]) => {
+        const cb = args[args.length - 1];
+        return cb(txManager);
+      }),
     };
 
     calendarCommonService = {
@@ -71,26 +90,13 @@ describe('WorkShiftService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WorkShiftService,
-        {
-          provide: getRepositoryToken(WorkShiftEntity),
-          useValue: workShiftRepository,
-        },
-        {
-          provide: WorkspaceCalendarPolicyService,
-          useValue: policyService,
-        },
-        {
-          provide: CalendarCommonService,
-          useValue: calendarCommonService,
-        },
-        {
-          provide: QueueService,
-          useValue: queueService,
-        },
-        {
-          provide: WorkspaceHolidayService,
-          useValue: holidayService,
-        },
+        { provide: getRepositoryToken(WorkShiftEntity), useValue: workShiftRepository },
+        { provide: getRepositoryToken(DailyReconciliationEntity), useValue: { find: jest.fn().mockResolvedValue([]) } },
+        { provide: DataSource, useValue: dataSource },
+        { provide: WorkspaceCalendarPolicyService, useValue: policyService },
+        { provide: CalendarCommonService, useValue: calendarCommonService },
+        { provide: QueueService, useValue: queueService },
+        { provide: WorkspaceHolidayService, useValue: holidayService },
       ],
     }).compile();
 
@@ -211,7 +217,8 @@ describe('WorkShiftService', () => {
         expect.arrayContaining([
           expect.objectContaining({ startTime: new Date('2026-06-20T02:00:00.000Z') }),
           expect.objectContaining({ startTime: new Date('2026-06-20T08:00:00.000Z') }),
-        ])
+        ]),
+        expect.anything(), // transaction manager
       );
       expect(result).toBeInstanceOf(Array);
     });
@@ -397,9 +404,12 @@ describe('WorkShiftService', () => {
     };
 
     it('should successfully update own shift', async () => {
+      const updatedShift = { ...existingShift, location: ShiftLocation.WFH };
+      // 1st: pre-transaction findOne, 2nd: locked findOne inside tx, 3rd: final read inside tx
       workShiftRepository.findOne
         .mockResolvedValueOnce(existingShift)
-        .mockResolvedValueOnce({ ...existingShift, location: ShiftLocation.WFH });
+        .mockResolvedValueOnce(existingShift)
+        .mockResolvedValueOnce(updatedShift);
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
 
       const result = await service.updateWorkShift(dto);
@@ -454,8 +464,9 @@ describe('WorkShiftService', () => {
 
     it('should successfully update notes if requestor is the owner', async () => {
       workShiftRepository.findOne
-        .mockResolvedValueOnce(existingShift)
-        .mockResolvedValueOnce({ ...existingShift, notes: 'New Note' });
+        .mockResolvedValueOnce(existingShift)                        // pre-tx check
+        .mockResolvedValueOnce(existingShift)                        // locked read inside tx
+        .mockResolvedValueOnce({ ...existingShift, notes: 'New Note' }); // final read inside tx
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
 
       const updateNotesDto = { ...dto, requestorId: 'user-1', userId: 'user-1', notes: 'New Note' };
@@ -470,8 +481,9 @@ describe('WorkShiftService', () => {
 
     it('should allow admin to update another user\'s shift', async () => {
       workShiftRepository.findOne
-        .mockResolvedValueOnce(existingShift)
-        .mockResolvedValueOnce({ ...existingShift, location: ShiftLocation.WFH });
+        .mockResolvedValueOnce(existingShift)                             // pre-tx check
+        .mockResolvedValueOnce(existingShift)                             // locked read inside tx
+        .mockResolvedValueOnce({ ...existingShift, location: ShiftLocation.WFH }); // final read inside tx
       calendarCommonService.fetchMember
         .mockResolvedValueOnce(ADMIN)   // requestor
         .mockResolvedValueOnce(MEMBER); // target user
@@ -505,7 +517,10 @@ describe('WorkShiftService', () => {
     });
 
     it('should throw INTERNAL_SERVER_ERROR on repository failure', async () => {
-      workShiftRepository.findOne.mockResolvedValue(existingShift);
+      // 1st: pre-tx, 2nd: locked read inside tx — update then throws
+      workShiftRepository.findOne
+        .mockResolvedValueOnce(existingShift)
+        .mockResolvedValueOnce(existingShift);
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
       workShiftRepository.update.mockRejectedValue(new Error('DB error'));
 
@@ -526,6 +541,7 @@ describe('WorkShiftService', () => {
     };
 
     it('should successfully delete own shift', async () => {
+      // findOne is now inside the transaction (via txManager → workShiftRepository.findOne)
       workShiftRepository.findOne.mockResolvedValue(existingShift);
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
 
@@ -545,7 +561,9 @@ describe('WorkShiftService', () => {
     });
 
     it('should throw SHIFT_NOT_FOUND if shift does not exist', async () => {
-      workShiftRepository.findOne.mockResolvedValue(null);
+      // auth runs first, then transaction findOne returns null
+      calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      workShiftRepository.findOne.mockResolvedValue(null); // inside tx
 
       await expect(service.deleteWorkShift(dto)).rejects.toMatchObject(
         new RpcException({ statusCode: HttpStatus.NOT_FOUND, ...CALENDAR_ERROR.SHIFT_NOT_FOUND }),
@@ -555,7 +573,7 @@ describe('WorkShiftService', () => {
     });
 
     it('should throw FORBIDDEN when member tries to delete another user\'s shift', async () => {
-      workShiftRepository.findOne.mockResolvedValue(existingShift);
+      // auth check runs BEFORE the transaction now
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
       calendarCommonService.assertSelfOrPrivileged.mockImplementation(() => { throw forbiddenError; });
 
@@ -569,8 +587,8 @@ describe('WorkShiftService', () => {
     });
 
     it('should allow admin to delete another user\'s shift', async () => {
-      workShiftRepository.findOne.mockResolvedValue(existingShift);
       calendarCommonService.fetchMember.mockResolvedValue(ADMIN);
+      workShiftRepository.findOne.mockResolvedValue(existingShift); // inside tx
 
       const adminDto = { ...dto, requestorId: 'admin-user' };
       const result = await service.deleteWorkShift(adminDto);
@@ -580,8 +598,8 @@ describe('WorkShiftService', () => {
     });
 
     it('should throw INTERNAL_SERVER_ERROR on repository failure', async () => {
-      workShiftRepository.findOne.mockResolvedValue(existingShift);
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      workShiftRepository.findOne.mockResolvedValue(existingShift); // inside tx
       workShiftRepository.delete.mockRejectedValue(new Error('DB error'));
 
       await expect(service.deleteWorkShift(dto)).rejects.toMatchObject(

@@ -45,12 +45,18 @@ describe('CalendarRequestService', () => {
       createQueryBuilder: jest.fn().mockReturnValue({
         delete: jest.fn().mockReturnThis(),
         update: jest.fn().mockReturnThis(),
+        insert: jest.fn().mockReturnThis(),
+        into: jest.fn().mockReturnThis(),
+        values: jest.fn().mockReturnThis(),
+        orIgnore: jest.fn().mockReturnThis(),
         set: jest.fn().mockReturnThis(),
         from: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
         execute: jest.fn().mockResolvedValue({ affected: 1 }),
         getOne: jest.fn().mockResolvedValue(null),
+        getRawOne: jest.fn().mockResolvedValue({ total: '0' }),
       }),
     };
 
@@ -148,21 +154,24 @@ describe('CalendarRequestService', () => {
       });
     });
 
-    it('should allow LEAVE_PAID creation without balance check (balance is checked at approval time)', async () => {
+    it('should throw INSUFFICIENT_LEAVE_BALANCE when pending+used days exceed totalPaidLeave', async () => {
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
-      manager.create.mockReturnValue({ id: 'req-no-balance' });
-      manager.save.mockResolvedValue({ id: 'req-no-balance' });
+      policyService.getPolicy.mockResolvedValue({ policyData: { maxPaidLeaveDaysPerYear: 12 } });
+      manager.findOne.mockResolvedValue({ totalPaidLeave: 12, usedPaidLeave: 10 }); // 10 used
+      manager.createQueryBuilder().getRawOne.mockResolvedValueOnce({ total: '3' }); // 3 pending
 
-      const leavePaidDto = { ...dto, requestType: CalendarRequestType.LEAVE_PAID, durationDays: 1 };
-      const result = await service.createRequest(leavePaidDto);
-
-      // Balance check intentionally moved to handleLeaveApproval — createRequest always succeeds if input is valid
-      expect(result).toHaveProperty('id', 'req-no-balance');
+      // 10 used + 3 pending + 2 requested = 15 > 12 → insufficient
+      const leavePaidDto = { ...dto, requestType: CalendarRequestType.LEAVE_PAID, durationDays: 2 };
+      await expect(service.createRequest(leavePaidDto)).rejects.toMatchObject({
+        error: expect.objectContaining({ statusCode: HttpStatus.BAD_REQUEST, code: CALENDAR_ERROR.INSUFFICIENT_LEAVE_BALANCE.code }),
+      });
     });
 
     it('should save request successfully if balance is sufficient for LEAVE_PAID', async () => {
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
+      policyService.getPolicy.mockResolvedValue({ policyData: { maxPaidLeaveDaysPerYear: 12 } });
       manager.findOne.mockResolvedValue({ totalPaidLeave: 12, usedPaidLeave: 5 }); // 7 left
+      manager.createQueryBuilder().getRawOne.mockResolvedValueOnce({ total: '0' }); // 0 pending
       manager.create.mockReturnValue({ id: 'req-1' });
       manager.save.mockResolvedValue({ id: 'req-1' });
 
@@ -178,6 +187,7 @@ describe('CalendarRequestService', () => {
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
       manager.findOne.mockResolvedValue(null); // No balance record
       policyService.getPolicy.mockResolvedValue(null);
+      manager.createQueryBuilder().getRawOne.mockResolvedValueOnce({ total: '0' }); // 0 pending
       manager.create.mockReturnValue({ id: 'req-2' });
       manager.save.mockResolvedValue({ id: 'req-2' });
 
@@ -192,6 +202,7 @@ describe('CalendarRequestService', () => {
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
       manager.findOne.mockResolvedValue(null); // No balance record
       policyService.getPolicy.mockResolvedValue({ policyData: { maxPaidLeaveDaysPerYear: 20 } });
+      manager.createQueryBuilder().getRawOne.mockResolvedValueOnce({ total: '0' }); // 0 pending
       manager.create.mockReturnValue({ id: 'req-3' });
       manager.save.mockResolvedValue({ id: 'req-3' });
 
@@ -216,6 +227,7 @@ describe('CalendarRequestService', () => {
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
       policyService.getPolicy.mockResolvedValue({ policyData: { workingDays: [1, 2, 3, 4, 5, 6], maxPaidLeaveDaysPerYear: 12 } });
       manager.findOne.mockResolvedValue({ totalPaidLeave: 12, usedPaidLeave: 5 }); // 7 left
+      manager.createQueryBuilder().getRawOne.mockResolvedValue({ total: '0' }); // 0 pending
       manager.create.mockReturnValue({ id: 'req-sat' });
       manager.save.mockResolvedValue({ id: 'req-sat' });
 
@@ -245,6 +257,7 @@ describe('CalendarRequestService', () => {
       calendarCommonService.fetchMember.mockResolvedValue(MEMBER);
       policyService.getPolicy.mockResolvedValue(null); // default Mon-Fri
       manager.findOne.mockResolvedValue({ totalPaidLeave: 12, usedPaidLeave: 5 }); // 7 left
+      manager.createQueryBuilder().getRawOne.mockResolvedValue({ total: '0' }); // 0 pending
       manager.create.mockReturnValue({ id: 'req-fri' });
       manager.save.mockResolvedValue({ id: 'req-fri' });
 

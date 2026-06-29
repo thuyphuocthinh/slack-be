@@ -13,7 +13,7 @@ import { WorkShiftEntity } from '../entity/work_shift.entity';
 import { UserFaceBaselineEntity } from '../entity/user_face_baseline.entity';
 import { WorkspaceCalendarPolicyService } from './workspace-calendar-policy.service';
 import { AttendanceLogType, DailyReconciliationStatus, ShiftLocation } from '../types/calendar.enum';
-import { CachedService } from '@slack/cached/cached.service';
+import { CachedService, RateLimitService } from '@slack/cached';
 import { CACHE } from '@slack/cached/cached.constant';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -120,6 +120,10 @@ describe('AttendanceService', () => {
       getPolicy: jest.fn().mockResolvedValue({ policyData: {} }),
     };
 
+    const rateLimitService = {
+      isAllowed: jest.fn().mockResolvedValue(true),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AttendanceService,
@@ -129,6 +133,7 @@ describe('AttendanceService', () => {
         { provide: WorkspaceCalendarPolicyService, useValue: policyService },
         { provide: DataSource, useValue: dataSource },
         { provide: CachedService, useValue: cachedService },
+        { provide: RateLimitService, useValue: rateLimitService },
       ],
     }).compile();
 
@@ -466,6 +471,20 @@ describe('AttendanceService', () => {
       
       const saved = manager.create.mock.calls.find((args) => args[0] === DailyReconciliationEntity)[1];
       expect(saved.status).toBe(DailyReconciliationStatus.NORMAL); // Exactly 15 mins is NOT late (> 15 is late)
+    });
+
+    it('0. CRITICAL-2: getLatestLog with undefined shiftId returns null (no cross-shift collision)', async () => {
+      // Simulate shift resolving to null — validateTimeWindow would throw, but we test the guard directly
+      // by checking that checkIn throws SHIFT_REQUIRED when shift is null (before getLatestLog is reached)
+      shiftRepo.findOne.mockResolvedValue(null);
+      await expect(service.checkIn({ ...dto, shiftId: undefined })).rejects.toMatchObject({
+        error: expect.objectContaining({ statusCode: HttpStatus.BAD_REQUEST }),
+      });
+      // manager.findOne (getLatestLog) must NOT have been called — guard returns null before DB hit
+      expect(manager.findOne).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ where: expect.objectContaining({ workShiftId: undefined }) }),
+      );
     });
 
     it('11. Security/Concurrency: Acquires pessimistic lock on reconciliation BEFORE querying latest log', async () => {

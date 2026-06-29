@@ -545,6 +545,32 @@ export class CalendarService {
     );
   }
 
+  async enqueueExportExcel(workspaceId: string, requestorId: string, month: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.ENQUEUE_EXPORT_EXCEL, {
+            workspaceId,
+            requestorId,
+            month,
+          }),
+        ),
+      'enqueueExportExcel',
+      'CalendarService',
+    );
+  }
+
+  async getExportStatus(workspaceId: string, requestorId: string, jobId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_EXPORT_STATUS, { workspaceId, requestorId, jobId }),
+        ),
+      'getExportStatus',
+      'CalendarService',
+    );
+  }
+
   async getHolidays(workspaceId: string, year: number) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>

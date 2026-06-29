@@ -21,9 +21,9 @@ const autocannon = require('autocannon');
  */
 
 const ACCESS_TOKEN =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzYzE5NWI1My1mZWUxLTRlY2MtOGQwYS05ZTdkOTIzOGM1YmIiLCJlbWFpbCI6InRwdEBnbWFpbC5jb20iLCJ0b2tlblZlcnNpb24iOjEsImlhdCI6MTc4MjM2MTExOSwiZXhwIjoxNzgyMzYyOTE5fQ.grCtcDdPpkpZz7R9P_a5Ofq7jG2l5LPXLEubwOpu9nw';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzYzE5NWI1My1mZWUxLTRlY2MtOGQwYS05ZTdkOTIzOGM1YmIiLCJlbWFpbCI6InRwdEBnbWFpbC5jb20iLCJ0b2tlblZlcnNpb24iOjEsImlhdCI6MTc4MjY1MzE1NSwiZXhwIjoxNzgyNjU0OTU1fQ.K5vjGS-H0O2r-cmvbkd_OEpbiK7vTCvjMbUTI1SSXPU';
 const WORKSPACE_ID = '57558aac-97ec-43b8-9512-94b76de7455a';
-const SHIFT_ID = 'PASTE_VALID_SHIFT_ID_HERE';
+const SHIFT_ID = '6588d8bd-bc10-4f52-a7bf-1e6cc511e44b';
 
 const instance = autocannon(
   {
@@ -44,29 +44,47 @@ const instance = autocannon(
     pipelining: 1,
   },
   (err, result) => {
-    if (err) { console.error(err); return; }
+    if (err) {
+      console.error(err);
+      return;
+    }
 
     console.log('\n--- RESULTS: RATE LIMIT CORRECTNESS TEST ---');
     console.log(`Total requests:      ${result.requests.total}`);
     console.log(`Success (2xx):       ${result['2xx']}`);
     console.log(`Non-2xx:             ${result.non2xx}`);
     console.log(`Latency p50:         ${result.latency.p50} ms`);
-    console.log(`Latency p99:         ${result.latency.p99} ms  ← 429 phải cực nhanh`);
+    console.log(
+      `Latency p99:         ${result.latency.p99} ms  ← 429 phải cực nhanh`,
+    );
     console.log(`Timeouts:            ${result.timeouts}`);
 
     // Rate limit = 5/60s → trong 10s tối đa 5 request không bị block
     const expectedPass = 5;
-    const actualPassed = result['2xx'] + (result.non2xx - /* 429 approx */ Math.max(0, result.non2xx - expectedPass));
+    const actualPassed =
+      result['2xx'] +
+      (result.non2xx -
+        /* 429 approx */ Math.max(0, result.non2xx - expectedPass));
 
     if (result.timeouts > 0) {
-      console.warn('🔴 FAIL: Có timeout — Redis rate limit đang bị block thay vì reject nhanh.');
+      console.warn(
+        '🔴 FAIL: Có timeout — Redis rate limit đang bị block thay vì reject nhanh.',
+      );
     } else if (result.non2xx === 0) {
-      console.warn('🔴 FAIL: 0 non-2xx — rate limit không hoạt động hoặc limit quá cao.');
+      console.warn(
+        '🔴 FAIL: 0 non-2xx — rate limit không hoạt động hoặc limit quá cao.',
+      );
     } else if (result.latency.p99 > 100) {
-      console.warn('🟡 WARNING: p99 > 100ms cho 429 — Redis Lua script có thể bị chậm.');
+      console.warn(
+        '🟡 WARNING: p99 > 100ms cho 429 — Redis Lua script có thể bị chậm.',
+      );
     } else {
-      console.log(`✅ PASS: Rate limit đang chặn — non-2xx = ${result.non2xx}, p99 = ${result.latency.p99}ms.`);
-      console.log(`   Kiểm tra log server để confirm phần lớn non-2xx là 429 (không phải 400/500).`);
+      console.log(
+        `✅ PASS: Rate limit đang chặn — non-2xx = ${result.non2xx}, p99 = ${result.latency.p99}ms.`,
+      );
+      console.log(
+        `   Kiểm tra log server để confirm phần lớn non-2xx là 429 (không phải 400/500).`,
+      );
     }
   },
 );

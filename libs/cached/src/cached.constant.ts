@@ -233,6 +233,10 @@ export const CACHE = {
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:calendar:v1:holidays:ws_${workspaceId}:y_${year}:v_${version}`,
       RATE_LIMIT_ATTENDANCE: (workspaceId: string, userId: string): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:calendar:v1:rate:attendance:ws_${workspaceId}:u_${userId}`,
+      WORKSPACE_MEMBER_STATS: (workspaceId: string, month: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:calendar:v1:stats:ws_${workspaceId}:m_${month}`,
+      EXPORT_JOB: (jobId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:calendar:v1:export:job_${jobId}`,
     },
     TRACKERS: {
       HOLIDAYS_VERSION: (workspaceId: string): string =>

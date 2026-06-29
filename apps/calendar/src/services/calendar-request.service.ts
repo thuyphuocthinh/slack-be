@@ -64,22 +64,23 @@ export class CalendarRequestService {
     durationDays: number,
     maxPaidLeaveDays: number,
   ): Promise<void> {
-    let balance = await manager.findOne(LeaveBalanceEntity, {
+    // Ensure the row exists before acquiring the pessimistic lock.
+    // INSERT ... ON CONFLICT DO NOTHING avoids the race where two concurrent
+    // transactions both find null and then both try to INSERT the same row.
+    await manager
+      .createQueryBuilder()
+      .insert()
+      .into(LeaveBalanceEntity)
+      .values({ workspaceId, userId, year, totalPaidLeave: maxPaidLeaveDays, usedPaidLeave: 0 })
+      .orIgnore()
+      .execute();
+
+    const balance = await manager.findOne(LeaveBalanceEntity, {
       where: { workspaceId, userId, year },
       lock: { mode: 'pessimistic_write' },
     });
 
-    if (!balance) {
-      balance = manager.create(LeaveBalanceEntity, {
-        workspaceId,
-        userId,
-        year,
-        totalPaidLeave: maxPaidLeaveDays,
-        usedPaidLeave: 0,
-      });
-    }
-
-    const available = maxPaidLeaveDays - balance.usedPaidLeave;
+    const available = maxPaidLeaveDays - balance!.usedPaidLeave;
     if (available < durationDays) {
       throw new RpcException({
         statusCode: HttpStatus.BAD_REQUEST,
@@ -88,8 +89,8 @@ export class CalendarRequestService {
       });
     }
 
-    balance.usedPaidLeave += durationDays;
-    await manager.save(LeaveBalanceEntity, balance);
+    balance!.usedPaidLeave += durationDays;
+    await manager.save(LeaveBalanceEntity, balance!);
   }
 
   private async findAndValidateRequest(manager: EntityManager, id: string, workspaceId: string, userId?: string, allowApprovedAndFuture = false) {
@@ -236,6 +237,13 @@ export class CalendarRequestService {
     endObj: Date,
     excludeRequestId?: string,
   ) {
+    if (startObj >= endObj) {
+      throw new RpcException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        ...CALENDAR_ERROR.INVALID_TIME_RANGE,
+      });
+    }
+
     const query = manager.createQueryBuilder(CalendarRequestEntity, 'req')
       .where('req.workspaceId = :workspaceId', { workspaceId })
       .andWhere('req.userId = :userId', { userId })
@@ -293,6 +301,33 @@ export class CalendarRequestService {
       return await this.requestRepository.manager.transaction(async (manager) => {
         // 2. Check for overlapping requests (PENDING or APPROVED)
         await this.checkOverlappingRequest(manager, workspaceId, userId, startObj, endObj);
+
+        // 2.5 Pre-check leave balance for LEAVE_PAID (soft check, authoritative check is at approval)
+        if (requestType === CalendarRequestType.LEAVE_PAID) {
+          const year = startObj.getFullYear();
+          const policy = await this.policyService.getPolicy(workspaceId);
+          const maxPaidLeaveDays = policy?.policyData?.maxPaidLeaveDaysPerYear ?? DEFAULT_PAID_LEAVE_DAYS;
+          const balance = await manager.findOne(LeaveBalanceEntity, { where: { workspaceId, userId, year } });
+          const totalPaidLeave = balance?.totalPaidLeave ?? maxPaidLeaveDays;
+          const usedPaidLeave = balance?.usedPaidLeave ?? 0;
+
+          const pendingResult = await manager.createQueryBuilder(CalendarRequestEntity, 'req')
+            .where('req.workspaceId = :workspaceId', { workspaceId })
+            .andWhere('req.userId = :userId', { userId })
+            .andWhere('req.requestType = :type', { type: CalendarRequestType.LEAVE_PAID })
+            .andWhere('req.status = :status', { status: CalendarRequestStatus.PENDING })
+            .select('COALESCE(SUM(req.durationDays), 0)', 'total')
+            .getRawOne();
+          const pendingDays = Number(pendingResult?.total ?? 0);
+
+          if (usedPaidLeave + pendingDays + actualDuration > totalPaidLeave) {
+            throw new RpcException({
+              statusCode: HttpStatus.BAD_REQUEST,
+              ...CALENDAR_ERROR.INSUFFICIENT_LEAVE_BALANCE,
+              message: `Không đủ ngày phép. Đã dùng/đang chờ: ${usedPaidLeave + pendingDays} ngày, còn lại: ${totalPaidLeave - usedPaidLeave - pendingDays} ngày.`,
+            });
+          }
+        }
 
         // 3. Save request
         const newRequest = manager.create(CalendarRequestEntity, {
