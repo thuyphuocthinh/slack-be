@@ -30,7 +30,7 @@ export class AttendanceLogEntity {
   @Index()
   workShiftId: string; // FK tới work_shifts — biết log này thuộc ca nào
 
-  @ManyToOne(() => WorkShiftEntity, shift => shift.attendanceLogs)
+  @ManyToOne(() => WorkShiftEntity, shift => shift.attendanceLogs, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'work_shift_id' })
   workShift: WorkShiftEntity;
 
