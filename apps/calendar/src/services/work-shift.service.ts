@@ -79,14 +79,16 @@ export class WorkShiftService {
 
       // 5. Validate then insert inside a single SERIALIZABLE transaction to prevent
       //    concurrent duplicate registrations from slipping past the overlap check.
-      const insertedShifts = await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
-        await this.policyService.validateShifts(workspaceId, userId, targetMember.employmentType, validationPayload, manager);
+      const insertedShifts = await withSerializableRetry(() =>
+        this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+          await this.policyService.validateShifts(workspaceId, userId, targetMember.employmentType, validationPayload, manager);
 
-        const result = await manager.insert(WorkShiftEntity, shiftsToInsert);
-        const insertedIds = result.identifiers.map(id => id.id);
+          const result = await manager.insert(WorkShiftEntity, shiftsToInsert);
+          const insertedIds = result.identifiers.map(id => id.id);
 
-        return manager.find(WorkShiftEntity, { where: { id: In(insertedIds) } });
-      });
+          return manager.find(WorkShiftEntity, { where: { id: In(insertedIds) } });
+        }),
+      );
 
       // 6. Push to Sync Queue
       if (insertedShifts.length > 0) {
@@ -230,8 +232,17 @@ export class WorkShiftService {
 
       const updatedShift = await withSerializableRetry(() =>
         this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+          // Re-read with lock to close the TOCTOU window between the pre-check and the write
+          const lockedShift = await manager.findOne(WorkShiftEntity, {
+            where: { id, workspaceId, userId },
+            lock: { mode: 'pessimistic_write' },
+          });
+          if (!lockedShift) {
+            throw new RpcException({ statusCode: HttpStatus.NOT_FOUND, ...CALENDAR_ERROR.SHIFT_NOT_FOUND });
+          }
+
           await this.policyService.validateShifts(workspaceId, userId, targetMember.employmentType, [{
-            id: shift.id,
+            id: lockedShift.id,
             workDate: newWorkDate,
             startTime: newStartTime,
             endTime: newEndTime,
@@ -279,24 +290,27 @@ export class WorkShiftService {
     const { id, workspaceId, requestorId, userId } = dto;
 
     try {
-      // 1. Find shift
-      const shift = await this.workShiftRepository.findOne({ where: { id, workspaceId, userId } });
-      if (!shift) {
-        throw new RpcException({ statusCode: HttpStatus.NOT_FOUND, ...CALENDAR_ERROR.SHIFT_NOT_FOUND });
-      }
-
-      // 2. Authorize requestor
+      // 1. Authorize requestor (outside transaction — reads only requestor's role)
       const requestor = await this.calendarCommonService.fetchMember(workspaceId, requestorId);
       this.calendarCommonService.assertSelfOrPrivileged(requestorId, userId, requestor.role);
 
-      // 3. Fetch target member for consistent lock enforcement (mirrors updateWorkShift)
+      // 2. Fetch target member for consistent lock enforcement
       const targetMember = requestorId === userId ? requestor : await this.calendarCommonService.fetchMember(workspaceId, userId);
 
-      // 4. Check lock deadline using target member's role
-      await this.policyService.checkLockDeadline(workspaceId, targetMember.role, userId, [shift.workDate]);
+      // 3. Lock shift, check deadline, delete — all inside a transaction to prevent race conditions
+      await this.dataSource.transaction(async (manager) => {
+        const shift = await manager.findOne(WorkShiftEntity, {
+          where: { id, workspaceId, userId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!shift) {
+          throw new RpcException({ statusCode: HttpStatus.NOT_FOUND, ...CALENDAR_ERROR.SHIFT_NOT_FOUND });
+        }
 
-      // 4. Delete
-      await this.workShiftRepository.delete({ id, workspaceId, userId });
+        await this.policyService.checkLockDeadline(workspaceId, targetMember.role, userId, [shift.workDate]);
+
+        await manager.delete(WorkShiftEntity, { id, workspaceId, userId });
+      });
 
       // 5. Push delete to Sync Queue
       this.queueService.addJob(

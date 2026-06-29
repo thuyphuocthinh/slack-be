@@ -1,10 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { Worker } from 'worker_threads';
+import * as path from 'path';
 import { DailyReconciliationEntity } from '../entity/daily_reconciliation.entity';
 import { DailyReconciliationStatus } from '../types/calendar.enum';
+import type { ExcelWorkerInput } from '../workers/excel.worker';
 import { StatisticSummaryResponseDto, WorkspaceMemberStatisticResponseDto, PersonalChartDataResponseDto } from '../dto/attendance-statistic.dto';
 import { CalendarCommonService } from './calendar-common.service';
+import { randomUUID } from 'crypto';
+import { CachedService, TTL, CACHE } from '@slack/cached';
+import { QueueService, EQueueName, EJobName } from '@slack/queue';
 
 @Injectable()
 export class AttendanceStatisticService {
@@ -12,6 +18,8 @@ export class AttendanceStatisticService {
     @InjectRepository(DailyReconciliationEntity)
     private readonly reconcRepository: Repository<DailyReconciliationEntity>,
     private readonly calendarCommonService: CalendarCommonService,
+    private readonly cachedService: CachedService,
+    private readonly queueService: QueueService,
   ) {}
 
   async getPersonalSummary(
@@ -61,13 +69,18 @@ export class AttendanceStatisticService {
   ): Promise<WorkspaceMemberStatisticResponseDto[]> {
     const requestor = await this.calendarCommonService.fetchMember(workspaceId, requestorId);
     this.calendarCommonService.assertPrivileged(requestor.role);
+
+    const cacheKey = CACHE.CALENDAR.KEYS.WORKSPACE_MEMBER_STATS(workspaceId, month);
+    const hit = await this.cachedService.get<WorkspaceMemberStatisticResponseDto[]>(cacheKey);
+    if (hit) return hit;
+
     const startDate = `${month}-01`;
     const [year, m] = month.split('-');
     const endDay = new Date(Number(year), Number(m), 0).getDate();
     const endDate = `${month}-${endDay}`;
 
     const qb = this.reconcRepository.createQueryBuilder('recon');
-    
+
     qb.where('recon.workspaceId = :workspaceId', { workspaceId })
       .andWhere('recon.workDate >= :startDate', { startDate })
       .andWhere('recon.workDate <= :endDate', { endDate });
@@ -95,7 +108,7 @@ export class AttendanceStatisticService {
 
     const reconMap = new Map(rawResults.map(r => [r.userId, r]));
 
-    return allMembers.map((member: any) => {
+    const result = allMembers.map((member: any) => {
       const r = reconMap.get(member.userId);
       return {
         userId: member.userId,
@@ -105,6 +118,9 @@ export class AttendanceStatisticService {
         leaveDays: Number(r?.leaveDays || 0),
       };
     });
+
+    await this.cachedService.set(cacheKey, result, TTL.SHORT);
+    return result;
   }
 
   async getPersonalChartData(
@@ -143,31 +159,8 @@ export class AttendanceStatisticService {
     requestorId: string,
     month: string, // YYYY-MM
   ): Promise<Buffer> {
+    // Fetch all data on main thread (DB access not available inside worker)
     const membersData = await this.getWorkspaceMembers(workspaceId, requestorId, month);
-
-    const ExcelJS = require('exceljs');
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = 'Slack App System';
-    
-    // Sheet 1: Summary
-    const summarySheet = workbook.addWorksheet('Tổng Hợp');
-    summarySheet.columns = [
-      { header: 'Mã NV', key: 'userId', width: 40 },
-      { header: 'Tổng Giờ Làm', key: 'totalWorkHours', width: 15 },
-      { header: 'Số Ngày Muộn', key: 'lateDays', width: 15 },
-      { header: 'Số Ngày Phép', key: 'leaveDays', width: 15 },
-      { header: 'Số Ngày Vắng', key: 'absentDays', width: 15 },
-    ];
-    
-    summarySheet.addRows(membersData);
-
-    // Sheet 2: Detailed 31 days
-    const detailSheet = workbook.addWorksheet('Chi Tiết Điểm Danh');
-    const cols = [{ header: 'Mã NV', key: 'userId', width: 40 }];
-    for (let i = 1; i <= 31; i++) {
-      cols.push({ header: `Ngày ${i}`, key: `day_${i}`, width: 10 });
-    }
-    detailSheet.columns = cols;
 
     const startDate = `${month}-01`;
     const [year, m] = month.split('-');
@@ -183,39 +176,67 @@ export class AttendanceStatisticService {
       .addSelect('recon.status', 'status')
       .getRawMany();
 
-    const userLogsMap: Record<string, Record<string, string>> = {};
-    for (const log of rawLogs) {
-      if (!userLogsMap[log.userId]) userLogsMap[log.userId] = {};
-      
-      let day = 1;
-      if (typeof log.workDate === 'string') {
-        const parts = log.workDate.split('-');
-        if (parts.length >= 3) {
-          day = parseInt(parts[2].substring(0, 2), 10);
-        } else {
-          day = new Date(log.workDate).getDate();
-        }
-      } else if (log.workDate instanceof Date) {
-        day = log.workDate.getDate();
-      }
+    // Offload CPU-intensive ExcelJS work to a dedicated worker thread
+    return this.runExcelWorker({ membersData, rawLogs });
+  }
 
-      let marker = '✓';
-      if (log.status === DailyReconciliationStatus.LATE_EARLY) marker = 'M';
-      if (log.status === DailyReconciliationStatus.ABSENT) marker = 'V';
-      if (log.status === DailyReconciliationStatus.LEAVE_PAID_APPROVED || log.status === DailyReconciliationStatus.LEAVE_UNPAID_APPROVED) marker = 'P';
-      
-      userLogsMap[log.userId][`day_${day}`] = marker;
-    }
+  private runExcelWorker(input: ExcelWorkerInput): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      // __dirname resolves to dist/apps/calendar/src/services/ at runtime
+      const workerPath = path.join(__dirname, '../workers/excel.worker.js');
+      const worker = new Worker(workerPath, { workerData: input });
 
-    for (const memberStat of membersData) {
-      const row: any = { userId: memberStat.userId };
-      for (let i = 1; i <= 31; i++) {
-        row[`day_${i}`] = userLogsMap[memberStat.userId]?.[`day_${i}`] || '';
-      }
-      detailSheet.addRow(row);
-    }
+      worker.on('message', (data: Buffer | ArrayBuffer) => {
+        resolve(Buffer.isBuffer(data) ? data : Buffer.from(data));
+      });
+      worker.on('error', reject);
+      worker.on('exit', (code) => {
+        if (code !== 0) reject(new Error(`Excel worker exited with code ${code}`));
+      });
+    });
+  }
 
-    const buffer = await workbook.xlsx.writeBuffer();
-    return buffer as Buffer;
+  async enqueueExport(
+    workspaceId: string,
+    requestorId: string,
+    month: string,
+  ): Promise<{ jobId: string }> {
+    const requestor = await this.calendarCommonService.fetchMember(workspaceId, requestorId);
+    this.calendarCommonService.assertPrivileged(requestor.role);
+
+    const jobId = randomUUID();
+
+    await this.cachedService.set(
+      CACHE.CALENDAR.KEYS.EXPORT_JOB(jobId),
+      { status: 'PENDING' },
+      TTL.MEDIUM,
+    );
+
+    await this.queueService.addJob(
+      EQueueName.CALENDAR_QUEUE,
+      EJobName.CALENDAR_EXPORT_EXCEL,
+      { jobId, workspaceId, requestorId, month },
+      { removeOnComplete: true, attempts: 2 },
+    );
+
+    return { jobId };
+  }
+
+  async getExportStatus(workspaceId: string, requestorId: string, jobId: string): Promise<{
+    status: 'PENDING' | 'DONE' | 'FAILED';
+    data?: string;
+    error?: string;
+  }> {
+    const requestor = await this.calendarCommonService.fetchMember(workspaceId, requestorId);
+    this.calendarCommonService.assertPrivileged(requestor.role);
+
+    const result = await this.cachedService.get<{
+      status: 'PENDING' | 'DONE' | 'FAILED';
+      data?: string;
+      error?: string;
+    }>(CACHE.CALENDAR.KEYS.EXPORT_JOB(jobId));
+
+    if (!result) return { status: 'FAILED', error: 'Job not found or expired' };
+    return result;
   }
 }

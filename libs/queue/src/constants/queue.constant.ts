@@ -52,6 +52,7 @@ export enum EJobName {
   // Calendar
   CALENDAR_REQUEST_CREATED = 'calendar_request_created',
   CALENDAR_REQUEST_REVIEWED = 'calendar_request_reviewed',
+  CALENDAR_EXPORT_EXCEL = 'calendar_export_excel',
 
   // Integrations Sync
   SYNC_CALENDAR_SHIFT = 'sync_calendar_shift',

@@ -104,6 +104,11 @@ export class CalendarController {
     return this.requestService.manualUnlock(dto);
   }
 
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_MY_LOCK_STATUS)
+  async getMyLockStatus(@Payload() dto: GetMyLockStatusDto) {
+    return this.requestService.getMyLockStatus(dto.workspaceId, dto.userId, dto.targetMonth);
+  }
+
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_MONTH_LOCK_STATUS)
   async getMonthLockStatus(@Payload() dto: GetMonthLockStatusDto) {
     return this.requestService.getMonthLockStatus(dto.workspaceId, dto.requestorId, dto.targetMonth);
@@ -157,6 +162,16 @@ export class CalendarController {
   async exportWorkspaceStatisticExcel(@Payload() dto: ExportWorkspaceStatisticExcelDto) {
     const buffer = await this.statisticService.exportWorkspaceExcel(dto.workspaceId, dto.requestorId, dto.month);
     return buffer.toString('base64');
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.ENQUEUE_EXPORT_EXCEL)
+  async enqueueExportExcel(@Payload() dto: ExportWorkspaceStatisticExcelDto) {
+    return this.statisticService.enqueueExport(dto.workspaceId, dto.requestorId, dto.month);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_EXPORT_STATUS)
+  async getExportStatus(@Payload() dto: { workspaceId: string; requestorId: string; jobId: string }) {
+    return this.statisticService.getExportStatus(dto.workspaceId, dto.requestorId, dto.jobId);
   }
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_HOLIDAYS)

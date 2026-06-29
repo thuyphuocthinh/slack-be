@@ -288,6 +288,26 @@ export class CalendarController {
     res.end(buffer);
   }
 
+  @Post('statistics/workspace/export-async')
+  @ApiOperation({ summary: 'Enqueue async Excel export — returns jobId immediately (Role Admin)' })
+  async enqueueExportExcel(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+    @Query('month') month: string,
+  ) {
+    return this.calendarService.enqueueExportExcel(workspaceId, user.sub!, month);
+  }
+
+  @Get('statistics/workspace/export-async/:jobId')
+  @ApiOperation({ summary: 'Poll async export status — always returns JSON { status, data?, error? } (Role Admin)' })
+  async getExportStatus(
+    @Param('workspaceId') workspaceId: string,
+    @Param('jobId') jobId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.calendarService.getExportStatus(workspaceId, user.sub!, jobId);
+  }
+
   // --- HOLIDAYS ---
 
   @Get('holidays')

@@ -9,6 +9,7 @@ import {
   EJobName,
   ICalendarRequestCreatedJobData,
   ICalendarRequestReviewedJobData,
+  ICalendarExportExcelJobData,
 } from '@slack/queue';
 import {
   NAME_SERVICE_TCP,
@@ -17,7 +18,9 @@ import {
   NotificationType,
   NotificationObjectType,
 } from '@slack/constants';
+import { CachedService, TTL, CACHE } from '@slack/cached';
 import { CalendarRequestType } from '../types/calendar.enum';
+import { AttendanceStatisticService } from '../services/attendance-statistic.service';
 
 
 @Processor(EQueueName.CALENDAR_QUEUE, { concurrency: 5 })
@@ -33,6 +36,8 @@ export class CalendarProcessor extends BaseProcessor<
     private readonly workspaceClient: ClientProxy,
     @Inject(NAME_SERVICE_TCP.NOTIFICATION_SERVICE)
     private readonly notificationClient: ClientProxy,
+    private readonly statisticService: AttendanceStatisticService,
+    private readonly cachedService: CachedService,
   ) {
     super();
   }
@@ -45,8 +50,33 @@ export class CalendarProcessor extends BaseProcessor<
       case EJobName.CALENDAR_REQUEST_REVIEWED:
         await this.handleCalendarRequestReviewed(job);
         break;
+      case EJobName.CALENDAR_EXPORT_EXCEL:
+        await this.handleCalendarExportExcel(job);
+        break;
       default:
         this.logger.warn(`Unknown job name in CalendarProcessor: ${job.name}`);
+    }
+  }
+
+  private async handleCalendarExportExcel(
+    job: Job<ICalendarExportExcelJobData, void, EJobName>,
+  ): Promise<void> {
+    const { jobId, workspaceId, requestorId, month } = job.data;
+    try {
+      const buffer = await this.statisticService.exportWorkspaceExcel(workspaceId, requestorId, month);
+      await this.cachedService.set(
+        CACHE.CALENDAR.KEYS.EXPORT_JOB(jobId),
+        { status: 'DONE', data: buffer.toString('base64') },
+        TTL.MEDIUM,
+      );
+      this.logger.log(`Export job ${jobId} completed for workspace ${workspaceId} month ${month}`);
+    } catch (err) {
+      await this.cachedService.set(
+        CACHE.CALENDAR.KEYS.EXPORT_JOB(jobId),
+        { status: 'FAILED', error: err?.message || 'Export failed' },
+        TTL.SHORT,
+      );
+      throw err;
     }
   }
 

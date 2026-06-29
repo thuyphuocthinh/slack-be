@@ -69,10 +69,25 @@ describe('CalendarCronService', () => {
       findOne: jest.fn(),
     };
 
+    const txManager = {
+      create: jest.fn().mockImplementation((_entity: any, d: any) => ({ ...d })),
+      save: jest.fn().mockImplementation((_entity: any, e: any) => Promise.resolve({ ...e })),
+      findOne: jest.fn().mockResolvedValue(null),
+    };
+
     reconcRepo = {
       create: jest.fn().mockImplementation((d) => ({ ...d })),
       save: jest.fn().mockImplementation((e) => Promise.resolve({ ...e })),
       findOne: jest.fn().mockResolvedValue(null),
+      manager: {
+        transaction: jest.fn().mockImplementation(async (cb: any) => {
+          // Mirror findOne/create/save through to the outer mocks so existing tests still work
+          txManager.findOne.mockImplementation(async (_entity: any, opts: any) => reconcRepo.findOne(opts));
+          txManager.create.mockImplementation((_entity: any, d: any) => reconcRepo.create(d));
+          txManager.save.mockImplementation(async (_entity: any, e: any) => reconcRepo.save(e));
+          return cb(txManager);
+        }),
+      },
     };
 
     lockRepo = {

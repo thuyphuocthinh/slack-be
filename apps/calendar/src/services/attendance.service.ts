@@ -131,6 +131,7 @@ export class AttendanceService {
   }
 
   private async getLatestLog(manager: EntityManager, workspaceId: string, userId: string, shiftId: string | undefined): Promise<AttendanceLogEntity | null> {
+    if (!shiftId) return null;
     return manager.findOne(AttendanceLogEntity, {
       where: { workspaceId, userId, workShiftId: shiftId },
       order: { recordedAt: 'DESC' },

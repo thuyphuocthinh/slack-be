@@ -161,6 +161,13 @@ export interface IDeleteCalendarShiftJobData {
   userId: string;
 }
 
+export interface ICalendarExportExcelJobData {
+  jobId: string;        // pre-generated UUID, used as Redis cache key
+  workspaceId: string;
+  requestorId: string;
+  month: string;        // YYYY-MM
+}
+
 export type TJobData = {
   [EJobName.SEND_VERIFICATION_EMAIL]: IEmailJobData;
   [EJobName.SEND_INVITE_EMAIL]: IInviteJobData;
@@ -183,5 +190,6 @@ export type TJobData = {
   [EJobName.CALENDAR_REQUEST_REVIEWED]: ICalendarRequestReviewedJobData;
   [EJobName.SYNC_CALENDAR_SHIFT]: ISyncCalendarShiftJobData;
   [EJobName.DELETE_CALENDAR_SHIFT]: IDeleteCalendarShiftJobData;
+  [EJobName.CALENDAR_EXPORT_EXCEL]: ICalendarExportExcelJobData;
 };
 
