@@ -133,6 +133,15 @@
         ]
       }
     },
+    "orchestration": {
+      "type": "application",
+      "root": "apps/orchestration",
+      "entryFile": "main",
+      "sourceRoot": "apps/orchestration/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/orchestration/tsconfig.app.json"
+      }
+    },
     "queue": {
       "type": "library",
       "root": "libs/queue",
