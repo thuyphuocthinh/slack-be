@@ -13,6 +13,7 @@ export enum EQueueName {
   LINK_PREVIEW_QUEUE = 'link_preview',
   CALENDAR_QUEUE = 'calendar',
   INTEGRATION_SYNC_QUEUE = 'integration_sync',
+  AI_ORCHESTRATION_QUEUE = 'ai_orchestration',
 }
 
 export enum EJobName {
@@ -57,5 +58,7 @@ export enum EJobName {
   // Integrations Sync
   SYNC_CALENDAR_SHIFT = 'sync_calendar_shift',
   DELETE_CALENDAR_SHIFT = 'delete_calendar_shift',
-}
 
+  // AI Orchestration
+  PROCESS_AI_TRIGGER = 'process_ai_trigger',
+}

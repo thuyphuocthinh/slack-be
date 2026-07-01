@@ -15,6 +15,7 @@ import {
 import { ClientProxy, RpcException } from '@nestjs/microservices';
 import {
   CHANNEL_MESSAGE_PATTERN,
+  ChannelTypeEnum,
   MESSAGE_ERROR,
   NAME_SERVICE_TCP,
   USER_MESSAGE_PATTERNS,
@@ -28,12 +29,16 @@ import { MessageReactionEntity } from '../entity/message_reaction.entity';
 import { MessageAttachmentEntity } from '../entity/message_attachment.entity';
 import { firstValueFrom } from 'rxjs';
 import { v7 as uuidv7 } from 'uuid';
-import { EQueueName, EJobName, QueueService, IProcessWebhookMessageJobData } from '@slack/queue';
+import {
+  EQueueName,
+  EJobName,
+  QueueService,
+  IProcessWebhookMessageJobData,
+} from '@slack/queue';
 import { IMessageAttachment } from '../types/message-attachment.interface';
 import { ITipTapNode } from '../types/tiptap-node.interface';
 import { CACHE, CachedService, TTL } from '@slack/cached';
 import { AuditAction, AuditEntityType } from '@slack/common';
-
 
 @Injectable()
 export class MessageService {
@@ -49,7 +54,7 @@ export class MessageService {
     private readonly dataSource: DataSource,
     private readonly queueService: QueueService,
     private readonly cachedService: CachedService,
-  ) { }
+  ) {}
 
   private async checkChannelExist(channelId: string, senderId: string) {
     try {
@@ -99,7 +104,9 @@ export class MessageService {
   ) {
     // 4. Handle mentions
     if (createMessageDto.mentions && createMessageDto.mentions.length > 0) {
-      const actualMentions = createMessageDto.mentions.filter((id) => id !== 'all');
+      const actualMentions = createMessageDto.mentions.filter(
+        (id) => id !== 'all',
+      );
       if (actualMentions.length > 0) {
         const mentionEntities = actualMentions.map((userId) =>
           manager.create(MessageMentionEntity, {
@@ -210,7 +217,8 @@ export class MessageService {
               channelId: response.channelId,
               channelName: channel.name,
               senderId: response.sender.id,
-              senderName: response.sender.firstName + ' ' + response.sender.lastName,
+              senderName:
+                response.sender.firstName + ' ' + response.sender.lastName,
               messageId: response.id,
               mentions: response.mentions,
               parentId: response.parentId || undefined,
@@ -269,10 +277,10 @@ export class MessageService {
              AND a.status = 'ACTIVE' 
              AND a.request_url IS NOT NULL 
              AND a.request_url != ''`,
-          [channel.workspaceId, eventType]
+          [channel.workspaceId, eventType],
         );
         return rawResult.map((r: { appId: string }) => r.appId) as string[];
-      }
+      },
     );
 
     if (Array.isArray(subscribedAppIds) && subscribedAppIds.length > 0) {
@@ -290,7 +298,7 @@ export class MessageService {
             attempts: 3,
             backoff: { type: 'exponential', delay: 1000 },
             removeOnComplete: true,
-          }
+          },
         );
       }
     }
@@ -304,36 +312,42 @@ export class MessageService {
     // check channel exist
     const channel = await this.checkChannelExist(channelId, senderId);
 
-    const { response, savedMessage } = await this.dataSource.transaction(async (manager) => {
-      // 2. Validate parent if it's a reply
-      if (parentId) {
-        const parent = await manager.findOne(MessageEntity, {
-          where: { id: parentId, channelId },
-        });
-        if (!parent) {
-          throw new RpcException(MESSAGE_ERROR.PARENT_NOT_FOUND);
+    const { response, savedMessage } = await this.dataSource.transaction(
+      async (manager) => {
+        // 2. Validate parent if it's a reply
+        if (parentId) {
+          const parent = await manager.findOne(MessageEntity, {
+            where: { id: parentId, channelId },
+          });
+          if (!parent) {
+            throw new RpcException(MESSAGE_ERROR.PARENT_NOT_FOUND);
+          }
         }
-      }
 
-      // 3. Create message
-      const message = manager.create(MessageEntity, {
-        id: uuidv7(), // uuid v7 => time-based for sorting
-        channelId,
-        userId: senderId,
-        content,
-        parentId,
-      });
+        // 3. Create message
+        const message = manager.create(MessageEntity, {
+          id: uuidv7(), // uuid v7 => time-based for sorting
+          channelId,
+          userId: senderId,
+          content,
+          parentId,
+        });
 
-      const savedMessage = await manager.save(message);
+        const savedMessage = await manager.save(message);
 
-      // 4. Handle mentions and attachments
-      await this.handleMentionsAndAttachments(savedMessage, createMessageDto, manager);
+        // 4. Handle mentions and attachments
+        await this.handleMentionsAndAttachments(
+          savedMessage,
+          createMessageDto,
+          manager,
+        );
 
-      // 5. Hydrate and return
-      const [response] = await this.hydrateMessages([savedMessage], manager);
+        // 5. Hydrate and return
+        const [response] = await this.hydrateMessages([savedMessage], manager);
 
-      return { response, savedMessage };
-    });
+        return { response, savedMessage };
+      },
+    );
 
     // Extract URLs and trigger link preview generation
     const foundUrls = this.extractUrlsFromContent(content);
@@ -349,7 +363,12 @@ export class MessageService {
     }
 
     // 6. Broadcast events and queues
-    await this.broadcastMessageEvents(response, channel, savedMessage, this.dataSource.manager);
+    await this.broadcastMessageEvents(
+      response,
+      channel,
+      savedMessage,
+      this.dataSource.manager,
+    );
 
     // 7. Dispatch Webhook Events to Bot Servers
     process.nextTick(() => {
@@ -358,15 +377,65 @@ export class MessageService {
       });
     });
 
+    // 8. Trigger AI orchestration if this channel has an AI bot member
+    process.nextTick(() => {
+      this.maybeTriggerAiOrchestration(
+        channel,
+        createMessageDto,
+        savedMessage,
+      ).catch((err) => {
+        this.logger.error(`Error triggering AI orchestration: ${err.message}`);
+      });
+    });
+
     return response;
   }
 
-  private extractUrlsFromContent(content: string | Record<string, unknown> | Record<string, unknown>[]): string[] {
+  private async maybeTriggerAiOrchestration(
+    channel: {
+      id: string;
+      type: string;
+      memberIds?: string[];
+      workspaceId: string;
+    },
+    createMessageDto: CreateMessageDto,
+    savedMessage: MessageEntity,
+  ): Promise<void> {
+    if (!channel.memberIds?.length) return;
+
+    const usersMap = await this.getUsersInfo(channel.memberIds);
+    const botEntry = [...usersMap.values()].find((u) => u.isBot);
+    if (!botEntry) return; // channel này không có AI bot -> bỏ qua
+
+    const isDirect = channel.type === ChannelTypeEnum.DIRECT;
+    const isMentioned =
+      createMessageDto.mentions?.includes(botEntry.id) ?? false;
+    if (!isDirect && !isMentioned) return; // GROUP mà không @mention -> bỏ qua
+
+    await this.queueService.addJob(
+      EQueueName.AI_ORCHESTRATION_QUEUE,
+      EJobName.PROCESS_AI_TRIGGER,
+      {
+        userId: savedMessage.userId,
+        channelId: channel.id,
+        workspaceId: channel.workspaceId,
+        messageId: savedMessage.id,
+        botUserId: botEntry.id,
+      },
+    );
+  }
+
+  private extractUrlsFromContent(
+    content: string | Record<string, unknown> | Record<string, unknown>[],
+  ): string[] {
     const urls: string[] = [];
     const URL_REGEX = /https?:\/\/[^\s$.?#].[^\s]*/gi;
 
     let parsedContent = content;
-    if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
+    if (
+      typeof content === 'string' &&
+      (content.startsWith('{') || content.startsWith('['))
+    ) {
       try {
         parsedContent = JSON.parse(content);
       } catch {
@@ -425,31 +494,43 @@ export class MessageService {
   async createWebhookMessage(
     data: IProcessWebhookMessageJobData,
   ): Promise<MessageResponseDto> {
-    const { channelId, workspaceId, webhookId, customName, customAvatarUrl, content, attachments } = data;
+    const {
+      channelId,
+      webhookId,
+      customName,
+      customAvatarUrl,
+      content,
+      attachments,
+    } = data;
 
     // We don't check checkChannelExist because webhooks are pre-verified
 
-    const { response, savedMessage } = await this.dataSource.transaction(async (manager) => {
-      // Create message
-      const message = manager.create(MessageEntity, {
-        id: uuidv7(),
-        channelId,
-        userId: null as any, // nullable
-        webhookId,
-        customName,
-        customAvatarUrl,
-        content: attachments && attachments.length > 0 ? { text: content, attachments } : content,
-      });
+    const { response, savedMessage } = await this.dataSource.transaction(
+      async (manager) => {
+        // Create message
+        const message = manager.create(MessageEntity, {
+          id: uuidv7(),
+          channelId,
+          userId: null as any, // nullable
+          webhookId,
+          customName,
+          customAvatarUrl,
+          content:
+            attachments && attachments.length > 0
+              ? { text: content, attachments }
+              : content,
+        });
 
-      const savedMessage = await manager.save(message);
+        const savedMessage = await manager.save(message);
 
-      // skip attachments for webhooks as they are not standard uploaded resources
-      // but rather rich-text content or slack-format attachments
+        // skip attachments for webhooks as they are not standard uploaded resources
+        // but rather rich-text content or slack-format attachments
 
-      const [response] = await this.hydrateMessages([savedMessage], manager);
+        const [response] = await this.hydrateMessages([savedMessage], manager);
 
-      return { response, savedMessage };
-    });
+        return { response, savedMessage };
+      },
+    );
 
     // Extract URLs and trigger link preview generation
     const foundUrls = this.extractUrlsFromContent(savedMessage.content);
@@ -471,7 +552,12 @@ export class MessageService {
       }),
     );
 
-    await this.broadcastMessageEvents(response, channel, savedMessage, this.dataSource.manager);
+    await this.broadcastMessageEvents(
+      response,
+      channel,
+      savedMessage,
+      this.dataSource.manager,
+    );
 
     return response;
   }
@@ -515,7 +601,7 @@ export class MessageService {
             channelId ||
             (parentId
               ? (await messageRepo.findOne({ where: { id: parentId } }))
-                ?.channelId
+                  ?.channelId
               : undefined),
         });
 
@@ -675,14 +761,17 @@ export class MessageService {
         },
       );
 
-      this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
-        action: AuditAction.MESSAGE_EDITED,
-        actorId: userId,
-        entityType: AuditEntityType.MESSAGE,
-        entityId: updatedMessage.id,
-        metadata: { channelId: updatedMessage.channelId },
-      });
-
+      this.queueService.addJob(
+        EQueueName.AUDIT_QUEUE,
+        EJobName.SAVE_AUDIT_LOG,
+        {
+          action: AuditAction.MESSAGE_EDITED,
+          actorId: userId,
+          entityType: AuditEntityType.MESSAGE,
+          entityId: updatedMessage.id,
+          metadata: { channelId: updatedMessage.channelId },
+        },
+      );
 
       // Update resource metadata if attachments changed
 
@@ -760,17 +849,19 @@ export class MessageService {
         );
       }
 
-      this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
-        action: AuditAction.MESSAGE_DELETED,
-        actorId: userId,
-        entityType: AuditEntityType.MESSAGE,
-        entityId: messageId,
-        metadata: { channelId },
-      });
-
+      this.queueService.addJob(
+        EQueueName.AUDIT_QUEUE,
+        EJobName.SAVE_AUDIT_LOG,
+        {
+          action: AuditAction.MESSAGE_DELETED,
+          actorId: userId,
+          entityType: AuditEntityType.MESSAGE,
+          entityId: messageId,
+          metadata: { channelId },
+        },
+      );
 
       return true;
-
     });
   }
 
@@ -840,10 +931,15 @@ export class MessageService {
 
       // Bắn thông báo tới Activity khi có Reaction mới
       if (isAdded && updatedMessage.sender.id !== userId) {
-        const channel = await this.checkChannelExist(updatedMessage.channelId, userId);
+        const channel = await this.checkChannelExist(
+          updatedMessage.channelId,
+          userId,
+        );
         const userMap = await this.getUsersInfo([userId]);
         const reactor = userMap.get(userId);
-        const reactorName = reactor ? `${reactor.firstName} ${reactor.lastName}` : 'User';
+        const reactorName = reactor
+          ? `${reactor.firstName} ${reactor.lastName}`
+          : 'User';
 
         await this.queueService.addJob(
           EQueueName.NOTIFICATION_QUEUE,
@@ -909,8 +1005,8 @@ export class MessageService {
         .trim()
         .replace(/[&|!():*]/g, '') // Remove characters with special meaning in tsquery
         .split(/\s+/)
-        .filter(word => word.length > 0)
-        .map(word => `${word}:*`)
+        .filter((word) => word.length > 0)
+        .map((word) => `${word}:*`)
         .join(' & ');
 
       if (!formattedKeyword) {
@@ -1141,7 +1237,7 @@ export class MessageService {
     try {
       dto.content =
         typeof message.content === 'string' &&
-          (message.content.startsWith('{') || message.content.startsWith('['))
+        (message.content.startsWith('{') || message.content.startsWith('['))
           ? JSON.parse(message.content)
           : message.content;
     } catch {
@@ -1183,9 +1279,10 @@ export class MessageService {
 
     dto.reactions = reactions;
     const allMentions = mentions.map((m) => ({ userId: m.userId }));
-    const isMentionAll = typeof message.content === 'string'
-      ? message.content.includes('"id":"all"')
-      : JSON.stringify(message.content).includes('"id":"all"');
+    const isMentionAll =
+      typeof message.content === 'string'
+        ? message.content.includes('"id":"all"')
+        : JSON.stringify(message.content).includes('"id":"all"');
     if (isMentionAll && !allMentions.some((m) => m.userId === 'all')) {
       allMentions.push({ userId: 'all' });
     }

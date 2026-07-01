@@ -11,4 +11,5 @@ export interface IUserResponse {
   status: UserStatus;
   isTwoFactorEnabled: boolean;
   stripeCustomerId?: string;
+  isBot: boolean;
 }
