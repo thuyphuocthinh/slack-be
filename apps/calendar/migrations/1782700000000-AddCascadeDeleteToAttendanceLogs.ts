@@ -4,8 +4,12 @@ export class AddCascadeDeleteToAttendanceLogs1782700000000 implements MigrationI
   name = 'AddCascadeDeleteToAttendanceLogs1782700000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // attendance_logs.work_shift_id was a raw UUID column with no FK constraint.
-    // Add the FK with ON DELETE CASCADE so logs are removed when their shift is deleted.
+    // Drop first in case a prior migration or synchronize already created this FK
+    // without ON DELETE CASCADE, then re-add with the correct behaviour.
+    await queryRunner.query(`
+      ALTER TABLE "attendance_logs"
+        DROP CONSTRAINT IF EXISTS "FK_attendance_logs_work_shift_id"
+    `);
     await queryRunner.query(`
       ALTER TABLE "attendance_logs"
         ADD CONSTRAINT "FK_attendance_logs_work_shift_id"
