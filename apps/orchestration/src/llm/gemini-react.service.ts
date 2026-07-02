@@ -12,6 +12,7 @@ import {
   ESocketEvent,
   ORCHESTRATION_CONSTANTS,
   ORCHESTRATION_ERROR,
+  ORCHESTRATION_SELF_CHECK_PROMPT,
   ORCHESTRATION_SYSTEM_PROMPT,
 } from '@slack/constants';
 import { extractTextFromMcpResult } from '@slack/common';
@@ -114,10 +115,23 @@ export class GeminiReactService {
     );
 
     let response = (await sendMessage(dto.prompt)).response;
+    let selfChecked = false;
 
     for (let step = 0; step < ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS; step++) {
       const calls = response.functionCalls();
       if (!calls || calls.length === 0) {
+        // Model rẻ (flash) hay dừng ngay khi vừa xong 1 tool call, kể cả khi
+        // đó mới chỉ là bước khám phá cấu trúc chứ chưa có dữ liệu thật —
+        // ép thêm đúng 1 lượt tự phản biện (lượt gọi model riêng, không phải
+        // dựa vào model tự giác trong cùng lượt sinh câu trả lời) trước khi
+        // chấp nhận đây là câu trả lời cuối. Chỉ nudge khi đã có tool call
+        // (câu hỏi chat thường không cần bước này) và chỉ đúng 1 lần (tránh
+        // lặp vô hạn nếu model cứ khẳng định "đã đủ").
+        if (!selfChecked && toolCalls.length > 0) {
+          selfChecked = true;
+          response = (await sendMessage(ORCHESTRATION_SELF_CHECK_PROMPT)).response;
+          continue;
+        }
         return { answer: response.text() || 'Xin lỗi, mình chưa có câu trả lời phù hợp.', toolCalls };
       }
 
