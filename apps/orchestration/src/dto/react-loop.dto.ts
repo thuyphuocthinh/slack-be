@@ -14,6 +14,9 @@ export class RunReactLoopRequestDto {
 export class ToolCallTraceDto {
   tool: string;
   status: 'success' | 'error';
+  // Xem trước ngắn gọn kết quả tool trả về (rút gọn 1 dòng) — hiện dưới mỗi
+  // bước trong timeline FE, giống Claude Code hiện "⎿ output" dưới tool call.
+  resultPreview?: string;
 }
 
 export class RunReactLoopResponseDto {

@@ -101,9 +101,12 @@ export class GeminiReactService {
       async (name: string, args: Record<string, unknown>) => {
         await this.emitAgentStep(dto, { type: 'tool_call', tool: name });
         const result = await this.mcpClient.callTool({ provider: dto.provider, name, args, ownerId: dto.userId });
-        await this.emitAgentStep(dto, { type: 'tool_result', tool: name });
-        toolCalls.push({ tool: name, status: result.isError ? 'error' : 'success' });
-        return extractTextFromMcpResult(result);
+        const text = extractTextFromMcpResult(result);
+        const status: 'success' | 'error' = result.isError ? 'error' : 'success';
+        const resultPreview = this.truncatePreview(text);
+        await this.emitAgentStep(dto, { type: 'tool_result', tool: name, status, resultPreview });
+        toolCalls.push({ tool: name, status, resultPreview });
+        return text;
       },
       { name: 'mcp.callTool' },
     );
@@ -181,9 +184,20 @@ export class GeminiReactService {
    * Signal thô (không kèm tool) → thêm vào room channel, chỉ khi channel là GROUP
    * (DIRECT chỉ có 1 người, không cần signal riêng).
    */
+  /** Rút gọn kết quả tool thành 1 dòng ngắn để hiện preview trong timeline FE. */
+  private truncatePreview(text: string, maxLen = 200): string {
+    const oneLine = text.replace(/\s+/g, ' ').trim();
+    return oneLine.length > maxLen ? `${oneLine.slice(0, maxLen)}…` : oneLine;
+  }
+
   private async emitAgentStep(
     dto: RunReactLoopRequestDto,
-    step: { type: 'tool_call' | 'tool_result' | 'done'; tool?: string },
+    step: {
+      type: 'tool_call' | 'tool_result' | 'done';
+      tool?: string;
+      status?: 'success' | 'error';
+      resultPreview?: string;
+    },
   ): Promise<void> {
     await this.queueService.addJob(EQueueName.SOCKET_QUEUE, EJobName.EMIT_EVENT, {
       event: ESocketEvent.AGENT_STREAM,
