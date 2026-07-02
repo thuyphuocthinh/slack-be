@@ -406,6 +406,7 @@ export class MessageService {
     const usersMap = await this.getUsersInfo(channel.memberIds);
     const botEntry = [...usersMap.values()].find((u) => u.isBot);
     if (!botEntry) return; // channel này không có AI bot -> bỏ qua
+    if (savedMessage.userId === botEntry.id) return; // message của chính bot -> không tự trigger lại
 
     const isDirect = channel.type === ChannelTypeEnum.DIRECT;
     const isMentioned =
