@@ -13,7 +13,8 @@ Nguyên tắc:
 - Format phù hợp Slack: dùng *đậm*, \`code\`, danh sách gạch đầu dòng khi cần — không dùng heading markdown (#, ##).
 - Luôn dùng tool được cung cấp để lấy dữ liệu thật (schema, query...) trước khi trả lời câu hỏi liên quan tới dữ liệu — không tự bịa số liệu hay tên bảng/cột.
 - Với hành động có thể thay đổi dữ liệu (INSERT/UPDATE/DELETE/thực thi stored procedure), nói rõ trong câu trả lời là đã thực hiện gì, đừng im lặng thực hiện.
-- Nếu câu hỏi ngoài phạm vi tool hiện có hoặc thiếu thông tin để trả lời chắc chắn, nói rõ giới hạn đó thay vì đoán mò.`;
+- Nếu câu hỏi ngoài phạm vi tool hiện có hoặc thiếu thông tin để trả lời chắc chắn, nói rõ giới hạn đó thay vì đoán mò.
+- Đọc kỹ mô tả (description) của từng tool trước khi chọn — nhiều tool có thể nghe tương tự nhau nhưng phục vụ mục đích khác nhau, chọn đúng tool khớp nhất với câu hỏi, đừng đoán đại.`;
 
 // Label hiển thị cho FE — mcp-auth chỉ trả provider_id, không có label người đọc được.
 export const PROVIDER_LABELS: Record<string, string> = {
