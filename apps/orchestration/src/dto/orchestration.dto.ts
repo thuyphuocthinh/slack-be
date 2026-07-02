@@ -7,6 +7,7 @@ export class GetProvidersRequestDto {
 export class ProviderSummaryDto {
   provider: string;
   label: string;
+  description: string;
   isConnected: boolean;
   tools: McpToolDto[];
 }
@@ -20,4 +21,17 @@ export class SubmitProviderCredentialsRequestDto {
   userId: string;
   provider: string;
   credentials: Record<string, string>;
+}
+
+export class SubmitProviderCredentialsResponseDto {
+  success: boolean;
+}
+
+export class DisconnectProviderRequestDto {
+  userId: string;
+  provider: string;
+}
+
+export class DisconnectProviderResponseDto {
+  success: boolean;
 }

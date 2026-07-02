@@ -50,4 +50,18 @@ export class AiProvidersService {
       'AiProvidersService',
     );
   }
+
+  async disconnect(userId: string, provider: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        lastValueFrom(
+          this.orchestrationClient.send(ORCHESTRATION_MESSAGE_PATTERNS.DISCONNECT_PROVIDER, {
+            userId,
+            provider,
+          }),
+        ),
+      'disconnect',
+      'AiProvidersService',
+    );
+  }
 }

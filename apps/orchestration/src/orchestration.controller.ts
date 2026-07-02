@@ -1,14 +1,17 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { ORCHESTRATION_MESSAGE_PATTERNS, PROVIDER_LABELS } from '@slack/constants';
+import { ORCHESTRATION_MESSAGE_PATTERNS, PROVIDER_DESCRIPTIONS, PROVIDER_LABELS } from '@slack/constants';
 import { McpAuthClientService } from './mcp-auth/mcp-auth-client.service';
 import { McpClientService } from './mcp/mcp-client.service';
 import { AGENT_REGISTRY } from './registry/agents.registry';
 import {
+  DisconnectProviderRequestDto,
+  DisconnectProviderResponseDto,
   GetProvidersRequestDto,
   InitiateConnectProviderRequestDto,
   ProviderSummaryDto,
   SubmitProviderCredentialsRequestDto,
+  SubmitProviderCredentialsResponseDto,
 } from './dto/orchestration.dto';
 import { InitiateConnectResponseDto } from './dto/mcp-auth.dto';
 
@@ -39,6 +42,7 @@ export class OrchestrationController {
         return {
           provider,
           label: PROVIDER_LABELS[provider] ?? provider,
+          description: PROVIDER_DESCRIPTIONS[provider] ?? '',
           isConnected: status.is_connected,
           tools,
         };
@@ -54,11 +58,25 @@ export class OrchestrationController {
   }
 
   @MessagePattern(ORCHESTRATION_MESSAGE_PATTERNS.SUBMIT_CREDENTIALS)
-  async submitCredentials(@Payload() dto: SubmitProviderCredentialsRequestDto): Promise<void> {
+  async submitCredentials(
+    @Payload() dto: SubmitProviderCredentialsRequestDto,
+  ): Promise<SubmitProviderCredentialsResponseDto> {
     await this.mcpAuthClient.submitCredentials({
       ownerId: dto.userId,
       provider: dto.provider,
       credentials: dto.credentials,
     });
+    // QUAN TRỌNG: @MessagePattern PHẢI return giá trị (không phải void/undefined) —
+    // NestJS TCP transport không emit response packet khi handler resolve về
+    // undefined, khiến phía gọi (firstValueFrom) nhận EmptyError "no elements in sequence".
+    return { success: true };
+  }
+
+  @MessagePattern(ORCHESTRATION_MESSAGE_PATTERNS.DISCONNECT_PROVIDER)
+  async disconnectProvider(
+    @Payload() dto: DisconnectProviderRequestDto,
+  ): Promise<DisconnectProviderResponseDto> {
+    await this.mcpAuthClient.disconnectProvider(dto.userId, dto.provider);
+    return { success: true };
   }
 }
