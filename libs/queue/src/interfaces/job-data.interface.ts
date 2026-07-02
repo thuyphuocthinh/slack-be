@@ -162,10 +162,19 @@ export interface IDeleteCalendarShiftJobData {
 }
 
 export interface ICalendarExportExcelJobData {
-  jobId: string;        // pre-generated UUID, used as Redis cache key
+  jobId: string; // pre-generated UUID, used as Redis cache key
   workspaceId: string;
   requestorId: string;
-  month: string;        // YYYY-MM
+  month: string; // YYYY-MM
+}
+
+export interface IProcessAiTriggerJobData {
+  userId: string;
+  channelId: string;
+  workspaceId: string;
+  messageId: string;
+  botUserId: string;
+  channelType: string; // 'direct' | 'group' — dùng để quyết định emit stream chi tiết hay chỉ signal thô
 }
 
 export type TJobData = {
@@ -191,5 +200,5 @@ export type TJobData = {
   [EJobName.SYNC_CALENDAR_SHIFT]: ISyncCalendarShiftJobData;
   [EJobName.DELETE_CALENDAR_SHIFT]: IDeleteCalendarShiftJobData;
   [EJobName.CALENDAR_EXPORT_EXCEL]: ICalendarExportExcelJobData;
+  [EJobName.PROCESS_AI_TRIGGER]: IProcessAiTriggerJobData;
 };
-

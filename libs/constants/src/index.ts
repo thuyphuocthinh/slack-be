@@ -18,6 +18,7 @@ export * from './errors/app.error';
 export * from './errors/canvas.error';
 export * from './errors/oauth.error';
 export * from './errors/integration.error';
+export * from './errors/orchestration.error';
 
 export * from './tcp/tcp.constant';
 export * from './tcp/message_pattern/notification_msg_pattern.constant';
@@ -36,6 +37,7 @@ export * from './tcp/message_pattern/integrations_msg_pattern.constant';
 export * from './tcp/message_pattern/canvas_msg_pattern.constant';
 export * from './const/regex.constant';
 export * from './const/calendar.constant';
+export * from './const/orchestration.constant';
 
 export * from './types/roles.enum';
 export * from './types/notification.enum';
@@ -46,4 +48,5 @@ export * from './types/integration.enum';
 export * from './socket/socket.enum';
 export * from './errors/billing.error';
 export * from './errors/calendar.error';
-export * from './tcp/message_pattern/calendar_msg_pattern.constant';
+export * from './tcp/message_pattern/calendar_msg_pattern.constant';
+export * from './tcp/message_pattern/orchestration_msg_pattern.constant';

@@ -1,12 +1,18 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
-import { RpcException } from '@nestjs/microservices';
+import { ClientProxy, RpcException } from '@nestjs/microservices';
+import { firstValueFrom } from 'rxjs';
 import { WorkspaceEntity } from '../entity/workspace.entity';
 import { WorkspaceMemberEntity } from '../entity/workspace_member.entity';
 import { WorkspaceRoleEnum, MembershipStatus } from '../types/workspace.enum';
 import { CACHE, CachedService, TTL } from '@slack/cached';
-import { SYSTEM_ERRORS, WORKSPACE_ERROR } from '@slack/constants';
+import {
+  NAME_SERVICE_TCP,
+  SYSTEM_ERRORS,
+  USER_MESSAGE_PATTERNS,
+  WORKSPACE_ERROR,
+} from '@slack/constants';
 import {
   CreateWorkspaceRequestDto,
   UpdateWorkspaceRequestDto,
@@ -16,7 +22,12 @@ import {
 } from '../dto/workspace-request.dto';
 import { WorkspaceResponseDto } from '../dto/workspace-response.dto';
 import { WorkspaceDto } from '../dto/workspace.dto';
-import { generateSlug, IOffsetResponse, AuditAction, AuditEntityType } from '@slack/common';
+import {
+  generateSlug,
+  IOffsetResponse,
+  AuditAction,
+  AuditEntityType,
+} from '@slack/common';
 import { WorkspaceCommonService } from './workspace-common.service';
 import { EJobName, EQueueName, QueueService } from '@slack/queue';
 import { WorkspaceSsoConfigEntity } from '../entity/workspace_sso_config.entity';
@@ -36,8 +47,9 @@ export class WorkspaceService {
     private readonly cachedService: CachedService,
     private readonly commonService: WorkspaceCommonService,
     private readonly queueService: QueueService,
+    @Inject(NAME_SERVICE_TCP.USER_SERVICE)
+    private readonly userServiceClient: ClientProxy,
   ) {}
-
 
   // create workspace
   async createWorkspace(
@@ -84,16 +96,43 @@ export class WorkspaceService {
             this.logger.error(`Cache invalidation failed: ${err.message}`),
           );
 
-        this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
-          action: AuditAction.WORKSPACE_CREATED,
-          actorId: currentDto.ownerUserId,
-          entityType: AuditEntityType.WORKSPACE,
-          entityId: savedWorkspace.id,
-          metadata: { name: savedWorkspace.name, slug: savedWorkspace.slug },
-        });
+        // Best-effort: seed 1 bot user "AI Assistant" riêng cho workspace này
+        // (giống Slack tự tạo Slackbot khi tạo workspace mới). Không rollback
+        // workspace creation nếu bước này lỗi — có thể repair sau.
+        try {
+          const botUser = await firstValueFrom(
+            this.userServiceClient.send(USER_MESSAGE_PATTERNS.CREATE_USER, {
+              email: `ai-assistant+${savedWorkspace.id}@internal.bot`,
+              status: 'active',
+              firstName: 'AI Assistant',
+              isBot: true,
+            }),
+          );
+          await this.memberRepository.insert({
+            workspaceId: savedWorkspace.id,
+            userId: botUser.id,
+            role: WorkspaceRoleEnum.MEMBER,
+            status: MembershipStatus.ACTIVE,
+          });
+        } catch (err) {
+          this.logger.error(
+            `Failed to provision AI bot for workspace ${savedWorkspace.id}: ${err.message}`,
+          );
+        }
+
+        this.queueService.addJob(
+          EQueueName.AUDIT_QUEUE,
+          EJobName.SAVE_AUDIT_LOG,
+          {
+            action: AuditAction.WORKSPACE_CREATED,
+            actorId: currentDto.ownerUserId,
+            entityType: AuditEntityType.WORKSPACE,
+            entityId: savedWorkspace.id,
+            metadata: { name: savedWorkspace.name, slug: savedWorkspace.slug },
+          },
+        );
 
         return this.commonService.mapWorkspaceToDto(savedWorkspace);
-
       } catch (err) {
         if (err.code === '23505' && retries < maxRetries - 1) {
           retries++;
@@ -154,7 +193,6 @@ export class WorkspaceService {
     });
 
     return this.commonService.mapWorkspaceToDto(updatedWorkspace);
-
   }
 
   // detail workspace
@@ -227,9 +265,7 @@ export class WorkspaceService {
       metadata: { name: workspace.name },
     });
 
-
     return 'Workspace deleted successfully';
-
   }
 
   // get list workspace of user
@@ -274,7 +310,9 @@ export class WorkspaceService {
             .select('member.workspaceId', 'workspaceId')
             .addSelect('COUNT(member.id)', 'count')
             .where('member.workspaceId IN (:...workspaceIds)', { workspaceIds })
-            .andWhere('member.status = :status', { status: MembershipStatus.ACTIVE })
+            .andWhere('member.status = :status', {
+              status: MembershipStatus.ACTIVE,
+            })
             .groupBy('member.workspaceId')
             .getRawMany(),
         ]);
@@ -363,7 +401,10 @@ export class WorkspaceService {
     return this.commonService.mapSsoConfigToDto(savedConfig, true);
   }
 
-  async deleteWorkspaceSsoConfig(dto: { workspaceId: string; adminUserId: string }) {
+  async deleteWorkspaceSsoConfig(dto: {
+    workspaceId: string;
+    adminUserId: string;
+  }) {
     await this.commonService.checkPermission(dto.workspaceId, dto.adminUserId, [
       WorkspaceRoleEnum.OWNER,
       WorkspaceRoleEnum.ADMIN,

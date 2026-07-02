@@ -66,6 +66,7 @@ export class WorkspaceCommonService {
       email: user?.email ?? null,
       avatarUrl: user?.avatarUrl ?? null,
       systemRole: user?.systemRole ?? null,
+      isBot: user?.isBot ?? false,
     };
   }
 

@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UserEntity, UserStatus } from '../entity/user.entity';
 import { UserFcmTokenEntity } from '../entity/user_fcm_token.entity';
-import { ILike, In, Repository } from 'typeorm';
+import { ILike, Repository } from 'typeorm';
 import { CreateUserDto, UpdateUserDto } from '../dto';
 import { type IUserResponse } from '../types/user.response';
 import { USER_ERROR } from '@slack/constants/errors/user.error';
@@ -49,6 +49,7 @@ export class UserService {
       isTwoFactorEnabled:
         isTwoFactorEnabled ?? (await this.isEnableTwoFactor(user.id)),
       stripeCustomerId: user.stripeCustomerId,
+      isBot: user.isBot,
     };
   }
 
@@ -75,7 +76,9 @@ export class UserService {
     // If user is deactivated/inactive, bump token version to invalidate all active sessions
     if (status === UserStatus.INACTIVE) {
       await this.authCacheService.bumpUserTokenVersion(id);
-      this.logger.log(`Bumped token version for user ${id} due to inactive status`);
+      this.logger.log(
+        `Bumped token version for user ${id} due to inactive status`,
+      );
     }
   }
 
@@ -200,11 +203,11 @@ export class UserService {
 
   async getBatchUserByIds(ids: string[]): Promise<IUserResponse[]> {
     if (!ids || !ids.length) return [];
-    
+
     // Leverage getUserById to benefit from individual user cache (CACHE.USER.KEYS.DETAIL)
     const promises = ids.map((id) => this.getUserById(id));
     const results = await Promise.allSettled(promises);
-    
+
     return results
       .filter(
         (result): result is PromiseFulfilledResult<IUserResponse> =>
@@ -234,6 +237,7 @@ export class UserService {
             'status',
             'systemRole',
             'createdAt',
+            'isBot',
           ],
         });
 
@@ -252,6 +256,7 @@ export class UserService {
           systemRole: user.systemRole,
           status: user.status,
           isTwoFactorEnabled: twoFaStatuses[user.id] || false,
+          isBot: user.isBot,
         }));
       },
     });
@@ -266,8 +271,14 @@ export class UserService {
     this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(id));
   }
 
-  async updateStripeCustomerId(id: string, stripeCustomerId: string): Promise<void> {
-    const result = await this.userRepository.update({ id }, { stripeCustomerId });
+  async updateStripeCustomerId(
+    id: string,
+    stripeCustomerId: string,
+  ): Promise<void> {
+    const result = await this.userRepository.update(
+      { id },
+      { stripeCustomerId },
+    );
     if (result.affected === 0) {
       throw new RpcException(USER_ERROR.USER_NOT_FOUND);
     }
@@ -275,7 +286,9 @@ export class UserService {
     this.cachedService.invalidateDetail(CACHE.USER.KEYS.DETAIL(id));
   }
 
-  async getUserByStripeCustomerId(stripeCustomerId: string): Promise<IUserResponse> {
+  async getUserByStripeCustomerId(
+    stripeCustomerId: string,
+  ): Promise<IUserResponse> {
     const user = await this.userRepository.findOne({
       where: { stripeCustomerId, status: UserStatus.ACTIVE },
     });
@@ -285,13 +298,26 @@ export class UserService {
     return this.mapUserToResponse(user);
   }
 
-  async saveFcmToken(userId: string, token: string, deviceId: string): Promise<void> {
-    this.logger.log(`Saving FCM token for user ${userId} and device ${deviceId}`);
-    let userFcmToken = await this.userFcmTokenRepository.findOneBy({ userId, deviceId });
+  async saveFcmToken(
+    userId: string,
+    token: string,
+    deviceId: string,
+  ): Promise<void> {
+    this.logger.log(
+      `Saving FCM token for user ${userId} and device ${deviceId}`,
+    );
+    let userFcmToken = await this.userFcmTokenRepository.findOneBy({
+      userId,
+      deviceId,
+    });
     if (userFcmToken) {
       userFcmToken.token = token;
     } else {
-      userFcmToken = this.userFcmTokenRepository.create({ userId, deviceId, token });
+      userFcmToken = this.userFcmTokenRepository.create({
+        userId,
+        deviceId,
+        token,
+      });
     }
     await this.userFcmTokenRepository.save(userFcmToken);
   }

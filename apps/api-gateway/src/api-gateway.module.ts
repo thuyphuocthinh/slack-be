@@ -22,6 +22,7 @@ import { RolesGuard } from './common/guards/role.guard';
 import { WebhookReceiverModule } from './webhook-receiver/webhook-receiver.module';
 import { BillingModule } from './billing/billing.module';
 import { AiModule } from './ai/ai.module';
+import { AiProvidersModule } from './ai-providers/ai-providers.module';
 import { CanvasModule } from './canvas/canvas.module';
 import { CalendarModule } from './calendar/calendar.module';
 import { IntegrationsModule } from './integrations/integrations.module';
@@ -43,6 +44,7 @@ import { IntegrationsModule } from './integrations/integrations.module';
     WebhookReceiverModule,
     BillingModule,
     AiModule,
+    AiProvidersModule,
     CanvasModule,
     IntegrationsModule,
     CalendarModule,

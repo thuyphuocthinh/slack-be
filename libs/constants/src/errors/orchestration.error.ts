@@ -1,0 +1,18 @@
+export const ORCHESTRATION_ERROR = {
+    AGENT_NOT_REGISTERED: {
+        code: 'ERR.ORCHESTRATION.0101',
+        message: 'NO AGENT REGISTERED FOR THIS PROVIDER',
+    },
+    GEMINI_NOT_CONFIGURED: {
+        code: 'ERR.ORCHESTRATION.0102',
+        message: 'GEMINI API KEY IS NOT CONFIGURED',
+    },
+    PROVIDER_NOT_CONNECTED: {
+        code: 'ERR.ORCHESTRATION.0103',
+        message: 'PROVIDER IS NOT CONNECTED FOR THIS USER',
+    },
+    MCP_AUTH_REQUEST_FAILED: {
+        code: 'ERR.ORCHESTRATION.0104',
+        message: 'REQUEST TO MCP-AUTH FAILED',
+    },
+};

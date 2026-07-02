@@ -26,7 +26,8 @@ RUN pnpm exec nest build api-gateway && \
     pnpm exec nest build billing && \
     pnpm exec nest build integrations && \
     pnpm exec nest build canvas && \
-    pnpm exec nest build calendar
+    pnpm exec nest build calendar && \
+    pnpm exec nest build orchestration
 
 FROM node:22-alpine
 

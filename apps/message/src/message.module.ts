@@ -35,6 +35,7 @@ import { LinkPreviewProcessor } from './processor/link-preview.processor';
       EQueueName.INCOMING_WEBHOOK_QUEUE,
       EQueueName.MESSAGE_QUEUE,
       EQueueName.LINK_PREVIEW_QUEUE,
+      EQueueName.AI_ORCHESTRATION_QUEUE,
     ]),
 
     TypeOrmModule.forFeature([
@@ -45,9 +46,18 @@ import { LinkPreviewProcessor } from './processor/link-preview.processor';
       LinkPreviewEntity,
     ]),
     ClientsModule.registerAsync([
-      getMicroserviceClientConfig(NAME_SERVICE_TCP.CHANNEL_SERVICE, PORT_TCP.CHANNEL_TCP_PORT),
-      getMicroserviceClientConfig(NAME_SERVICE_TCP.USER_SERVICE, PORT_TCP.USER_TCP_PORT),
-      getMicroserviceClientConfig(NAME_SERVICE_TCP.NOTIFICATION_SERVICE, PORT_TCP.NOTIFICATION_TCP_PORT),
+      getMicroserviceClientConfig(
+        NAME_SERVICE_TCP.CHANNEL_SERVICE,
+        PORT_TCP.CHANNEL_TCP_PORT,
+      ),
+      getMicroserviceClientConfig(
+        NAME_SERVICE_TCP.USER_SERVICE,
+        PORT_TCP.USER_TCP_PORT,
+      ),
+      getMicroserviceClientConfig(
+        NAME_SERVICE_TCP.NOTIFICATION_SERVICE,
+        PORT_TCP.NOTIFICATION_TCP_PORT,
+      ),
     ]),
   ],
   controllers: [MessageController],
@@ -61,4 +71,4 @@ import { LinkPreviewProcessor } from './processor/link-preview.processor';
     LinkPreviewProcessor,
   ],
 })
-export class MessageModule { }
+export class MessageModule {}
