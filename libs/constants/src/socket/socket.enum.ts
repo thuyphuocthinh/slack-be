@@ -54,4 +54,7 @@ export enum ESocketEvent {
 
   // Billing
   BILLING_UPGRADED = 'billing:upgraded',
+
+  // AI Agent Orchestration
+  AGENT_STREAM = 'agent_stream',
 }

@@ -7,4 +7,5 @@ export interface UserType {
   email: string;
   avatarUrl: string;
   systemRole: SystemRoleEnum;
+  isBot?: boolean;
 }

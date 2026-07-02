@@ -33,6 +33,7 @@ export class WorkspaceMemberDto {
   email?: string | null;
   avatarUrl?: string | null;
   systemRole?: string | null;
+  isBot?: boolean | null;
 }
 
 export class WorkspaceInviteDto {

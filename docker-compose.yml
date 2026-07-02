@@ -11,6 +11,9 @@ services:
       - "8081:8080" # Hocuspocus WebSocket port (8080 is used by cadvisor)
     env_file:
       - .env
+    networks:
+      - default
+      - app-net
     depends_on:
       redis-cache:
         condition: service_started
@@ -153,3 +156,10 @@ volumes:
   loki_data:
   grafana_data:
   prometheus_data:
+
+networks:
+  default:
+  # Mạng chung với mcp_auth + mcp_server trên cùng VPS — tạo 1 lần bằng
+  # `docker network create app-net` trước khi deploy lần đầu.
+  app-net:
+    external: true

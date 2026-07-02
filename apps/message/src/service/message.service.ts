@@ -421,6 +421,7 @@ export class MessageService {
         workspaceId: channel.workspaceId,
         messageId: savedMessage.id,
         botUserId: botEntry.id,
+        channelType: channel.type,
       },
     );
   }

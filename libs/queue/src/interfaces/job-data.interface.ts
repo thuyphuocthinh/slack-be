@@ -174,6 +174,7 @@ export interface IProcessAiTriggerJobData {
   workspaceId: string;
   messageId: string;
   botUserId: string;
+  channelType: string; // 'direct' | 'group' — dùng để quyết định emit stream chi tiết hay chỉ signal thô
 }
 
 export type TJobData = {

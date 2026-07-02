@@ -9,6 +9,7 @@ export * from './integration.error';
 export * from './message.error';
 export * from './notification.error';
 export * from './oauth.error';
+export * from './orchestration.error';
 export * from './resource.error';
 export * from './system.error';
 export * from './task.error';
