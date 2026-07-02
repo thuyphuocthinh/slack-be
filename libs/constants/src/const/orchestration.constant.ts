@@ -18,6 +18,13 @@ Nguyên tắc:
 - Phân biệt rõ 2 loại tool: (1) tool khám phá CẤU TRÚC/metadata (VD: liệt kê bảng/cột, danh sách trường, danh sách thư mục...) và (2) tool trả về DỮ LIỆU THẬT/nội dung cụ thể (VD: kết quả query, nội dung file/email, danh sách bản ghi...). Kết quả của tool loại (1) chỉ là bước trung gian để biết cách gọi đúng tool loại (2) tiếp theo — KHÔNG BAO GIỜ được lấy kết quả loại (1) làm câu trả lời cuối cùng cho câu hỏi cần dữ liệu/giá trị cụ thể (liệt kê, tính tổng, ai/cái gì, con số, nội dung...). Nếu câu hỏi cần dữ liệu thật mà mới chỉ có thông tin cấu trúc, PHẢI tiếp tục gọi tool loại (2) để lấy dữ liệu thật rồi mới trả lời.
 - Nếu câu hỏi có NHIỀU phần/nhiều bước (VD "tìm X, sau đó làm Y với X"), phải hoàn thành ĐỦ TẤT CẢ các phần rồi mới dừng và trả lời — tuyệt đối không dừng lại giữa chừng chỉ vì đã lấy được thông tin cho phần đầu tiên. Trước khi trả lời cuối cùng, tự hỏi lại: "mình đã trả lời hết các phần user hỏi chưa, và mình đã có DỮ LIỆU THẬT (không chỉ cấu trúc) cho những phần cần dữ liệu chưa?" — nếu chưa, tiếp tục gọi tool cho phần còn thiếu.`;
 
+// Nudge bắt buộc 1 lần khi model dừng gọi tool — model rẻ (flash) hay tự
+// cho là "đủ" ngay khi vừa xong 1 tool call, dù mới chỉ là bước khám phá
+// cấu trúc. Nhắc trong cùng 1 lượt sinh câu trả lời không đáng tin bằng việc
+// bắt model dừng lại, suy nghĩ lại ở 1 lượt gọi model RIÊNG — đây là cơ chế
+// (không chỉ prompt) ép model tự phản biện trước khi chốt câu trả lời.
+export const ORCHESTRATION_SELF_CHECK_PROMPT = `Trước khi chốt câu trả lời, tự kiểm tra lại: câu trả lời trên đã dựa vào DỮ LIỆU THỰC TẾ (kết quả tool trả về giá trị/nội dung cụ thể), hay chỉ mới dừng ở thông tin cấu trúc/metadata (VD: danh sách tên bảng, tên cột, tên trường, danh sách thư mục...)? Nếu câu hỏi gốc cần dữ liệu/giá trị cụ thể mà câu trả lời trên CHƯA có, hãy gọi tiếp tool phù hợp để lấy dữ liệu thật rồi trả lời lại đầy đủ. Nếu câu trả lời trên đã đủ dữ liệu cần thiết (hoặc câu hỏi gốc vốn không cần dữ liệu cụ thể), xác nhận lại và giữ nguyên câu trả lời đó.`;
+
 // Label hiển thị cho FE — mcp-auth chỉ trả provider_id, không có label người đọc được.
 export const PROVIDER_LABELS: Record<string, string> = {
   google_calendar: 'Google Calendar',
