@@ -93,8 +93,10 @@ export class GeminiReactService {
 
     // Wrap trong scope của executeReactLoop (đã traceable ở run()) — tự nest
     // thành child span đúng cây theo AsyncLocalStorage, không cần truyền context tay.
+    // withRetry bọc bên trong cùng 1 span — retry vẫn xuất hiện trong LangSmith
+    // dưới dạng 1 lần gọi "gemini.sendMessage" duy nhất, không tạo span rác.
     const sendMessage = traceable(
-      (message: string | Part[]) => chat.sendMessage(message),
+      (message: string | Part[]) => this.withRetry(() => chat.sendMessage(message)),
       { name: 'gemini.sendMessage' },
     );
     const callTool = traceable(
@@ -179,17 +181,46 @@ export class GeminiReactService {
     return merged;
   }
 
-  /**
-   * Chi tiết (tool đang chạy) → chỉ vào room riêng của người trigger.
-   * Signal thô (không kèm tool) → thêm vào room channel, chỉ khi channel là GROUP
-   * (DIRECT chỉ có 1 người, không cần signal riêng).
-   */
   /** Rút gọn kết quả tool thành 1 dòng ngắn để hiện preview trong timeline FE. */
   private truncatePreview(text: string, maxLen = 200): string {
     const oneLine = text.replace(/\s+/g, ' ').trim();
     return oneLine.length > maxLen ? `${oneLine.slice(0, maxLen)}…` : oneLine;
   }
 
+  /**
+   * Gemini API thỉnh thoảng trả 429 (quota) hoặc 503 (server quá tải) —
+   * đều là lỗi TẠM THỜI, tự hết sau vài giây. Retry với backoff thay vì
+   * fail ngay, tránh việc user phải tự hỏi lại thủ công.
+   */
+  private isRetryableGeminiError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return /\[(429|503)/.test(message) || /Too Many Requests|Service Unavailable/i.test(message);
+  }
+
+  private async withRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (attempt === maxAttempts || !this.isRetryableGeminiError(error)) {
+          throw error;
+        }
+        const delayMs = 1000 * 2 ** (attempt - 1); // 1s, 2s, 4s
+        this.logger.warn(
+          `Gemini call failed (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs}ms: ${(error as Error).message}`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+    // Không bao giờ tới đây (loop luôn return hoặc throw), chỉ để TS hài lòng.
+    throw new Error('withRetry: unreachable');
+  }
+
+  /**
+   * Chi tiết (tool đang chạy) → chỉ vào room riêng của người trigger.
+   * Signal thô (không kèm tool) → thêm vào room channel, chỉ khi channel là GROUP
+   * (DIRECT chỉ có 1 người, không cần signal riêng).
+   */
   private async emitAgentStep(
     dto: RunReactLoopRequestDto,
     step: {
