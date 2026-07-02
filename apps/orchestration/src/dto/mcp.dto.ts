@@ -15,4 +15,8 @@ export class CallToolRequestDto {
 
 export class CallToolResponseDto {
   content?: Array<{ type: string; text?: string }>;
+  // MCP spec: tool báo lỗi qua field này, KHÔNG throw exception lên transport
+  // (xem withErrorHandling bên mcp_server) — phải đọc field này để biết tool
+  // thật sự thành công hay lỗi.
+  isError?: boolean;
 }

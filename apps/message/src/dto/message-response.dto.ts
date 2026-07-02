@@ -20,6 +20,7 @@ export class UserResponseDto {
 
 import { IMessageAttachment } from '../types/message-attachment.interface';
 import { ILinkPreviewMetadata } from '../types/link-preview.interface';
+import { IToolCallTrace } from '../types/tool-call-trace.interface';
 
 export class MessageResponseDto {
   id: string;
@@ -35,6 +36,7 @@ export class MessageResponseDto {
   mentions: MentionResponseDto[] | [];
   replyCount: number;
   linkPreviews?: ILinkPreviewMetadata[] | null;
+  toolCalls?: IToolCallTrace[] | null;
 }
 
 export class ThreadResponseDto {

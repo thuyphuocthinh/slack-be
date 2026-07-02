@@ -702,6 +702,10 @@ export class MessageService {
 
       message.content = updateDto.content;
 
+      if (updateDto.toolCalls !== undefined) {
+        message.toolCalls = updateDto.toolCalls;
+      }
+
       if (updateDto.attachments) {
         const attachmentRepo = manager.getRepository(MessageAttachmentEntity);
         await attachmentRepo.delete({ messageId: id });
@@ -1291,6 +1295,7 @@ export class MessageService {
     dto.mentions = allMentions;
     dto.replyCount = 0;
     dto.linkPreviews = message.linkPreviews;
+    dto.toolCalls = message.toolCalls;
     return dto;
   }
 }

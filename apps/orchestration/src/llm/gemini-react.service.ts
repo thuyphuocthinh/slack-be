@@ -19,7 +19,7 @@ import { EJobName, EQueueName, QueueService } from '@slack/queue';
 import { McpClientService } from '../mcp/mcp-client.service';
 import { MessageClientService } from '../message-client.service';
 import { ChatHistoryTurnDto } from '../dto/message-client.dto';
-import { RunReactLoopRequestDto } from '../dto/react-loop.dto';
+import { RunReactLoopRequestDto, RunReactLoopResponseDto, ToolCallTraceDto } from '../dto/react-loop.dto';
 
 @Injectable()
 export class GeminiReactService {
@@ -39,7 +39,7 @@ export class GeminiReactService {
     }
   }
 
-  async run(dto: RunReactLoopRequestDto): Promise<string> {
+  async run(dto: RunReactLoopRequestDto): Promise<RunReactLoopResponseDto> {
     const traced = traceable((requestDto: RunReactLoopRequestDto) => this.executeReactLoop(requestDto), {
       name: 'gemini-react-loop',
       metadata: {
@@ -49,13 +49,21 @@ export class GeminiReactService {
         messageId: dto.messageId,
       },
     });
-    return (await traced(dto)) as string;
+    try {
+      return (await traced(dto)) as RunReactLoopResponseDto;
+    } finally {
+      // Luôn báo "done" dù thành công hay lỗi — FE dựa vào tín hiệu này để tắt
+      // icon "đang chạy tool...", không thì nó treo mãi tới khi F5 lại trang.
+      await this.emitAgentStep(dto, { type: 'done' });
+    }
   }
 
-  private async executeReactLoop(dto: RunReactLoopRequestDto): Promise<string> {
+  private async executeReactLoop(dto: RunReactLoopRequestDto): Promise<RunReactLoopResponseDto> {
     if (!this.genAI) {
       throw new RpcException(ORCHESTRATION_ERROR.GEMINI_NOT_CONFIGURED);
     }
+
+    const toolCalls: ToolCallTraceDto[] = [];
 
     const [mcpTools, history] = await Promise.all([
       this.mcpClient.getTools(dto.provider),
@@ -94,6 +102,7 @@ export class GeminiReactService {
         await this.emitAgentStep(dto, { type: 'tool_call', tool: name });
         const result = await this.mcpClient.callTool({ provider: dto.provider, name, args, ownerId: dto.userId });
         await this.emitAgentStep(dto, { type: 'tool_result', tool: name });
+        toolCalls.push({ tool: name, status: result.isError ? 'error' : 'success' });
         return extractTextFromMcpResult(result);
       },
       { name: 'mcp.callTool' },
@@ -104,7 +113,7 @@ export class GeminiReactService {
     for (let step = 0; step < ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS; step++) {
       const calls = response.functionCalls();
       if (!calls || calls.length === 0) {
-        return response.text() || 'Xin lỗi, mình chưa có câu trả lời phù hợp.';
+        return { answer: response.text() || 'Xin lỗi, mình chưa có câu trả lời phù hợp.', toolCalls };
       }
 
       const responseParts: Part[] = [];
@@ -118,7 +127,7 @@ export class GeminiReactService {
       response = (await sendMessage(responseParts)).response;
     }
 
-    return response.text() || 'Xin lỗi, câu hỏi này cần nhiều bước hơn mình hỗ trợ được.';
+    return { answer: response.text() || 'Xin lỗi, câu hỏi này cần nhiều bước hơn mình hỗ trợ được.', toolCalls };
   }
 
   /**
@@ -174,7 +183,7 @@ export class GeminiReactService {
    */
   private async emitAgentStep(
     dto: RunReactLoopRequestDto,
-    step: { type: 'tool_call' | 'tool_result'; tool: string },
+    step: { type: 'tool_call' | 'tool_result' | 'done'; tool?: string },
   ): Promise<void> {
     await this.queueService.addJob(EQueueName.SOCKET_QUEUE, EJobName.EMIT_EVENT, {
       event: ESocketEvent.AGENT_STREAM,
