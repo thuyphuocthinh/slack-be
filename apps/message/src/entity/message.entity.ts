@@ -13,6 +13,7 @@ import { MessageReactionEntity } from './message_reaction.entity';
 import { MessageMentionEntity } from './message_mention.entity';
 import { MessageAttachmentEntity } from './message_attachment.entity';
 import { ILinkPreviewMetadata } from '../types/link-preview.interface';
+import { IToolCallTrace } from '../types/tool-call-trace.interface';
 
 @Entity('messages')
 @Index(['channelId', 'id'])
@@ -83,6 +84,16 @@ export class MessageEntity {
     name: 'link_previews',
   })
   linkPreviews?: ILinkPreviewMetadata[] | null;
+
+  // Dấu vết các tool AI agent đã gọi để tạo ra message này (chỉ có ở message
+  // của bot) — cho FE render timeline kiểu Claude Code, giữ lại sau khi
+  // "đang chạy..." (transient, chỉ qua socket) đã biến mất.
+  @Column({
+    type: 'jsonb',
+    nullable: true,
+    name: 'tool_calls',
+  })
+  toolCalls?: IToolCallTrace[] | null;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt: Date;

@@ -63,7 +63,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
 
       const prompt = await this.messageClient.getMessageText({ id: messageId, userId });
 
-      const answer = await this.geminiReact.run({
+      const { answer, toolCalls } = await this.geminiReact.run({
         prompt,
         provider: SQL_SERVER_PROVIDER,
         userId,
@@ -81,6 +81,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         id: reply.id,
         userId: botUserId,
         content: answer,
+        toolCalls,
       });
     } catch (error) {
       this.logger.error(`AI orchestration failed for message ${messageId}: ${error.message}`, error.stack);

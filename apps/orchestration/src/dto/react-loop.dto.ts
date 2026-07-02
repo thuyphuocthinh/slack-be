@@ -10,3 +10,13 @@ export class RunReactLoopRequestDto {
   triggerMessageId: string;
   channelType: string; // 'direct' | 'group'
 }
+
+export class ToolCallTraceDto {
+  tool: string;
+  status: 'success' | 'error';
+}
+
+export class RunReactLoopResponseDto {
+  answer: string;
+  toolCalls: ToolCallTraceDto[];
+}

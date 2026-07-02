@@ -12,6 +12,7 @@ export class UpdateOrchestrationMessageRequestDto {
   id: string;
   userId: string;
   content: string;
+  toolCalls?: { tool: string; status: 'success' | 'error' }[];
 }
 
 export class GetMessageTextRequestDto {

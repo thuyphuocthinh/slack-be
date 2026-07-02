@@ -84,7 +84,7 @@ export class MessageClientService {
       this.messageService.send(MESSAGE_MESSAGE_PATTERNS.UPDATE, {
         id: dto.id,
         userId: dto.userId,
-        updateDto: { content: dto.content },
+        updateDto: { content: dto.content, toolCalls: dto.toolCalls },
       }),
     );
   }
