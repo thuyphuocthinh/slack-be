@@ -1,5 +1,8 @@
 export const ORCHESTRATION_CONSTANTS = {
-  GEMINI_MODEL: 'gemini-2.5-flash',
+  // TẠM đổi sang 2.0-flash — 2.5-flash đã cháy quota free tier 20 req/ngày
+  // của project hiện tại. Quota Gemini tính riêng theo từng model trong
+  // cùng 1 project, nên đổi model là có ngay quota mới để test tiếp.
+  GEMINI_MODEL: 'gemini-2.0-flash',
   MAX_REACT_STEPS: 8,
   MCP_TOOLS_CACHE_TTL_MS: 5 * 60 * 1000,
   // Số message gần nhất (trước message trigger) lấy làm context hội thoại.
