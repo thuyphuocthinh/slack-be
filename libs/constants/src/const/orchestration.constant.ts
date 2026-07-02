@@ -27,3 +27,16 @@ export const PROVIDER_LABELS: Record<string, string> = {
   notion: 'Notion',
   github: 'GitHub',
 };
+
+// Mô tả ngắn hiển thị trong panel chi tiết provider ở FE.
+export const PROVIDER_DESCRIPTIONS: Record<string, string> = {
+  google_calendar: 'Đọc và quản lý sự kiện trên Google Calendar của bạn.',
+  google_mail: 'Đọc, soạn và gửi email qua Gmail của bạn.',
+  google_sheets: 'Đọc và chỉnh sửa dữ liệu trên Google Sheets.',
+  google_docs: 'Đọc và chỉnh sửa nội dung Google Docs.',
+  google_drive: 'Truy cập file và thư mục trên Google Drive.',
+  slack: 'Tương tác với workspace Slack khác của bạn.',
+  sql_server: 'Truy vấn schema và dữ liệu trên SQL Server của bạn.',
+  notion: 'Đọc và chỉnh sửa trang/database trên Notion.',
+  github: 'Truy cập repository, issue, pull request trên GitHub.',
+};

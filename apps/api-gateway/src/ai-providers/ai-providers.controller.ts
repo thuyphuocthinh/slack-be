@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, type JwtUser } from '@slack/common';
 import { AiProvidersService } from './ai-providers.service';
@@ -30,5 +30,11 @@ export class AiProvidersController {
     @CurrentUser() user: JwtUser,
   ) {
     return this.aiProvidersService.submitCredentials(user.sub, provider, dto.credentials);
+  }
+
+  @Delete(':provider')
+  @ApiOperation({ summary: 'Disconnect a provider' })
+  async disconnect(@Param('provider') provider: string, @CurrentUser() user: JwtUser) {
+    return this.aiProvidersService.disconnect(user.sub, provider);
   }
 }

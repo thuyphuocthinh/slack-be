@@ -67,4 +67,16 @@ export class McpAuthClientService {
       throw new RpcException(ORCHESTRATION_ERROR.MCP_AUTH_REQUEST_FAILED);
     }
   }
+
+  async disconnectProvider(ownerId: string, provider: string): Promise<void> {
+    try {
+      await axios.delete(`${this.baseUrl}/connect/${provider}`, {
+        data: { owner_id: ownerId },
+        headers: { Authorization: this.basicAuthHeader },
+      });
+    } catch (error) {
+      this.logger.error(`disconnectProvider failed: ${error.message}`);
+      throw new RpcException(ORCHESTRATION_ERROR.MCP_AUTH_REQUEST_FAILED);
+    }
+  }
 }

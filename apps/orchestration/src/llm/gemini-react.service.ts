@@ -71,7 +71,7 @@ export class GeminiReactService {
         functionDeclarations: mcpTools.map((t) => ({
           name: t.name,
           description: t.description,
-          parameters: t.inputSchema as unknown as FunctionDeclarationSchema,
+          parameters: this.toGeminiSchema(t.inputSchema),
         })),
       },
     ];
@@ -119,6 +119,31 @@ export class GeminiReactService {
     }
 
     return response.text() || 'Xin lỗi, câu hỏi này cần nhiều bước hơn mình hỗ trợ được.';
+  }
+
+  /**
+   * Gemini function-calling chỉ chấp nhận 1 tập con hẹp của JSON Schema —
+   * loại các field chuẩn JSON Schema mà zod-to-json-schema (bên MCP server)
+   * tự sinh ra nhưng Gemini không biết ("$schema", "additionalProperties"),
+   * kẻo bị Gemini trả 400 "Unknown name ... Cannot find field".
+   */
+  private toGeminiSchema(schema: Record<string, unknown>): FunctionDeclarationSchema {
+    const { $schema, additionalProperties, properties, items, ...rest } = schema;
+    const cleaned: Record<string, unknown> = { ...rest };
+
+    if (properties && typeof properties === 'object') {
+      cleaned.properties = Object.fromEntries(
+        Object.entries(properties as Record<string, unknown>).map(([key, value]) => [
+          key,
+          value && typeof value === 'object' ? this.toGeminiSchema(value as Record<string, unknown>) : value,
+        ]),
+      );
+    }
+    if (items && typeof items === 'object') {
+      cleaned.items = this.toGeminiSchema(items as Record<string, unknown>);
+    }
+
+    return cleaned as unknown as FunctionDeclarationSchema;
   }
 
   /**
