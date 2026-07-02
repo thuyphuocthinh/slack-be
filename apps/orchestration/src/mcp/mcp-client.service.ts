@@ -52,16 +52,41 @@ export class McpClientService {
       return cached.tools;
     }
 
-    const client = await this.getClient(provider);
-    const result = await client.listTools();
-    const tools = result.tools as McpToolDto[];
+    const tools = await this.withReconnect(provider, undefined, async (client) => {
+      const result = await client.listTools();
+      return result.tools as McpToolDto[];
+    });
 
     this.toolsCache.set(provider, { tools, fetchedAt: Date.now() });
     return tools;
   }
 
   async callTool(dto: CallToolRequestDto): Promise<CallToolResponseDto> {
-    const client = await this.getClient(dto.provider, dto.ownerId);
-    return client.callTool({ name: dto.name, arguments: dto.args }) as Promise<CallToolResponseDto>;
+    return this.withReconnect(dto.provider, dto.ownerId, (client) =>
+      client.callTool({ name: dto.name, arguments: dto.args }) as Promise<CallToolResponseDto>,
+    );
+  }
+
+  /**
+   * Client cache sống lâu hơn 1 lần deploy của mcp_server — nếu mcp_server
+   * restart (session trong RAM mất sạch) mà client vẫn cầm session cũ, request
+   * sẽ lỗi ("Server not initialized"/"Server already initialized"...). Gặp lỗi
+   * là bỏ luôn client cũ, tạo kết nối mới rồi thử lại đúng 1 lần.
+   */
+  private async withReconnect<T>(
+    provider: string,
+    ownerId: string | undefined,
+    fn: (client: Client) => Promise<T>,
+  ): Promise<T> {
+    const cacheKey = `${provider}:${ownerId ?? '__anon__'}`;
+    const client = await this.getClient(provider, ownerId);
+    try {
+      return await fn(client);
+    } catch (error) {
+      this.logger.warn(`MCP call failed for "${cacheKey}", reconnecting and retrying once: ${error.message}`);
+      this.clients.delete(cacheKey);
+      const freshClient = await this.getClient(provider, ownerId);
+      return fn(freshClient);
+    }
   }
 }
