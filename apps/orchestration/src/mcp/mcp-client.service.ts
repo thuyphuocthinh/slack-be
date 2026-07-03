@@ -5,6 +5,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { ORCHESTRATION_CONSTANTS, ORCHESTRATION_ERROR } from '@slack/constants';
 import { AGENT_REGISTRY } from '../registry/agents.registry';
 import { CallToolRequestDto, CallToolResponseDto, McpToolDto } from '../dto/mcp.dto';
+import { withTimeout } from '../llm/with-timeout.util';
 
 interface CachedTools {
   tools: McpToolDto[];
@@ -39,7 +40,11 @@ export class McpClientService {
     const transport = new StreamableHTTPClientTransport(new URL(entry.endpoint), {
       requestInit: { headers },
     });
-    await client.connect(transport);
+    await withTimeout(
+      client.connect(transport),
+      ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS,
+      `MCP connect() timeout sau ${ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS / 1000}s (provider=${provider})`,
+    );
 
     this.clients.set(cacheKey, client);
     this.logger.log(`Connected MCP client for provider "${provider}" at ${entry.endpoint}`);
@@ -79,14 +84,15 @@ export class McpClientService {
     fn: (client: Client) => Promise<T>,
   ): Promise<T> {
     const cacheKey = `${provider}:${ownerId ?? '__anon__'}`;
+    const timeoutMsg = `MCP call timeout sau ${ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS / 1000}s (${cacheKey})`;
     const client = await this.getClient(provider, ownerId);
     try {
-      return await fn(client);
+      return await withTimeout(fn(client), ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS, timeoutMsg);
     } catch (error) {
       this.logger.warn(`MCP call failed for "${cacheKey}", reconnecting and retrying once: ${error.message}`);
       this.clients.delete(cacheKey);
       const freshClient = await this.getClient(provider, ownerId);
-      return fn(freshClient);
+      return withTimeout(fn(freshClient), ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS, timeoutMsg);
     }
   }
 }
