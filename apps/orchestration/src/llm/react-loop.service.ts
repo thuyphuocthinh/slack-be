@@ -9,26 +9,17 @@ import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
 import { LlmToolResult } from './strategy/llm-strategy.interface';
 import { AgentStreamService } from '../socket/agent-stream.service';
 
-/**
- * ReAct loop provider-agnostic — trước đây (`GeminiReactService`) gọi
- * thẳng SDK Gemini, giờ đi qua `LlmStrategyFactory` (Strategy Pattern) nên
- * chạy được với bất kỳ model nào khai trong `LLM_MODEL_REGISTRY`
- * (Gemini/OpenAI/Anthropic) mà không phải sửa file này.
- *
- * KHÔNG tự tạo root trace (traceable) hay tự phát tín hiệu "done" — 1 turn
- * giờ có thể chỉ gồm quyết định của Supervisor (không chạy loop này), nên
- * việc bao trùm trace + phát "done" thuộc về tầng gọi ngoài cùng
- * (AiOrchestrationProcessor), đảm bảo đúng 1 root trace/1 "done" cho MỌI
- * turn bất kể có delegate hay không.
- */
+// Root trace + "done" thuộc về AiOrchestrationProcessor, không phải ở đây.
 @Injectable()
 export class ReactLoopService {
+  private readonly logger = new Logger(ReactLoopService.name);
+
   constructor(
     private readonly mcpClient: McpClientService,
     private readonly messageClient: MessageClientService,
     private readonly llmFactory: LlmStrategyFactory,
     private readonly agentStream: AgentStreamService,
-  ) {}
+  ) { }
 
   async run(dto: RunReactLoopRequestDto): Promise<RunReactLoopResponseDto> {
     const toolCalls: ToolCallTraceDto[] = [];
@@ -43,35 +34,32 @@ export class ReactLoopService {
       }),
     ]);
 
-    const { strategy, model } = this.llmFactory.resolve(dto.model ?? ORCHESTRATION_CONSTANTS.GEMINI_MODEL);
+    const { strategy, model } = this.llmFactory.resolve(dto.model ?? ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL);
+    this.logger.log(`run() userId=${dto.userId} provider=${dto.provider} model=${model} toolsAvailable=${mcpTools.length}`);
 
     const session = strategy.startChat({
       model,
       systemInstruction: ORCHESTRATION_SYSTEM_PROMPT,
       tools: mcpTools.map((t) => ({ name: t.name, description: t.description, parameters: t.inputSchema })),
-      history, // ChatHistoryTurnDto {role:'user'|'model', text} khớp đúng LlmHistoryTurn
-      // Giai đoạn 2, Step 5/7: temperature thấp cho bước gọi tool — ưu tiên
-      // tool-call/tham số chính xác, nhất quán hơn là sáng tạo (chống
-      // hallucination cơ bản theo checklist plan.md mục 3).
+      history,
       temperature: ORCHESTRATION_CONSTANTS.REACT_LOOP_TEMPERATURE,
     });
 
-    // Wrap trong scope của run() — nếu tầng gọi ngoài (processor) đang có
-    // traceable() bao quanh, span này tự nest đúng cây theo AsyncLocalStorage
-    // của langsmith, không cần truyền context tay.
+    // Wrap ở đây để nest đúng cây trace nếu processor đang có traceable() bao quanh.
     const callTool = traceable(
       async (name: string, args: Record<string, unknown>) => {
-        // Giai đoạn 2, Step 6: namespace tên tool hiển thị/lưu trữ theo
-        // "{provider}.{toolName}" — 1 turn giờ có thể gộp toolCalls từ NHIỀU
-        // agent khác nhau (Step 3), 2 agent khác nhau có thể trùng tên tool
-        // (VD "list_items"). Chỉ namespace phần hiển thị/emit/persist — tên
-        // gọi THẬT xuống MCP server (`mcpClient.callTool`) vẫn dùng `name` gốc.
         const displayName = `${dto.provider}.${name}`;
+        this.logger.log(`tool_call ${displayName} args=${JSON.stringify(args)}`);
         await this.emitStep(dto, { type: 'tool_call', tool: displayName });
         const result = await this.mcpClient.callTool({ provider: dto.provider, name, args, ownerId: dto.userId });
         const text = extractTextFromMcpResult(result);
         const status: 'success' | 'error' = result.isError ? 'error' : 'success';
         const resultPreview = this.truncatePreview(text);
+        if (status === 'error') {
+          this.logger.warn(`tool_result ${displayName} FAILED: ${resultPreview}`);
+        } else {
+          this.logger.log(`tool_result ${displayName} ok: ${resultPreview}`);
+        }
         await this.emitStep(dto, { type: 'tool_result', tool: displayName, status, resultPreview });
         toolCalls.push({ tool: displayName, status, resultPreview });
         return text;
@@ -84,17 +72,13 @@ export class ReactLoopService {
 
     for (let step = 0; step < ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS; step++) {
       if (turn.toolCalls.length === 0) {
-        // Model rẻ hay dừng ngay khi vừa xong 1 tool call, kể cả khi đó mới
-        // chỉ là bước khám phá cấu trúc chứ chưa có dữ liệu thật — ép thêm
-        // đúng 1 lượt tự phản biện (lượt gọi model riêng, không phải dựa
-        // vào model tự giác trong cùng lượt sinh câu trả lời) trước khi
-        // chấp nhận đây là câu trả lời cuối. Chỉ nudge khi đã có tool call
-        // và chỉ đúng 1 lần (tránh lặp vô hạn nếu model cứ khẳng định "đã đủ").
         if (!selfChecked && toolCalls.length > 0) {
           selfChecked = true;
+          this.logger.log('self-check nudge triggered');
           turn = await session.sendMessage(ORCHESTRATION_SELF_CHECK_PROMPT);
           continue;
         }
+        this.logger.log(`run() done at step=${step} toolCalls=${toolCalls.length}`);
         return { answer: turn.text || 'Xin lỗi, mình chưa có câu trả lời phù hợp.', toolCalls };
       }
 
@@ -107,6 +91,7 @@ export class ReactLoopService {
       turn = await session.sendMessage(results);
     }
 
+    this.logger.warn(`run() hit MAX_REACT_STEPS=${ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS} userId=${dto.userId}`);
     return { answer: turn.text || 'Xin lỗi, câu hỏi này cần nhiều bước hơn mình hỗ trợ được.', toolCalls };
   }
 

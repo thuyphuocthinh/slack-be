@@ -1,14 +1,15 @@
 export const ORCHESTRATION_CONSTANTS = {
-  // TẠM đổi sang 2.0-flash — 2.5-flash đã cháy quota free tier 20 req/ngày
-  // của project hiện tại. Quota Gemini tính riêng theo từng model trong
-  // cùng 1 project, nên đổi model là có ngay quota mới để test tiếp.
-  GEMINI_MODEL: 'gemini-2.0-flash',
+  // Model mặc định cho SubAgentExecutor (ReactLoop) khi request không tự chỉ
+  // định model. Đang để gpt-4o-mini vì free tier Gemini (cả 2.0-flash lẫn
+  // 2.5-flash) đã cháy quota — đổi giá trị này (VD 'gemini-2.0-flash') khi
+  // muốn quay lại Gemini, không cần đụng code strategy.
+  DEFAULT_REACT_MODEL: 'gpt-4o-mini',
   // Model riêng cho Supervisor (Giai đoạn 2) — quyết định respond/delegate
   // chỉ cần model nhẹ/nhanh, không cần model mạnh như SubAgentExecutor.
-  // Để CÙNG model với GEMINI_MODEL tạm thời (ưu tiên đúng, đã xác nhận
-  // structured output hoạt động ổn định) — tách constant riêng để sau này
-  // đổi sang model rẻ hơn (VD flash-lite) không đụng tới SubAgentExecutor.
-  SUPERVISOR_MODEL: 'gemini-2.0-flash',
+  // Để CÙNG model với DEFAULT_REACT_MODEL (đã xác nhận structured output
+  // hoạt động ổn định) — tách constant riêng để sau này đổi sang model rẻ
+  // hơn không đụng tới SubAgentExecutor.
+  SUPERVISOR_MODEL: 'gpt-4o-mini',
   MAX_REACT_STEPS: 8,
   // Guard hội tụ cho vòng lặp Supervisor ↔ SubAgent (Giai đoạn 2, Step 3) —
   // cùng tinh thần MAX_REACT_STEPS nhưng ở tầng routing giữa nhiều agent,

@@ -30,11 +30,8 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: ${{ secrets.DOCKER_USERNAME }}/slack-be:latest
-          # TẠM tắt cache — đang test giả thuyết GHA cache trả nhầm layer cũ
-          # gây bug "submitCredentials mất field cho provider mới (github)".
-          # Bật lại (bỏ comment 2 dòng dưới) sau khi xác nhận/loại trừ nguyên nhân.
-          # cache-from: type=gha
-          # cache-to: type=gha,mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Setup SSH Connection for Remote Docker
         env:
