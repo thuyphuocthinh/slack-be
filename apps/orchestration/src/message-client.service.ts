@@ -16,12 +16,40 @@ interface MessageLike {
   sender?: { isBot?: boolean };
 }
 
+// FE gửi content = JSON.stringify(editor.getJSON()) — cây rich text TipTap
+// dạng {type:'doc', content:[{type:'paragraph', content:[{type:'text', text:'...'}]}]}
+// ĐÃ STRINGIFY, nên content nhận được ở đây là 1 STRING chứa JSON, không phải
+// object thuần. Bug cũ chỉ trả thẳng string đó (return content) — với message
+// do bot tự tạo (plain string thật, JSON.parse sẽ throw) thì đúng, nhưng với
+// message user gõ thật qua FE thì trả nguyên văn chuỗi JSON thay vì lời văn
+// thật, khiến prompt gửi cho Supervisor rỗng/vô nghĩa. Cùng logic đệ quy với
+// NotificationService.extractPlainHistoryText (đã chạy đúng trong production).
 function extractContentText(content: unknown): string {
-  if (typeof content === 'string') return content;
-  if (content && typeof content === 'object' && 'text' in (content as Record<string, unknown>)) {
-    return String((content as Record<string, unknown>).text ?? '');
+  const traverseTiptapNodes = (node: unknown): string => {
+    const texts: string[] = [];
+    const visit = (n: unknown): void => {
+      if (!n || typeof n !== 'object') return;
+      if (Array.isArray(n)) {
+        n.forEach(visit);
+        return;
+      }
+      const obj = n as Record<string, unknown>;
+      if (obj.type === 'text' && typeof obj.text === 'string') texts.push(obj.text);
+      if (Array.isArray(obj.content)) obj.content.forEach(visit);
+    };
+    visit(node);
+    return texts.join(' ');
+  };
+
+  if (content && typeof content === 'object') return traverseTiptapNodes(content);
+  if (typeof content !== 'string') return '';
+
+  try {
+    const parsed = JSON.parse(content);
+    return typeof parsed === 'string' ? parsed : traverseTiptapNodes(parsed);
+  } catch {
+    return content; // không phải JSON — plain text thật (VD message bot tự tạo)
   }
-  return '';
 }
 
 @Injectable()
