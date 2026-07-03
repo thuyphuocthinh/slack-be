@@ -1,8 +1,8 @@
 export const ORCHESTRATION_CONSTANTS = {
   // Fallback khi env var (DEFAULT_REACT_MODEL / SUPERVISOR_MODEL) không được
   // set — đổi model thật sự thì sửa env, không sửa 2 dòng này.
-  DEFAULT_REACT_MODEL: 'gemini-3.5-flash',
-  SUPERVISOR_MODEL: 'gemini-3.5-flash',
+  DEFAULT_REACT_MODEL: 'gpt-4o-mini',
+  SUPERVISOR_MODEL: 'gpt-4o-mini',
   MAX_REACT_STEPS: 8,
   // Guard hội tụ cho vòng lặp Supervisor ↔ SubAgent (Giai đoạn 2, Step 3) —
   // cùng tinh thần MAX_REACT_STEPS nhưng ở tầng routing giữa nhiều agent,
