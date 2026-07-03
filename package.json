@@ -60,6 +60,7 @@
     ]
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.109.1",
     "@google/generative-ai": "^0.24.1",
     "@hocuspocus/extension-database": "^4.1.0",
     "@hocuspocus/server": "^4.1.0",
@@ -109,6 +110,7 @@
     "nanoid": "^5.1.9",
     "nest-winston": "^1.10.2",
     "nodemailer": "^8.0.5",
+    "openai": "^6.45.0",
     "opossum": "^9.0.0",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",

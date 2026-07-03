@@ -1,0 +1,125 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { ORCHESTRATION_CONSTANTS } from '@slack/constants';
+import { SupervisorService } from './supervisor.service';
+import { McpAuthClientService } from '../mcp-auth/mcp-auth-client.service';
+import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
+
+// Cô lập test khỏi giá trị thật của process.env.AGENT_SQL_SERVER_URL — mock
+// thẳng registry để chủ động quyết định agent nào có/thiếu hạ tầng thật.
+jest.mock('../registry/agents.registry', () => ({
+  AGENT_REGISTRY: {
+    sql_server: { label: 'SQL Server', endpoint: 'http://mcp-server/mcp' },
+    // notion: đã connect qua mcp-auth (xem test bên dưới) nhưng CHƯA có agent
+    // thật đăng ký (endpoint rỗng) — phải bị loại khỏi danh sách khả dụng.
+    notion: { label: 'Notion', endpoint: undefined },
+  },
+}));
+
+describe('SupervisorService', () => {
+  let service: SupervisorService;
+
+  const mockMcpAuthClient = { getConnectionStatus: jest.fn() };
+  const mockStrategy = { generateStructured: jest.fn() };
+  const mockLlmFactory = { resolve: jest.fn() };
+
+  beforeEach(async () => {
+    mockLlmFactory.resolve.mockReturnValue({ strategy: mockStrategy, model: ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL });
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        SupervisorService,
+        { provide: McpAuthClientService, useValue: mockMcpAuthClient },
+        { provide: LlmStrategyFactory, useValue: mockLlmFactory },
+      ],
+    }).compile();
+
+    service = module.get<SupervisorService>(SupervisorService);
+  });
+
+  afterEach(() => jest.clearAllMocks());
+
+  describe('getAvailableAgents', () => {
+    it('keeps only providers that are BOTH connected AND registered with a real agent endpoint', async () => {
+      mockMcpAuthClient.getConnectionStatus.mockResolvedValue([
+        { provider_id: 'sql_server', is_connected: true, status: 'connected', connected_at: '2026-01-01' },
+        { provider_id: 'notion', is_connected: true, status: 'connected', connected_at: '2026-01-01' },
+        { provider_id: 'github', is_connected: false, status: 'not_connected', connected_at: null },
+      ]);
+
+      const agents = await service.getAvailableAgents('user-1');
+
+      expect(agents).toEqual([{ provider: 'sql_server', label: 'SQL Server', description: expect.any(String) }]);
+    });
+
+    it('returns an empty list when nothing is connected', async () => {
+      mockMcpAuthClient.getConnectionStatus.mockResolvedValue([
+        { provider_id: 'sql_server', is_connected: false, status: 'not_connected', connected_at: null },
+      ]);
+
+      const agents = await service.getAvailableAgents('user-1');
+
+      expect(agents).toEqual([]);
+    });
+  });
+
+  describe('decide', () => {
+    const agents = [{ provider: 'sql_server', label: 'SQL Server', description: 'Truy vấn SQL Server.' }];
+
+    it('returns the structured decision from the resolved LLM strategy', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({ action: 'delegate', agent: 'sql_server', task: 'liệt kê bảng' });
+
+      const decision = await service.decide('có bao nhiêu bảng?', agents);
+
+      expect(decision).toEqual({ action: 'delegate', agent: 'sql_server', task: 'liệt kê bảng' });
+      expect(mockLlmFactory.resolve).toHaveBeenCalledWith(ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL);
+      expect(mockStrategy.generateStructured).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
+          prompt: 'có bao nhiêu bảng?',
+          systemInstruction: expect.stringContaining('sql_server (SQL Server): Truy vấn SQL Server.'),
+        }),
+      );
+    });
+
+    it('mentions there are no connected agents in the prompt when the list is empty', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({ action: 'respond', answer: 'Chào bạn!' });
+
+      await service.decide('chào bạn', []);
+
+      expect(mockStrategy.generateStructured).toHaveBeenCalledWith(
+        expect.objectContaining({ systemInstruction: expect.stringContaining('chưa kết nối agent nào') }),
+      );
+    });
+
+    it('falls back to a safe "respond" decision when the LLM call fails', async () => {
+      mockStrategy.generateStructured.mockRejectedValue(new Error('provider quota exceeded'));
+
+      const decision = await service.decide('hỏi gì đó', agents);
+
+      expect(decision.action).toBe('respond');
+      expect(decision.answer).toEqual(expect.any(String));
+    });
+
+    it('sends the raw prompt untouched on the first round (no previous rounds)', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({ action: 'respond', answer: 'ok' });
+
+      await service.decide('tìm bảng có cột Email', agents, []);
+
+      expect(mockStrategy.generateStructured).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: 'tìm bảng có cột Email' }),
+      );
+    });
+
+    it('folds previous delegate rounds into the prompt from round 2 onward (Step 3)', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({ action: 'respond', answer: 'ok' });
+
+      await service.decide('tìm bảng có cột Email, đếm số dòng bảng đó', agents, [
+        { agent: 'sql_server', task: 'tìm bảng có cột Email', result: 'Bảng Users có cột Email' },
+      ]);
+
+      const sentPrompt = mockStrategy.generateStructured.mock.calls[0][0].prompt;
+      expect(sentPrompt).toContain('tìm bảng có cột Email, đếm số dòng bảng đó');
+      expect(sentPrompt).toContain('Đã delegate agent "sql_server" với yêu cầu "tìm bảng có cột Email" → kết quả: Bảng Users có cột Email');
+    });
+  });
+});

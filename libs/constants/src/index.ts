@@ -38,6 +38,7 @@ export * from './tcp/message_pattern/canvas_msg_pattern.constant';
 export * from './const/regex.constant';
 export * from './const/calendar.constant';
 export * from './const/orchestration.constant';
+export * from './const/llm-model.constant';
 
 export * from './types/roles.enum';
 export * from './types/notification.enum';

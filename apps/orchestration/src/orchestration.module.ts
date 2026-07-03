@@ -8,8 +8,14 @@ import { OrchestrationController } from './orchestration.controller';
 import { AiOrchestrationProcessor } from './processor/ai-orchestration.processor';
 import { McpClientService } from './mcp/mcp-client.service';
 import { McpAuthClientService } from './mcp-auth/mcp-auth-client.service';
-import { GeminiReactService } from './llm/gemini-react.service';
+import { ReactLoopService } from './llm/react-loop.service';
+import { SupervisorService } from './llm/supervisor.service';
 import { MessageClientService } from './message-client.service';
+import { LlmStrategyFactory } from './llm/strategy/llm-strategy.factory';
+import { GeminiStrategy } from './llm/strategy/gemini.strategy';
+import { OpenAiStrategy } from './llm/strategy/openai.strategy';
+import { AnthropicStrategy } from './llm/strategy/anthropic.strategy';
+import { AgentStreamService } from './socket/agent-stream.service';
 
 @Module({
   imports: [
@@ -25,8 +31,14 @@ import { MessageClientService } from './message-client.service';
     AiOrchestrationProcessor,
     McpClientService,
     McpAuthClientService,
-    GeminiReactService,
+    ReactLoopService,
+    SupervisorService,
     MessageClientService,
+    LlmStrategyFactory,
+    GeminiStrategy,
+    OpenAiStrategy,
+    AnthropicStrategy,
+    AgentStreamService,
   ],
 })
 export class OrchestrationModule {}

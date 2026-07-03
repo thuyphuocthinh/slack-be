@@ -14,4 +14,9 @@ export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
     label: 'SQL Server',
     endpoint: process.env.AGENT_SQL_SERVER_URL,
   },
+  // Giai đoạn 2, Step 4 — agent thứ 2, repo riêng `freelancer/agent_github`.
+  github: {
+    label: 'GitHub',
+    endpoint: process.env.AGENT_GITHUB_URL,
+  },
 };
