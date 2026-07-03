@@ -1,3 +1,5 @@
+import { ChatHistoryTurnDto } from './message-client.dto';
+
 export class RunReactLoopRequestDto {
   prompt: string;
   provider: string;
@@ -6,9 +8,11 @@ export class RunReactLoopRequestDto {
   workspaceId: string;
   // messageId của message BOT (reply) — dùng để stream step lên đúng bubble
   messageId: string;
-  // messageId gốc user vừa gửi — dùng làm cursor lấy lịch sử chat TRƯỚC nó
-  triggerMessageId: string;
   channelType: string; // 'direct' | 'group'
+  // Lịch sử hội thoại — AiOrchestrationProcessor fetch 1 LẦN/turn rồi truyền
+  // xuống cho cả SupervisorService.decide() lẫn đây, đảm bảo cả 2 nhìn thấy
+  // đúng CÙNG 1 snapshot lịch sử (không tự fetch riêng, tránh lệch nhau).
+  history: ChatHistoryTurnDto[];
   // Model id trong LLM_MODEL_REGISTRY (VD 'gemini-2.0-flash', 'gpt-4o-mini',
   // 'claude-haiku') — optional, chưa có UI cho user chọn nên mặc định lấy
   // ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL nếu không truyền. Field đã

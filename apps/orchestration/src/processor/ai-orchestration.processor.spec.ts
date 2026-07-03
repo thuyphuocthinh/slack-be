@@ -21,9 +21,10 @@ describe('AiOrchestrationProcessor', () => {
     createMessage: jest.fn(),
     updateMessage: jest.fn(),
     getMessageText: jest.fn(),
+    getRecentHistory: jest.fn(),
   };
   const mockReactLoop = { run: jest.fn() };
-  const mockSupervisor = { getAvailableAgents: jest.fn(), decide: jest.fn() };
+  const mockSupervisor = { getAvailableAgents: jest.fn(), decide: jest.fn(), synthesize: jest.fn() };
   const mockAgentStream = { emitStep: jest.fn() };
 
   const jobData: IProcessAiTriggerJobData = {
@@ -40,6 +41,7 @@ describe('AiOrchestrationProcessor', () => {
   beforeEach(async () => {
     mockMessageClient.createMessage.mockResolvedValue({ id: 'reply-1' });
     mockMessageClient.getMessageText.mockResolvedValue('có bao nhiêu bảng?');
+    mockMessageClient.getRecentHistory.mockResolvedValue([]);
     mockSupervisor.getAvailableAgents.mockResolvedValue(availableAgents);
 
     const module: TestingModule = await Test.createTestingModule({
@@ -96,7 +98,7 @@ describe('AiOrchestrationProcessor', () => {
     // dùng mockResolvedValueOnce cho từng vòng vì decide() giờ được gọi lặp
     // lại (Step 3), không còn đúng 1 lần/turn như trước.
     mockSupervisor.decide
-      .mockResolvedValueOnce({ action: 'delegate', agent: 'sql_server', task: 'liệt kê bảng' })
+      .mockResolvedValueOnce({ action: 'delegate', delegations: [{ agent: 'sql_server', task: 'liệt kê bảng' }] })
       .mockResolvedValueOnce({ action: 'respond', answer: 'Có 2 bảng.' });
     mockReactLoop.run.mockResolvedValue({
       answer: 'Có 2 bảng.',
@@ -111,7 +113,7 @@ describe('AiOrchestrationProcessor', () => {
         provider: 'sql_server',
         userId: jobData.userId,
         messageId: 'reply-1', // reply id, KHÔNG phải messageId gốc — FE update đúng bubble bot
-        triggerMessageId: jobData.messageId,
+        history: [],
       }),
     );
     expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
@@ -124,7 +126,8 @@ describe('AiOrchestrationProcessor', () => {
   });
 
   it('falls back to a safe message and skips ReactLoopService when Supervisor delegates to an agent outside the available list', async () => {
-    mockSupervisor.decide.mockResolvedValue({ action: 'delegate', agent: 'notion' }); // "notion" không có trong availableAgents
+    // "notion" không có trong availableAgents
+    mockSupervisor.decide.mockResolvedValue({ action: 'delegate', delegations: [{ agent: 'notion', task: 'đọc trang' }] });
 
     await runJob();
 
@@ -136,9 +139,77 @@ describe('AiOrchestrationProcessor', () => {
     });
   });
 
+  it('records an explicit "unavailable" round for an invalid agent MIXED with a valid one, instead of silently dropping it', async () => {
+    const twoAgents = [
+      { provider: 'sql_server', label: 'SQL Server', description: 'desc' },
+      { provider: 'github', label: 'GitHub', description: 'desc' },
+    ];
+    mockSupervisor.getAvailableAgents.mockResolvedValue(twoAgents);
+    mockSupervisor.decide
+      .mockResolvedValueOnce({
+        action: 'delegate',
+        // "notion" không nằm trong twoAgents — lẫn cùng vòng với 1 agent hợp lệ
+        delegations: [
+          { agent: 'sql_server', task: 'đếm số bảng' },
+          { agent: 'notion', task: 'đọc trang ghi chú' },
+        ],
+      })
+      .mockResolvedValueOnce({ action: 'respond', answer: 'Có 5 bảng.' });
+    mockReactLoop.run.mockResolvedValue({ answer: 'Có 5 bảng', toolCalls: [] });
+
+    await runJob();
+
+    // agent hợp lệ vẫn chạy bình thường
+    expect(mockReactLoop.run).toHaveBeenCalledTimes(1);
+    // vòng 2 Supervisor phải THẤY rõ "notion" đã bị bỏ qua, không phải im lặng biến mất
+    const secondCallRounds = mockSupervisor.decide.mock.calls[1][2];
+    expect(secondCallRounds).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ agent: 'notion', result: expect.stringContaining('chưa khả dụng') }),
+      ]),
+    );
+  });
+
+  it('keeps a sibling delegation\'s successful result even when another delegation in the SAME round throws (Step 8 — Promise.all fail-fast guard)', async () => {
+    const twoAgents = [
+      { provider: 'sql_server', label: 'SQL Server', description: 'desc' },
+      { provider: 'github', label: 'GitHub', description: 'desc' },
+    ];
+    mockSupervisor.getAvailableAgents.mockResolvedValue(twoAgents);
+    mockSupervisor.decide
+      .mockResolvedValueOnce({
+        action: 'delegate',
+        delegations: [
+          { agent: 'sql_server', task: 'đếm số bảng' },
+          { agent: 'github', task: 'tạo issue' },
+        ],
+      })
+      .mockResolvedValueOnce({ action: 'respond', answer: 'Đã có 5 bảng, GitHub thì lỗi.' });
+    mockReactLoop.run.mockImplementation((dto: { provider: string }) =>
+      dto.provider === 'sql_server'
+        ? Promise.resolve({ answer: 'Có 5 bảng', toolCalls: [{ tool: 'sql_server.get_database_schema', status: 'success' }] })
+        : Promise.reject(new Error('connect ECONNREFUSED')),
+    );
+
+    await runJob();
+
+    // Kết quả sql_server KHÔNG bị mất dù github ném lỗi trong CÙNG Promise.all
+    const secondCallRounds = mockSupervisor.decide.mock.calls[1][2];
+    expect(secondCallRounds).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ agent: 'sql_server', result: 'Có 5 bảng' }),
+        expect.objectContaining({ agent: 'github', result: expect.stringContaining('ECONNREFUSED') }),
+      ]),
+    );
+    // Lỗi 1 nhánh không làm sập cả turn — vẫn respond bình thường ở vòng 2
+    expect(mockMessageClient.updateMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: 'Đã có 5 bảng, GitHub thì lỗi.' }),
+    );
+  });
+
   it('runs a second Supervisor round, feeding round-1 result back in, before producing the final answer (Step 3)', async () => {
     mockSupervisor.decide
-      .mockResolvedValueOnce({ action: 'delegate', agent: 'sql_server', task: 'tìm bảng có cột Email' })
+      .mockResolvedValueOnce({ action: 'delegate', delegations: [{ agent: 'sql_server', task: 'tìm bảng có cột Email' }] })
       .mockResolvedValueOnce({ action: 'respond', answer: 'Bảng Users có cột Email, có 10 dòng.' });
     mockReactLoop.run.mockResolvedValueOnce({ answer: 'Bảng Users có cột Email', toolCalls: [{ tool: 'get_database_schema', status: 'success' }] });
 
@@ -147,7 +218,7 @@ describe('AiOrchestrationProcessor', () => {
     expect(mockSupervisor.decide).toHaveBeenCalledTimes(2);
     expect(mockSupervisor.decide).toHaveBeenNthCalledWith(2, 'có bao nhiêu bảng?', availableAgents, [
       { agent: 'sql_server', task: 'tìm bảng có cột Email', result: 'Bảng Users có cột Email' },
-    ]);
+    ], []);
     // chỉ 1 vòng thật sự gọi ReactLoop — vòng 2 Supervisor tự tổng hợp, không delegate tiếp
     expect(mockReactLoop.run).toHaveBeenCalledTimes(1);
     expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
@@ -158,6 +229,47 @@ describe('AiOrchestrationProcessor', () => {
     });
   });
 
+  it('fans out to MULTIPLE independent agents in the SAME round when Supervisor returns >1 delegation (Step 8)', async () => {
+    const twoAgents = [
+      { provider: 'sql_server', label: 'SQL Server', description: 'desc' },
+      { provider: 'github', label: 'GitHub', description: 'desc' },
+    ];
+    mockSupervisor.getAvailableAgents.mockResolvedValue(twoAgents);
+    mockSupervisor.decide
+      .mockResolvedValueOnce({
+        action: 'delegate',
+        delegations: [
+          { agent: 'sql_server', task: 'đếm số bảng' },
+          { agent: 'github', task: 'liệt kê issue đang mở' },
+        ],
+      })
+      .mockResolvedValueOnce({ action: 'respond', answer: 'Có 5 bảng và 3 issue đang mở.' });
+    mockReactLoop.run.mockImplementation((dto: { provider: string }) =>
+      dto.provider === 'sql_server'
+        ? Promise.resolve({ answer: 'Có 5 bảng', toolCalls: [{ tool: 'sql_server.get_database_schema', status: 'success' }] })
+        : Promise.resolve({ answer: '3 issue đang mở', toolCalls: [{ tool: 'github.list_issues', status: 'success' }] }),
+    );
+
+    await runJob();
+
+    // cả 2 agent chạy trong CÙNG 1 vòng (chỉ 1 lần decide trước khi respond)
+    expect(mockSupervisor.decide).toHaveBeenCalledTimes(2);
+    expect(mockReactLoop.run).toHaveBeenCalledTimes(2);
+    expect(mockReactLoop.run).toHaveBeenCalledWith(expect.objectContaining({ provider: 'sql_server' }));
+    expect(mockReactLoop.run).toHaveBeenCalledWith(expect.objectContaining({ provider: 'github' }));
+    // round-2 decide() phải thấy CẢ 2 kết quả của vòng 1, không chỉ 1
+    const secondCallRounds = mockSupervisor.decide.mock.calls[1][2];
+    expect(secondCallRounds).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ agent: 'sql_server', result: 'Có 5 bảng' }),
+        expect.objectContaining({ agent: 'github', result: '3 issue đang mở' }),
+      ]),
+    );
+    expect(mockMessageClient.updateMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: 'Có 5 bảng và 3 issue đang mở.' }),
+    );
+  });
+
   it('chains 2 DIFFERENT agents across rounds and aggregates their toolCalls in order (Step 5 — real cross-agent case)', async () => {
     const twoAgents = [
       { provider: 'sql_server', label: 'SQL Server', description: 'desc' },
@@ -165,8 +277,8 @@ describe('AiOrchestrationProcessor', () => {
     ];
     mockSupervisor.getAvailableAgents.mockResolvedValue(twoAgents);
     mockSupervisor.decide
-      .mockResolvedValueOnce({ action: 'delegate', agent: 'sql_server', task: 'tìm khách chi tiêu nhiều nhất' })
-      .mockResolvedValueOnce({ action: 'delegate', agent: 'github', task: 'tạo issue nhắc follow-up khách Nguyễn Văn A, 5.000.000đ' })
+      .mockResolvedValueOnce({ action: 'delegate', delegations: [{ agent: 'sql_server', task: 'tìm khách chi tiêu nhiều nhất' }] })
+      .mockResolvedValueOnce({ action: 'delegate', delegations: [{ agent: 'github', task: 'tạo issue nhắc follow-up khách Nguyễn Văn A, 5.000.000đ' }] })
       .mockResolvedValueOnce({ action: 'respond', answer: 'Đã tìm khách VIP và tạo issue GitHub nhắc follow-up.' });
     mockReactLoop.run
       .mockResolvedValueOnce({ answer: 'Khách chi tiêu nhiều nhất: Nguyễn Văn A, 5.000.000đ', toolCalls: [{ tool: 'sql_server.execute_read_only_query', status: 'success' }] })
@@ -200,17 +312,22 @@ describe('AiOrchestrationProcessor', () => {
     });
   });
 
-  it('stops after MAX_SUPERVISOR_ROUNDS and falls back to the last round\'s result if Supervisor never converges', async () => {
-    mockSupervisor.decide.mockResolvedValue({ action: 'delegate', agent: 'sql_server', task: 'tiếp tục' });
+  it('stops after MAX_SUPERVISOR_ROUNDS and asks Supervisor to synthesize all collected rounds instead of returning the raw last round (Step 9)', async () => {
+    mockSupervisor.decide.mockResolvedValue({ action: 'delegate', delegations: [{ agent: 'sql_server', task: 'tiếp tục' }] });
     let call = 0;
     mockReactLoop.run.mockImplementation(() => Promise.resolve({ answer: `kết quả vòng ${++call}`, toolCalls: [] }));
+    mockSupervisor.synthesize.mockResolvedValue('Tổng hợp toàn bộ các vòng đã thu thập được.');
 
     await runJob();
 
     expect(mockSupervisor.decide).toHaveBeenCalledTimes(ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS);
     expect(mockReactLoop.run).toHaveBeenCalledTimes(ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS);
+    expect(mockSupervisor.synthesize).toHaveBeenCalledTimes(1);
+    const [synthesizePrompt, synthesizeRounds] = mockSupervisor.synthesize.mock.calls[0];
+    expect(synthesizePrompt).toBe('có bao nhiêu bảng?');
+    expect(synthesizeRounds).toHaveLength(ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS);
     expect(mockMessageClient.updateMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ content: `kết quả vòng ${ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS}` }),
+      expect.objectContaining({ content: 'Tổng hợp toàn bộ các vòng đã thu thập được.' }),
     );
   });
 
