@@ -56,16 +56,21 @@ export class SupervisorService {
         ? agents.map((a) => `- ${a.provider} (${a.label}): ${a.description}`).join('\n')
         : '(Người dùng chưa kết nối agent nào — nếu câu hỏi cần dữ liệu, trả lời "respond" và nhắc user vào Settings để kết nối.)';
 
+    const fullPrompt = this.buildPrompt(prompt, previousRounds, history);
+
     try {
       const { strategy, model } = this.llmFactory.resolve(
         process.env.SUPERVISOR_MODEL ?? ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
       );
-      return await strategy.generateStructured<SupervisorDecisionDto>({
+      this.logger.log(`decide() model=${model} agents=${agents.length} historyTurns=${history.length} prompt=${fullPrompt}`);
+      const decision = await strategy.generateStructured<SupervisorDecisionDto>({
         model,
         systemInstruction: `${SUPERVISOR_SYSTEM_PROMPT}\n${agentListText}`,
-        prompt: this.buildPrompt(prompt, previousRounds, history),
+        prompt: fullPrompt,
         schema: SUPERVISOR_DECISION_SCHEMA,
       });
+      this.logger.log(`decide() result=${JSON.stringify(decision)}`);
+      return decision;
     } catch (error) {
       this.logger.error(`Supervisor decide() failed: ${(error as Error).message}`, (error as Error).stack);
       return { action: 'respond', answer: describeExternalServiceError(error) };
@@ -92,6 +97,7 @@ export class SupervisorService {
         prompt: `Câu hỏi gốc: ${originalPrompt}\n\nDữ liệu đã thu thập được:\n${roundsText}`,
         schema: SUPERVISOR_SYNTHESIS_SCHEMA,
       });
+      this.logger.log(`synthesize() result=${result.answer}`);
       return result.answer;
     } catch (error) {
       this.logger.error(`Supervisor synthesize() failed: ${(error as Error).message}`, (error as Error).stack);
