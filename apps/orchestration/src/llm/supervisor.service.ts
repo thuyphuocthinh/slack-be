@@ -4,6 +4,7 @@ import { McpAuthClientService } from '../mcp-auth/mcp-auth-client.service';
 import { AGENT_REGISTRY } from '../registry/agents.registry';
 import { AvailableAgentDto, SupervisorDecisionDto, SupervisorRoundDto } from '../dto/supervisor.dto';
 import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
+import { describeExternalServiceError } from './external-service-error.util';
 
 // JSON Schema CHUẨN (không phải dialect riêng của Gemini/OpenAI/Anthropic)
 // — mỗi LlmStrategy tự convert sang format SDK của mình (xem
@@ -62,7 +63,9 @@ export class SupervisorService {
         : '(Người dùng chưa kết nối agent nào — nếu câu hỏi cần dữ liệu, trả lời "respond" và nhắc user vào Settings để kết nối.)';
 
     try {
-      const { strategy, model } = this.llmFactory.resolve(ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL);
+      const { strategy, model } = this.llmFactory.resolve(
+        process.env.SUPERVISOR_MODEL ?? ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
+      );
       return await strategy.generateStructured<SupervisorDecisionDto>({
         model,
         systemInstruction: `${SUPERVISOR_SYSTEM_PROMPT}\n${agentListText}`,
@@ -70,10 +73,8 @@ export class SupervisorService {
         schema: DECISION_SCHEMA,
       });
     } catch (error) {
-      // Structured output hiếm khi trả JSON sai dạng hoặc lỗi provider, nhưng
-      // không phải không thể — fallback an toàn thay vì làm sập cả turn.
       this.logger.error(`Supervisor decide() failed: ${(error as Error).message}`, (error as Error).stack);
-      return { action: 'respond', answer: 'Xin lỗi, mình chưa xử lý được câu hỏi này, bạn thử hỏi lại nhé.' };
+      return { action: 'respond', answer: describeExternalServiceError(error) };
     }
   }
 

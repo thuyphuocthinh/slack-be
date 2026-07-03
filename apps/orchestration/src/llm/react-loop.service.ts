@@ -34,7 +34,9 @@ export class ReactLoopService {
       }),
     ]);
 
-    const { strategy, model } = this.llmFactory.resolve(dto.model ?? ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL);
+    const { strategy, model } = this.llmFactory.resolve(
+      dto.model ?? process.env.DEFAULT_REACT_MODEL ?? ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL,
+    );
     this.logger.log(`run() userId=${dto.userId} provider=${dto.provider} model=${model} toolsAvailable=${mcpTools.length}`);
 
     const session = strategy.startChat({

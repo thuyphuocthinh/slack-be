@@ -14,6 +14,7 @@ import { SupervisorService } from '../llm/supervisor.service';
 import { AvailableAgentDto, SupervisorDecisionDto, SupervisorRoundDto } from '../dto/supervisor.dto';
 import { ToolCallTraceDto } from '../dto/react-loop.dto';
 import { AgentStreamService } from '../socket/agent-stream.service';
+import { describeExternalServiceError } from '../llm/external-service-error.util';
 
 interface AnswerResult {
   content: string;
@@ -77,11 +78,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       await this.messageClient.updateMessage({ id: reply.id, userId: botUserId, ...result });
     } catch (error) {
       this.logger.error(`AI orchestration failed for message ${messageId}: ${error.message}`, error.stack);
-      await this.messageClient.updateMessage({
-        id: reply.id,
-        userId: botUserId,
-        content: '⚠️ Xin lỗi, mình gặp lỗi khi xử lý câu hỏi này. Vui lòng thử lại sau.',
-      });
+      await this.messageClient.updateMessage({ id: reply.id, userId: botUserId, content: describeExternalServiceError(error) });
     } finally {
       // Luôn báo "done" dù Supervisor tự trả lời hay có delegate (1 hay nhiều
       // vòng), thành công hay lỗi — FE dựa vào tín hiệu này để tắt icon
