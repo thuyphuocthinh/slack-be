@@ -15,6 +15,14 @@ export const ORCHESTRATION_CONSTANTS = {
   MCP_TOOLS_CACHE_TTL_MS: 5 * 60 * 1000,
   // Số message gần nhất (trước message trigger) lấy làm context hội thoại.
   CHAT_HISTORY_LIMIT: 10,
+  // Trần thời gian cho MỖI lời gọi LLM (Supervisor decide/synthesize, ReactLoop
+  // sendMessage) — không có timeout thì 1 provider bị treo (VD model mới/quá
+  // tải) làm cả turn "Đang xử lý..." vô thời hạn, không bao giờ rơi vào nhánh
+  // lỗi để báo cho user.
+  LLM_CALL_TIMEOUT_MS: 30_000,
+  // Cùng lý do LLM_CALL_TIMEOUT_MS nhưng cho lời gọi MCP server (connect,
+  // listTools, callTool) — thấp hơn LLM vì tool call thường nhanh hơn nhiều.
+  MCP_CALL_TIMEOUT_MS: 15_000,
 };
 
 export const ORCHESTRATION_SYSTEM_PROMPT = `Bạn là AI Assistant, 1 thành viên thật trong channel Slack này (không phải app/bot riêng biệt) — nói chuyện tự nhiên như đồng nghiệp, không xưng "tôi là 1 mô hình AI".

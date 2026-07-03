@@ -13,6 +13,7 @@ import { AvailableAgentDto, SupervisorDecisionDto, SupervisorRoundDto } from '..
 import { ChatHistoryTurnDto } from '../dto/message-client.dto';
 import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
 import { describeExternalServiceError } from './external-service-error.util';
+import { withTimeout } from './with-timeout.util';
 
 @Injectable()
 export class SupervisorService {
@@ -63,12 +64,16 @@ export class SupervisorService {
         process.env.SUPERVISOR_MODEL ?? ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
       );
       this.logger.log(`decide() model=${model} agents=${agents.length} historyTurns=${history.length} prompt=${fullPrompt}`);
-      const decision = await strategy.generateStructured<SupervisorDecisionDto>({
-        model,
-        systemInstruction: `${SUPERVISOR_SYSTEM_PROMPT}\n${agentListText}`,
-        prompt: fullPrompt,
-        schema: SUPERVISOR_DECISION_SCHEMA,
-      });
+      const decision = await withTimeout(
+        strategy.generateStructured<SupervisorDecisionDto>({
+          model,
+          systemInstruction: `${SUPERVISOR_SYSTEM_PROMPT}\n${agentListText}`,
+          prompt: fullPrompt,
+          schema: SUPERVISOR_DECISION_SCHEMA,
+        }),
+        ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
+        `Supervisor decide() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
+      );
       this.logger.log(`decide() result=${JSON.stringify(decision)}`);
       return decision;
     } catch (error) {
@@ -91,12 +96,16 @@ export class SupervisorService {
       const { strategy, model } = this.llmFactory.resolve(
         process.env.SUPERVISOR_MODEL ?? ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
       );
-      const result = await strategy.generateStructured<{ answer: string }>({
-        model,
-        systemInstruction: SUPERVISOR_SYNTHESIS_PROMPT,
-        prompt: `Câu hỏi gốc: ${originalPrompt}\n\nDữ liệu đã thu thập được:\n${roundsText}`,
-        schema: SUPERVISOR_SYNTHESIS_SCHEMA,
-      });
+      const result = await withTimeout(
+        strategy.generateStructured<{ answer: string }>({
+          model,
+          systemInstruction: SUPERVISOR_SYNTHESIS_PROMPT,
+          prompt: `Câu hỏi gốc: ${originalPrompt}\n\nDữ liệu đã thu thập được:\n${roundsText}`,
+          schema: SUPERVISOR_SYNTHESIS_SCHEMA,
+        }),
+        ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
+        `Supervisor synthesize() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
+      );
       this.logger.log(`synthesize() result=${result.answer}`);
       return result.answer;
     } catch (error) {

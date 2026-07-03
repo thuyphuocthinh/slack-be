@@ -7,6 +7,7 @@ import { RunReactLoopRequestDto, RunReactLoopResponseDto, ToolCallTraceDto } fro
 import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
 import { LlmToolResult } from './strategy/llm-strategy.interface';
 import { AgentStreamService } from '../socket/agent-stream.service';
+import { withTimeout } from './with-timeout.util';
 
 // Root trace + "done" thuộc về AiOrchestrationProcessor, không phải ở đây.
 @Injectable()
@@ -59,7 +60,16 @@ export class ReactLoopService {
       { name: 'mcp.callTool' },
     );
 
-    let turn = await session.sendMessage(dto.prompt);
+    // Không có timeout thì 1 provider bị treo (VD model mới/quá tải) làm cả
+    // turn "Đang xử lý..." vô thời hạn — bọc chung 1 chỗ cho cả 3 lượt gọi.
+    const sendMessage = (input: string | LlmToolResult[]) =>
+      withTimeout(
+        session.sendMessage(input),
+        ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
+        `ReactLoop sendMessage() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (provider=${dto.provider}, model=${model})`,
+      );
+
+    let turn = await sendMessage(dto.prompt);
     let selfChecked = false;
 
     for (let step = 0; step < ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS; step++) {
@@ -67,7 +77,7 @@ export class ReactLoopService {
         if (!selfChecked && toolCalls.length > 0) {
           selfChecked = true;
           this.logger.log('self-check nudge triggered');
-          turn = await session.sendMessage(ORCHESTRATION_SELF_CHECK_PROMPT);
+          turn = await sendMessage(ORCHESTRATION_SELF_CHECK_PROMPT);
           continue;
         }
         this.logger.log(`run() done at step=${step} toolCalls=${toolCalls.length}`);
@@ -80,7 +90,7 @@ export class ReactLoopService {
         results.push({ id: call.id, name: call.name, content });
       }
 
-      turn = await session.sendMessage(results);
+      turn = await sendMessage(results);
     }
 
     this.logger.warn(`run() hit MAX_REACT_STEPS=${ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS} userId=${dto.userId}`);
