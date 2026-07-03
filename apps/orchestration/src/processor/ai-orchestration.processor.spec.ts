@@ -214,7 +214,7 @@ describe('AiOrchestrationProcessor', () => {
     );
   });
 
-  it('updates the reply with a generic error message when anything throws', async () => {
+  it('updates the reply with the raw error message when anything throws', async () => {
     mockSupervisor.decide.mockRejectedValue(new Error('LLM provider is down'));
 
     await runJob();
@@ -222,7 +222,7 @@ describe('AiOrchestrationProcessor', () => {
     expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
       id: 'reply-1',
       userId: jobData.botUserId,
-      content: '⚠️ Xin lỗi, mình gặp lỗi khi xử lý câu hỏi này. Vui lòng thử lại sau.',
+      content: '⚠️ Lỗi: LLM provider is down',
     });
     // "done" vẫn phải bắn kể cả khi lỗi — không thì FE treo mãi icon "đang chạy".
     expect(mockAgentStream.emitStep).toHaveBeenCalledWith(expect.anything(), { type: 'done' });

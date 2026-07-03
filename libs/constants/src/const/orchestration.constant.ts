@@ -1,15 +1,8 @@
 export const ORCHESTRATION_CONSTANTS = {
-  // Model mặc định cho SubAgentExecutor (ReactLoop) khi request không tự chỉ
-  // định model. Đang để gpt-4o-mini vì free tier Gemini (cả 2.0-flash lẫn
-  // 2.5-flash) đã cháy quota — đổi giá trị này (VD 'gemini-2.0-flash') khi
-  // muốn quay lại Gemini, không cần đụng code strategy.
-  DEFAULT_REACT_MODEL: 'gpt-4o-mini',
-  // Model riêng cho Supervisor (Giai đoạn 2) — quyết định respond/delegate
-  // chỉ cần model nhẹ/nhanh, không cần model mạnh như SubAgentExecutor.
-  // Để CÙNG model với DEFAULT_REACT_MODEL (đã xác nhận structured output
-  // hoạt động ổn định) — tách constant riêng để sau này đổi sang model rẻ
-  // hơn không đụng tới SubAgentExecutor.
-  SUPERVISOR_MODEL: 'gpt-4o-mini',
+  // Fallback khi env var (DEFAULT_REACT_MODEL / SUPERVISOR_MODEL) không được
+  // set — đổi model thật sự thì sửa env, không sửa 2 dòng này.
+  DEFAULT_REACT_MODEL: 'gemini-2.0-flash',
+  SUPERVISOR_MODEL: 'gemini-2.0-flash',
   MAX_REACT_STEPS: 8,
   // Guard hội tụ cho vòng lặp Supervisor ↔ SubAgent (Giai đoạn 2, Step 3) —
   // cùng tinh thần MAX_REACT_STEPS nhưng ở tầng routing giữa nhiều agent,
