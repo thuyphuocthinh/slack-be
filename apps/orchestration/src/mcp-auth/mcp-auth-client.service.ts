@@ -56,10 +56,6 @@ export class McpAuthClientService {
   }
 
   async submitCredentials(dto: SubmitCredentialsRequestDto): Promise<void> {
-    // DEBUG TẠM — đang tìm chỗ credentials.personal_access_token bị rớt mất
-    // giữa FE và mcp_auth dù mcp_auth test curl trực tiếp thành công. Xoá
-    // dòng log này sau khi tìm ra nguyên nhân.
-    this.logger.warn(`[DEBUG] submitCredentials payload: ${JSON.stringify({ owner_id: dto.ownerId, provider: dto.provider, credentials: dto.credentials })}`);
     try {
       await axios.post(
         `${this.baseUrl}/connect/submit`,
@@ -67,7 +63,7 @@ export class McpAuthClientService {
         { headers: { Authorization: this.basicAuthHeader } },
       );
     } catch (error) {
-      this.logger.error(`submitCredentials failed: ${error.message} - response: ${JSON.stringify(error.response?.data)}`);
+      this.logger.error(`submitCredentials failed: ${error.message}`);
       throw new RpcException(ORCHESTRATION_ERROR.MCP_AUTH_REQUEST_FAILED);
     }
   }

@@ -77,6 +77,9 @@ import { IntegrationsModule } from './integrations/integrations.module';
 })
 export class ApiGatewayModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(CamelCaseMiddleware).forRoutes('*');
+    consumer
+      .apply(CamelCaseMiddleware)
+      .exclude('ai-providers/:provider/submit')
+      .forRoutes('*');
   }
 }

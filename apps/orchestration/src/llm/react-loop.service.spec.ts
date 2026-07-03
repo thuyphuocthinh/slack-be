@@ -130,7 +130,7 @@ describe('ReactLoopService', () => {
 
     mockSession.sendMessage.mockResolvedValueOnce({ text: 'ok', toolCalls: [] });
     await service.run(baseDto);
-    expect(mockLlmFactory.resolve).toHaveBeenCalledWith(ORCHESTRATION_CONSTANTS.GEMINI_MODEL);
+    expect(mockLlmFactory.resolve).toHaveBeenCalledWith(ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL);
   });
 
   describe('tool step streaming (via AgentStreamService)', () => {
