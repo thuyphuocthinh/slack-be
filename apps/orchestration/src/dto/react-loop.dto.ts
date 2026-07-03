@@ -9,6 +9,11 @@ export class RunReactLoopRequestDto {
   // messageId gốc user vừa gửi — dùng làm cursor lấy lịch sử chat TRƯỚC nó
   triggerMessageId: string;
   channelType: string; // 'direct' | 'group'
+  // Model id trong LLM_MODEL_REGISTRY (VD 'gemini-2.0-flash', 'gpt-4o-mini',
+  // 'claude-haiku') — optional, chưa có UI cho user chọn nên mặc định lấy
+  // ORCHESTRATION_CONSTANTS.GEMINI_MODEL nếu không truyền. Field đã sẵn để
+  // cắm UI chọn model sau này mà không cần sửa ReactLoopService.
+  model?: string;
 }
 
 export class ToolCallTraceDto {

@@ -10,24 +10,65 @@ RUN npm pkg delete scripts.prepare && \
     pnpm config set minimum-release-age 0 && \
     pnpm install --frozen-lockfile
 
-COPY . .
+# Config dùng chung cho mọi lần build app, hiếm khi đổi — copy riêng để
+# không bị cache-bust bởi code app.
+COPY tsconfig.json tsconfig.build.json nest-cli.json ./
 
-# Build all microservices
-RUN pnpm exec nest build api-gateway && \
-    pnpm exec nest build auth && \
-    pnpm exec nest build user && \
-    pnpm exec nest build workspace && \
-    pnpm exec nest build notification && \
-    pnpm exec nest build channel && \
-    pnpm exec nest build task && \
-    pnpm exec nest build message && \
-    pnpm exec nest build socket-gateway && \
-    pnpm exec nest build video-call && \
-    pnpm exec nest build billing && \
-    pnpm exec nest build integrations && \
-    pnpm exec nest build canvas && \
-    pnpm exec nest build calendar && \
-    pnpm exec nest build orchestration
+# libs dùng chung — đổi cái này thì mọi app phía dưới đều phải build lại
+# (đúng ý, vì app nào cũng import qua path alias @slack/*), nhưng ít đổi
+# hơn nhiều so với code app nên đặt trước.
+COPY libs ./libs
+
+# Build từng app RIÊNG (COPY + RUN theo cặp) thay vì gộp 1 RUN cho cả 15 app
+# như trước — Docker cache theo layer, đổi 1 dòng code ở 1 app không còn
+# làm cache-bust 14 app còn lại. Xếp app hay đổi (message/api-gateway/
+# orchestration — đang là trọng tâm phát triển AI orchestration) xuống
+# CUỐI: đổi app nào thì chỉ app đó (và app sau nó) build lại, app đứng
+# trước vẫn cache-hit.
+COPY apps/auth ./apps/auth
+RUN pnpm exec nest build auth
+
+COPY apps/user ./apps/user
+RUN pnpm exec nest build user
+
+COPY apps/workspace ./apps/workspace
+RUN pnpm exec nest build workspace
+
+COPY apps/notification ./apps/notification
+RUN pnpm exec nest build notification
+
+COPY apps/channel ./apps/channel
+RUN pnpm exec nest build channel
+
+COPY apps/task ./apps/task
+RUN pnpm exec nest build task
+
+COPY apps/socket-gateway ./apps/socket-gateway
+RUN pnpm exec nest build socket-gateway
+
+COPY apps/video-call ./apps/video-call
+RUN pnpm exec nest build video-call
+
+COPY apps/billing ./apps/billing
+RUN pnpm exec nest build billing
+
+COPY apps/integrations ./apps/integrations
+RUN pnpm exec nest build integrations
+
+COPY apps/canvas ./apps/canvas
+RUN pnpm exec nest build canvas
+
+COPY apps/calendar ./apps/calendar
+RUN pnpm exec nest build calendar
+
+COPY apps/message ./apps/message
+RUN pnpm exec nest build message
+
+COPY apps/api-gateway ./apps/api-gateway
+RUN pnpm exec nest build api-gateway
+
+COPY apps/orchestration ./apps/orchestration
+RUN pnpm exec nest build orchestration
 
 FROM node:22-alpine
 
