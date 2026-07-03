@@ -47,7 +47,7 @@ export class ReactLoopService {
         const result = await this.mcpClient.callTool({ provider: dto.provider, name, args, ownerId: dto.userId });
         const text = extractTextFromMcpResult(result);
         const status: 'success' | 'error' = result.isError ? 'error' : 'success';
-        const resultPreview = this.truncatePreview(text);
+        const resultPreview = this.formatResultPreview(text);
         if (status === 'error') {
           this.logger.warn(`tool_result ${displayName} FAILED: ${resultPreview}`);
         } else {
@@ -97,10 +97,9 @@ export class ReactLoopService {
     return { answer: turn.text || 'Xin lỗi, câu hỏi này cần nhiều bước hơn mình hỗ trợ được.', toolCalls };
   }
 
-  /** Rút gọn kết quả tool thành 1 dòng ngắn để hiện preview trong timeline FE. */
-  private truncatePreview(text: string, maxLen = 200): string {
-    const oneLine = text.replace(/\s+/g, ' ').trim();
-    return oneLine.length > maxLen ? `${oneLine.slice(0, maxLen)}…` : oneLine;
+  /** Gộp về 1 dòng (bỏ xuống dòng/khoảng trắng thừa) để hiện gọn trong timeline FE — KHÔNG cắt bớt, trả về đầy đủ. */
+  private formatResultPreview(text: string): string {
+    return text.replace(/\s+/g, ' ').trim();
   }
 
   private emitStep(dto: RunReactLoopRequestDto, step: { type: 'tool_call' | 'tool_result'; tool: string; status?: 'success' | 'error'; resultPreview?: string }): Promise<void> {

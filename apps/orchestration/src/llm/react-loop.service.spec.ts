@@ -192,5 +192,19 @@ describe('ReactLoopService', () => {
         expect.objectContaining({ type: 'tool_result', status: 'error' }),
       );
     });
+
+    it('does NOT truncate the tool result — resultPreview carries the full text, only whitespace collapsed to 1 line', async () => {
+      const longText = 'x'.repeat(5000);
+      mockMcpClient.callTool.mockResolvedValue({ content: [{ type: 'text', text: `long\nresult  ${longText}` }], isError: false });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({ text: '', toolCalls: [{ name: 'get_database_schema', args: {} }] })
+        .mockResolvedValueOnce({ text: 'ok', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'vẫn giữ nguyên', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.toolCalls[0].resultPreview).toBe(`long result ${longText}`);
+      expect(result.toolCalls[0].resultPreview.length).toBeGreaterThan(200);
+    });
   });
 });
