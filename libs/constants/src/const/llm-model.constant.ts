@@ -17,6 +17,9 @@ export const LLM_MODEL_REGISTRY: Record<string, LlmModelRegistryEntry> = {
   'gemini-2.0-flash': { strategyId: 'gemini', model: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
   'gemini-2.5-flash': { strategyId: 'gemini', model: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
   'gemini-2.5-pro': { strategyId: 'gemini', model: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+  // Free tier RPD=20, tách quota riêng với 2.0/2.5-flash (Google AI Studio
+  // dashboard 2026-07-03: 2.0-flash còn 0/0 — hết được cấp free tier).
+  'gemini-3.5-flash': { strategyId: 'gemini', model: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
   'gpt-4o-mini': { strategyId: 'openai', model: 'gpt-4o-mini', label: 'GPT-4o mini' },
   'gpt-4o': { strategyId: 'openai', model: 'gpt-4o', label: 'GPT-4o' },
   // Chưa có ANTHROPIC_API_KEY để test thật — 2 dòng dưới CHƯA xác nhận đúng

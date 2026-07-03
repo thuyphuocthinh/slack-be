@@ -3,7 +3,6 @@ import { traceable } from 'langsmith/traceable';
 import { ORCHESTRATION_CONSTANTS, ORCHESTRATION_SELF_CHECK_PROMPT, ORCHESTRATION_SYSTEM_PROMPT } from '@slack/constants';
 import { extractTextFromMcpResult } from '@slack/common';
 import { McpClientService } from '../mcp/mcp-client.service';
-import { MessageClientService } from '../message-client.service';
 import { RunReactLoopRequestDto, RunReactLoopResponseDto, ToolCallTraceDto } from '../dto/react-loop.dto';
 import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
 import { LlmToolResult } from './strategy/llm-strategy.interface';
@@ -16,7 +15,6 @@ export class ReactLoopService {
 
   constructor(
     private readonly mcpClient: McpClientService,
-    private readonly messageClient: MessageClientService,
     private readonly llmFactory: LlmStrategyFactory,
     private readonly agentStream: AgentStreamService,
   ) { }
@@ -24,15 +22,7 @@ export class ReactLoopService {
   async run(dto: RunReactLoopRequestDto): Promise<RunReactLoopResponseDto> {
     const toolCalls: ToolCallTraceDto[] = [];
 
-    const [mcpTools, history] = await Promise.all([
-      this.mcpClient.getTools(dto.provider),
-      this.messageClient.getRecentHistory({
-        channelId: dto.channelId,
-        userId: dto.userId,
-        beforeMessageId: dto.triggerMessageId,
-        limit: ORCHESTRATION_CONSTANTS.CHAT_HISTORY_LIMIT,
-      }),
-    ]);
+    const mcpTools = await this.mcpClient.getTools(dto.provider);
 
     const { strategy, model } = this.llmFactory.resolve(
       dto.model ?? process.env.DEFAULT_REACT_MODEL ?? ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL,
@@ -43,7 +33,7 @@ export class ReactLoopService {
       model,
       systemInstruction: ORCHESTRATION_SYSTEM_PROMPT,
       tools: mcpTools.map((t) => ({ name: t.name, description: t.description, parameters: t.inputSchema })),
-      history,
+      history: dto.history,
       temperature: ORCHESTRATION_CONSTANTS.REACT_LOOP_TEMPERATURE,
     });
 

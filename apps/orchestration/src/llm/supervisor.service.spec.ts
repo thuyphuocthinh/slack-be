@@ -66,16 +66,19 @@ describe('SupervisorService', () => {
     const agents = [{ provider: 'sql_server', label: 'SQL Server', description: 'Truy vấn SQL Server.' }];
 
     it('returns the structured decision from the resolved LLM strategy', async () => {
-      mockStrategy.generateStructured.mockResolvedValue({ action: 'delegate', agent: 'sql_server', task: 'liệt kê bảng' });
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'delegate',
+        delegations: [{ agent: 'sql_server', task: 'liệt kê bảng' }],
+      });
 
       const decision = await service.decide('có bao nhiêu bảng?', agents);
 
-      expect(decision).toEqual({ action: 'delegate', agent: 'sql_server', task: 'liệt kê bảng' });
+      expect(decision).toEqual({ action: 'delegate', delegations: [{ agent: 'sql_server', task: 'liệt kê bảng' }] });
       expect(mockLlmFactory.resolve).toHaveBeenCalledWith(ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL);
       expect(mockStrategy.generateStructured).toHaveBeenCalledWith(
         expect.objectContaining({
           model: ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
-          prompt: 'có bao nhiêu bảng?',
+          prompt: expect.stringContaining('có bao nhiêu bảng?'),
           systemInstruction: expect.stringContaining('sql_server (SQL Server): Truy vấn SQL Server.'),
         }),
       );
@@ -100,13 +103,13 @@ describe('SupervisorService', () => {
       expect(decision.answer).toEqual(expect.any(String));
     });
 
-    it('sends the raw prompt untouched on the first round (no previous rounds)', async () => {
+    it('sends just the labeled original prompt when there is no history and no previous rounds', async () => {
       mockStrategy.generateStructured.mockResolvedValue({ action: 'respond', answer: 'ok' });
 
       await service.decide('tìm bảng có cột Email', agents, []);
 
       expect(mockStrategy.generateStructured).toHaveBeenCalledWith(
-        expect.objectContaining({ prompt: 'tìm bảng có cột Email' }),
+        expect.objectContaining({ prompt: 'Câu hỏi gốc của user: tìm bảng có cột Email' }),
       );
     });
 
@@ -120,6 +123,46 @@ describe('SupervisorService', () => {
       const sentPrompt = mockStrategy.generateStructured.mock.calls[0][0].prompt;
       expect(sentPrompt).toContain('tìm bảng có cột Email, đếm số dòng bảng đó');
       expect(sentPrompt).toContain('Đã delegate agent "sql_server" với yêu cầu "tìm bảng có cột Email" → kết quả: Bảng Users có cột Email');
+    });
+
+    it('folds recent chat history into the prompt when provided (Step 7 — Supervisor was blind to it before)', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({ action: 'respond', answer: 'ok' });
+
+      await service.decide('còn tháng trước thì sao?', agents, [], [
+        { role: 'user', text: 'doanh thu tháng này bao nhiêu?' },
+        { role: 'model', text: 'Doanh thu tháng này là 100 triệu.' },
+      ]);
+
+      const sentPrompt = mockStrategy.generateStructured.mock.calls[0][0].prompt;
+      expect(sentPrompt).toContain('User: doanh thu tháng này bao nhiêu?');
+      expect(sentPrompt).toContain('AI: Doanh thu tháng này là 100 triệu.');
+      expect(sentPrompt).toContain('Câu hỏi gốc của user: còn tháng trước thì sao?');
+    });
+  });
+
+  describe('synthesize', () => {
+    it('asks the LLM to summarize all collected rounds and returns its answer', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({ answer: 'Tổng hợp: A có 5 bảng, B có 10 dòng.' });
+
+      const answer = await service.synthesize('câu hỏi gốc', [
+        { agent: 'sql_server', task: 'đếm bảng', result: 'A có 5 bảng' },
+        { agent: 'sql_server', task: 'đếm dòng', result: 'B có 10 dòng' },
+      ]);
+
+      expect(answer).toBe('Tổng hợp: A có 5 bảng, B có 10 dòng.');
+      const call = mockStrategy.generateStructured.mock.calls[0][0];
+      expect(call.prompt).toContain('A có 5 bảng');
+      expect(call.prompt).toContain('B có 10 dòng');
+    });
+
+    it('falls back to the raw error message when the LLM call fails', async () => {
+      mockStrategy.generateStructured.mockRejectedValue(new Error('provider is down'));
+
+      const answer = await service.synthesize('câu hỏi gốc', [
+        { agent: 'sql_server', task: 'đếm bảng', result: 'A có 5 bảng' },
+      ]);
+
+      expect(answer).toContain('provider is down');
     });
   });
 });

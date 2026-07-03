@@ -4,11 +4,17 @@ export class AvailableAgentDto {
   description: string;
 }
 
+export class DelegationDto {
+  agent: string;
+  task: string;
+}
+
 export class SupervisorDecisionDto {
   action: 'respond' | 'delegate';
   answer?: string;
-  agent?: string;
-  task?: string;
+  // Nhiều phần tử = các agent ĐỘC LẬP nhau, chạy song song trong CÙNG 1 vòng
+  // (Step 8 — fan-out). Phần việc phụ thuộc kết quả phần khác phải để vòng sau.
+  delegations?: DelegationDto[];
 }
 
 /** 1 vòng delegate đã chạy xong trong turn hiện tại — đưa lại cho Supervisor

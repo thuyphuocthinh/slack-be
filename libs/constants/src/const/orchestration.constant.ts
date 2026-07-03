@@ -1,8 +1,8 @@
 export const ORCHESTRATION_CONSTANTS = {
   // Fallback khi env var (DEFAULT_REACT_MODEL / SUPERVISOR_MODEL) không được
   // set — đổi model thật sự thì sửa env, không sửa 2 dòng này.
-  DEFAULT_REACT_MODEL: 'gemini-2.0-flash',
-  SUPERVISOR_MODEL: 'gemini-2.0-flash',
+  DEFAULT_REACT_MODEL: 'gemini-3.5-flash',
+  SUPERVISOR_MODEL: 'gemini-3.5-flash',
   MAX_REACT_STEPS: 8,
   // Guard hội tụ cho vòng lặp Supervisor ↔ SubAgent (Giai đoạn 2, Step 3) —
   // cùng tinh thần MAX_REACT_STEPS nhưng ở tầng routing giữa nhiều agent,
@@ -41,16 +41,68 @@ export const ORCHESTRATION_SELF_CHECK_PROMPT = `Trước khi chốt câu trả l
 // sách agent khả dụng (dynamic theo từng user) được nối thêm vào SAU chuỗi
 // này lúc build system instruction thật (xem SupervisorService), không
 // hard-code ở đây vì mỗi user có thể connect provider khác nhau.
-export const SUPERVISOR_SYSTEM_PROMPT = `Bạn là bộ điều phối (Supervisor) đứng sau 1 AI Assistant trong Slack. Nhiệm vụ DUY NHẤT: đọc tin nhắn mới nhất của user, quyết định đúng 1 trong 2 hành động, trả về theo đúng schema JSON được yêu cầu — KHÔNG tự trả lời câu hỏi bằng dữ liệu bịa.
+export const SUPERVISOR_SYSTEM_PROMPT = `Bạn là bộ điều phối (Supervisor) đứng sau 1 AI Assistant trong Slack. Nhiệm vụ DUY NHẤT: đọc tin nhắn mới nhất của user (có thể kèm lịch sử hội thoại gần đây để hiểu ngữ cảnh — CHỈ để hiểu, không phải yêu cầu mới), quyết định đúng 1 trong 2 hành động, trả về theo đúng schema JSON được yêu cầu — KHÔNG tự trả lời câu hỏi bằng dữ liệu bịa.
 
 - "respond": chọn khi câu hỏi KHÔNG cần dữ liệu/thao tác thật từ bất kỳ hệ thống nào liệt kê bên dưới (VD chào hỏi, hỏi chung chung, câu hỏi trả lời được bằng kiến thức thông thường, hoặc user cần dữ liệu nhưng KHÔNG có agent nào phù hợp trong danh sách — lúc này giải thích rõ giới hạn, đừng bịa), HOẶC khi các bước delegate trước đó (nếu có, xem bên dưới) đã đủ dữ liệu để trả lời trọn vẹn. Điền field "answer" bằng câu trả lời cuối cùng, tiếng Việt — nếu có các bước delegate trước đó, PHẢI tổng hợp ĐẦY ĐỦ tất cả kết quả đã thu thập được, không chỉ nhắc lại bước gần nhất.
-- "delegate": chọn khi câu hỏi cần dữ liệu/thao tác thật từ ĐÚNG 1 hệ thống trong danh sách bên dưới mà CHƯA thu thập đủ (kể cả khi đã delegate agent này trước đó nhưng còn thiếu phần khác — task lúc này chỉ nêu đúng phần còn thiếu, không lặp lại việc đã làm). Điền "agent" bằng đúng provider id trong danh sách (không tự bịa provider không có trong danh sách), điền "task" bằng 1 câu mô tả ngắn gọn, rõ ràng, CHỈ chứa đúng phần việc agent đó cần làm — bỏ hết phần câu hỏi không liên quan tới agent đó.
+- "delegate": chọn khi câu hỏi cần dữ liệu/thao tác thật từ 1 hoặc nhiều hệ thống trong danh sách bên dưới mà CHƯA thu thập đủ. Điền field "delegations" là 1 mảng, mỗi phần tử gồm "agent" (đúng provider id trong danh sách, không tự bịa provider không có) và "task" (1 câu mô tả ngắn gọn, CHỈ chứa đúng phần việc agent đó cần làm).
+  QUY TẮC chọn song song hay tuần tự: nếu nhiều phần việc ĐỘC LẬP nhau (không phần nào cần dùng kết quả của phần kia), đưa TẤT CẢ vào CÙNG 1 mảng "delegations" để chạy song song ngay trong vòng này. Nếu 1 phần việc PHỤ THUỘC kết quả của phần khác (VD cần số liệu từ agent A rồi mới biết nội dung giao cho agent B), CHỈ đưa phần làm trước vào "delegations" vòng này — đợi có kết quả rồi vòng sau mới delegate phần phụ thuộc, TUYỆT ĐỐI không đưa 2 phần phụ thuộc nhau vào chung 1 vòng.
 
 Nếu prompt có kèm "Các bước đã thực hiện trong turn này" — đó là kết quả delegate ở (các) vòng trước trong CÙNG 1 turn, không phải lịch sử chat cũ. Đọc kỹ để quyết định đã đủ chưa, tránh delegate lặp lại việc đã làm.
 
-QUAN TRỌNG — chống bịa dữ liệu khi nối nhiều agent: nếu "task" cho vòng delegate tiếp theo (hoặc "answer" khi respond) cần nhắc lại số liệu/tên/ID cụ thể đã có từ 1 vòng trước, PHẢI copy ĐÚNG NGUYÊN VĂN giá trị đó từ đúng phần "kết quả" tương ứng — TUYỆT ĐỐI không tự đoán, làm tròn, hay diễn giải lại số liệu, dù chỉ lệch 1 ký tự cũng khiến agent sau nhận sai thông tin.
+QUAN TRỌNG — chống bịa dữ liệu khi nối nhiều agent: nếu "task" cho 1 delegation tiếp theo (hoặc "answer" khi respond) cần nhắc lại số liệu/tên/ID cụ thể đã có từ 1 vòng trước, PHẢI copy ĐÚNG NGUYÊN VĂN giá trị đó từ đúng phần "kết quả" tương ứng — TUYỆT ĐỐI không tự đoán, làm tròn, hay diễn giải lại số liệu, dù chỉ lệch 1 ký tự cũng khiến agent sau nhận sai thông tin.
 
 Danh sách agent khả dụng cho user này (dưới dạng "provider_id (label): mô tả"):`;
+
+// Gọi khi đã hết MAX_SUPERVISOR_ROUNDS mà Supervisor vẫn chưa tự "respond" —
+// bắt buộc tổng hợp ngay những gì đã thu thập được thay vì trả thẳng kết quả
+// thô của vòng cuối (Step 9 — trước đây làm vậy nên dữ liệu các vòng trước
+// bị bỏ sót nếu vòng cuối chỉ là 1 phần nhỏ của câu hỏi lớn).
+export const SUPERVISOR_SYNTHESIS_PROMPT = `Bạn là bộ điều phối (Supervisor) đứng sau 1 AI Assistant trong Slack. Đã hết số vòng thu thập dữ liệu cho phép — nhiệm vụ DUY NHẤT bây giờ là viết câu trả lời CUỐI CÙNG, tiếng Việt, cho câu hỏi gốc của user dựa trên TẤT CẢ kết quả đã thu thập được bên dưới.
+
+PHẢI dùng ĐÚNG NGUYÊN VĂN số liệu/tên/ID đã có trong các kết quả, không tự đoán, làm tròn, hay diễn giải lại. Nếu dữ liệu thu thập được vẫn chưa đủ để trả lời trọn vẹn mọi phần của câu hỏi, nói rõ phần nào đã có, phần nào còn thiếu — đừng bịa cho đủ.`;
+
+// JSON Schema CHUẨN (không phải dialect riêng của Gemini/OpenAI/Anthropic) —
+// mỗi LlmStrategy tự convert sang format SDK của mình (xem
+// GeminiStrategy.toGeminiSchema, OpenAiStrategy/AnthropicStrategy dùng gần
+// như nguyên bản vì đã theo chuẩn JSON Schema).
+//
+// KHÔNG dùng if/then để ép "delegations bắt buộc khi action=delegate" — chỉ
+// OpenAI/Anthropic hỗ trợ tốt, Gemini's schema subset không có if/then (sẽ
+// bị lỗi "Unknown name"). Thay vào đó dùng description + minItems (cả 3
+// provider đều hỗ trợ) để model tự hiểu ràng buộc qua ngữ nghĩa; runtime
+// (AiOrchestrationProcessor.resolveAnswer) đã tự fallback an toàn nếu model
+// vẫn không tuân theo.
+export const SUPERVISOR_DECISION_SCHEMA = {
+  type: 'object',
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['respond', 'delegate'],
+      description: '"respond" nếu tự trả lời được ngay bằng field "answer". "delegate" nếu cần giao việc cho agent — khi đó PHẢI điền "delegations" với ít nhất 1 phần tử.',
+    },
+    answer: { type: 'string', description: 'Bắt buộc khi action="respond". Bỏ trống khi action="delegate".' },
+    delegations: {
+      type: 'array',
+      minItems: 1,
+      description: 'Bắt buộc, ít nhất 1 phần tử, khi action="delegate". Nhiều phần tử = các agent ĐỘC LẬP chạy song song trong vòng này.',
+      items: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          task: { type: 'string' },
+        },
+        required: ['agent', 'task'],
+      },
+    },
+  },
+  required: ['action'],
+};
+
+export const SUPERVISOR_SYNTHESIS_SCHEMA = {
+  type: 'object',
+  properties: { answer: { type: 'string' } },
+  required: ['answer'],
+};
 
 // Label hiển thị cho FE — mcp-auth chỉ trả provider_id, không có label người đọc được.
 export const PROVIDER_LABELS: Record<string, string> = {

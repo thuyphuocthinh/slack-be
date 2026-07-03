@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ORCHESTRATION_CONSTANTS, ORCHESTRATION_SELF_CHECK_PROMPT } from '@slack/constants';
 import { ReactLoopService } from './react-loop.service';
 import { McpClientService } from '../mcp/mcp-client.service';
-import { MessageClientService } from '../message-client.service';
 import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
 import { AgentStreamService } from '../socket/agent-stream.service';
 import { RunReactLoopRequestDto } from '../dto/react-loop.dto';
@@ -24,7 +23,6 @@ describe('ReactLoopService', () => {
   let service: ReactLoopService;
 
   const mockMcpClient = { getTools: jest.fn(), callTool: jest.fn() };
-  const mockMessageClient = { getRecentHistory: jest.fn() };
   const mockAgentStream = { emitStep: jest.fn() };
   const mockSession = { sendMessage: jest.fn() };
   const mockStrategy = { startChat: jest.fn().mockReturnValue(mockSession) };
@@ -37,20 +35,18 @@ describe('ReactLoopService', () => {
     channelId: 'channel-1',
     workspaceId: 'workspace-1',
     messageId: 'reply-msg-1',
-    triggerMessageId: 'trigger-msg-1',
     channelType: 'direct',
+    history: [],
   };
 
   beforeEach(async () => {
     mockMcpClient.getTools.mockResolvedValue([{ name: 'get_database_schema', description: 'desc', inputSchema: {} }]);
-    mockMessageClient.getRecentHistory.mockResolvedValue([]);
     mockMcpClient.callTool.mockResolvedValue({ content: [{ type: 'text', text: 'result data' }], isError: false });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReactLoopService,
         { provide: McpClientService, useValue: mockMcpClient },
-        { provide: MessageClientService, useValue: mockMessageClient },
         { provide: LlmStrategyFactory, useValue: mockLlmFactory },
         { provide: AgentStreamService, useValue: mockAgentStream },
       ],
@@ -120,6 +116,15 @@ describe('ReactLoopService', () => {
     expect(mockStrategy.startChat).toHaveBeenCalledWith(
       expect.objectContaining({ temperature: ORCHESTRATION_CONSTANTS.REACT_LOOP_TEMPERATURE }),
     );
+  });
+
+  it('passes dto.history straight through to startChat without fetching it itself (Step 7 — caller fetches once, shared with Supervisor)', async () => {
+    mockSession.sendMessage.mockResolvedValueOnce({ text: 'ok', toolCalls: [] });
+    const history = [{ role: 'user' as const, text: 'câu hỏi trước đó' }];
+
+    await service.run({ ...baseDto, history });
+
+    expect(mockStrategy.startChat).toHaveBeenCalledWith(expect.objectContaining({ history }));
   });
 
   it('resolves the model via LlmStrategyFactory using dto.model when provided, falling back to the default otherwise', async () => {
