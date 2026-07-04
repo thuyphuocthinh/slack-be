@@ -44,43 +44,35 @@ export class OrchestrationCheckpointEntity {
   @Index()
   userId: string;
 
+  // Người GỬI message "approval_request" (luôn là bot, KHÁC `userId` — người
+  // TRIGGER/duyệt) — cần lưu lại vì `resolveApproval()` phải update ĐÚNG
+  // message này bằng danh nghĩa người đã tạo ra nó (message service chặn
+  // update nếu `userId` truyền vào khác `message.userId`/sender thật —
+  // ERR.MESSAGE.0103). Nullable vì cột thêm sau, checkpoint tạo TRƯỚC migration
+  // này sẽ không có giá trị (coi là dữ liệu cũ, không dùng lại được).
+  @Column({ type: 'uuid', name: 'bot_user_id', nullable: true })
+  botUserId: string;
+
   @Column({ type: 'uuid', name: 'channel_id' })
   channelId: string;
 
   @Column({ type: 'uuid', name: 'workspace_id' })
   workspaceId: string;
 
-  // 'direct' | 'group' — ReactLoopService cần để emit đúng room khi resume
-  // (Step 5); AgentStreamService phân biệt DIRECT/GROUP theo field này.
   @Column({ type: 'varchar', name: 'channel_type' })
   channelType: string;
 
-  // Câu hỏi gốc user hỏi (KHÁC pendingTask — đây là toàn bộ turn, pendingTask
-  // chỉ là phần việc của riêng agent đang bị chặn) — cần để gọi lại
-  // SupervisorService.synthesize() tổng hợp câu trả lời cuối đúng ngữ cảnh
-  // khi resume (Step 5), tái dùng nguyên cơ chế đã có từ Giai đoạn 2.
   @Column({ type: 'text', name: 'original_prompt' })
   originalPrompt: string;
-
-  // Tool đang bị Risk Gate chặn — cần lưu đúng {provider, name, args} để
-  // Approve chạy lại ĐÚNG tool này, không phải đoán lại.
   @Column({ type: 'jsonb', name: 'pending_tool' })
   pendingTool: PendingToolCall;
 
-  // Task (prompt) Supervisor đã giao cho ReactLoop đang xử lý dở khi bị chặn
-  // — Step 5 resume KHÔNG serialize lại được state hội thoại nội bộ của
-  // LlmChatSession (opaque, provider-specific), nên resume = chạy 1 ReactLoop
-  // MỚI cho agent đó, cần lại đúng task gốc này để biết đang làm dở việc gì.
   @Column({ type: 'text', name: 'pending_task' })
   pendingTask: string;
 
-  // Kết quả các vòng delegate ĐÃ xong trước khi bị chặn — thiếu cái này thì
-  // Supervisor "quên sạch" mọi thứ đã làm khi resume.
   @Column({ type: 'jsonb', name: 'rounds_so_far', default: () => "'[]'" })
   roundsSoFar: SupervisorRoundDto[];
 
-  // Snapshot lịch sử hội thoại tại thời điểm dừng — dựng lại đúng
-  // LlmChatSession khi resume (Step 5) thay vì hỏi lại từ đầu.
   @Column({ type: 'jsonb', default: () => "'[]'" })
   history: ChatHistoryTurnDto[];
 

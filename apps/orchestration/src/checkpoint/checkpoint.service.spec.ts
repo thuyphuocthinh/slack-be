@@ -20,6 +20,7 @@ describe('CheckpointService', () => {
   const input = {
     replyMessageId: 'msg-1',
     userId: 'user-1',
+    botUserId: 'bot-1',
     channelId: 'channel-1',
     workspaceId: 'workspace-1',
     channelType: 'direct',
