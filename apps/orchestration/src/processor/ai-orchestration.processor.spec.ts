@@ -554,6 +554,7 @@ describe('AiOrchestrationProcessor', () => {
       expect(mockCheckpoint.create).toHaveBeenCalledWith({
         replyMessageId: 'approval-msg-1',
         userId: jobData.userId,
+        botUserId: jobData.botUserId,
         channelId: jobData.channelId,
         workspaceId: jobData.workspaceId,
         channelType: jobData.channelType,
@@ -581,23 +582,35 @@ describe('AiOrchestrationProcessor', () => {
         action: 'delegate',
         delegations: [{ agent: 'sql_server', task: 'xoá đơn OrderId=1' }],
       });
-      const pendingTool = { provider: 'sql_server', name: 'execute_write_query', args: { query: 'DELETE FROM Orders WHERE OrderId=1' } };
-      const priorToolCalls = [{ tool: 'sql_server.get_database_schema', status: 'success' as const }];
-      mockReactLoop.run.mockRejectedValue(new ApprovalRequiredError(pendingTool, priorToolCalls));
+      const pendingTool = {
+        provider: 'sql_server',
+        name: 'execute_write_query',
+        args: { query: 'DELETE FROM Orders WHERE OrderId=1' },
+      };
+      const priorToolCalls = [
+        { tool: 'sql_server.get_database_schema', status: 'success' as const },
+      ];
+      mockReactLoop.run.mockRejectedValue(
+        new ApprovalRequiredError(pendingTool, priorToolCalls),
+      );
       mockMessageClient.createMessage
         .mockResolvedValueOnce({ id: 'reply-1' })
         .mockResolvedValueOnce({ id: 'approval-msg-1' });
 
       await runJob();
 
-      const approvalContent = mockMessageClient.createMessage.mock.calls[1][0].content;
+      const approvalContent =
+        mockMessageClient.createMessage.mock.calls[1][0].content;
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
         id: 'approval-msg-1',
         userId: jobData.botUserId,
         content: approvalContent,
         toolCalls: [
           ...priorToolCalls,
-          { tool: 'sql_server.execute_write_query', status: 'awaiting_approval' },
+          {
+            tool: 'sql_server.execute_write_query',
+            status: 'awaiting_approval',
+          },
         ],
       });
     });
@@ -886,6 +899,7 @@ describe('AiOrchestrationProcessor', () => {
       id: 'checkpoint-1',
       replyMessageId: 'approval-msg-1',
       userId: 'user-1',
+      botUserId: 'bot-1',
       channelId: 'channel-1',
       workspaceId: 'workspace-1',
       channelType: 'direct',
@@ -921,7 +935,7 @@ describe('AiOrchestrationProcessor', () => {
       });
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
         id: 'approval-msg-1',
-        userId: 'user-1',
+        userId: 'bot-1',
         content: '❌ Đã huỷ theo yêu cầu.',
       });
       expect(mockMcpClient.callTool).not.toHaveBeenCalled();
@@ -990,7 +1004,7 @@ describe('AiOrchestrationProcessor', () => {
       );
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
         id: 'approval-msg-1',
-        userId: 'user-1',
+        userId: 'bot-1',
         content: 'Đã cập nhật đơn OrderId=1 thành Completed.',
         toolCalls: [
           { tool: 'sql_server.execute_write_query', status: 'success' },
@@ -1015,12 +1029,24 @@ describe('AiOrchestrationProcessor', () => {
 
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
         id: 'approval-msg-1',
-        userId: 'user-1',
+        userId: 'bot-1',
         content: '⚠️ Lỗi: connect ECONNREFUSED',
       });
       expect(mockAgentStream.emitStep).toHaveBeenCalledWith(expect.anything(), {
         type: 'done',
       });
+    });
+
+    it('does not throw (and still emits done) when even the error-fallback updateMessage() call itself fails', async () => {
+      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(checkpoint);
+      mockMcpClient.callTool.mockRejectedValue(new Error('connect ECONNREFUSED'));
+      mockMessageClient.updateMessage.mockRejectedValue(new Error('message service unreachable'));
+
+      await expect(
+        processor.resolveApproval({ userId: 'user-1', messageId: 'approval-msg-1', action: 'approve' }),
+      ).resolves.toBeUndefined();
+
+      expect(mockAgentStream.emitStep).toHaveBeenCalledWith(expect.anything(), { type: 'done' });
     });
 
     it('throws CHECKPOINT_NOT_FOUND when there is no pending checkpoint for this message', async () => {

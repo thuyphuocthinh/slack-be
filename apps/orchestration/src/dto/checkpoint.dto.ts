@@ -8,6 +8,7 @@ import { ChatHistoryTurnDto } from './message-client.dto';
 export class CreateCheckpointRequestDto {
   replyMessageId: string;
   userId: string;
+  botUserId: string;
   channelId: string;
   workspaceId: string;
   channelType: string;

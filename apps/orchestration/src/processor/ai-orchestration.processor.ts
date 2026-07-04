@@ -221,7 +221,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       ) {
         return this.buildAnswer(
           decision.answer ||
-            'Mình chưa thể xử lý yêu cầu này với các kết nối hiện có. Vào Settings để kết nối agent phù hợp nhé.',
+          'Mình chưa thể xử lý yêu cầu này với các kết nối hiện có. Vào Settings để kết nối agent phù hợp nhé.',
           toolCalls,
         );
       }
@@ -422,6 +422,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       await this.checkpoint.create({
         replyMessageId: approvalMessage.id,
         userId,
+        botUserId,
         channelId,
         workspaceId,
         channelType,
@@ -459,7 +460,10 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         content: approvalContent,
         toolCalls: [
           ...toolCalls,
-          { tool: `${pendingTool.provider}.${pendingTool.name}`, status: 'awaiting_approval' },
+          {
+            tool: `${pendingTool.provider}.${pendingTool.name}`,
+            status: 'awaiting_approval',
+          },
         ],
       });
     } catch (error) {
@@ -568,6 +572,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
 
     const {
       id,
+      botUserId,
       channelId,
       workspaceId,
       channelType,
@@ -589,7 +594,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     if (action === 'reject') {
       await this.messageClient.updateMessage({
         id: replyMessageId,
-        userId,
+        userId: botUserId,
         content: '❌ Đã huỷ theo yêu cầu.',
       });
       await this.agentStream.emitStep(
@@ -627,7 +632,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
 
       await this.messageClient.updateMessage({
         id: replyMessageId,
-        userId,
+        userId: botUserId,
         content: finalAnswer,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       });
@@ -636,11 +641,18 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         `resolveApproval() failed for checkpoint ${id}: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      await this.messageClient.updateMessage({
-        id: replyMessageId,
-        userId,
-        content: describeExternalServiceError(error),
-      });
+      try {
+        await this.messageClient.updateMessage({
+          id: replyMessageId,
+          userId: botUserId,
+          content: describeExternalServiceError(error),
+        });
+      } catch (updateError) {
+        this.logger.error(
+          `resolveApproval() ALSO failed to display the error on message ${replyMessageId}: ${(updateError as Error).message}`,
+          (updateError as Error).stack,
+        );
+      }
     } finally {
       await this.agentStream.emitStep(
         { userId, channelId, messageId: replyMessageId, channelType },
