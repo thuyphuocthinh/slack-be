@@ -50,8 +50,15 @@ describe('CheckpointService', () => {
     service = module.get<CheckpointService>(CheckpointService);
   });
 
-  it('creates an entity instance from the input, stamping expiresAt from CHECKPOINT_EXPIRY_MS, then saves it', async () => {
-    const entity = { ...input, id: 'checkpoint-1' };
+  it('creates an entity instance from the input, stamping expiresAt from CHECKPOINT_EXPIRY_MS, then saves it, returning a CheckpointResponseDto (not the raw ORM entity)', async () => {
+    const entity = {
+      ...input,
+      id: 'checkpoint-1',
+      status: OrchestrationCheckpointStatus.PENDING,
+      expiresAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
     mockRepo.create.mockReturnValue(entity);
     mockRepo.save.mockResolvedValue(entity);
     const before = Date.now();
@@ -70,7 +77,9 @@ describe('CheckpointService', () => {
       ORCHESTRATION_CONSTANTS.CHECKPOINT_EXPIRY_MS,
     );
     expect(mockRepo.save).toHaveBeenCalledWith(entity);
-    expect(result).toBe(entity);
+    // toEqual (không phải toBe) — create() giờ map qua toResponseDto(), trả
+    // 1 object MỚI chứ không phải nguyên văn entity từ repo.save().
+    expect(result).toEqual(entity);
   });
 
   describe('findPendingByReplyMessageId', () => {
@@ -96,6 +105,38 @@ describe('CheckpointService', () => {
 
       expect(result).toBeNull();
     });
+
+    it('maps the ORM entity to a CheckpointResponseDto — internal-only fields never declared on the DTO do not leak through', async () => {
+      mockRepo.findOne.mockResolvedValue({
+        id: 'checkpoint-1',
+        replyMessageId: 'msg-1',
+        userId: 'user-1',
+        botUserId: 'bot-1',
+        channelId: 'channel-1',
+        workspaceId: 'workspace-1',
+        channelType: 'direct',
+        originalPrompt: 'câu hỏi gốc',
+        pendingTool: {
+          provider: 'sql_server',
+          name: 'execute_write_query',
+          args: {},
+        },
+        pendingTask: 'task',
+        roundsSoFar: [],
+        history: [],
+        status: OrchestrationCheckpointStatus.PENDING,
+        expiresAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        someFutureOrmOnlyField: 'should not leak',
+      });
+
+      const result = await service.findPendingByReplyMessageId({
+        replyMessageId: 'msg-1',
+      });
+
+      expect(result).not.toHaveProperty('someFutureOrmOnlyField');
+    });
   });
 
   describe('findExpiredPending', () => {
@@ -111,6 +152,33 @@ describe('CheckpointService', () => {
         },
       });
       expect(result).toEqual([{ id: 'checkpoint-1' }]);
+    });
+  });
+
+  describe('findById', () => {
+    it('looks up a checkpoint regardless of status (used to re-fetch AFTER claim() already changed it)', async () => {
+      mockRepo.findOne.mockResolvedValue({
+        id: 'checkpoint-1',
+        status: OrchestrationCheckpointStatus.APPROVED,
+      });
+
+      const result = await service.findById({ id: 'checkpoint-1' });
+
+      expect(mockRepo.findOne).toHaveBeenCalledWith({
+        where: { id: 'checkpoint-1' },
+      });
+      expect(result).toEqual({
+        id: 'checkpoint-1',
+        status: OrchestrationCheckpointStatus.APPROVED,
+      });
+    });
+
+    it('returns null when the id does not exist', async () => {
+      mockRepo.findOne.mockResolvedValue(null);
+
+      const result = await service.findById({ id: 'unknown' });
+
+      expect(result).toBeNull();
     });
   });
 

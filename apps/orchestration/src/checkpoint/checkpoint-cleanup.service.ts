@@ -3,10 +3,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { CheckpointService } from './checkpoint.service';
 import { MessageClientService } from '../message-client.service';
 import { AgentStreamService } from '../socket/agent-stream.service';
-import {
-  OrchestrationCheckpointEntity,
-  OrchestrationCheckpointStatus,
-} from '../entity/orchestration-checkpoint.entity';
+import { OrchestrationCheckpointStatus } from '../entity/orchestration-checkpoint.entity';
+import { CheckpointResponseDto } from '../dto/checkpoint.dto';
 
 /**
  * Giai đoạn 3 (HITL), Step 8 — checkpoint pending quá hạn (mặc định 24h, xem
@@ -40,7 +38,7 @@ export class CheckpointCleanupService {
   // không đè lên kết quả user vừa xử lý.
   private async expireOne(
     checkpoint: Pick<
-      OrchestrationCheckpointEntity,
+      CheckpointResponseDto,
       'id' | 'replyMessageId' | 'userId' | 'channelId' | 'channelType'
     >,
   ): Promise<void> {

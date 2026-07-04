@@ -7,9 +7,11 @@ import {
   OrchestrationCheckpointStatus,
 } from '../entity/orchestration-checkpoint.entity';
 import {
+  CheckpointResponseDto,
   ClaimCheckpointRequestDto,
   ClaimCheckpointResponseDto,
   CreateCheckpointRequestDto,
+  FindCheckpointByIdRequestDto,
   FindPendingCheckpointRequestDto,
 } from '../dto/checkpoint.dto';
 
@@ -24,36 +26,89 @@ export class CheckpointService {
 
   async create(
     dto: CreateCheckpointRequestDto,
-  ): Promise<OrchestrationCheckpointEntity> {
+  ): Promise<CheckpointResponseDto> {
     const expiresAt = new Date(
       Date.now() + ORCHESTRATION_CONSTANTS.CHECKPOINT_EXPIRY_MS,
     );
     this.logger.log(
       `create() replyMessageId=${dto.replyMessageId} tool=${dto.pendingTool.provider}.${dto.pendingTool.name} expiresAt=${expiresAt.toISOString()}`,
     );
-    return this.repo.save(this.repo.create({ ...dto, expiresAt }));
+    const saved = await this.repo.save(this.repo.create({ ...dto, expiresAt }));
+    return this.toResponseDto(saved);
   }
 
   async findPendingByReplyMessageId(
     dto: FindPendingCheckpointRequestDto,
-  ): Promise<OrchestrationCheckpointEntity | null> {
-    return this.repo.findOne({
+  ): Promise<CheckpointResponseDto | null> {
+    const entity = await this.repo.findOne({
       where: {
         replyMessageId: dto.replyMessageId,
         status: OrchestrationCheckpointStatus.PENDING,
       },
     });
+    return entity ? this.toResponseDto(entity) : null;
   }
 
   // Step 8 — nguồn cho CheckpointCleanupService (@Cron), không nhận tham số vì
   // luôn so với "bây giờ".
-  async findExpiredPending(): Promise<OrchestrationCheckpointEntity[]> {
-    return this.repo.find({
+  async findExpiredPending(): Promise<CheckpointResponseDto[]> {
+    const entities = await this.repo.find({
       where: {
         status: OrchestrationCheckpointStatus.PENDING,
         expiresAt: LessThan(new Date()),
       },
     });
+    return entities.map((e) => this.toResponseDto(e));
+  }
+
+  async findById(
+    dto: FindCheckpointByIdRequestDto,
+  ): Promise<CheckpointResponseDto | null> {
+    const entity = await this.repo.findOne({ where: { id: dto.id } });
+    return entity ? this.toResponseDto(entity) : null;
+  }
+
+  // Chốt chặn giữa ORM entity và phần còn lại của app — field mới thêm vào
+  // entity sẽ KHÔNG tự lộ ra ngoài trừ khi cũng được thêm vào đây.
+  private toResponseDto(
+    entity: OrchestrationCheckpointEntity,
+  ): CheckpointResponseDto {
+    const {
+      id,
+      replyMessageId,
+      userId,
+      botUserId,
+      channelId,
+      workspaceId,
+      channelType,
+      originalPrompt,
+      pendingTool,
+      pendingTask,
+      roundsSoFar,
+      history,
+      status,
+      expiresAt,
+      createdAt,
+      updatedAt,
+    } = entity;
+    return {
+      id,
+      replyMessageId,
+      userId,
+      botUserId,
+      channelId,
+      workspaceId,
+      channelType,
+      originalPrompt,
+      pendingTool,
+      pendingTask,
+      roundsSoFar,
+      history,
+      status,
+      expiresAt,
+      createdAt,
+      updatedAt,
+    };
   }
 
   async claim(
