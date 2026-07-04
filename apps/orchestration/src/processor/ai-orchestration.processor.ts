@@ -405,16 +405,17 @@ export class AiOrchestrationProcessor extends BaseProcessor<
 
     const preview = await this.buildRiskPreview(pendingTool, userId);
 
+    const approvalContent = {
+      type: 'approval_request',
+      tool: pendingTool,
+      status: 'pending',
+      preview,
+      triggerUserId: userId,
+    };
     const approvalMessage = await this.messageClient.createMessage({
       channelId,
       senderId: botUserId,
-      content: {
-        type: 'approval_request',
-        tool: pendingTool,
-        status: 'pending',
-        preview,
-        triggerUserId: userId,
-      },
+      content: approvalContent,
     });
 
     try {
@@ -441,6 +442,30 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         content: '⚠️ Không thể tạo yêu cầu duyệt, vui lòng hỏi lại.',
       });
       throw error;
+    }
+
+    // Gắn tool đang chờ duyệt vào toolCalls (kèm mọi tool ĐÃ chạy thật trước
+    // đó trong cùng turn) để timeline (MessageToolCallTimeline) hiện đúng như
+    // mọi message bot khác — trước đây tool này chỉ nằm trong `content.tool`,
+    // không đi qua field `toolCalls` nên timeline không hiện gì. Không dùng
+    // được `createMessage()` cho việc này vì CreateMessageDto (message
+    // service) chưa hỗ trợ `toolCalls` khi tạo — cập nhật thêm 1 lần ngay sau
+    // đó, lỗi thì bỏ qua (chỉ mất phần hiển thị timeline, không ảnh hưởng
+    // checkpoint/luồng duyệt chính).
+    try {
+      await this.messageClient.updateMessage({
+        id: approvalMessage.id,
+        userId: botUserId,
+        content: approvalContent,
+        toolCalls: [
+          ...toolCalls,
+          { tool: `${pendingTool.provider}.${pendingTool.name}`, status: 'awaiting_approval' },
+        ],
+      });
+    } catch (error) {
+      this.logger.warn(
+        `pauseForApproval() failed to attach toolCalls trace to message ${approvalMessage.id}: ${(error as Error).message}`,
+      );
     }
 
     this.logger.log(

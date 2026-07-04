@@ -576,6 +576,32 @@ describe('AiOrchestrationProcessor', () => {
       });
     });
 
+    it('attaches the pending tool (and any toolCalls already run for real this turn) to the approval_request message, so the timeline renders it like any other bot message', async () => {
+      mockSupervisor.decide.mockResolvedValue({
+        action: 'delegate',
+        delegations: [{ agent: 'sql_server', task: 'xoá đơn OrderId=1' }],
+      });
+      const pendingTool = { provider: 'sql_server', name: 'execute_write_query', args: { query: 'DELETE FROM Orders WHERE OrderId=1' } };
+      const priorToolCalls = [{ tool: 'sql_server.get_database_schema', status: 'success' as const }];
+      mockReactLoop.run.mockRejectedValue(new ApprovalRequiredError(pendingTool, priorToolCalls));
+      mockMessageClient.createMessage
+        .mockResolvedValueOnce({ id: 'reply-1' })
+        .mockResolvedValueOnce({ id: 'approval-msg-1' });
+
+      await runJob();
+
+      const approvalContent = mockMessageClient.createMessage.mock.calls[1][0].content;
+      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+        id: 'approval-msg-1',
+        userId: jobData.botUserId,
+        content: approvalContent,
+        toolCalls: [
+          ...priorToolCalls,
+          { tool: 'sql_server.execute_write_query', status: 'awaiting_approval' },
+        ],
+      });
+    });
+
     it('does NOT execute the destructive tool for real (mcpClient.callTool is inside ReactLoop, mocked to reject before ever running it)', async () => {
       mockSupervisor.decide.mockResolvedValue({
         action: 'delegate',

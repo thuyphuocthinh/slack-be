@@ -13,8 +13,10 @@ export class CreateOrchestrationMessageResponseDto {
 export class UpdateOrchestrationMessageRequestDto {
   id: string;
   userId: string;
-  content: string;
-  toolCalls?: { tool: string; status: 'success' | 'error' }[];
+  // object — Giai đoạn 3 (HITL) cần re-send content dạng object khi update
+  // message "approval_request" kèm toolCalls (xem pauseForApproval()).
+  content: string | Record<string, unknown>;
+  toolCalls?: { tool: string; status: 'success' | 'error' | 'awaiting_approval'; resultPreview?: string }[];
 }
 
 export class GetMessageTextRequestDto {
