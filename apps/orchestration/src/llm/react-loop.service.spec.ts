@@ -5,6 +5,7 @@ import { McpClientService } from '../mcp/mcp-client.service';
 import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
 import { AgentStreamService } from '../socket/agent-stream.service';
 import { RunReactLoopRequestDto } from '../dto/react-loop.dto';
+import { ApprovalRequiredError } from './approval-required.error';
 
 // @slack/common barrel transitively kéo theo "nanoid" (ESM-only) qua
 // string.util.ts — jest không transform được, mock thẳng theo đúng convention
@@ -205,6 +206,51 @@ describe('ReactLoopService', () => {
 
       expect(result.toolCalls[0].resultPreview).toBe(`long result ${longText}`);
       expect(result.toolCalls[0].resultPreview.length).toBeGreaterThan(200);
+    });
+  });
+
+  describe('Risk Gate (Giai đoạn 3 — HITL, Step 3)', () => {
+    it('throws ApprovalRequiredError instead of calling the tool when destructiveHint is true', async () => {
+      mockMcpClient.getTools.mockResolvedValue([
+        { name: 'execute_write_query', description: 'desc', inputSchema: {}, annotations: { readOnlyHint: false, destructiveHint: true } },
+      ]);
+      mockSession.sendMessage.mockResolvedValueOnce({
+        text: '',
+        toolCalls: [{ name: 'execute_write_query', args: { query: "UPDATE Orders SET Status='Completed' WHERE OrderId=1" } }],
+      });
+
+      await expect(service.run(baseDto)).rejects.toThrow(ApprovalRequiredError);
+
+      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
+      expect(mockAgentStream.emitStep).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ type: 'tool_call' }));
+    });
+
+    it('carries {provider, name, args} on the thrown error so the checkpoint can be built from it', async () => {
+      mockMcpClient.getTools.mockResolvedValue([
+        { name: 'execute_write_query', description: 'desc', inputSchema: {}, annotations: { readOnlyHint: false, destructiveHint: true } },
+      ]);
+      const args = { query: "DELETE FROM Orders WHERE OrderId=1" };
+      mockSession.sendMessage.mockResolvedValueOnce({ text: '', toolCalls: [{ name: 'execute_write_query', args }] });
+
+      const error = await service.run(baseDto).catch((e) => e);
+
+      expect(error).toBeInstanceOf(ApprovalRequiredError);
+      expect(error.pendingTool).toEqual({ provider: 'sql_server', name: 'execute_write_query', args });
+    });
+
+    it('still auto-runs tools without destructiveHint (safe tools unaffected)', async () => {
+      mockMcpClient.getTools.mockResolvedValue([
+        { name: 'get_database_schema', description: 'desc', inputSchema: {}, annotations: { readOnlyHint: true } },
+      ]);
+      mockSession.sendMessage
+        .mockResolvedValueOnce({ text: '', toolCalls: [{ name: 'get_database_schema', args: {} }] })
+        .mockResolvedValueOnce({ text: 'ok', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'vẫn giữ nguyên', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
+      expect(result.answer).toBe('vẫn giữ nguyên');
     });
   });
 });

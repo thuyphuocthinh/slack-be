@@ -8,6 +8,7 @@ import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
 import { LlmToolResult } from './strategy/llm-strategy.interface';
 import { AgentStreamService } from '../socket/agent-stream.service';
 import { withTimeout } from './with-timeout.util';
+import { ApprovalRequiredError } from './approval-required.error';
 
 // Root trace + "done" thuộc về AiOrchestrationProcessor, không phải ở đây.
 @Injectable()
@@ -41,6 +42,14 @@ export class ReactLoopService {
     // Wrap ở đây để nest đúng cây trace nếu processor đang có traceable() bao quanh.
     const callTool = traceable(
       async (name: string, args: Record<string, unknown>) => {
+        // Giai đoạn 3 (HITL) — Risk Gate: tool destructiveHint=true KHÔNG được
+        // gọi thật, dừng ngay ở đây để AiOrchestrationProcessor lưu checkpoint
+        // + tạo message chờ duyệt (xem ApprovalRequiredError).
+        if (mcpTools.find((t) => t.name === name)?.annotations?.destructiveHint) {
+          this.logger.log(`tool_call ${dto.provider}.${name} requires approval — blocked before execution`);
+          throw new ApprovalRequiredError({ provider: dto.provider, name, args }, toolCalls);
+        }
+
         const displayName = `${dto.provider}.${name}`;
         this.logger.log(`tool_call ${displayName} args=${JSON.stringify(args)}`);
         await this.emitStep(dto, { type: 'tool_call', tool: displayName });
