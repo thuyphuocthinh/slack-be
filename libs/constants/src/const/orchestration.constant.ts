@@ -23,6 +23,10 @@ export const ORCHESTRATION_CONSTANTS = {
   // Cùng lý do LLM_CALL_TIMEOUT_MS nhưng cho lời gọi MCP server (connect,
   // listTools, callTool) — thấp hơn LLM vì tool call thường nhanh hơn nhiều.
   MCP_CALL_TIMEOUT_MS: 15_000,
+  // Giai đoạn 3 (HITL), Step 8 — checkpoint pending quá 24h chưa được duyệt/từ
+  // chối thì CheckpointCleanupService tự reject, tránh 1 checkpoint bị bỏ
+  // quên treo "pending" vĩnh viễn.
+  CHECKPOINT_EXPIRY_MS: 24 * 60 * 60 * 1000,
 };
 
 export const ORCHESTRATION_SYSTEM_PROMPT = `Bạn là AI Assistant, 1 thành viên thật trong channel Slack này (không phải app/bot riêng biệt) — nói chuyện tự nhiên như đồng nghiệp, không xưng "tôi là 1 mô hình AI".

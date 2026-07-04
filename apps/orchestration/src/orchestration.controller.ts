@@ -1,15 +1,22 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { ORCHESTRATION_MESSAGE_PATTERNS, PROVIDER_DESCRIPTIONS, PROVIDER_LABELS } from '@slack/constants';
+import {
+  ORCHESTRATION_MESSAGE_PATTERNS,
+  PROVIDER_DESCRIPTIONS,
+  PROVIDER_LABELS,
+} from '@slack/constants';
 import { McpAuthClientService } from './mcp-auth/mcp-auth-client.service';
 import { McpClientService } from './mcp/mcp-client.service';
 import { AGENT_REGISTRY } from './registry/agents.registry';
+import { AiOrchestrationProcessor } from './processor/ai-orchestration.processor';
 import {
   DisconnectProviderRequestDto,
   DisconnectProviderResponseDto,
   GetProvidersRequestDto,
   InitiateConnectProviderRequestDto,
   ProviderSummaryDto,
+  ResolveApprovalRequestDto,
+  ResolveApprovalResponseDto,
   SubmitProviderCredentialsRequestDto,
   SubmitProviderCredentialsResponseDto,
 } from './dto/orchestration.dto';
@@ -20,10 +27,13 @@ export class OrchestrationController {
   constructor(
     private readonly mcpAuthClient: McpAuthClientService,
     private readonly mcpClient: McpClientService,
+    private readonly aiOrchestrationProcessor: AiOrchestrationProcessor,
   ) {}
 
   @MessagePattern(ORCHESTRATION_MESSAGE_PATTERNS.GET_PROVIDERS)
-  async getProviders(@Payload() dto: GetProvidersRequestDto): Promise<ProviderSummaryDto[]> {
+  async getProviders(
+    @Payload() dto: GetProvidersRequestDto,
+  ): Promise<ProviderSummaryDto[]> {
     const statuses = await this.mcpAuthClient.getConnectionStatus(dto.userId);
 
     return Promise.all(
@@ -54,7 +64,10 @@ export class OrchestrationController {
   async initiateConnect(
     @Payload() dto: InitiateConnectProviderRequestDto,
   ): Promise<InitiateConnectResponseDto> {
-    return this.mcpAuthClient.initiateConnect({ ownerId: dto.userId, provider: dto.provider });
+    return this.mcpAuthClient.initiateConnect({
+      ownerId: dto.userId,
+      provider: dto.provider,
+    });
   }
 
   @MessagePattern(ORCHESTRATION_MESSAGE_PATTERNS.SUBMIT_CREDENTIALS)
@@ -77,6 +90,14 @@ export class OrchestrationController {
     @Payload() dto: DisconnectProviderRequestDto,
   ): Promise<DisconnectProviderResponseDto> {
     await this.mcpAuthClient.disconnectProvider(dto.userId, dto.provider);
+    return { success: true };
+  }
+
+  @MessagePattern(ORCHESTRATION_MESSAGE_PATTERNS.RESOLVE_APPROVAL)
+  async resolveApproval(
+    @Payload() dto: ResolveApprovalRequestDto,
+  ): Promise<ResolveApprovalResponseDto> {
+    await this.aiOrchestrationProcessor.resolveApproval(dto);
     return { success: true };
   }
 }

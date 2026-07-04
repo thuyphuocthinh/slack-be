@@ -8,7 +8,10 @@ import { AiProvidersService } from './ai-providers.service';
 @Module({
   imports: [
     ClientsModule.registerAsync([
-      getMicroserviceClientConfig(NAME_SERVICE_TCP.ORCHESTRATION_SERVICE, PORT_TCP.ORCHESTRATION_TCP_PORT),
+      getMicroserviceClientConfig(
+        NAME_SERVICE_TCP.ORCHESTRATION_SERVICE,
+        PORT_TCP.ORCHESTRATION_TCP_PORT,
+      ),
     ]),
   ],
   controllers: [AiProvidersController],

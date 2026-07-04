@@ -1,7 +1,9 @@
 export class CreateOrchestrationMessageRequestDto {
   channelId: string;
   senderId: string;
-  content: string;
+  // object — Giai đoạn 3 (HITL) dùng để tạo message "approval_request"
+  // ({type, tool, args, status}), không chỉ text thường.
+  content: string | Record<string, unknown>;
 }
 
 export class CreateOrchestrationMessageResponseDto {

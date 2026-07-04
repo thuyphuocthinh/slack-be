@@ -1,7 +1,15 @@
+export class McpToolAnnotationsDto {
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+}
+
 export class McpToolDto {
   name: string;
   description?: string;
   inputSchema: Record<string, unknown>;
+  // Chuẩn MCP ToolAnnotations — dùng để Risk Gate (Giai đoạn 3) nhận diện tool
+  // rủi ro (destructiveHint) trước khi cho ReactLoop gọi thật.
+  annotations?: McpToolAnnotationsDto;
 }
 
 export class CallToolRequestDto {

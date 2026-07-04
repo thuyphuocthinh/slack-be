@@ -35,3 +35,15 @@ export class DisconnectProviderRequestDto {
 export class DisconnectProviderResponseDto {
   success: boolean;
 }
+
+// Giai đoạn 3 (HITL) — messageId là message "approval_request" FE đang hiện
+// nút Approve/Reject trên đó, KHÔNG phải messageId gốc user hỏi ban đầu.
+export class ResolveApprovalRequestDto {
+  userId: string;
+  messageId: string;
+  action: 'approve' | 'reject';
+}
+
+export class ResolveApprovalResponseDto {
+  success: boolean;
+}
