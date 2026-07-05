@@ -131,9 +131,31 @@ export class ReactLoopService {
       if (turn.toolCalls.length === 0) {
         if (!selfChecked && toolCalls.length > 0) {
           selfChecked = true;
+          // Giữ lại câu trả lời TRƯỚC self-check (đã có dữ liệu thật từ tool) —
+          // model trả lời self-check nudge thường là 1 câu XÁC NHẬN meta ("đã
+          // dùng dữ liệu thật rồi, không cần gọi thêm tool"), KHÔNG PHẢI lặp
+          // lại số liệu. Bug thật gặp khi test: tool trả total_rows=3 nhưng
+          // câu trả lời cuối lại là "14 dòng" — do dùng THẲNG câu xác nhận đó
+          // làm answer, số liệu thật bị mất, Supervisor nhận 1 round rỗng dữ
+          // liệu nên tự bịa số (nhặt nhầm "14" từ nhiễu lịch sử chat gần đó).
+          const answerBeforeSelfCheck = turn.text;
           this.logger.log('self-check nudge triggered');
-          turn = await sendMessage(ORCHESTRATION_SELF_CHECK_PROMPT);
-          continue;
+          const selfCheckTurn = await sendMessage(
+            ORCHESTRATION_SELF_CHECK_PROMPT,
+          );
+          if (selfCheckTurn.toolCalls.length > 0) {
+            turn = selfCheckTurn;
+            continue;
+          }
+          this.logger.log(
+            `run() done at step=${step} toolCalls=${toolCalls.length} (giữ câu trả lời TRƯỚC self-check)`,
+          );
+          return {
+            answer:
+              answerBeforeSelfCheck ||
+              'Xin lỗi, mình chưa có câu trả lời phù hợp.',
+            toolCalls,
+          };
         }
         this.logger.log(
           `run() done at step=${step} toolCalls=${toolCalls.length}`,
