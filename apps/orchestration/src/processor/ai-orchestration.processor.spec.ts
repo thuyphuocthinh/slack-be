@@ -17,6 +17,7 @@ import { CheckpointService } from '../checkpoint/checkpoint.service';
 import { ApprovalRequiredError } from '../llm/approval-required.error';
 import { McpClientService } from '../mcp/mcp-client.service';
 import { OrchestrationCheckpointStatus } from '../entity/orchestration-checkpoint.entity';
+import { TriggerClaimService } from '../trigger-claim/trigger-claim.service';
 
 // ai-orchestration.processor.ts import ReactLoopService (dù đã mock qua DI ở
 // dưới) — file thật của nó vẫn import @slack/common ở module scope, kéo theo
@@ -46,9 +47,11 @@ describe('AiOrchestrationProcessor', () => {
     findPendingByReplyMessageId: jest.fn(),
     findById: jest.fn(),
     claim: jest.fn(),
+    claimExecution: jest.fn(),
   };
   const mockMcpClient = { callTool: jest.fn() };
   const mockQueueService = { addJob: jest.fn() };
+  const mockTriggerClaim = { claim: jest.fn() };
 
   const jobData: IProcessAiTriggerJobData = {
     userId: 'user-1',
@@ -69,8 +72,10 @@ describe('AiOrchestrationProcessor', () => {
     mockMessageClient.getRecentHistory.mockResolvedValue([]);
     mockSupervisor.getAvailableAgents.mockResolvedValue(availableAgents);
     mockCheckpoint.claim.mockResolvedValue({ claimed: true });
+    mockCheckpoint.claimExecution.mockResolvedValue({ claimed: true });
     mockCheckpoint.create.mockResolvedValue(undefined);
     mockQueueService.addJob.mockResolvedValue({ id: 'job-1' });
+    mockTriggerClaim.claim.mockResolvedValue(true);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -82,6 +87,7 @@ describe('AiOrchestrationProcessor', () => {
         { provide: CheckpointService, useValue: mockCheckpoint },
         { provide: McpClientService, useValue: mockMcpClient },
         { provide: QueueService, useValue: mockQueueService },
+        { provide: TriggerClaimService, useValue: mockTriggerClaim },
       ],
     }).compile();
 
@@ -558,6 +564,26 @@ describe('AiOrchestrationProcessor', () => {
     expect(mockAgentStream.emitStep).toHaveBeenCalledWith(expect.anything(), {
       type: 'done',
     });
+  });
+
+  it('Giai đoạn 4, Step 1 — claims triggerMessageId BEFORE creating the placeholder message', async () => {
+    mockSupervisor.decide.mockResolvedValue({
+      action: 'respond',
+      answer: 'Chào bạn!',
+    });
+
+    await runJob();
+
+    expect(mockTriggerClaim.claim).toHaveBeenCalledWith(jobData.messageId);
+  });
+
+  it('Giai đoạn 4, Step 1 — skips creating a duplicate placeholder when the trigger was already claimed (job retried/redelivered)', async () => {
+    mockTriggerClaim.claim.mockResolvedValue(false);
+
+    await runJob();
+
+    expect(mockMessageClient.createMessage).not.toHaveBeenCalled();
+    expect(mockSupervisor.decide).not.toHaveBeenCalled();
   });
 
   it('throws for an unsupported job name', async () => {
@@ -1333,6 +1359,32 @@ describe('AiOrchestrationProcessor', () => {
       await expect(runApprovalJob()).resolves.toBeUndefined();
 
       expect(mockMcpClient.callTool).not.toHaveBeenCalled();
+      expect(mockMessageClient.updateMessage).not.toHaveBeenCalled();
+    });
+
+    it('Giai đoạn 4, Step 1 — claims execution BEFORE running the real tool, using the checkpoint id', async () => {
+      mockCheckpoint.findById.mockResolvedValue(checkpoint);
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'raw mcp result' }],
+      });
+      mockReactLoop.run.mockResolvedValue({ answer: 'ok', toolCalls: [] });
+      mockSupervisor.synthesize.mockResolvedValue('ok');
+
+      await runApprovalJob();
+
+      expect(mockCheckpoint.claimExecution).toHaveBeenCalledWith({
+        id: 'checkpoint-1',
+      });
+    });
+
+    it('Giai đoạn 4, Step 1 — does NOT run the tool a second time when execution was already claimed (stalled/redelivered job)', async () => {
+      mockCheckpoint.findById.mockResolvedValue(checkpoint);
+      mockCheckpoint.claimExecution.mockResolvedValue({ claimed: false });
+
+      await runApprovalJob();
+
+      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
+      expect(mockReactLoop.run).not.toHaveBeenCalled();
       expect(mockMessageClient.updateMessage).not.toHaveBeenCalled();
     });
   });

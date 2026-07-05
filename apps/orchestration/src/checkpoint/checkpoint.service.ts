@@ -8,6 +8,7 @@ import {
 } from '../entity/orchestration-checkpoint.entity';
 import {
   CheckpointResponseDto,
+  ClaimCheckpointExecutionRequestDto,
   ClaimCheckpointRequestDto,
   ClaimCheckpointResponseDto,
   CreateCheckpointRequestDto,
@@ -122,6 +123,25 @@ export class CheckpointService {
     this.logger.log(
       `claim() id=${dto.id} toStatus=${dto.toStatus} claimed=${claimed}`,
     );
+    return { claimed };
+  }
+
+  // Giai đoạn 4, Step 1 — claim atomic RIÊNG cho lần thực thi (khác claim()
+  // ở trên, vốn chuyển "status"). Dùng raw query để WHERE trực tiếp trên cột
+  // vừa set (execution_started_at IS NULL) — TypeORM repo.update() không hỗ
+  // trợ điều kiện "IS NULL" qua object criteria.
+  async claimExecution(
+    dto: ClaimCheckpointExecutionRequestDto,
+  ): Promise<ClaimCheckpointResponseDto> {
+    const result = await this.repo
+      .createQueryBuilder()
+      .update(OrchestrationCheckpointEntity)
+      .set({ executionStartedAt: () => 'now()' })
+      .where('id = :id', { id: dto.id })
+      .andWhere('execution_started_at IS NULL')
+      .execute();
+    const claimed = result.affected === 1;
+    this.logger.log(`claimExecution() id=${dto.id} claimed=${claimed}`);
     return { claimed };
   }
 }

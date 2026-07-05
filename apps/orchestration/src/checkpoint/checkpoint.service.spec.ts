@@ -9,12 +9,20 @@ import {
 
 describe('CheckpointService', () => {
   let service: CheckpointService;
+  const mockQueryBuilder = {
+    update: jest.fn().mockReturnThis(),
+    set: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    execute: jest.fn(),
+  };
   const mockRepo = {
     create: jest.fn(),
     save: jest.fn(),
     findOne: jest.fn(),
     find: jest.fn(),
     update: jest.fn(),
+    createQueryBuilder: jest.fn(() => mockQueryBuilder),
   };
 
   const input = {
@@ -205,6 +213,31 @@ describe('CheckpointService', () => {
         id: 'checkpoint-1',
         toStatus: OrchestrationCheckpointStatus.REJECTED,
       });
+
+      expect(result).toEqual({ claimed: false });
+    });
+  });
+
+  describe('claimExecution (Giai đoạn 4, Step 1 — idempotency cho processApprovalJob)', () => {
+    it('atomically sets execution_started_at only WHERE it is still NULL, and reports claimed=true on success', async () => {
+      mockQueryBuilder.execute.mockResolvedValue({ affected: 1 });
+
+      const result = await service.claimExecution({ id: 'checkpoint-1' });
+
+      expect(mockRepo.createQueryBuilder).toHaveBeenCalled();
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id = :id', {
+        id: 'checkpoint-1',
+      });
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'execution_started_at IS NULL',
+      );
+      expect(result).toEqual({ claimed: true });
+    });
+
+    it('reports claimed=false when the checkpoint was already executed (job retried/redelivered)', async () => {
+      mockQueryBuilder.execute.mockResolvedValue({ affected: 0 });
+
+      const result = await service.claimExecution({ id: 'checkpoint-1' });
 
       expect(result).toEqual({ claimed: false });
     });

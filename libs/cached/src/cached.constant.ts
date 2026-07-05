@@ -203,6 +203,10 @@ export const CACHE = {
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:messages:v1:pinned:c_${channelId}:v_${version}:l_${limit}${cursor ? ':cur_' + cursor : ''}`,
       LINK_PREVIEW: (b64Url: string): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:messages:v1:link_preview:${b64Url}`,
+      // Giai đoạn 4, Step 2 — rate limit RIÊNG cho lượt trigger AI (khác rate
+      // limit gửi tin nhắn thường), theo userId trong maybeTriggerAiOrchestration().
+      AI_TRIGGER_RATE_LIMIT: (userId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:messages:v1:rate:ai_trigger:u_${userId}`,
     },
     TRACKERS: {
       PINNED_VERSION: (channelId: string): string =>

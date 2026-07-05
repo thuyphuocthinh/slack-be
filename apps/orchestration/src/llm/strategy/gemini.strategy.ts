@@ -19,6 +19,7 @@ import {
   LlmToolResult,
   LlmTurnResult,
 } from './llm-strategy.interface';
+import { attachLlmCostMetadata } from '../llm-cost.util';
 
 /**
  * Gemini API thỉnh thoảng trả 429 (quota) hoặc 503 (server quá tải) — đều
@@ -28,10 +29,17 @@ import {
  */
 function isRetryableGeminiError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /\[(429|503)/.test(message) || /Too Many Requests|Service Unavailable/i.test(message);
+  return (
+    /\[(429|503)/.test(message) ||
+    /Too Many Requests|Service Unavailable/i.test(message)
+  );
 }
 
-async function withGeminiRetry<T>(fn: () => Promise<T>, logger: Logger, maxAttempts = 3): Promise<T> {
+async function withGeminiRetry<T>(
+  fn: () => Promise<T>,
+  logger: Logger,
+  maxAttempts = 3,
+): Promise<T> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       return await fn();
@@ -60,7 +68,9 @@ export class GeminiStrategy implements LlmStrategy {
     if (apiKey) {
       this.genAI = new GoogleGenerativeAI(apiKey);
     } else {
-      this.logger.warn('GEMINI_API_KEY is not defined in environment variables');
+      this.logger.warn(
+        'GEMINI_API_KEY is not defined in environment variables',
+      );
     }
   }
 
@@ -83,11 +93,16 @@ export class GeminiStrategy implements LlmStrategy {
       model: opts.model,
       tools,
       systemInstruction: opts.systemInstruction,
-      generationConfig: opts.temperature !== undefined ? { temperature: opts.temperature } : undefined,
+      generationConfig:
+        opts.temperature !== undefined
+          ? { temperature: opts.temperature }
+          : undefined,
     });
-    const chat = model.startChat({ history: this.toGeminiHistory(opts.history) });
+    const chat = model.startChat({
+      history: this.toGeminiHistory(opts.history),
+    });
 
-    return new GeminiChatSession(chat, this.logger);
+    return new GeminiChatSession(chat, this.logger, opts.model);
   }
 
   async generateStructured<T>(opts: LlmStructuredOptions): Promise<T> {
@@ -105,9 +120,25 @@ export class GeminiStrategy implements LlmStrategy {
       },
     });
 
-    const generate = traceable((prompt: string) => withGeminiRetry(() => model.generateContent(prompt), this.logger), {
-      name: 'gemini.generateStructured',
-    });
+    const generate = traceable(
+      async (prompt: string) => {
+        const result = await withGeminiRetry(
+          () => model.generateContent(prompt),
+          this.logger,
+        );
+        // Giai đoạn 4, Step 7 — gắn usage/chi phí ước lượng vào chính trace
+        // "gemini.generateStructured" này (bên trong hàm traceable() bọc).
+        const usage = result.response.usageMetadata;
+        if (usage) {
+          attachLlmCostMetadata(opts.model, {
+            inputTokens: usage.promptTokenCount ?? 0,
+            outputTokens: usage.candidatesTokenCount ?? 0,
+          });
+        }
+        return result;
+      },
+      { name: 'gemini.generateStructured', run_type: 'llm' },
+    );
     const result = await generate(opts.prompt);
     return JSON.parse(result.response.text()) as T;
   }
@@ -118,24 +149,35 @@ export class GeminiStrategy implements LlmStrategy {
    * hoặc tay viết) có thể sinh ra nhưng Gemini không biết ("$schema",
    * "additionalProperties"), kẻo bị Gemini trả 400 "Unknown name".
    */
-  private toGeminiSchema(schema: Record<string, unknown>): FunctionDeclarationSchema {
-    const { $schema, additionalProperties, properties, items, ...rest } = schema;
+  private toGeminiSchema(
+    schema: Record<string, unknown>,
+  ): FunctionDeclarationSchema {
+    const { $schema, additionalProperties, properties, items, ...rest } =
+      schema;
     const cleaned: Record<string, unknown> = { ...rest };
 
     // Gemini bắt buộc enum string phải có thêm "format: enum" (EnumStringSchema)
     // — JSON Schema chuẩn (OpenAI/Anthropic dùng) chỉ cần "enum", không cần field
     // này. Tự thêm ở đây để schema gọi vào LlmStrategy luôn viết dạng chuẩn,
     // không phải biết trước sẽ chạy trên Gemini hay provider khác.
-    if (cleaned.type === 'string' && Array.isArray(cleaned.enum) && !cleaned.format) {
+    if (
+      cleaned.type === 'string' &&
+      Array.isArray(cleaned.enum) &&
+      !cleaned.format
+    ) {
       cleaned.format = 'enum';
     }
 
     if (properties && typeof properties === 'object') {
       cleaned.properties = Object.fromEntries(
-        Object.entries(properties as Record<string, unknown>).map(([key, value]) => [
-          key,
-          value && typeof value === 'object' ? this.toGeminiSchema(value as Record<string, unknown>) : value,
-        ]),
+        Object.entries(properties as Record<string, unknown>).map(
+          ([key, value]) => [
+            key,
+            value && typeof value === 'object'
+              ? this.toGeminiSchema(value as Record<string, unknown>)
+              : value,
+          ],
+        ),
       );
     }
     if (items && typeof items === 'object') {
@@ -168,34 +210,59 @@ export class GeminiStrategy implements LlmStrategy {
 }
 
 class GeminiChatSession implements LlmChatSession {
-  private readonly tracedSend: (input: string | LlmToolResult[]) => Promise<LlmTurnResult>;
+  private readonly tracedSend: (
+    input: string | LlmToolResult[],
+  ) => Promise<LlmTurnResult>;
 
   constructor(
     private readonly chat: ChatSession,
     private readonly logger: Logger,
+    private readonly model: string,
   ) {
-    this.tracedSend = traceable(this.rawSend.bind(this), { name: 'gemini.sendMessage' }) as (
-      input: string | LlmToolResult[],
-    ) => Promise<LlmTurnResult>;
+    this.tracedSend = traceable(this.rawSend.bind(this), {
+      name: 'gemini.sendMessage',
+      run_type: 'llm',
+    }) as (input: string | LlmToolResult[]) => Promise<LlmTurnResult>;
   }
 
   sendMessage(input: string | LlmToolResult[]): Promise<LlmTurnResult> {
     return this.tracedSend(input);
   }
 
-  private async rawSend(input: string | LlmToolResult[]): Promise<LlmTurnResult> {
+  private async rawSend(
+    input: string | LlmToolResult[],
+  ): Promise<LlmTurnResult> {
     const message: string | Part[] =
       typeof input === 'string'
         ? input
-        : input.map((r) => ({ functionResponse: { name: r.name, response: { content: r.content } } }));
+        : input.map((r) => ({
+            functionResponse: {
+              name: r.name,
+              response: { content: r.content },
+            },
+          }));
 
-    const result = await withGeminiRetry(() => this.chat.sendMessage(message), this.logger);
+    const result = await withGeminiRetry(
+      () => this.chat.sendMessage(message),
+      this.logger,
+    );
     const response = result.response;
     const calls = response.functionCalls() ?? [];
 
+    const usage = response.usageMetadata;
+    if (usage) {
+      attachLlmCostMetadata(this.model, {
+        inputTokens: usage.promptTokenCount ?? 0,
+        outputTokens: usage.candidatesTokenCount ?? 0,
+      });
+    }
+
     return {
       text: response.text() || '',
-      toolCalls: calls.map((c) => ({ name: c.name, args: c.args as Record<string, unknown> })),
+      toolCalls: calls.map((c) => ({
+        name: c.name,
+        args: c.args as Record<string, unknown>,
+      })),
     };
   }
 }

@@ -89,6 +89,12 @@ export class OrchestrationCheckpointEntity {
   @Column({ type: 'timestamptz', name: 'expires_at' })
   expiresAt: Date;
 
+  // Giai đoạn 4, Step 1 — claim atomic riêng cho lần THỰC THI tool trong
+  // processApprovalJob(), độc lập với "status" (status đã đổi 'approved' TRƯỚC
+  // khi job này chạy, xem resolveApproval()). Null nghĩa là chưa thực thi lần nào.
+  @Column({ type: 'timestamptz', name: 'execution_started_at', nullable: true })
+  executionStartedAt: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt: Date;
 

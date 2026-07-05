@@ -16,6 +16,7 @@ import {
   LlmToolResult,
   LlmTurnResult,
 } from './llm-strategy.interface';
+import { attachLlmCostMetadata } from '../llm-cost.util';
 
 @Injectable()
 export class OpenAiStrategy implements LlmStrategy {
@@ -30,7 +31,9 @@ export class OpenAiStrategy implements LlmStrategy {
       // lại retry loop như bên GeminiStrategy (SDK Gemini không có sẵn cái này).
       this.client = new OpenAI({ apiKey, maxRetries: 3 });
     } else {
-      this.logger.warn('OPENAI_API_KEY is not defined in environment variables');
+      this.logger.warn(
+        'OPENAI_API_KEY is not defined in environment variables',
+      );
     }
   }
 
@@ -47,17 +50,35 @@ export class OpenAiStrategy implements LlmStrategy {
     }
 
     const generate = traceable(
-      (params: { model: string; systemInstruction: string; prompt: string; schema: Record<string, unknown> }) =>
-        this.client!.chat.completions.create({
+      async (params: {
+        model: string;
+        systemInstruction: string;
+        prompt: string;
+        schema: Record<string, unknown>;
+      }) => {
+        const completion = await this.client!.chat.completions.create({
           model: params.model,
           messages: [
             { role: 'system', content: params.systemInstruction },
             { role: 'user', content: params.prompt },
           ],
-          response_format: { type: 'json_schema', json_schema: { name: 'decision', schema: params.schema } },
+          response_format: {
+            type: 'json_schema',
+            json_schema: { name: 'decision', schema: params.schema },
+          },
           temperature: 0,
-        }),
-      { name: 'openai.generateStructured' },
+        });
+        // Giai đoạn 4, Step 7 — gắn usage/chi phí ước lượng vào chính trace
+        // "openai.generateStructured" này (bên trong hàm traceable() bọc).
+        if (completion.usage) {
+          attachLlmCostMetadata(params.model, {
+            inputTokens: completion.usage.prompt_tokens,
+            outputTokens: completion.usage.completion_tokens,
+          });
+        }
+        return completion;
+      },
+      { name: 'openai.generateStructured', run_type: 'llm' },
     );
 
     const completion = await generate(opts);
@@ -71,7 +92,9 @@ class OpenAiChatSession implements LlmChatSession {
   private readonly temperature?: number;
   private readonly tools: ChatCompletionTool[];
   private readonly messages: ChatCompletionMessageParam[];
-  private readonly tracedSend: (input: string | LlmToolResult[]) => Promise<LlmTurnResult>;
+  private readonly tracedSend: (
+    input: string | LlmToolResult[],
+  ) => Promise<LlmTurnResult>;
 
   constructor(
     private readonly client: OpenAI,
@@ -81,27 +104,43 @@ class OpenAiChatSession implements LlmChatSession {
     this.temperature = opts.temperature;
     this.tools = opts.tools.map((t) => ({
       type: 'function',
-      function: { name: t.name, description: t.description, parameters: t.parameters },
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters,
+      },
     }));
     this.messages = [
       { role: 'system', content: opts.systemInstruction },
       ...opts.history.map(
-        (h): ChatCompletionMessageParam => ({ role: h.role === 'model' ? 'assistant' : 'user', content: h.text }),
+        (h): ChatCompletionMessageParam => ({
+          role: h.role === 'model' ? 'assistant' : 'user',
+          content: h.text,
+        }),
       ),
     ];
-    this.tracedSend = traceable(this.rawSend.bind(this), { name: 'openai.sendMessage' }) as (input: string | LlmToolResult[]) => Promise<LlmTurnResult>;
+    this.tracedSend = traceable(this.rawSend.bind(this), {
+      name: 'openai.sendMessage',
+      run_type: 'llm',
+    }) as (input: string | LlmToolResult[]) => Promise<LlmTurnResult>;
   }
 
   sendMessage(input: string | LlmToolResult[]): Promise<LlmTurnResult> {
     return this.tracedSend(input);
   }
 
-  private async rawSend(input: string | LlmToolResult[]): Promise<LlmTurnResult> {
+  private async rawSend(
+    input: string | LlmToolResult[],
+  ): Promise<LlmTurnResult> {
     if (typeof input === 'string') {
       this.messages.push({ role: 'user', content: input });
     } else {
       for (const result of input) {
-        this.messages.push({ role: 'tool', tool_call_id: result.id ?? result.name, content: result.content });
+        this.messages.push({
+          role: 'tool',
+          tool_call_id: result.id ?? result.name,
+          content: result.content,
+        });
       }
     }
 
@@ -111,6 +150,13 @@ class OpenAiChatSession implements LlmChatSession {
       tools: this.tools.length > 0 ? this.tools : undefined,
       temperature: this.temperature,
     });
+
+    if (completion.usage) {
+      attachLlmCostMetadata(this.model, {
+        inputTokens: completion.usage.prompt_tokens,
+        outputTokens: completion.usage.completion_tokens,
+      });
+    }
 
     const message = completion.choices[0].message;
     this.messages.push(message as ChatCompletionAssistantMessageParam);

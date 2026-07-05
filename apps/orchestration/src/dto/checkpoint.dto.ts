@@ -62,3 +62,11 @@ export class ClaimCheckpointRequestDto {
 export class ClaimCheckpointResponseDto {
   claimed: boolean;
 }
+
+// Giai đoạn 4, Step 1 — atomic conditional update (WHERE execution_started_at
+// IS NULL), tách riêng khỏi claim() (status): chặn processApprovalJob() thực
+// thi tool THẬT (mcpClient.callTool()) lần 2 nếu job bị BullMQ redeliver
+// (stalled), bất kể attempts:1 có chặn được redelivery hay không.
+export class ClaimCheckpointExecutionRequestDto {
+  id: string;
+}

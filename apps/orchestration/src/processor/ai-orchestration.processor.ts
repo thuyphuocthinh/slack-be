@@ -38,6 +38,7 @@ import {
 } from '../entity/orchestration-checkpoint.entity';
 import { CheckpointResponseDto } from '../dto/checkpoint.dto';
 import { ResolveApprovalRequestDto } from '../dto/orchestration.dto';
+import { TriggerClaimService } from '../trigger-claim/trigger-claim.service';
 
 interface AnswerResult {
   // Object content (approval_request) đi qua createMessage() riêng, không qua đây.
@@ -79,6 +80,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     private readonly checkpoint: CheckpointService,
     private readonly mcpClient: McpClientService,
     private readonly queueService: QueueService,
+    private readonly triggerClaim: TriggerClaimService,
   ) {
     super();
   }
@@ -113,6 +115,18 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       botUserId,
       channelType,
     } = data;
+
+    // Giai đoạn 4, Step 1 — claim atomic (insert-once) TRƯỚC khi tạo message
+    // placeholder. Nếu job này bị BullMQ retry/redeliver (lỗi tạm thời, worker
+    // crash giữa chừng) cho CÙNG messageId, lần chạy sau claim() thất bại và bỏ
+    // qua — tránh tạo thêm 1 message "Đang xử lý..." trùng.
+    const claimed = await this.triggerClaim.claim(messageId);
+    if (!claimed) {
+      this.logger.warn(
+        `handleAiTrigger() messageId=${messageId} đã được claim trước đó — bỏ qua (job bị retry/redeliver)`,
+      );
+      return;
+    }
 
     const reply = await this.messageClient.createMessage({
       channelId,
@@ -582,6 +596,22 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       );
       return;
     }
+
+    // Giai đoạn 4, Step 1 — claim atomic RIÊNG cho lần thực thi, độc lập với
+    // claim() (status) đã chạy trước khi enqueue job này. attempts:1 (Giai
+    // đoạn 3) không chắc chắn chặn được BullMQ stalled-job redelivery (khác cơ
+    // chế với retry-do-lỗi) — claim này chặn dứt điểm mcpClient.callTool()
+    // (không idempotent) chạy lại lần 2 bất kể job bị redeliver kiểu gì.
+    const { claimed } = await this.checkpoint.claimExecution({
+      id: checkpoint.id,
+    });
+    if (!claimed) {
+      this.logger.warn(
+        `processApprovalJob() checkpoint ${checkpoint.id} đã được thực thi trước đó — bỏ qua (job bị retry/redeliver)`,
+      );
+      return;
+    }
+
     await this.approveCheckpoint(checkpoint, data.userId);
   }
 

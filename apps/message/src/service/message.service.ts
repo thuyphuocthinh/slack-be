@@ -37,7 +37,7 @@ import {
 } from '@slack/queue';
 import { IMessageAttachment } from '../types/message-attachment.interface';
 import { ITipTapNode } from '../types/tiptap-node.interface';
-import { CACHE, CachedService, TTL } from '@slack/cached';
+import { CACHE, CachedService, RateLimitService, TTL } from '@slack/cached';
 import { AuditAction, AuditEntityType } from '@slack/common';
 
 @Injectable()
@@ -54,6 +54,7 @@ export class MessageService {
     private readonly dataSource: DataSource,
     private readonly queueService: QueueService,
     private readonly cachedService: CachedService,
+    private readonly rateLimitService: RateLimitService,
   ) {}
 
   private async checkChannelExist(channelId: string, senderId: string) {
@@ -413,6 +414,22 @@ export class MessageService {
       createMessageDto.mentions?.includes(botEntry.id) ?? false;
     if (!isDirect && !isMentioned) return; // GROUP mà không @mention -> bỏ qua
 
+    const rateLimitKey = CACHE.MESSAGE.KEYS.AI_TRIGGER_RATE_LIMIT(
+      savedMessage.userId,
+    );
+    const allowed = await this.rateLimitService.isAllowed(rateLimitKey, 5, 60);
+    if (!allowed) {
+      this.logger.warn(
+        `maybeTriggerAiOrchestration() userId=${savedMessage.userId} bị chặn rate limit AI (>5 lượt/60s)`,
+      );
+      await this.createMessage({
+        channelId: channel.id,
+        senderId: botEntry.id,
+        content: 'Bạn đang hỏi hơi nhanh, đợi 1 chút nhé.',
+      });
+      return;
+    }
+
     await this.queueService.addJob(
       EQueueName.AI_ORCHESTRATION_QUEUE,
       EJobName.PROCESS_AI_TRIGGER,
@@ -424,6 +441,9 @@ export class MessageService {
         botUserId: botEntry.id,
         channelType: channel.type,
       },
+      // Giai đoạn 4, Step 1 — jobId tường minh, BullMQ tự chặn enqueue trùng
+      // cho CÙNG messageId (VD race ở tầng gọi tạo 2 job cho 1 message).
+      { jobId: `ai_trigger_${savedMessage.id}` },
     );
   }
 

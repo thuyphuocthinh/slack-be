@@ -1,7 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
 import Anthropic from '@anthropic-ai/sdk';
-import type { ContentBlockParam, MessageParam, Tool, ToolUseBlock } from '@anthropic-ai/sdk/resources/messages';
+import type {
+  ContentBlockParam,
+  MessageParam,
+  Tool,
+  ToolUseBlock,
+} from '@anthropic-ai/sdk/resources/messages';
 import { traceable } from 'langsmith/traceable';
 import { ORCHESTRATION_ERROR } from '@slack/constants';
 import {
@@ -12,6 +17,7 @@ import {
   LlmToolResult,
   LlmTurnResult,
 } from './llm-strategy.interface';
+import { attachLlmCostMetadata } from '../llm-cost.util';
 
 // Claude không có tham số tuỳ chọn cho max_tokens như Gemini/OpenAI — SDK
 // bắt buộc truyền, không có default hợp lý cho mọi model nên set cứng 1
@@ -30,7 +36,9 @@ export class AnthropicStrategy implements LlmStrategy {
       // maxRetries: SDK tự retry lỗi tạm thời (429/5xx) với backoff, giống OpenAI.
       this.client = new Anthropic({ apiKey, maxRetries: 3 });
     } else {
-      this.logger.warn('ANTHROPIC_API_KEY is not defined in environment variables');
+      this.logger.warn(
+        'ANTHROPIC_API_KEY is not defined in environment variables',
+      );
     }
   }
 
@@ -56,8 +64,12 @@ export class AnthropicStrategy implements LlmStrategy {
     };
 
     const generate = traceable(
-      (params: { model: string; systemInstruction: string; prompt: string }) =>
-        this.client!.messages.create({
+      async (params: {
+        model: string;
+        systemInstruction: string;
+        prompt: string;
+      }) => {
+        const message = await this.client!.messages.create({
           model: params.model,
           max_tokens: MAX_TOKENS,
           system: params.systemInstruction,
@@ -68,12 +80,24 @@ export class AnthropicStrategy implements LlmStrategy {
           // (Giai đoạn 2, Step 5: giảm rủi ro Supervisor tự "sáng tạo" số
           // liệu khi soạn task/answer từ kết quả vòng trước).
           temperature: 0,
-        }),
-      { name: 'anthropic.generateStructured' },
+        });
+        // Giai đoạn 4, Step 7 — gắn usage/chi phí ước lượng vào chính trace
+        // "anthropic.generateStructured" này (bên trong hàm traceable() bọc).
+        if (message.usage) {
+          attachLlmCostMetadata(params.model, {
+            inputTokens: message.usage.input_tokens,
+            outputTokens: message.usage.output_tokens,
+          });
+        }
+        return message;
+      },
+      { name: 'anthropic.generateStructured', run_type: 'llm' },
     );
 
     const message = await generate(opts);
-    const toolUse = message.content.find((block): block is ToolUseBlock => block.type === 'tool_use');
+    const toolUse = message.content.find(
+      (block): block is ToolUseBlock => block.type === 'tool_use',
+    );
     return (toolUse?.input ?? {}) as T;
   }
 }
@@ -84,7 +108,9 @@ class AnthropicChatSession implements LlmChatSession {
   private readonly tools: Tool[];
   private readonly system: string;
   private readonly messages: MessageParam[];
-  private readonly tracedSend: (input: string | LlmToolResult[]) => Promise<LlmTurnResult>;
+  private readonly tracedSend: (
+    input: string | LlmToolResult[],
+  ) => Promise<LlmTurnResult>;
 
   constructor(
     private readonly client: Anthropic,
@@ -102,14 +128,19 @@ class AnthropicChatSession implements LlmChatSession {
       role: h.role === 'model' ? 'assistant' : 'user',
       content: h.text,
     }));
-    this.tracedSend = traceable(this.rawSend.bind(this), { name: 'anthropic.sendMessage' }) as (input: string | LlmToolResult[]) => Promise<LlmTurnResult>;
+    this.tracedSend = traceable(this.rawSend.bind(this), {
+      name: 'anthropic.sendMessage',
+      run_type: 'llm',
+    }) as (input: string | LlmToolResult[]) => Promise<LlmTurnResult>;
   }
 
   sendMessage(input: string | LlmToolResult[]): Promise<LlmTurnResult> {
     return this.tracedSend(input);
   }
 
-  private async rawSend(input: string | LlmToolResult[]): Promise<LlmTurnResult> {
+  private async rawSend(
+    input: string | LlmToolResult[],
+  ): Promise<LlmTurnResult> {
     if (typeof input === 'string') {
       this.messages.push({ role: 'user', content: input });
     } else {
@@ -132,19 +163,36 @@ class AnthropicChatSession implements LlmChatSession {
       temperature: this.temperature,
     });
 
+    if (message.usage) {
+      attachLlmCostMetadata(this.model, {
+        inputTokens: message.usage.input_tokens,
+        outputTokens: message.usage.output_tokens,
+      });
+    }
+
     // Lưu lại đúng content block Claude vừa trả (text + tool_use) làm turn
     // "assistant" — bắt buộc phải có trong history thì tool_result gửi ở
     // lượt sau mới khớp đúng tool_use_id tương ứng.
-    this.messages.push({ role: 'assistant', content: message.content as ContentBlockParam[] });
+    this.messages.push({
+      role: 'assistant',
+      content: message.content as ContentBlockParam[],
+    });
 
     const text = message.content
-      .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
+      .filter(
+        (block): block is Extract<typeof block, { type: 'text' }> =>
+          block.type === 'text',
+      )
       .map((block) => block.text)
       .join('\n');
 
     const toolCalls = message.content
       .filter((block): block is ToolUseBlock => block.type === 'tool_use')
-      .map((block) => ({ id: block.id, name: block.name, args: (block.input ?? {}) as Record<string, unknown> }));
+      .map((block) => ({
+        id: block.id,
+        name: block.name,
+        args: (block.input ?? {}) as Record<string, unknown>,
+      }));
 
     return { text, toolCalls };
   }

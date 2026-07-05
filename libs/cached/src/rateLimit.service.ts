@@ -6,7 +6,7 @@ export class RateLimitService {
   constructor(
     @Inject('REDIS_CLIENT')
     private readonly redis: Redis,
-  ) {}
+  ) { }
 
   /**
    * @param key ví dụ: login:ip:1.1.1.1
