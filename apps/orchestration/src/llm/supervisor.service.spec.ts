@@ -223,10 +223,45 @@ describe('SupervisorService', () => {
       const sentPrompt =
         mockStrategy.generateStructured.mock.calls[0][0].prompt;
       expect(sentPrompt).toContain('User: doanh thu tháng này bao nhiêu?');
-      expect(sentPrompt).toContain('AI: Doanh thu tháng này là 100 triệu.');
+      // Giai đoạn 4 (hướng CHẮC nhất, sau khi cảnh báo-cạnh-dữ-liệu vẫn không
+      // đủ) — nội dung câu trả lời CŨ của AI bị ẨN HẲN, không còn xuất hiện
+      // nguyên văn trong prompt gửi cho Supervisor nữa (xem bug "14 dòng" ở
+      // stage4_step.md). Đảm bảo ở tầng CODE, không phụ thuộc model có nghe
+      // lời cảnh báo hay không.
+      expect(sentPrompt).not.toContain('Doanh thu tháng này là 100 triệu.');
+      expect(sentPrompt).toContain('AI: (nội dung câu trả lời cũ đã ẩn');
       expect(sentPrompt).toContain(
         'Câu hỏi gốc của user: còn tháng trước thì sao?',
       );
+    });
+
+    it('Giai đoạn 4 (bug "14 dòng") — hides old AI answer content entirely so Supervisor cannot echo stale/wrong data back, regardless of prompt compliance', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'respond',
+        answer: 'ok',
+      });
+
+      await service.decide(
+        'Bảng Orders có bao nhiêu dòng?',
+        agents,
+        [],
+        [
+          { role: 'user', text: 'Bảng Orders có bao nhiêu dòng?' },
+          { role: 'model', text: 'Bảng Orders có tổng cộng 14 dòng.' },
+        ],
+      );
+
+      const sentPrompt =
+        mockStrategy.generateStructured.mock.calls[0][0].prompt;
+      // Số liệu cũ ("14") tuyệt đối KHÔNG được xuất hiện lại trong prompt —
+      // đảm bảo chắc chắn (code-level), không phải "hy vọng model bỏ qua nó".
+      expect(sentPrompt).not.toContain('14 dòng');
+      expect(sentPrompt).toContain(
+        'AI: (nội dung câu trả lời cũ đã ẩn khỏi ngữ cảnh này',
+      );
+      // Câu hỏi CỦA USER (không phải câu trả lời của AI) vẫn còn nguyên —
+      // Supervisor vẫn hiểu được NGỮ CẢNH/CHỦ ĐỀ đã hỏi trước đó.
+      expect(sentPrompt).toContain('User: Bảng Orders có bao nhiêu dòng?');
     });
 
     it('Giai đoạn 4, Step 6 — routes the LLM call through the breaker keyed by "llm:<strategy.id>"', async () => {

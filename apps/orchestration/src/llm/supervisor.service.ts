@@ -157,10 +157,14 @@ export class SupervisorService {
 
     if (history.length > 0) {
       const historyText = history
-        .map((h) => `${h.role === 'model' ? 'AI' : 'User'}: ${h.text}`)
+        .map((h) =>
+          h.role === 'model'
+            ? 'AI: (nội dung câu trả lời cũ đã ẩn khỏi ngữ cảnh này — KHÔNG được dùng làm dữ liệu; nếu câu hỏi hiện tại cần dữ liệu/số liệu cụ thể, PHẢI delegate lại để lấy MỚI)'
+            : `User: ${h.text}`,
+        )
         .join('\n');
       sections.push(
-        `Lịch sử hội thoại gần đây (chỉ để hiểu ngữ cảnh, KHÔNG phải yêu cầu mới):\n${historyText}`,
+        `Lịch sử hội thoại gần đây (chỉ để hiểu ngữ cảnh câu hỏi của user, KHÔNG phải yêu cầu mới):\n${historyText}`,
       );
     }
 
