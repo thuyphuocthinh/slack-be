@@ -99,7 +99,7 @@ describe('ReactLoopService', () => {
     expect(mockAgentStream.emitStep).not.toHaveBeenCalled();
   });
 
-  it('runs the self-check nudge exactly once after the model stops calling tools', async () => {
+  it('runs the self-check nudge exactly once after the model stops calling tools, but keeps the answer from BEFORE the nudge (Giai đoạn 4 bug fix — self-check response is a meta-confirmation, not a real data-bearing answer)', async () => {
     mockSession.sendMessage
       .mockResolvedValueOnce({
         text: '',
@@ -113,7 +113,11 @@ describe('ReactLoopService', () => {
 
     const result = await service.run(baseDto);
 
-    expect(result.answer).toBe('Xác nhận đã đủ dữ liệu.');
+    // Đây là bug thật gặp khi test: nếu dùng thẳng câu xác nhận meta của
+    // self-check ("Xác nhận đã đủ dữ liệu.") làm answer, dữ liệu thật (câu
+    // TRƯỚC self-check, "Đây là schema.") bị mất — Supervisor nhận 1 round
+    // rỗng dữ liệu và phải tự bịa số khi tổng hợp câu trả lời cuối.
+    expect(result.answer).toBe('Đây là schema.');
     // tool namespace theo "{provider}.{toolName}" (Step 6) — tránh lẫn lộn
     // khi 1 turn gộp toolCalls từ nhiều agent khác nhau.
     expect(result.toolCalls).toEqual([
@@ -146,6 +150,30 @@ describe('ReactLoopService', () => {
 
     // 1 initial + 1 sau tool call + 1 self-check = 3, không có lượt nudge thứ 2
     expect(mockSession.sendMessage).toHaveBeenCalledTimes(3);
+  });
+
+  it('continues the loop normally (no second self-check) when the self-check nudge itself decides another tool call is needed', async () => {
+    mockSession.sendMessage
+      .mockResolvedValueOnce({
+        text: '',
+        toolCalls: [{ name: 'get_database_schema', args: {} }],
+      })
+      .mockResolvedValueOnce({ text: 'câu trả lời tạm', toolCalls: [] })
+      .mockResolvedValueOnce({
+        text: '',
+        toolCalls: [{ name: 'execute_read_only_query', args: {} }],
+      })
+      .mockResolvedValueOnce({
+        text: 'câu trả lời cuối, có dữ liệu thật',
+        toolCalls: [],
+      });
+
+    const result = await service.run(baseDto);
+
+    expect(result.answer).toBe('câu trả lời cuối, có dữ liệu thật');
+    expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
+    // 1 initial + 1 sau tool A + 1 self-check (muốn gọi tool B) + 1 sau tool B = 4
+    expect(mockSession.sendMessage).toHaveBeenCalledTimes(4);
   });
 
   it('stops after MAX_REACT_STEPS iterations and returns the fallback message if the model never converges', async () => {
@@ -404,7 +432,9 @@ describe('ReactLoopService', () => {
       const result = await service.run(baseDto);
 
       expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
-      expect(result.answer).toBe('vẫn giữ nguyên');
+      // Giữ câu trả lời TRƯỚC self-check ("ok", có dữ liệu thật) — không phải
+      // câu xác nhận meta của self-check ("vẫn giữ nguyên").
+      expect(result.answer).toBe('ok');
     });
   });
 
