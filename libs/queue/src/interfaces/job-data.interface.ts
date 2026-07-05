@@ -177,6 +177,14 @@ export interface IProcessAiTriggerJobData {
   channelType: string; // 'direct' | 'group' — dùng để quyết định emit stream chi tiết hay chỉ signal thô
 }
 
+// Giai đoạn 3 (HITL) — chỉ mang theo checkpointId + userId, KHÔNG mang cả
+// checkpoint (tránh nhét history/roundsSoFar lớn vào payload Redis); job
+// handler tự fetch lại checkpoint đầy đủ theo id.
+export interface IProcessApprovalJobData {
+  checkpointId: string;
+  userId: string;
+}
+
 export type TJobData = {
   [EJobName.SEND_VERIFICATION_EMAIL]: IEmailJobData;
   [EJobName.SEND_INVITE_EMAIL]: IInviteJobData;
@@ -201,4 +209,5 @@ export type TJobData = {
   [EJobName.DELETE_CALENDAR_SHIFT]: IDeleteCalendarShiftJobData;
   [EJobName.CALENDAR_EXPORT_EXCEL]: ICalendarExportExcelJobData;
   [EJobName.PROCESS_AI_TRIGGER]: IProcessAiTriggerJobData;
+  [EJobName.PROCESS_APPROVAL]: IProcessApprovalJobData;
 };

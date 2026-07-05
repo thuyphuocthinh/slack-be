@@ -7,6 +7,8 @@ import {
   EJobName,
   EQueueName,
   IProcessAiTriggerJobData,
+  IProcessApprovalJobData,
+  QueueService,
 } from '@slack/queue';
 import { ORCHESTRATION_CONSTANTS, ORCHESTRATION_ERROR } from '@slack/constants';
 import { extractTextFromMcpResult } from '@slack/common';
@@ -27,17 +29,19 @@ import { ApprovalRequiredError } from '../llm/approval-required.error';
 import {
   extractWriteQueryPreviewTarget,
   parseSingleCountResult,
+  WriteQueryPreviewTarget,
 } from '../llm/write-query-preview.util';
 import { CheckpointService } from '../checkpoint/checkpoint.service';
 import {
   OrchestrationCheckpointStatus,
   PendingToolCall,
 } from '../entity/orchestration-checkpoint.entity';
+import { CheckpointResponseDto } from '../dto/checkpoint.dto';
 import { ResolveApprovalRequestDto } from '../dto/orchestration.dto';
+import { TriggerClaimService } from '../trigger-claim/trigger-claim.service';
 
 interface AnswerResult {
-  // Luôn là string — content dạng object (approval_request) đi vào 1 message
-  // MỚI qua createMessage() (Step 3), không phải update lại message này.
+  // Object content (approval_request) đi qua createMessage() riêng, không qua đây.
   content: string;
   toolCalls?: ToolCallTraceDto[];
 }
@@ -47,24 +51,27 @@ interface DelegateRoundResult {
   toolCalls: ToolCallTraceDto[];
 }
 
-// Giai đoạn 3 (HITL) — delegateRound() trả về dạng này thay vì throw khi
-// ReactLoop bị Risk Gate chặn, để Promise.all() ở resolveAnswer() không mất
-// kết quả của delegation ANH EM đã chạy song song thành công (cùng lý do đã
-// áp cho lỗi thường — xem docstring delegateRound()).
+// delegateRound() trả dạng này thay vì throw khi bị Risk Gate chặn, để
+// Promise.all() không mất kết quả của delegation anh em chạy song song.
 interface ApprovalRequiredDelegateResult {
   approvalRequired: PendingToolCall;
   task: string;
-  // Tool ĐÃ chạy thật thành công trước tool bị chặn trong CÙNG lượt ReactLoop
-  // — không có field này thì kết quả các tool đó bị rớt khỏi timeline/checkpoint.
   toolCalls: ToolCallTraceDto[];
 }
 
+type AiOrchestrationJobData =
+  | IProcessAiTriggerJobData
+  | IProcessApprovalJobData;
+
 @Processor(EQueueName.AI_ORCHESTRATION_QUEUE, { concurrency: 5 })
 export class AiOrchestrationProcessor extends BaseProcessor<
-  IProcessAiTriggerJobData,
+  AiOrchestrationJobData,
   void,
   EJobName
 > {
+  private static readonly NO_ESTIMATE_PREVIEW =
+    'Không ước lượng được ảnh hưởng, cân nhắc kỹ trước khi duyệt.';
+
   constructor(
     private readonly messageClient: MessageClientService,
     private readonly reactLoop: ReactLoopService,
@@ -72,16 +79,22 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     private readonly agentStream: AgentStreamService,
     private readonly checkpoint: CheckpointService,
     private readonly mcpClient: McpClientService,
+    private readonly queueService: QueueService,
+    private readonly triggerClaim: TriggerClaimService,
   ) {
     super();
   }
 
   async process(
-    job: Job<IProcessAiTriggerJobData, void, EJobName>,
+    job: Job<AiOrchestrationJobData, void, EJobName>,
   ): Promise<void> {
     switch (job.name) {
       case EJobName.PROCESS_AI_TRIGGER: {
-        await this.handleAiTrigger(job.data);
+        await this.handleAiTrigger(job.data as IProcessAiTriggerJobData);
+        break;
+      }
+      case EJobName.PROCESS_APPROVAL: {
+        await this.processApprovalJob(job.data as IProcessApprovalJobData);
         break;
       }
       default:
@@ -90,19 +103,9 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     }
   }
 
-  /**
-   * Giai đoạn 3 (HITL), Step 8 (đã revise) — KHÔNG chặn tin nhắn mới khi
-   * channel đang có checkpoint pending. Mỗi turn hoàn toàn độc lập: checkpoint
-   * khoá theo `replyMessageId` (unique, không phải channelId), state cần để
-   * resume (`originalPrompt`/`roundsSoFar`/`history`) được snapshot ngay lúc
-   * dừng — turn MỚI chạy song song không đọc/ghi state của turn CŨ ở đâu cả,
-   * nên nhiều checkpoint pending cùng lúc trong 1 channel (kể cả cùng 1 user)
-   * là AN TOÀN, không có race. Chặn ở đây từng bị coi là "đơn giản hoá" nhưng
-   * thực chất chỉ làm rớt hẳn yêu cầu của user khác trong channel — tệ hơn
-   * việc chấp nhận nhiều turn chạy song song. Rào chắn còn lại duy nhất:
-   * checkpoint quá hạn tự bị `CheckpointCleanupService` reject (không liên
-   * quan gì tới việc chặn message mới).
-   */
+  // Mỗi turn độc lập hoàn toàn (checkpoint khoá theo replyMessageId, không
+  // theo channel) — không chặn tin nhắn mới dù channel đang có checkpoint
+  // pending khác (Step 8, đã revise: chặn từng làm rớt câu hỏi của user khác).
   private async handleAiTrigger(data: IProcessAiTriggerJobData): Promise<void> {
     const {
       userId,
@@ -113,16 +116,25 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       channelType,
     } = data;
 
+    // Giai đoạn 4, Step 1 — claim atomic (insert-once) TRƯỚC khi tạo message
+    // placeholder. Nếu job này bị BullMQ retry/redeliver (lỗi tạm thời, worker
+    // crash giữa chừng) cho CÙNG messageId, lần chạy sau claim() thất bại và bỏ
+    // qua — tránh tạo thêm 1 message "Đang xử lý..." trùng.
+    const claimed = await this.triggerClaim.claim(messageId);
+    if (!claimed) {
+      this.logger.warn(
+        `handleAiTrigger() messageId=${messageId} đã được claim trước đó — bỏ qua (job bị retry/redeliver)`,
+      );
+      return;
+    }
+
     const reply = await this.messageClient.createMessage({
       channelId,
       senderId: botUserId,
       content: '🤖 Đang xử lý...',
     });
 
-    // 1 root trace = 1 turn hội thoại, bao trùm CẢ vòng lặp Supervisor↔SubAgent
-    // (Step 3) — traceable() lồng theo AsyncLocalStorage nên mọi span con
-    // (mỗi lượt Supervisor.decide, mỗi ReactLoop) tự nest đúng cây dù chạy
-    // qua nhiều vòng, không cần truyền context tay.
+    // traceable() lồng theo AsyncLocalStorage — 1 root trace/turn, tự nest mọi span con.
     const traced = traceable(
       (d: IProcessAiTriggerJobData, replyId: string) =>
         this.resolveAnswer(d, replyId),
@@ -156,9 +168,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         content: describeExternalServiceError(error),
       });
     } finally {
-      // Luôn báo "done" dù Supervisor tự trả lời hay có delegate (1 hay nhiều
-      // vòng), thành công hay lỗi — FE dựa vào tín hiệu này để tắt icon
-      // "đang chạy tool...".
+      // Luôn báo "done" — FE dựa vào đây để tắt icon "đang chạy tool...".
       await this.agentStream.emitStep(
         { userId, channelId, messageId: reply.id, channelType },
         { type: 'done' },
@@ -166,15 +176,9 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     }
   }
 
-  /**
-   * Giai đoạn 2, Step 3+8: Supervisor có thể delegate NHIỀU vòng trong cùng 1
-   * turn, mỗi vòng có thể gồm NHIỀU agent ĐỘC LẬP chạy song song (fan-out) —
-   * sau mỗi vòng, kết quả được đưa lại cho Supervisor để nó quyết định tiếp:
-   * đủ tổng hợp trả lời chưa, hay cần delegate thêm. Giới hạn
-   * `MAX_SUPERVISOR_ROUNDS` chặn ping-pong vô hạn nếu Supervisor không hội tụ
-   * — hết vòng mà chưa hội tụ thì bắt buộc tổng hợp lại (Step 9), không trả
-   * thẳng kết quả thô của vòng cuối.
-   */
+  // Supervisor có thể delegate nhiều vòng, mỗi vòng nhiều agent song song
+  // (fan-out). MAX_SUPERVISOR_ROUNDS chặn ping-pong vô hạn — hết vòng thì bắt
+  // buộc tổng hợp lại thay vì trả thẳng kết quả thô của vòng cuối.
   private async resolveAnswer(
     data: IProcessAiTriggerJobData,
     replyMessageId: string,
@@ -214,55 +218,30 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       }
 
       const delegations = this.dedupeByAgent(decision.delegations ?? []);
-      // Rỗng hoặc TOÀN BỘ agent đều không hợp lệ — bail sớm, khỏi tốn ReactLoop
-      // call nào (delegations.every() trên mảng rỗng tự nhiên trả về true).
       if (
         delegations.every((d) => !agents.some((a) => a.provider === d.agent))
       ) {
         return this.buildAnswer(
           decision.answer ||
-          'Mình chưa thể xử lý yêu cầu này với các kết nối hiện có. Vào Settings để kết nối agent phù hợp nhé.',
+            'Mình chưa thể xử lý yêu cầu này với các kết nối hiện có. Vào Settings để kết nối agent phù hợp nhé.',
           toolCalls,
         );
       }
 
-      // delegateRound() không bao giờ throw (tự bắt lỗi ReactLoop bên trong) —
-      // Promise.all ở đây an toàn, 1 delegation lỗi không làm mất kết quả của
-      // các delegation ANH EM khác đã chạy song song thành công (Step 8).
+      // delegateRound() không bao giờ throw — 1 delegation lỗi không làm mất
+      // kết quả của delegation anh em đã chạy song song thành công.
       const results = await Promise.all(
         delegations.map((d) =>
           this.delegateRound(d, agents, data, prompt, replyMessageId, history),
         ),
       );
 
-      // Fold TOÀN BỘ kết quả (kể cả agent không hợp lệ) vào rounds TRƯỚC khi
-      // xử lý approval — nếu 1 delegation cần duyệt trong khi delegation ANH
-      // EM khác cùng vòng đã xong, phải giữ lại kết quả anh em đó vào
-      // checkpoint, không được mất (Giai đoạn 3, Step 3).
-      let approvalNeeded: ApprovalRequiredDelegateResult | null = null;
-      results.forEach((result, i) => {
-        if (result && 'approvalRequired' in result) {
-          // Tool ĐÃ chạy thật trước khi bị chặn trong lượt này vẫn phải hiện —
-          // không chỉ delegation "anh em" mới cần giữ lại kết quả (Step 8 cũ).
-          toolCalls.push(...result.toolCalls);
-          if (!approvalNeeded) approvalNeeded = result;
-          return;
-        }
-        if (result) {
-          rounds.push(result.round);
-          toolCalls.push(...result.toolCalls);
-        } else {
-          // agent không có trong danh sách khả dụng — ghi nhận rõ để Supervisor
-          // vòng sau biết đã bỏ qua phần này, tránh tưởng nhầm là đã xong.
-          rounds.push({
-            agent: delegations[i].agent,
-            task: delegations[i].task,
-            result:
-              'Agent này chưa khả dụng (chưa kết nối hoặc chưa có hạ tầng) — bỏ qua, không thực hiện được phần việc này.',
-          });
-        }
-      });
-
+      const approvalNeeded = this.foldRoundResults(
+        results,
+        delegations,
+        rounds,
+        toolCalls,
+      );
       if (approvalNeeded) {
         return this.pauseForApproval(
           data,
@@ -282,7 +261,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     return this.buildAnswer(finalAnswer, toolCalls);
   }
 
-  /** Chặn 1 pathological case: Supervisor trả trùng agent trong CÙNG 1 vòng — giữ phần tử đầu tiên. */
+  /** Supervisor trả trùng agent trong cùng 1 vòng — giữ phần tử đầu tiên. */
   private dedupeByAgent(delegations: DelegationDto[]): DelegationDto[] {
     const seen = new Set<string>();
     return delegations.filter((d) => {
@@ -299,23 +278,40 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     return { content, toolCalls: toolCalls.length > 0 ? toolCalls : undefined };
   }
 
-  /**
-   * Chạy đúng 1 delegation: chốt lại agent Supervisor chọn có thật sự nằm
-   * trong danh sách đã đưa cho nó không (schema chỉ ép đúng DẠNG JSON, không
-   * ép được model không bịa 1 provider ngoài danh sách), rồi chạy ReAct loop
-   * thật trên đúng agent đó. Trả `null` nếu agent không hợp lệ — gọi nơi biết
-   * rõ nội dung fallback cần hiển thị.
-   *
-   * KHÔNG BAO GIỜ throw — 1 ReactLoop lỗi (VD MCP server sập) được bắt và trả
-   * về như 1 round có kết quả lỗi, thay vì ném lên làm Promise.all() ở
-   * resolveAnswer() reject cả loạt, mất luôn kết quả của delegation ANH EM
-   * đã chạy song song thành công (Step 8) — kể cả khi ReactLoop đó đã thực
-   * hiện side effect thật (VD tạo GitHub issue) trước khi phần khác lỗi.
-   * Riêng `ApprovalRequiredError` (Step 3, HITL) trả về dạng
-   * `ApprovalRequiredDelegateResult` thay vì round lỗi — resolveAnswer() cần
-   * phân biệt được để dừng turn đúng cách (lưu checkpoint) thay vì coi đây là
-   * 1 lỗi bình thường.
-   */
+  // Gộp kết quả 1 vòng delegate vào rounds/toolCalls (mutate tại chỗ). Trả về
+  // delegation ĐẦU TIÊN cần duyệt (nếu có) — vẫn giữ lại toolCalls/rounds của
+  // các delegation anh em đã xong trong CÙNG vòng, không để mất.
+  private foldRoundResults(
+    results: (DelegateRoundResult | ApprovalRequiredDelegateResult | null)[],
+    delegations: DelegationDto[],
+    rounds: SupervisorRoundDto[],
+    toolCalls: ToolCallTraceDto[],
+  ): ApprovalRequiredDelegateResult | null {
+    let approvalNeeded: ApprovalRequiredDelegateResult | null = null;
+    results.forEach((result, i) => {
+      if (result && 'approvalRequired' in result) {
+        toolCalls.push(...result.toolCalls);
+        if (!approvalNeeded) approvalNeeded = result;
+        return;
+      }
+      if (result) {
+        rounds.push(result.round);
+        toolCalls.push(...result.toolCalls);
+      } else {
+        rounds.push({
+          agent: delegations[i].agent,
+          task: delegations[i].task,
+          result:
+            'Agent này chưa khả dụng (chưa kết nối hoặc chưa có hạ tầng) — bỏ qua, không thực hiện được phần việc này.',
+        });
+      }
+    });
+    return approvalNeeded;
+  }
+
+  // Không bao giờ throw (trừ ApprovalRequiredError) — 1 ReactLoop lỗi (VD MCP
+  // sập) trả về như round lỗi thay vì làm Promise.all() ở resolveAnswer()
+  // reject cả loạt, mất kết quả của delegation anh em đã chạy song song.
   private async delegateRound(
     delegation: DelegationDto,
     agents: AvailableAgentDto[],
@@ -373,25 +369,11 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     }
   }
 
-  /**
-   * Giai đoạn 3 (HITL) — dừng turn khi gặp tool rủi ro: tạo message MỚI
-   * `approval_request` (KHÔNG update message "Đang xử lý..." bằng nội dung
-   * này), lưu checkpoint đủ state để resume (Step 5), rồi trả lời ngắn cho
-   * message "Đang xử lý..." trỏ user sang message chờ duyệt.
-   *
-   * `triggerUserId` (Step 7) đi kèm content để FE biết CHÍNH XÁC ai được phép
-   * bấm Approve/Reject trong channel GROUP (nhiều người thấy cùng 1 card) —
-   * backend vẫn là nơi enforce thật (`resolveApproval()` so `checkpoint.userId`
-   * với JWT, throw `CHECKPOINT_FORBIDDEN` — xem Step 5), field này chỉ để FE
-   * ẩn/disable nút cho đúng UX, không phải lớp bảo mật.
-   *
-   * `messageClient.createMessage()` (message service, TCP) và `checkpoint.create()`
-   * (Postgres của chính orchestration) là 2 hệ khác nhau — không thể bọc
-   * chung 1 transaction. Nếu `checkpoint.create()` lỗi SAU KHI message đã tạo
-   * xong, message "approval_request" sẽ mồ côi (không có checkpoint để
-   * resolve, bấm Approve/Reject mãi mãi ra CHECKPOINT_NOT_FOUND) — bắt lỗi
-   * riêng để sửa NGAY message đó thành lỗi rõ ràng thay vì để treo im lặng.
-   */
+  // Dừng turn khi gặp tool rủi ro: tạo message MỚI "approval_request" (không
+  // update message "Đang xử lý..."), lưu checkpoint để resume (Step 5), rồi
+  // trỏ message "Đang xử lý..." sang message chờ duyệt. `triggerUserId` chỉ
+  // để FE ẩn/disable nút cho user khác trong GROUP — bảo mật thật nằm ở
+  // resolveApproval() (so checkpoint.userId).
   private async pauseForApproval(
     data: IProcessAiTriggerJobData,
     originalPrompt: string,
@@ -400,11 +382,10 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     history: ChatHistoryTurnDto[],
     approvalNeeded: ApprovalRequiredDelegateResult,
   ): Promise<AnswerResult> {
-    const { userId, channelId, workspaceId, channelType, botUserId } = data;
+    const { userId, channelId, botUserId } = data;
     const { approvalRequired: pendingTool, task: pendingTask } = approvalNeeded;
 
     const preview = await this.buildRiskPreview(pendingTool, userId);
-
     const approvalContent = {
       type: 'approval_request',
       tool: pendingTool,
@@ -418,9 +399,48 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       content: approvalContent,
     });
 
+    await this.persistCheckpoint(
+      approvalMessage.id,
+      data,
+      originalPrompt,
+      pendingTool,
+      pendingTask,
+      rounds,
+      history,
+    );
+    await this.attachPendingToolCallTrace(
+      approvalMessage.id,
+      botUserId,
+      approvalContent,
+      toolCalls,
+      pendingTool,
+    );
+
+    this.logger.log(
+      `pauseForApproval() tool=${pendingTool.provider}.${pendingTool.name} approvalMessageId=${approvalMessage.id}`,
+    );
+    return this.buildAnswer(
+      '⏸️ Cần bạn duyệt 1 hành động trước khi tiếp tục — xem tin nhắn bên dưới.',
+      toolCalls,
+    );
+  }
+
+  // createMessage() (message service, TCP) và checkpoint.create() (Postgres
+  // riêng) không bọc chung transaction được — lỗi ở đây để lại message mồ côi
+  // (không checkpoint để resolve) nên sửa NGAY message đó thành lỗi rõ ràng.
+  private async persistCheckpoint(
+    approvalMessageId: string,
+    data: IProcessAiTriggerJobData,
+    originalPrompt: string,
+    pendingTool: PendingToolCall,
+    pendingTask: string,
+    rounds: SupervisorRoundDto[],
+    history: ChatHistoryTurnDto[],
+  ): Promise<void> {
+    const { userId, botUserId, channelId, workspaceId, channelType } = data;
     try {
       await this.checkpoint.create({
-        replyMessageId: approvalMessage.id,
+        replyMessageId: approvalMessageId,
         userId,
         botUserId,
         channelId,
@@ -434,28 +454,31 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       });
     } catch (error) {
       this.logger.error(
-        `pauseForApproval() failed to persist checkpoint for message ${approvalMessage.id}: ${(error as Error).message}`,
+        `persistCheckpoint() failed for message ${approvalMessageId}: ${(error as Error).message}`,
         (error as Error).stack,
       );
       await this.messageClient.updateMessage({
-        id: approvalMessage.id,
+        id: approvalMessageId,
         userId: botUserId,
         content: '⚠️ Không thể tạo yêu cầu duyệt, vui lòng hỏi lại.',
       });
       throw error;
     }
+  }
 
-    // Gắn tool đang chờ duyệt vào toolCalls (kèm mọi tool ĐÃ chạy thật trước
-    // đó trong cùng turn) để timeline (MessageToolCallTimeline) hiện đúng như
-    // mọi message bot khác — trước đây tool này chỉ nằm trong `content.tool`,
-    // không đi qua field `toolCalls` nên timeline không hiện gì. Không dùng
-    // được `createMessage()` cho việc này vì CreateMessageDto (message
-    // service) chưa hỗ trợ `toolCalls` khi tạo — cập nhật thêm 1 lần ngay sau
-    // đó, lỗi thì bỏ qua (chỉ mất phần hiển thị timeline, không ảnh hưởng
-    // checkpoint/luồng duyệt chính).
+  // createMessage() (message service) chưa hỗ trợ toolCalls lúc tạo — gắn
+  // thêm bằng 1 update() riêng để timeline hiện tool đang chờ duyệt giống mọi
+  // message bot khác. Lỗi ở đây chỉ mất phần hiển thị, không ảnh hưởng luồng chính.
+  private async attachPendingToolCallTrace(
+    approvalMessageId: string,
+    botUserId: string,
+    approvalContent: Record<string, unknown>,
+    toolCalls: ToolCallTraceDto[],
+    pendingTool: PendingToolCall,
+  ): Promise<void> {
     try {
       await this.messageClient.updateMessage({
-        id: approvalMessage.id,
+        id: approvalMessageId,
         userId: botUserId,
         content: approvalContent,
         toolCalls: [
@@ -468,30 +491,13 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       });
     } catch (error) {
       this.logger.warn(
-        `pauseForApproval() failed to attach toolCalls trace to message ${approvalMessage.id}: ${(error as Error).message}`,
+        `attachPendingToolCallTrace() failed for message ${approvalMessageId}: ${(error as Error).message}`,
       );
     }
-
-    this.logger.log(
-      `pauseForApproval() tool=${pendingTool.provider}.${pendingTool.name} approvalMessageId=${approvalMessage.id}`,
-    );
-    return this.buildAnswer(
-      '⏸️ Cần bạn duyệt 1 hành động trước khi tiếp tục — xem tin nhắn bên dưới.',
-      toolCalls,
-    );
   }
 
-  private static readonly NO_ESTIMATE_PREVIEW =
-    'Không ước lượng được ảnh hưởng, cân nhắc kỹ trước khi duyệt.';
-
-  /**
-   * Giai đoạn 3 (HITL), Step 6 — chỉ ước lượng được cho `sql_server.execute_write_query`
-   * dạng UPDATE/DELETE (suy ra WHERE từ chính câu lệnh, tự chạy 1 câu
-   * SELECT COUNT(*) read-only tương ứng). INSERT (không có gì để đếm trước) và
-   * `execute_stored_procedure` (không đoán trước được ảnh hưởng của 1 SP tuỳ
-   * ý) chỉ hiện cảnh báo chung — cũng như mọi domain khác ngoài `sql_server`
-   * (VD `github.create_issue`).
-   */
+  // Chỉ ước lượng được UPDATE/DELETE của sql_server.execute_write_query —
+  // INSERT, stored procedure, và domain khác (VD github) chỉ hiện cảnh báo chung.
   private async buildRiskPreview(
     pendingTool: PendingToolCall,
     userId: string,
@@ -506,10 +512,20 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     const target = extractWriteQueryPreviewTarget(
       String(pendingTool.args?.query ?? ''),
     );
-    if (!target) {
-      return AiOrchestrationProcessor.NO_ESTIMATE_PREVIEW;
-    }
+    if (!target) return AiOrchestrationProcessor.NO_ESTIMATE_PREVIEW;
 
+    const count = await this.countAffectedRows(target, userId);
+    if (count === null) return AiOrchestrationProcessor.NO_ESTIMATE_PREVIEW;
+
+    return target.whereClause
+      ? `Sẽ ảnh hưởng ~${count} dòng.`
+      : `⚠️ Câu lệnh KHÔNG có mệnh đề WHERE — sẽ ảnh hưởng TOÀN BỘ bảng (~${count} dòng).`;
+  }
+
+  private async countAffectedRows(
+    target: WriteQueryPreviewTarget,
+    userId: string,
+  ): Promise<number | null> {
     const countQuery = target.whereClause
       ? `SELECT COUNT(*) AS affectedRows FROM ${target.table} WHERE ${target.whereClause}`
       : `SELECT COUNT(*) AS affectedRows FROM ${target.table}`;
@@ -521,115 +537,142 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         args: { query: countQuery },
         ownerId: userId,
       });
-      const count = parseSingleCountResult(extractTextFromMcpResult(result));
-      if (count === null) return AiOrchestrationProcessor.NO_ESTIMATE_PREVIEW;
-
-      return target.whereClause
-        ? `Sẽ ảnh hưởng ~${count} dòng.`
-        : `⚠️ Câu lệnh KHÔNG có mệnh đề WHERE — sẽ ảnh hưởng TOÀN BỘ bảng (~${count} dòng).`;
+      return parseSingleCountResult(extractTextFromMcpResult(result));
     } catch (error) {
       this.logger.warn(
-        `buildRiskPreview() không chạy được câu đếm thử: ${(error as Error).message}`,
+        `countAffectedRows() không chạy được câu đếm thử: ${(error as Error).message}`,
       );
-      return AiOrchestrationProcessor.NO_ESTIMATE_PREVIEW;
+      return null;
     }
   }
 
-  /**
-   * Giai đoạn 3 (HITL), Step 5 — user bấm Approve/Reject trên message
-   * `approval_request`. "Resume" ở đây KHÔNG phải dựng lại đúng session LLM
-   * đã dừng dở (opaque, không serialize được) — mà chạy 1 ReactLoop MỚI cho
-   * đúng agent đó, feed thẳng kết quả tool (đã Approve, chạy thật) vào task
-   * mới, rồi gọi lại `SupervisorService.synthesize()` (đã có từ Giai đoạn 2)
-   * để tổng hợp câu trả lời cuối cùng từ `roundsSoFar` + round mới này.
-   *
-   * Giới hạn đã biết: nếu ReactLoop resume lại gặp tool rủi ro KHÁC (Risk
-   * Gate chặn lần 2), lỗi này rơi vào catch chung bên dưới thay vì tạo
-   * checkpoint mới lồng nhau — chưa hỗ trợ chuỗi approval nối tiếp trong 1
-   * lần resume, để dành sau nếu cần.
-   *
-   * `checkpoint.claim()` chuyển trạng thái bằng 1 UPDATE có điều kiện
-   * (WHERE status='pending') NGAY sau khi xác thực quyền, trước khi thực thi
-   * bất kỳ side effect nào — double-click hoặc 2 tab cùng bấm Approve chỉ 1
-   * request "thắng", request còn lại nhận CHECKPOINT_ALREADY_RESOLVED thay vì
-   * chạy lại tool nguy hiểm lần 2.
-   */
+  // Chỉ làm phần NHANH (check quyền + claim() atomic) rồi trả về ngay —
+  // "approve" thật (gọi tool + resume ReactLoop + synthesize, 2 lượt LLM nối
+  // tiếp) có thể mất 10-20s, đẩy qua queue để HTTP request không phải chờ.
+  // "reject" đủ nhanh (1 lần updateMessage) nên vẫn xử lý luôn tại đây.
   async resolveApproval(dto: ResolveApprovalRequestDto): Promise<void> {
-    const { userId, action } = dto;
-    const replyMessageId = dto.messageId;
-    const checkpoint = await this.checkpoint.findPendingByReplyMessageId({
-      replyMessageId,
-    });
-    if (!checkpoint) {
-      throw new RpcException(ORCHESTRATION_ERROR.CHECKPOINT_NOT_FOUND);
-    }
-    if (checkpoint.userId !== userId) {
-      this.logger.warn(
-        `User ${userId} tried to resolve checkpoint ${checkpoint.id} owned by ${checkpoint.userId}`,
-      );
-      throw new RpcException(ORCHESTRATION_ERROR.CHECKPOINT_FORBIDDEN);
-    }
-
-    const {
-      id,
-      botUserId,
-      channelId,
-      workspaceId,
-      channelType,
-      pendingTool,
-      pendingTask,
-      roundsSoFar,
-      history,
-      originalPrompt,
-    } = checkpoint;
+    const checkpoint = await this.loadOwnedCheckpoint(dto);
     const toStatus =
-      action === 'reject'
+      dto.action === 'reject'
         ? OrchestrationCheckpointStatus.REJECTED
         : OrchestrationCheckpointStatus.APPROVED;
-    const { claimed } = await this.checkpoint.claim({ id, toStatus });
+
+    // Atomic UPDATE (WHERE status='pending') trước khi làm gì khác — double-click/2 tab chỉ 1 request "thắng".
+    const { claimed } = await this.checkpoint.claim({
+      id: checkpoint.id,
+      toStatus,
+    });
     if (!claimed) {
       throw new RpcException(ORCHESTRATION_ERROR.CHECKPOINT_ALREADY_RESOLVED);
     }
 
-    if (action === 'reject') {
-      await this.messageClient.updateMessage({
-        id: replyMessageId,
-        userId: botUserId,
-        content: '❌ Đã huỷ theo yêu cầu.',
-      });
-      await this.agentStream.emitStep(
-        { userId, channelId, messageId: replyMessageId, channelType },
-        { type: 'done' },
+    if (dto.action === 'reject') {
+      await this.rejectCheckpoint(checkpoint, dto.userId);
+      return;
+    }
+
+    // attempts:1 — mcpClient.callTool() không idempotent (VD UPDATE, tạo
+    // issue thật), auto-retry mặc định của queue sẽ chạy lại tool THẬT lần 2.
+    await this.queueService.addJob(
+      EQueueName.AI_ORCHESTRATION_QUEUE,
+      EJobName.PROCESS_APPROVAL,
+      { checkpointId: checkpoint.id, userId: dto.userId },
+      { attempts: 1 },
+    );
+  }
+
+  // Checkpoint đã claim() 'approved' TRƯỚC khi job này chạy (xem
+  // resolveApproval()) — findPendingByReplyMessageId() sẽ không tìm ra nữa
+  // (status không còn 'pending'), nên fetch lại thẳng theo id.
+  private async processApprovalJob(
+    data: IProcessApprovalJobData,
+  ): Promise<void> {
+    const checkpoint = await this.checkpoint.findById({
+      id: data.checkpointId,
+    });
+    if (!checkpoint) {
+      this.logger.error(
+        `processApprovalJob() checkpoint ${data.checkpointId} not found`,
       );
       return;
     }
 
+    // Giai đoạn 4, Step 1 — claim atomic RIÊNG cho lần thực thi, độc lập với
+    // claim() (status) đã chạy trước khi enqueue job này. attempts:1 (Giai
+    // đoạn 3) không chắc chắn chặn được BullMQ stalled-job redelivery (khác cơ
+    // chế với retry-do-lỗi) — claim này chặn dứt điểm mcpClient.callTool()
+    // (không idempotent) chạy lại lần 2 bất kể job bị redeliver kiểu gì.
+    const { claimed } = await this.checkpoint.claimExecution({
+      id: checkpoint.id,
+    });
+    if (!claimed) {
+      this.logger.warn(
+        `processApprovalJob() checkpoint ${checkpoint.id} đã được thực thi trước đó — bỏ qua (job bị retry/redeliver)`,
+      );
+      return;
+    }
+
+    await this.approveCheckpoint(checkpoint, data.userId);
+  }
+
+  private async loadOwnedCheckpoint(
+    dto: ResolveApprovalRequestDto,
+  ): Promise<CheckpointResponseDto> {
+    const checkpoint = await this.checkpoint.findPendingByReplyMessageId({
+      replyMessageId: dto.messageId,
+    });
+    if (!checkpoint) {
+      throw new RpcException(ORCHESTRATION_ERROR.CHECKPOINT_NOT_FOUND);
+    }
+    if (checkpoint.userId !== dto.userId) {
+      this.logger.warn(
+        `User ${dto.userId} tried to resolve checkpoint ${checkpoint.id} owned by ${checkpoint.userId}`,
+      );
+      throw new RpcException(ORCHESTRATION_ERROR.CHECKPOINT_FORBIDDEN);
+    }
+    return checkpoint;
+  }
+
+  private async rejectCheckpoint(
+    checkpoint: CheckpointResponseDto,
+    userId: string,
+  ): Promise<void> {
+    const { replyMessageId, botUserId, channelId, channelType } = checkpoint;
+    await this.messageClient.updateMessage({
+      id: replyMessageId,
+      userId: botUserId,
+      content: '❌ Đã huỷ theo yêu cầu.',
+    });
+    await this.agentStream.emitStep(
+      { userId, channelId, messageId: replyMessageId, channelType },
+      { type: 'done' },
+    );
+  }
+
+  private async approveCheckpoint(
+    checkpoint: CheckpointResponseDto,
+    userId: string,
+  ): Promise<void> {
+    const {
+      id,
+      replyMessageId,
+      botUserId,
+      channelId,
+      channelType,
+      pendingTool,
+      pendingTask,
+      roundsSoFar,
+      originalPrompt,
+    } = checkpoint;
     try {
-      const toolResult = await this.mcpClient.callTool({
-        provider: pendingTool.provider,
-        name: pendingTool.name,
-        args: pendingTool.args,
-        ownerId: userId,
-      });
-      const toolResultText = extractTextFromMcpResult(toolResult);
-
-      const resumeTask = `Hành động "${pendingTool.name}" cho yêu cầu "${pendingTask}" đã được user DUYỆT và THỰC THI THẬT. Kết quả: ${toolResultText}\n\nDựa vào kết quả này, hoàn thành nốt câu hỏi gốc của user.`;
-      const { answer, toolCalls } = await this.reactLoop.run({
-        prompt: resumeTask,
-        provider: pendingTool.provider,
+      const { text, toolCalls } = await this.executeApprovedTool(
+        checkpoint,
         userId,
-        channelId,
-        workspaceId,
-        messageId: replyMessageId,
-        channelType,
-        history,
-      });
-
+      );
       const finalAnswer = await this.supervisor.synthesize(originalPrompt, [
         ...roundsSoFar,
-        { agent: pendingTool.provider, task: pendingTask, result: answer },
+        { agent: pendingTool.provider, task: pendingTask, result: text },
       ]);
-
       await this.messageClient.updateMessage({
         id: replyMessageId,
         userId: botUserId,
@@ -638,25 +681,72 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       });
     } catch (error) {
       this.logger.error(
-        `resolveApproval() failed for checkpoint ${id}: ${(error as Error).message}`,
+        `approveCheckpoint() failed for checkpoint ${id}: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      try {
-        await this.messageClient.updateMessage({
-          id: replyMessageId,
-          userId: botUserId,
-          content: describeExternalServiceError(error),
-        });
-      } catch (updateError) {
-        this.logger.error(
-          `resolveApproval() ALSO failed to display the error on message ${replyMessageId}: ${(updateError as Error).message}`,
-          (updateError as Error).stack,
-        );
-      }
+      await this.tryDisplayError(replyMessageId, botUserId, error);
     } finally {
       await this.agentStream.emitStep(
         { userId, channelId, messageId: replyMessageId, channelType },
         { type: 'done' },
+      );
+    }
+  }
+
+  private async executeApprovedTool(
+    checkpoint: CheckpointResponseDto,
+    userId: string,
+  ): Promise<{ text: string; toolCalls: ToolCallTraceDto[] }> {
+    const {
+      pendingTool,
+      pendingTask,
+      channelId,
+      workspaceId,
+      channelType,
+      replyMessageId,
+      history,
+    } = checkpoint;
+
+    const toolResult = await this.mcpClient.callTool({
+      provider: pendingTool.provider,
+      name: pendingTool.name,
+      args: pendingTool.args,
+      ownerId: userId,
+    });
+    const toolResultText = extractTextFromMcpResult(toolResult);
+    const resumeTask = `Hành động "${pendingTool.name}" cho yêu cầu "${pendingTask}" đã được user DUYỆT và THỰC THI THẬT. Kết quả: ${toolResultText}\n\nDựa vào kết quả này, hoàn thành nốt câu hỏi gốc của user.`;
+
+    const { answer, toolCalls } = await this.reactLoop.run({
+      prompt: resumeTask,
+      provider: pendingTool.provider,
+      userId,
+      channelId,
+      workspaceId,
+      messageId: replyMessageId,
+      channelType,
+      history,
+    });
+    return { text: answer, toolCalls };
+  }
+
+  // Checkpoint đã claim() xong (không rollback) — nếu NGAY CẢ update báo lỗi
+  // này cũng lỗi, tuyệt đối không văng tiếp ra ngoài (bấm lại sẽ luôn ra
+  // CHECKPOINT_NOT_FOUND mà không ai biết lỗi gốc nằm đâu).
+  private async tryDisplayError(
+    replyMessageId: string,
+    botUserId: string,
+    error: unknown,
+  ): Promise<void> {
+    try {
+      await this.messageClient.updateMessage({
+        id: replyMessageId,
+        userId: botUserId,
+        content: describeExternalServiceError(error),
+      });
+    } catch (updateError) {
+      this.logger.error(
+        `tryDisplayError() also failed for message ${replyMessageId}: ${(updateError as Error).message}`,
+        (updateError as Error).stack,
       );
     }
   }

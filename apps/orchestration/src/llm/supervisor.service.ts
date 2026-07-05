@@ -9,11 +9,16 @@ import {
 } from '@slack/constants';
 import { McpAuthClientService } from '../mcp-auth/mcp-auth-client.service';
 import { AGENT_REGISTRY } from '../registry/agents.registry';
-import { AvailableAgentDto, SupervisorDecisionDto, SupervisorRoundDto } from '../dto/supervisor.dto';
+import {
+  AvailableAgentDto,
+  SupervisorDecisionDto,
+  SupervisorRoundDto,
+} from '../dto/supervisor.dto';
 import { ChatHistoryTurnDto } from '../dto/message-client.dto';
 import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
 import { describeExternalServiceError } from './external-service-error.util';
 import { withTimeout } from './with-timeout.util';
+import { CircuitBreakerService } from '../common/circuit-breaker.service';
 
 @Injectable()
 export class SupervisorService {
@@ -22,6 +27,7 @@ export class SupervisorService {
   constructor(
     private readonly mcpAuthClient: McpAuthClientService,
     private readonly llmFactory: LlmStrategyFactory,
+    private readonly circuitBreaker: CircuitBreakerService,
   ) {}
 
   /**
@@ -32,7 +38,10 @@ export class SupervisorService {
   async getAvailableAgents(userId: string): Promise<AvailableAgentDto[]> {
     const statuses = await this.mcpAuthClient.getConnectionStatus(userId);
     return statuses
-      .filter((status) => status.is_connected && AGENT_REGISTRY[status.provider_id]?.endpoint)
+      .filter(
+        (status) =>
+          status.is_connected && AGENT_REGISTRY[status.provider_id]?.endpoint,
+      )
       .map((status) => ({
         provider: status.provider_id,
         label: AGENT_REGISTRY[status.provider_id].label,
@@ -54,30 +63,42 @@ export class SupervisorService {
   ): Promise<SupervisorDecisionDto> {
     const agentListText =
       agents.length > 0
-        ? agents.map((a) => `- ${a.provider} (${a.label}): ${a.description}`).join('\n')
+        ? agents
+            .map((a) => `- ${a.provider} (${a.label}): ${a.description}`)
+            .join('\n')
         : '(Người dùng chưa kết nối agent nào — nếu câu hỏi cần dữ liệu, trả lời "respond" và nhắc user vào Settings để kết nối.)';
 
     const fullPrompt = this.buildPrompt(prompt, previousRounds, history);
 
     try {
       const { strategy, model } = this.llmFactory.resolve(
-        process.env.SUPERVISOR_MODEL ?? ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
+        process.env.SUPERVISOR_MODEL ??
+          ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
       );
-      this.logger.log(`decide() model=${model} agents=${agents.length} historyTurns=${history.length} prompt=${fullPrompt}`);
-      const decision = await withTimeout(
-        strategy.generateStructured<SupervisorDecisionDto>({
-          model,
-          systemInstruction: `${SUPERVISOR_SYSTEM_PROMPT}\n${agentListText}`,
-          prompt: fullPrompt,
-          schema: SUPERVISOR_DECISION_SCHEMA,
-        }),
-        ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
-        `Supervisor decide() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
+      this.logger.log(
+        `decide() model=${model} agents=${agents.length} historyTurns=${history.length} prompt=${fullPrompt}`,
+      );
+      // Giai đoạn 4, Step 6 — circuit breaker theo `strategy.id`, DÙNG CHUNG
+      // key với ReactLoopService (cùng provider LLM chết thì cùng 1 mạch).
+      const decision = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
+        withTimeout(
+          strategy.generateStructured<SupervisorDecisionDto>({
+            model,
+            systemInstruction: `${SUPERVISOR_SYSTEM_PROMPT}\n${agentListText}`,
+            prompt: fullPrompt,
+            schema: SUPERVISOR_DECISION_SCHEMA,
+          }),
+          ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
+          `Supervisor decide() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
+        ),
       );
       this.logger.log(`decide() result=${JSON.stringify(decision)}`);
       return decision;
     } catch (error) {
-      this.logger.error(`Supervisor decide() failed: ${(error as Error).message}`, (error as Error).stack);
+      this.logger.error(
+        `Supervisor decide() failed: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
       return { action: 'respond', answer: describeExternalServiceError(error) };
     }
   }
@@ -87,49 +108,74 @@ export class SupervisorService {
    * tổng hợp NGAY những gì đã thu thập được (Step 9), thay vì trả thẳng kết
    * quả thô của vòng cuối (có thể chỉ là 1 phần nhỏ của câu hỏi lớn).
    */
-  async synthesize(originalPrompt: string, rounds: SupervisorRoundDto[]): Promise<string> {
+  async synthesize(
+    originalPrompt: string,
+    rounds: SupervisorRoundDto[],
+  ): Promise<string> {
     const roundsText = rounds
-      .map((r, i) => `${i + 1}. Agent "${r.agent}" (yêu cầu: "${r.task}") → kết quả: ${r.result}`)
+      .map(
+        (r, i) =>
+          `${i + 1}. Agent "${r.agent}" (yêu cầu: "${r.task}") → kết quả: ${r.result}`,
+      )
       .join('\n');
 
     try {
       const { strategy, model } = this.llmFactory.resolve(
-        process.env.SUPERVISOR_MODEL ?? ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
+        process.env.SUPERVISOR_MODEL ??
+          ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
       );
-      const result = await withTimeout(
-        strategy.generateStructured<{ answer: string }>({
-          model,
-          systemInstruction: SUPERVISOR_SYNTHESIS_PROMPT,
-          prompt: `Câu hỏi gốc: ${originalPrompt}\n\nDữ liệu đã thu thập được:\n${roundsText}`,
-          schema: SUPERVISOR_SYNTHESIS_SCHEMA,
-        }),
-        ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
-        `Supervisor synthesize() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
+      const result = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
+        withTimeout(
+          strategy.generateStructured<{ answer: string }>({
+            model,
+            systemInstruction: SUPERVISOR_SYNTHESIS_PROMPT,
+            prompt: `Câu hỏi gốc: ${originalPrompt}\n\nDữ liệu đã thu thập được:\n${roundsText}`,
+            schema: SUPERVISOR_SYNTHESIS_SCHEMA,
+          }),
+          ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
+          `Supervisor synthesize() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
+        ),
       );
       this.logger.log(`synthesize() result=${result.answer}`);
       return result.answer;
     } catch (error) {
-      this.logger.error(`Supervisor synthesize() failed: ${(error as Error).message}`, (error as Error).stack);
+      this.logger.error(
+        `Supervisor synthesize() failed: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
       return describeExternalServiceError(error);
     }
   }
 
   /** Gộp lịch sử hội thoại (nếu có) + prompt gốc + các vòng delegate đã chạy (nếu có) thành 1 prompt duy nhất. */
-  private buildPrompt(originalPrompt: string, previousRounds: SupervisorRoundDto[], history: ChatHistoryTurnDto[]): string {
+  private buildPrompt(
+    originalPrompt: string,
+    previousRounds: SupervisorRoundDto[],
+    history: ChatHistoryTurnDto[],
+  ): string {
     const sections: string[] = [];
 
     if (history.length > 0) {
-      const historyText = history.map((h) => `${h.role === 'model' ? 'AI' : 'User'}: ${h.text}`).join('\n');
-      sections.push(`Lịch sử hội thoại gần đây (chỉ để hiểu ngữ cảnh, KHÔNG phải yêu cầu mới):\n${historyText}`);
+      const historyText = history
+        .map((h) => `${h.role === 'model' ? 'AI' : 'User'}: ${h.text}`)
+        .join('\n');
+      sections.push(
+        `Lịch sử hội thoại gần đây (chỉ để hiểu ngữ cảnh, KHÔNG phải yêu cầu mới):\n${historyText}`,
+      );
     }
 
     sections.push(`Câu hỏi gốc của user: ${originalPrompt}`);
 
     if (previousRounds.length > 0) {
       const roundsText = previousRounds
-        .map((r, i) => `${i + 1}. Đã delegate agent "${r.agent}" với yêu cầu "${r.task}" → kết quả: ${r.result}`)
+        .map(
+          (r, i) =>
+            `${i + 1}. Đã delegate agent "${r.agent}" với yêu cầu "${r.task}" → kết quả: ${r.result}`,
+        )
         .join('\n');
-      sections.push(`Các bước đã thực hiện trong turn này:\n${roundsText}\n\nDựa vào kết quả trên, quyết định tiếp theo.`);
+      sections.push(
+        `Các bước đã thực hiện trong turn này:\n${roundsText}\n\nDựa vào kết quả trên, quyết định tiếp theo.`,
+      );
     }
 
     return sections.join('\n\n');

@@ -4,6 +4,7 @@ import { CurrentUser, type JwtUser } from '@slack/common';
 import { AiProvidersService } from './ai-providers.service';
 import { SubmitProviderCredentialsDto } from './dto/submit-provider-credentials.dto';
 import { ResolveApprovalDto } from './dto/resolve-approval.dto';
+import { RateLimit } from '../common/guards/rate-limit.decorator';
 
 @ApiTags('ai-providers')
 @ApiBearerAuth()
@@ -54,6 +55,7 @@ export class AiProvidersController {
   }
 
   @Post('approvals/:messageId')
+  @RateLimit({ limit: 10, window: 60 })
   @ApiOperation({
     summary:
       'Approve or reject a pending risky-tool action (HITL, Giai đoạn 3)',

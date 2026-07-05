@@ -19,13 +19,19 @@ import { OpenAiStrategy } from './llm/strategy/openai.strategy';
 import { AnthropicStrategy } from './llm/strategy/anthropic.strategy';
 import { AgentStreamService } from './socket/agent-stream.service';
 import { OrchestrationCheckpointEntity } from './entity/orchestration-checkpoint.entity';
+import { OrchestrationTriggerClaimEntity } from './entity/orchestration-trigger-claim.entity';
 import { CheckpointService } from './checkpoint/checkpoint.service';
 import { CheckpointCleanupService } from './checkpoint/checkpoint-cleanup.service';
+import { TriggerClaimService } from './trigger-claim/trigger-claim.service';
+import { CircuitBreakerService } from './common/circuit-breaker.service';
 
 @Module({
   imports: [
     DatabaseModule,
-    TypeOrmModule.forFeature([OrchestrationCheckpointEntity]),
+    TypeOrmModule.forFeature([
+      OrchestrationCheckpointEntity,
+      OrchestrationTriggerClaimEntity,
+    ]),
     ScheduleModule.forRoot(),
     QueueModule.forRoot(),
     QueueModule.forFeature([
@@ -54,6 +60,8 @@ import { CheckpointCleanupService } from './checkpoint/checkpoint-cleanup.servic
     AgentStreamService,
     CheckpointService,
     CheckpointCleanupService,
+    TriggerClaimService,
+    CircuitBreakerService,
   ],
 })
 export class OrchestrationModule {}
