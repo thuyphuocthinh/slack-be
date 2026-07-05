@@ -46,15 +46,17 @@ export class JwtAuthGuard implements CanActivate {
       const payload = this.jwtService.verify(token);
       this.logger.log(`JWT Payload: ${JSON.stringify(payload)}`);
 
-      // check blacklist
-      if (await this.authCache.isBlacklisted(token)) {
+      // check blacklist + version — 2 lời gọi Redis độc lập (không phụ thuộc
+      // kết quả của nhau), chạy song song thay vì nối tiếp để giảm latency
+      // cho MỌI request có auth (áp dụng toàn app qua APP_GUARD).
+      const [isBlacklisted, currentVersion] = await Promise.all([
+        this.authCache.isBlacklisted(token),
+        this.authCache.getUserTokenVersion(payload.sub),
+      ]);
+
+      if (isBlacklisted) {
         throw new UnauthorizedException(AUTH_ERROR.UNAUTHORIZED);
       }
-
-      // check version
-      const currentVersion = await this.authCache.getUserTokenVersion(
-        payload.sub,
-      );
 
       if (payload.tokenVersion !== currentVersion) {
         throw new UnauthorizedException(AUTH_ERROR.UNAUTHORIZED);

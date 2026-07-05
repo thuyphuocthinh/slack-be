@@ -59,10 +59,15 @@ export class MessageService {
 
   private async checkChannelExist(channelId: string, senderId: string) {
     try {
+      // Bug bảo mật thật: controller phía channel service đọc "memberId"
+      // (payload.memberId, xem channel.controller.ts::getChannel), không phải
+      // "senderId" — gửi sai tên field khiến TypeORM bỏ qua điều kiện lọc
+      // member trong where (field undefined), check "user có phải member
+      // không" thực chất KHÔNG lọc đúng người gửi, chỉ cần đúng channelId.
       const channel = await firstValueFrom(
         this.channelService.send(CHANNEL_MESSAGE_PATTERN.GET_CHANNEL, {
           channelId,
-          senderId,
+          memberId: senderId,
         }),
       );
       if (!channel) {
@@ -350,26 +355,44 @@ export class MessageService {
       },
     );
 
-    // Extract URLs and trigger link preview generation
+    // Extract URLs and trigger link preview generation — enqueue chỉ là 1 lời
+    // gọi Redis (BullMQ), không ảnh hưởng response trả về, đẩy ra nền như
+    // webhook/AI-trigger bên dưới thay vì chặn request chờ enqueue xong.
     const foundUrls = this.extractUrlsFromContent(content);
     if (foundUrls.length > 0) {
-      await this.queueService.addJob(
-        EQueueName.LINK_PREVIEW_QUEUE,
-        EJobName.GENERATE_LINK_PREVIEW,
-        {
-          messageId: savedMessage.id,
-          urls: foundUrls,
-        },
-      );
+      process.nextTick(() => {
+        this.queueService
+          .addJob(
+            EQueueName.LINK_PREVIEW_QUEUE,
+            EJobName.GENERATE_LINK_PREVIEW,
+            {
+              messageId: savedMessage.id,
+              urls: foundUrls,
+            },
+          )
+          .catch((err) => {
+            this.logger.error(
+              `Error enqueueing link preview job: ${err.message}`,
+            );
+          });
+      });
     }
 
-    // 6. Broadcast events and queues
-    await this.broadcastMessageEvents(
-      response,
-      channel,
-      savedMessage,
-      this.dataSource.manager,
-    );
+    // 6. Broadcast events and queues (background) — socket emit/tăng unread
+    // count chỉ THẬT SỰ chạy ở BullMQ worker sau này, `addJob()` ở đây chỉ là
+    // 1-2 lời gọi Redis để enqueue; trước đây `await` thẳng làm response phải
+    // chờ thêm round-trip Redis không cần thiết, và 1 lỗi Redis tạm thời sẽ
+    // khiến client thấy gửi tin nhắn THẤT BẠI dù message đã lưu DB thành công.
+    process.nextTick(() => {
+      this.broadcastMessageEvents(
+        response,
+        channel,
+        savedMessage,
+        this.dataSource.manager,
+      ).catch((err) => {
+        this.logger.error(`Error broadcasting message events: ${err.message}`);
+      });
+    });
 
     // 7. Dispatch Webhook Events to Bot Servers
     process.nextTick(() => {
