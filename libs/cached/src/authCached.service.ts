@@ -42,4 +42,27 @@ export class AuthCacheService {
     const key = CACHE.AUTH.KEYS.TOKEN_VERSION(userId);
     return this.redis.incr(key);
   }
+
+  // Refresh token rotation grace window
+
+  async cacheRotationResult(
+    oldRefreshToken: string,
+    tokens: { accessToken: string; refreshToken: string },
+  ) {
+    const key = CACHE.AUTH.KEYS.ROTATION_GRACE(hashToken(oldRefreshToken));
+    await this.redis.set(
+      key,
+      JSON.stringify(tokens),
+      'EX',
+      CACHE.AUTH.SETTINGS.ROTATION_GRACE_TTL,
+    );
+  }
+
+  async getRotationResult(
+    oldRefreshToken: string,
+  ): Promise<{ accessToken: string; refreshToken: string } | null> {
+    const key = CACHE.AUTH.KEYS.ROTATION_GRACE(hashToken(oldRefreshToken));
+    const cached = await this.redis.get(key);
+    return cached ? JSON.parse(cached) : null;
+  }
 }

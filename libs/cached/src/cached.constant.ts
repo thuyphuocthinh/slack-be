@@ -15,6 +15,14 @@ export const CACHE = {
   AUTH: {
     _VER: 'v1',
 
+    SETTINGS: {
+      // Khung chờ (giây) sau khi 1 refresh token bị rotate: nếu chính token đó bị
+      // dùng lại trong khung này (VD: 2 tab cùng đọc 1 refresh token từ localStorage
+      // và cùng gọi refresh gần như đồng thời) thì trả lại đúng cặp token mới đã
+      // sinh, thay vì coi là bị đánh cắp (reuse detection).
+      ROTATION_GRACE_TTL: 15,
+    },
+
     KEYS: {
       // blacklist access token
       BLACKLIST: (tokenHash: string): string =>
@@ -31,6 +39,10 @@ export const CACHE = {
       // session (optional)
       SESSION: (userId: string, sessionId: string): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:auth:${CACHE.AUTH._VER}:session:${userId}:${sessionId}`,
+
+      // kết quả rotate gần nhất của 1 refresh token đã bị revoke, dùng cho grace window
+      ROTATION_GRACE: (tokenHash: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:auth:${CACHE.AUTH._VER}:rotation_grace:${tokenHash}`,
     },
   },
   USER: {

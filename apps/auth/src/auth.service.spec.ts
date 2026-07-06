@@ -2,14 +2,22 @@ jest.mock('uuid', () => ({
   v7: jest.fn(() => 'uuid-v7'),
 }));
 
+// @slack/common barrel kéo theo "nanoid" (ESM-only) qua string.util.ts —
+// jest không transform được, mock thẳng theo đúng convention đã dùng ở
+// apps/calendar/src/services/attendance.service.spec.ts (và các spec khác).
+jest.mock('nanoid', () => ({
+  customAlphabet: jest.fn(() => jest.fn(() => 'mock-id')),
+}));
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from './auth.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { AuthEntity } from './entity/auth.entity';
 import { SessionEntity } from './entity/session.entity';
 import { VerificationEntity } from './entity/verification.entity';
+import { UserDeviceEntity } from './entity/user-device.entity';
 import { JwtService } from '@nestjs/jwt';
-import { AuthCacheService } from '@slack/cached';
+import { AuthCacheService, PresenceCacheService } from '@slack/cached';
 import { RpcException } from '@nestjs/microservices';
 import {
   NAME_SERVICE_TCP,
@@ -22,7 +30,7 @@ import { of, throwError } from 'rxjs';
 import * as argon2 from 'argon2';
 import { v7 } from 'uuid';
 import { ITokenResponse, ITwoFactorResponse } from './types/auth.response';
-import { QueueService } from '@slack/queue';
+import { EJobName, EQueueName, QueueService } from '@slack/queue';
 import { DataSource } from 'typeorm';
 
 jest.mock('argon2');
@@ -32,10 +40,12 @@ describe('AuthService', () => {
   let authRepository: Repository<AuthEntity>;
   let sessionRepository: Repository<SessionEntity>;
   let verificationRepository: Repository<VerificationEntity>;
+  let userDeviceRepository: Repository<UserDeviceEntity>;
   let userClient: any;
   let notificationClient: any;
   let jwtService: JwtService;
   let authCacheService: AuthCacheService;
+  let presenceCacheService: PresenceCacheService;
   let dataSource: DataSource;
   let queueService: QueueService;
 
@@ -45,6 +55,7 @@ describe('AuthService', () => {
     find: jest.fn(),
     create: jest.fn(),
     save: jest.fn(),
+    update: jest.fn(),
   });
 
   const mockClientProxy = () => ({
@@ -86,6 +97,10 @@ describe('AuthService', () => {
           useFactory: mockRepository,
         },
         {
+          provide: getRepositoryToken(UserDeviceEntity),
+          useFactory: mockRepository,
+        },
+        {
           provide: NAME_SERVICE_TCP.USER_SERVICE,
           useFactory: mockClientProxy,
         },
@@ -107,6 +122,14 @@ describe('AuthService', () => {
             getUserTokenVersion: jest.fn(),
             blacklistToken: jest.fn(),
             bumpUserTokenVersion: jest.fn(),
+            cacheRotationResult: jest.fn(),
+            getRotationResult: jest.fn().mockResolvedValue(null),
+          },
+        },
+        {
+          provide: PresenceCacheService,
+          useValue: {
+            removeStatus: jest.fn(),
           },
         },
         {
@@ -126,10 +149,12 @@ describe('AuthService', () => {
     authRepository = module.get(getRepositoryToken(AuthEntity));
     sessionRepository = module.get(getRepositoryToken(SessionEntity));
     verificationRepository = module.get(getRepositoryToken(VerificationEntity));
+    userDeviceRepository = module.get(getRepositoryToken(UserDeviceEntity));
     userClient = module.get(NAME_SERVICE_TCP.USER_SERVICE);
     notificationClient = module.get(NAME_SERVICE_TCP.NOTIFICATION_SERVICE);
     jwtService = module.get(JwtService);
     authCacheService = module.get(AuthCacheService);
+    presenceCacheService = module.get(PresenceCacheService);
   });
 
   it('should be defined', () => {
@@ -139,27 +164,36 @@ describe('AuthService', () => {
   describe('register', () => {
     const registerDto = { email: 'test@example.com', password: 'password123' };
 
+    // NOTE: register() creates the AuthEntity/VerificationEntity through the
+    // transactional `manager` (mockEntityManager), not the injected repos —
+    // and sends the verification email via queueService.addJob (fire-and-forget),
+    // not notificationClient.emit.
+
     it('should register successfully', async () => {
       (authRepository.findOneBy as jest.Mock).mockResolvedValue(null);
       (argon2.hash as jest.Mock).mockResolvedValue('hashedPassword');
       userClient.send.mockReturnValue(of({ id: 'user-id' }));
-      (authRepository.create as jest.Mock).mockReturnValue({});
-      (verificationRepository.create as jest.Mock).mockReturnValue({
-        code: 'code',
-        userId: 'user-id',
-      });
-      (v7 as jest.Mock).mockReturnValue('uuid-v7');
+      (v7 as jest.Mock).mockReturnValue('verification-code');
+      (mockEntityManager.create as jest.Mock).mockImplementation(
+        (_entity, data) => data,
+      );
+      (mockEntityManager.save as jest.Mock).mockImplementation(
+        async (data) => data,
+      );
 
       const result = await service.register(registerDto);
 
       expect(result).toBe(
         'We have sent you a verification email. Please check your inbox to verify your account.',
       );
-      expect(authRepository.save).toHaveBeenCalled();
-      expect(verificationRepository.save).toHaveBeenCalled();
-      expect(notificationClient.emit).toHaveBeenCalledWith(
-        NOTIFICATION_MESSAGE_PATTERNS.SEND_VERIFICATION_EMAIL,
-        expect.any(Object),
+      expect(mockEntityManager.save).toHaveBeenCalled();
+      expect(queueService.addJob).toHaveBeenCalledWith(
+        EQueueName.EMAIL_QUEUE,
+        EJobName.SEND_VERIFICATION_EMAIL,
+        expect.objectContaining({
+          email: 'test@example.com',
+          code: 'verification-code',
+        }),
       );
     });
 
@@ -178,8 +212,10 @@ describe('AuthService', () => {
         throwError(() => new Error('Creation failed')),
       );
 
+      // The original RPC error message is intentionally swallowed and replaced
+      // with a generic one (see auth.service.ts register() catch block).
       await expect(service.register(registerDto)).rejects.toThrow(
-        'Creation failed',
+        'Failed to create user service record',
       );
     });
   });
@@ -187,25 +223,34 @@ describe('AuthService', () => {
   describe('verifyEmail', () => {
     const verifyDto = { code: 'valid-code' };
 
+    // NOTE: verifyEmail() looks up both entities through the transactional
+    // `manager` (mockEntityManager), not verificationRepository/authRepository
+    // directly, and pushes the status update via userClient.send (RPC call),
+    // not .emit (fire-and-forget).
+
     it('should verify email successfully', async () => {
       const verification = {
         userId: 'user-id',
         expiresAt: new Date(Date.now() + 10000),
         isUsed: false,
       };
-      (verificationRepository.findOne as jest.Mock).mockResolvedValue(
-        verification,
+      const auth = { userId: 'user-id' };
+      (mockEntityManager.findOne as jest.Mock).mockImplementation(
+        (entityClass) => {
+          if (entityClass === VerificationEntity)
+            return Promise.resolve(verification);
+          if (entityClass === AuthEntity) return Promise.resolve(auth);
+          return Promise.resolve(null);
+        },
       );
-      (authRepository.findOne as jest.Mock).mockResolvedValue({
-        userId: 'user-id',
-      });
+      userClient.send.mockReturnValue(of({}));
 
       const result = await service.verifyEmail(verifyDto);
 
       expect(result).toBe('Email successfully verified.');
       expect(verification.isUsed).toBe(true);
-      expect(verificationRepository.save).toHaveBeenCalledWith(verification);
-      expect(userClient.emit).toHaveBeenCalledWith(
+      expect(mockEntityManager.save).toHaveBeenCalledWith(verification);
+      expect(userClient.send).toHaveBeenCalledWith(
         USER_MESSAGE_PATTERNS.CHANGE_USER_STATUS,
         {
           id: 'user-id',
@@ -215,7 +260,7 @@ describe('AuthService', () => {
     });
 
     it('should throw error if verification code not found', async () => {
-      (verificationRepository.findOne as jest.Mock).mockResolvedValue(null);
+      (mockEntityManager.findOne as jest.Mock).mockResolvedValue(null);
 
       await expect(service.verifyEmail(verifyDto)).rejects.toThrow(
         RpcException,
@@ -224,7 +269,7 @@ describe('AuthService', () => {
 
     it('should throw error if verification code expired', async () => {
       const verification = { expiresAt: new Date(Date.now() - 10000) };
-      (verificationRepository.findOne as jest.Mock).mockResolvedValue(
+      (mockEntityManager.findOne as jest.Mock).mockResolvedValue(
         verification,
       );
 
@@ -238,22 +283,21 @@ describe('AuthService', () => {
     const loginDto = { email: 'test@example.com', password: 'password123' };
     const auth = { userId: 'user-id', password: 'hashedPassword' };
 
+    // NOTE: login() fetches the user via USER_MESSAGE_PATTERNS.GET_USER_BY_EMAIL
+    // and reads `user.isTwoFactorEnabled` directly off that response — there is
+    // no separate IS_USER_ENABLE_TWO_FACTOR RPC call.
+
     it('should login successfully', async () => {
       (authRepository.findOne as jest.Mock).mockResolvedValue(auth);
       (argon2.verify as jest.Mock).mockResolvedValue(true);
-      userClient.send.mockImplementation((pattern: string) => {
-        if (pattern === USER_MESSAGE_PATTERNS.GET_USER_BY_ID) {
-          return of({
-            id: 'user-id',
-            email: 'test@example.com',
-            status: 'active',
-          });
-        }
-        if (pattern === USER_MESSAGE_PATTERNS.IS_USER_ENABLE_TWO_FACTOR) {
-          return of(false);
-        }
-        return of(null);
-      });
+      userClient.send.mockReturnValue(
+        of({
+          id: 'user-id',
+          email: 'test@example.com',
+          status: 'active',
+          isTwoFactorEnabled: false,
+        }),
+      );
 
       (authCacheService.getUserTokenVersion as jest.Mock).mockResolvedValue(1);
       (jwtService.signAsync as jest.Mock).mockResolvedValue('token');
@@ -271,19 +315,14 @@ describe('AuthService', () => {
     it('should return tempToken when 2FA is enabled', async () => {
       (authRepository.findOne as jest.Mock).mockResolvedValue(auth);
       (argon2.verify as jest.Mock).mockResolvedValue(true);
-      userClient.send.mockImplementation((pattern: string) => {
-        if (pattern === USER_MESSAGE_PATTERNS.GET_USER_BY_ID) {
-          return of({
-            id: 'user-id',
-            email: 'test@example.com',
-            status: 'active',
-          });
-        }
-        if (pattern === USER_MESSAGE_PATTERNS.IS_USER_ENABLE_TWO_FACTOR) {
-          return of(true);
-        }
-        return of(null);
-      });
+      userClient.send.mockReturnValue(
+        of({
+          id: 'user-id',
+          email: 'test@example.com',
+          status: 'active',
+          isTwoFactorEnabled: true,
+        }),
+      );
 
       (jwtService.signAsync as jest.Mock).mockResolvedValue('temp-token');
 
@@ -319,7 +358,10 @@ describe('AuthService', () => {
     const userId = 'user-id';
 
     it('should verify OTP and return tokens successfully', async () => {
-      (jwtService.verifyAsync as jest.Mock).mockResolvedValue({ userId });
+      (jwtService.verifyAsync as jest.Mock).mockResolvedValue({
+        sub: userId,
+        state: '2FA_OTP_IS_BEING_VERIFIED',
+      });
       userClient.send.mockImplementation((pattern: string) => {
         if (pattern === TWO_FA_MESSAGE_PATTERNS.VERIFY_OTP) {
           return of(true);
@@ -352,7 +394,10 @@ describe('AuthService', () => {
     });
 
     it('should throw error if user not found after OTP verification', async () => {
-      (jwtService.verifyAsync as jest.Mock).mockResolvedValue({ userId });
+      (jwtService.verifyAsync as jest.Mock).mockResolvedValue({
+        sub: userId,
+        state: '2FA_OTP_IS_BEING_VERIFIED',
+      });
       userClient.send.mockImplementation((pattern: string) => {
         if (pattern === TWO_FA_MESSAGE_PATTERNS.VERIFY_OTP) {
           return of(true);
@@ -371,21 +416,25 @@ describe('AuthService', () => {
 
   describe('refresh', () => {
     const refreshDto = { refreshToken: 'valid-refresh-token' };
-    const session = {
+    const baseSession = () => ({
       userId: 'user-id',
       expiresAt: new Date(Date.now() + 10000),
       isRevoked: false,
-    };
+    });
+
+    // NOTE: refresh() reads/writes the session through the transactional
+    // `manager` (mockEntityManager), not the injected `sessionRepository` —
+    // only the reuse-detected branch below falls back to `sessionRepository`.
 
     it('should refresh tokens successfully', async () => {
       (jwtService.verifyAsync as jest.Mock).mockResolvedValue({});
-      (sessionRepository.findOne as jest.Mock).mockResolvedValue(session);
+      (mockEntityManager.findOne as jest.Mock).mockResolvedValue(baseSession());
       (jwtService.decode as jest.Mock).mockReturnValue({
         email: 'test@example.com',
       });
       (authCacheService.getUserTokenVersion as jest.Mock).mockResolvedValue(1);
       (jwtService.signAsync as jest.Mock).mockResolvedValue('new-token');
-      (sessionRepository.create as jest.Mock).mockReturnValue({});
+      (mockEntityManager.create as jest.Mock).mockReturnValue({});
 
       const result = await service.refresh(refreshDto);
 
@@ -394,8 +443,11 @@ describe('AuthService', () => {
         refreshToken: 'new-token',
         type: 'Bearer',
       });
-      expect(session.isRevoked).toBe(true);
-      expect(sessionRepository.save).toHaveBeenCalled();
+      expect(mockEntityManager.save).toHaveBeenCalled();
+      expect(authCacheService.cacheRotationResult).toHaveBeenCalledWith(
+        'valid-refresh-token',
+        { accessToken: 'new-token', refreshToken: 'new-token', type: 'Bearer' },
+      );
     });
 
     it('should throw error if token verification fails', async () => {
@@ -404,11 +456,62 @@ describe('AuthService', () => {
       await expect(service.refresh(refreshDto)).rejects.toThrow(RpcException);
     });
 
-    it('should throw error if session is revoked or expired', async () => {
+    it('should throw error if session does not exist', async () => {
       (jwtService.verifyAsync as jest.Mock).mockResolvedValue({});
-      (sessionRepository.findOne as jest.Mock).mockResolvedValue(null);
+      (mockEntityManager.findOne as jest.Mock).mockResolvedValue(null);
 
       await expect(service.refresh(refreshDto)).rejects.toThrow(RpcException);
+    });
+
+    it('should throw error if session is expired', async () => {
+      (jwtService.verifyAsync as jest.Mock).mockResolvedValue({});
+      (mockEntityManager.findOne as jest.Mock).mockResolvedValue({
+        ...baseSession(),
+        expiresAt: new Date(Date.now() - 1000),
+      });
+
+      await expect(service.refresh(refreshDto)).rejects.toThrow(RpcException);
+    });
+
+    it('returns the previously-issued tokens when a rotated-away token is reused inside the grace window', async () => {
+      (jwtService.verifyAsync as jest.Mock).mockResolvedValue({});
+      (mockEntityManager.findOne as jest.Mock).mockResolvedValue({
+        ...baseSession(),
+        isRevoked: true,
+      });
+      (authCacheService.getRotationResult as jest.Mock).mockResolvedValue({
+        accessToken: 'already-issued-access',
+        refreshToken: 'already-issued-refresh',
+      });
+
+      const result = await service.refresh(refreshDto);
+
+      expect(result).toEqual({
+        accessToken: 'already-issued-access',
+        refreshToken: 'already-issued-refresh',
+        type: 'Bearer',
+      });
+      expect(sessionRepository.update).not.toHaveBeenCalled();
+      expect(authCacheService.bumpUserTokenVersion).not.toHaveBeenCalled();
+    });
+
+    it('revokes every session for the user when a rotated-away token is reused outside the grace window', async () => {
+      (jwtService.verifyAsync as jest.Mock).mockResolvedValue({});
+      (mockEntityManager.findOne as jest.Mock).mockResolvedValue({
+        ...baseSession(),
+        isRevoked: true,
+      });
+      (authCacheService.getRotationResult as jest.Mock).mockResolvedValue(null);
+
+      await expect(service.refresh(refreshDto)).rejects.toThrow(RpcException);
+
+      expect(sessionRepository.update).toHaveBeenCalledWith(
+        { userId: 'user-id', isRevoked: false },
+        { isRevoked: true },
+      );
+      expect(authCacheService.bumpUserTokenVersion).toHaveBeenCalledWith(
+        'user-id',
+      );
     });
   });
 
@@ -483,29 +586,40 @@ describe('AuthService', () => {
 
   describe('logout', () => {
     const logoutDto = { accessToken: 'at', refreshToken: 'rt' };
-    const session = {
-      isRevoked: false,
-      expiresAt: new Date(Date.now() + 10000),
-    };
+
+    // NOTE: logout() revokes the session via a single sessionRepository.update()
+    // call (no findOne) and checks `result.affected` to decide success.
 
     it('should logout successfully', async () => {
-      (sessionRepository.findOne as jest.Mock).mockResolvedValue(session);
+      (sessionRepository.update as jest.Mock).mockResolvedValue({
+        affected: 1,
+      });
+      (jwtService.verifyAsync as jest.Mock).mockResolvedValue({
+        sub: 'user-id',
+      });
 
       const result = await service.logout(logoutDto);
 
       expect(result).toBe('Logout successfully.');
-      expect(session.isRevoked).toBe(true);
+      expect(sessionRepository.update).toHaveBeenCalledWith(
+        expect.objectContaining({ isRevoked: false }),
+        { isRevoked: true },
+      );
       expect(authCacheService.blacklistToken).toHaveBeenCalled();
     });
 
     it('should throw error if session not found during logout', async () => {
-      (sessionRepository.findOne as jest.Mock).mockResolvedValue(null);
+      (sessionRepository.update as jest.Mock).mockResolvedValue({
+        affected: 0,
+      });
 
       await expect(service.logout(logoutDto)).rejects.toThrow(RpcException);
     });
 
     it('should blacklist token during logout', async () => {
-      (sessionRepository.findOne as jest.Mock).mockResolvedValue(session);
+      (sessionRepository.update as jest.Mock).mockResolvedValue({
+        affected: 1,
+      });
 
       await service.logout(logoutDto);
 
@@ -556,7 +670,11 @@ describe('AuthService', () => {
   describe('forgotPassword', () => {
     const email = 'test@example.com';
 
-    it('should create verification and emit event successfully', async () => {
+    // NOTE: forgotPassword() queues the reset email via queueService.addJob
+    // (fire-and-forget, .catch()'d internally) — not notificationClient.emit —
+    // so a queue push failure can no longer make the request itself reject.
+
+    it('should create verification and queue the reset email', async () => {
       (authRepository.findOne as jest.Mock).mockResolvedValue({
         userId: 'user-id',
       });
@@ -568,9 +686,10 @@ describe('AuthService', () => {
 
       expect(result).toBe('Check your email to verify your email.');
       expect(verificationRepository.save).toHaveBeenCalled();
-      expect(notificationClient.emit).toHaveBeenCalledWith(
-        NOTIFICATION_MESSAGE_PATTERNS.SEND_RESET_PASSWORD_EMAIL,
-        expect.any(Object),
+      expect(queueService.addJob).toHaveBeenCalledWith(
+        EQueueName.EMAIL_QUEUE,
+        EJobName.SEND_PASSWORD_RESET_EMAIL,
+        expect.objectContaining({ email, code: 'code' }),
       );
     });
 
@@ -582,25 +701,29 @@ describe('AuthService', () => {
       );
     });
 
-    it('should throw error if email emission fails', async () => {
+    it('should still succeed even if pushing the reset email job fails (fire-and-forget)', async () => {
       (authRepository.findOne as jest.Mock).mockResolvedValue({
         userId: 'user-id',
       });
       (verificationRepository.create as jest.Mock).mockReturnValue({
         code: 'code',
       });
-      notificationClient.emit.mockImplementation(() => {
-        throw new Error('Emit failed');
-      });
+      (queueService.addJob as jest.Mock).mockRejectedValueOnce(
+        new Error('Queue push failed'),
+      );
 
-      await expect(service.forgotPassword({ email })).rejects.toThrow(
-        'Emit failed',
+      await expect(service.forgotPassword({ email })).resolves.toBe(
+        'Check your email to verify your email.',
       );
     });
   });
 
   describe('verifyResetPassword', () => {
     const code = 'valid-code';
+
+    // NOTE: verifyResetPassword() only validates the code + looks up the user —
+    // it does NOT mark the verification as used or persist anything; that
+    // happens later, inside resetPassword()'s own transaction.
 
     it('should verify reset password successfully', async () => {
       const verification = { userId: 'user-id', isUsed: false };
@@ -612,8 +735,7 @@ describe('AuthService', () => {
       const result = await service.verifyResetPassword({ code });
 
       expect(result).toBe('Verify reset password successfully.');
-      expect(verification.isUsed).toBe(true);
-      expect(verificationRepository.save).toHaveBeenCalled();
+      expect(verificationRepository.save).not.toHaveBeenCalled();
     });
 
     it('should throw error if verification code invalid or expired', async () => {
@@ -643,22 +765,29 @@ describe('AuthService', () => {
       password: 'new-password',
     };
 
+    // NOTE: step 1 (find auth by email) still goes through authRepository
+    // directly, but the verification lookup + password update + marking the
+    // code used all happen through the transactional `manager`. The password
+    // is written via a targeted manager.update() call — the local `auth`
+    // object itself is never mutated.
+
     it('should reset password successfully', async () => {
-      const auth = { password: 'old' };
+      const auth = { id: 'auth-id', password: 'old' };
       const verification = { isUsed: false };
       (authRepository.findOne as jest.Mock).mockResolvedValue(auth);
-      (verificationRepository.findOne as jest.Mock).mockResolvedValue(
-        verification,
-      );
+      (mockEntityManager.findOne as jest.Mock).mockResolvedValue(verification);
       (argon2.hash as jest.Mock).mockResolvedValue('new-hashed-password');
 
       const result = await service.resetPassword(resetDto);
 
       expect(result).toBe('Reset password successfully.');
-      expect(auth.password).toBe('new-hashed-password');
       expect(verification.isUsed).toBe(true);
-      expect(authRepository.save).toHaveBeenCalled();
-      expect(verificationRepository.save).toHaveBeenCalled();
+      expect(mockEntityManager.update).toHaveBeenCalledWith(
+        AuthEntity,
+        { id: 'auth-id' },
+        { password: 'new-hashed-password' },
+      );
+      expect(mockEntityManager.save).toHaveBeenCalledWith(verification);
     });
 
     it('should throw error if account not found during reset', async () => {
@@ -671,9 +800,9 @@ describe('AuthService', () => {
 
     it('should throw error if code is invalid/expired during reset', async () => {
       (authRepository.findOne as jest.Mock).mockResolvedValue({
-        userId: 'user-id',
+        id: 'auth-id',
       });
-      (verificationRepository.findOne as jest.Mock).mockResolvedValue(null);
+      (mockEntityManager.findOne as jest.Mock).mockResolvedValue(null);
 
       await expect(service.resetPassword(resetDto)).rejects.toThrow(
         RpcException,
