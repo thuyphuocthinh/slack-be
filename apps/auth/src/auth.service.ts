@@ -414,12 +414,42 @@ export class AuthService {
         const session = await manager.findOne(SessionEntity, {
           where: {
             refreshToken: hashToken(refreshToken),
-            isRevoked: false,
           },
           lock: { mode: 'pessimistic_write' },
         });
 
-        if (!session || session.expiresAt.getTime() < Date.now()) {
+        if (!session) {
+          throw new RpcException(AUTH_ERROR.INVALID_REFRESH_TOKEN);
+        }
+
+        if (session.isRevoked) {
+          // Token này đã được rotate trước đó. Có thể là 1 request khác (VD: tab
+          // thứ 2 cùng đọc chung refresh token từ localStorage) thua trong race
+          // và đến sau — trả lại đúng cặp token vừa sinh cho request thắng, thay
+          // vì coi ngay là bị đánh cắp.
+          const cached =
+            await this.authCacheService.getRotationResult(refreshToken);
+          if (cached) {
+            return {
+              newAccessToken: cached.accessToken,
+              newRefreshToken: cached.refreshToken,
+            };
+          }
+
+          // Ngoài khung grace window -> token cũ bị dùng lại thật sự, khả năng
+          // cao đã bị lộ. Revoke toàn bộ session của user để chặn kẻ tấn công.
+          this.logger.warn(
+            `Refresh token reuse detected for user ${session.userId}. Revoking all sessions.`,
+          );
+          await this.sessionRepository.update(
+            { userId: session.userId, isRevoked: false },
+            { isRevoked: true },
+          );
+          await this.authCacheService.bumpUserTokenVersion(session.userId);
+          throw new RpcException(AUTH_ERROR.INVALID_REFRESH_TOKEN);
+        }
+
+        if (session.expiresAt.getTime() < Date.now()) {
           throw new RpcException(AUTH_ERROR.INVALID_REFRESH_TOKEN);
         }
 
@@ -449,6 +479,9 @@ export class AuthService {
           device: metadata?.device,
         });
         await manager.save(newSession);
+
+        // Ghi lại kết quả rotate để phục vụ grace window ở trên
+        await this.authCacheService.cacheRotationResult(refreshToken, tokens);
 
         return {
           newAccessToken: tokens.accessToken,
