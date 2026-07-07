@@ -11,7 +11,7 @@ import { AuthCacheService } from '@slack/cached';
 import { IS_PUBLIC_KEY } from '@slack/common';
 import { AUTH_ERROR } from '@slack/constants';
 
-const IGNORE_ROUTES = ['docs', 'favicon.ico'];
+const IGNORE_ROUTES = ['/docs', '/favicon.ico'];
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -25,7 +25,10 @@ export class JwtAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    if (IGNORE_ROUTES.some((route) => request.url.includes(route))) {
+    // startsWith (không phải includes) — tránh bắt nhầm path chứa "docs" như
+    // /ai-providers/google_docs/connect làm request bỏ qua auth (req.user
+    // không được set, controller crash khi đọc user.sub).
+    if (IGNORE_ROUTES.some((route) => request.url.startsWith(route))) {
       return true;
     }
 
