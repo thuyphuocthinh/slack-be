@@ -45,10 +45,10 @@ export class MessageController {
   constructor(
     private readonly messageService: MessageService,
     private readonly billingService: BillingService,
-  ) {}
+  ) { }
 
   @Post()
-  @RateLimit({ limit: 10, window: 10 })
+  // @RateLimit({ limit: 10, window: 10 })
   @ApiOperation({ summary: 'Create a new message' })
   async createMessage(
     @Param('workspaceId') workspaceId: string,

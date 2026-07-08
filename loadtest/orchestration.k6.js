@@ -10,47 +10,46 @@ import { check, sleep } from 'k6';
 // ==== CẤU HÌNH LOAD TEST ====
 export const options = {
   stages: [
-    { duration: '10s', target: 50 },  // Ramp-up lên 50 users trong 10s
-    { duration: '30s', target: 50 },  // Giữ mức 50 users trong 30s
+    { duration: '10s', target: 50 }, // Ramp-up lên 50 users trong 10s
+    { duration: '30s', target: 50 }, // Giữ mức 50 users trong 30s
     { duration: '10s', target: 200 }, // Spike lên 200 users để test BullMQ queue
-    { duration: '10s', target: 0 },   // Ramp-down về 0
+    { duration: '10s', target: 0 }, // Ramp-down về 0
   ],
   thresholds: {
     http_req_duration: ['p(95)<1000'], // 95% request phải hoàn thành dưới 1s
-    http_req_failed: ['rate<0.01'],    // Tỉ lệ lỗi phải nhỏ hơn 1%
+    http_req_failed: ['rate<0.01'], // Tỉ lệ lỗi phải nhỏ hơn 1%
   },
 };
 
-// ==== THÔNG TIN TEST ====
-// Thay thế bằng dữ liệu thật ở môi trường local của bác
-const API_URL = 'http://localhost:3000/api/v1/messages'; 
-const AUTH_TOKEN = 'Bearer YOUR_JWT_TOKEN_HERE';
-const CHANNEL_ID = 'YOUR_CHANNEL_ID_HERE';
-// Workspace ID (nếu cần thiết cho API)
-const WORKSPACE_ID = 'YOUR_WORKSPACE_ID_HERE';
+const WORKSPACE_ID = '16c2e327-af40-457c-b361-245c86cf5198';
+const CHANNEL_ID = 'ccb7e0f6-35e3-4ce0-b30c-8c1dedd05208';
+const AUTH_TOKEN =
+  'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzYzE5NWI1My1mZWUxLTRlY2MtOGQwYS05ZTdkOTIzOGM1YmIiLCJlbWFpbCI6InRwdEBnbWFpbC5jb20iLCJ0b2tlblZlcnNpb24iOjEsImlhdCI6MTc4MzUwMzMwOCwiZXhwIjoxNzgzNTA1MTA4fQ.VNgI5bJzCt8NH97lugEIw_XENwOHFzSom5er6P_hIx0';
+const API_URL = `https://api.tpt.io.vn/api/v1/workspaces/${WORKSPACE_ID}/channels/${CHANNEL_ID}/messages`;
 
 export default function () {
   // Payload giả lập việc gửi 1 tin nhắn tag thẳng @AI để trigger Orchestration
   const payload = JSON.stringify({
-    channelId: CHANNEL_ID,
-    workspaceId: WORKSPACE_ID,
     content: `[{"insert":"@AI "},{"attributes":{"mention":{"id":"ai-bot"}},"insert":"\uFEFF"},{"insert":" Hãy load test hệ thống bằng mock LLM!\n"}]`,
-    textPreview: '@AI Hãy load test hệ thống bằng mock LLM!',
   });
 
   const params = {
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': AUTH_TOKEN,
+      Authorization: AUTH_TOKEN,
     },
   };
 
   const res = http.post(API_URL, payload, params);
 
   // K6 check: API phải trả về 2xx
-  check(res, {
+  const isSuccess = check(res, {
     'status is 200 or 201': (r) => r.status === 200 || r.status === 201,
   });
+
+  if (!isSuccess) {
+    console.log(`Failed with status ${res.status}: ${res.body}`);
+  }
 
   // Nghỉ 1-3s giữa các vòng lặp của user (giả lập thao tác người thật)
   sleep(Math.random() * 2 + 1);
