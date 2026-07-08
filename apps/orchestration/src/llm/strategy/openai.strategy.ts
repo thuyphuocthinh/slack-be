@@ -25,11 +25,14 @@ export class OpenAiStrategy implements LlmStrategy {
   private readonly client?: OpenAI;
 
   constructor() {
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.OPENAI_API_KEY || 'fake-key';
     if (apiKey) {
-      // maxRetries: SDK tự retry 429/5xx với backoff — không cần tự viết
-      // lại retry loop như bên GeminiStrategy (SDK Gemini không có sẵn cái này).
-      this.client = new OpenAI({ apiKey, maxRetries: 3 });
+      const baseURL = process.env.AI_ROUTER_URL || 'http://slack-9router:20128/v1';
+      this.client = new OpenAI({ 
+        apiKey,
+        baseURL, // Trỏ thẳng vào 9Router chạy qua Docker
+        maxRetries: 3 
+      });
     } else {
       this.logger.warn(
         'OPENAI_API_KEY is not defined in environment variables',

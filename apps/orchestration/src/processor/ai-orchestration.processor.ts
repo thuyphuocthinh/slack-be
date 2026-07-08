@@ -673,10 +673,31 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         checkpoint,
         userId,
       );
+      
+      // Xoá luồng stream cũ (do ReactLoop vừa chạy trong executeApprovedTool sinh ra)
+      await this.agentStream.emitStep(
+        { userId, channelId, messageId: replyMessageId, channelType },
+        { type: 'done' },
+      );
+
+      // Chuyển Message UI từ ApprovalRequestCard về text để hiện Markdown
+      await this.messageClient.updateMessage({
+        id: replyMessageId,
+        userId: botUserId,
+        content: '🤖 Đang tổng hợp kết quả...',
+      });
+
+      const onToken = (chunk: string) => {
+        this.agentStream.emitStep(
+          { userId, channelId, messageId: replyMessageId, channelType },
+          { type: 'token', text: chunk },
+        ).catch(() => {});
+      };
+
       const finalAnswer = await this.supervisor.synthesize(originalPrompt, [
         ...roundsSoFar,
         { agent: pendingTool.provider, task: pendingTask, result: text },
-      ]);
+      ], onToken);
       await this.messageClient.updateMessage({
         id: replyMessageId,
         userId: botUserId,

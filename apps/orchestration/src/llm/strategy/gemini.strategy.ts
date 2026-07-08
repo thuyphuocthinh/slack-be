@@ -89,15 +89,24 @@ export class GeminiStrategy implements LlmStrategy {
       },
     ];
 
-    const model = this.genAI.getGenerativeModel({
-      model: opts.model,
-      tools,
-      systemInstruction: opts.systemInstruction,
-      generationConfig:
-        opts.temperature !== undefined
-          ? { temperature: opts.temperature }
-          : undefined,
-    });
+    const requestOptions = {
+      baseUrl: process.env.AI_ROUTER_URL 
+        ? process.env.AI_ROUTER_URL.replace(/\/v1$/, '') 
+        : 'http://slack-9router:20128',
+    };
+
+    const model = this.genAI.getGenerativeModel(
+      {
+        model: opts.model,
+        tools,
+        systemInstruction: opts.systemInstruction,
+        generationConfig:
+          opts.temperature !== undefined
+            ? { temperature: opts.temperature }
+            : undefined,
+      },
+      requestOptions,
+    );
     const chat = model.startChat({
       history: this.toGeminiHistory(opts.history),
     });
@@ -110,15 +119,24 @@ export class GeminiStrategy implements LlmStrategy {
       throw new RpcException(ORCHESTRATION_ERROR.LLM_PROVIDER_NOT_CONFIGURED);
     }
 
-    const model = this.genAI.getGenerativeModel({
-      model: opts.model,
-      systemInstruction: opts.systemInstruction,
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: this.toGeminiSchema(opts.schema) as never,
-        temperature: 0,
+    const requestOptions = {
+      baseUrl: process.env.AI_ROUTER_URL 
+        ? process.env.AI_ROUTER_URL.replace(/\/v1$/, '') 
+        : 'http://slack-9router:20128',
+    };
+
+    const model = this.genAI.getGenerativeModel(
+      {
+        model: opts.model,
+        systemInstruction: opts.systemInstruction,
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: this.toGeminiSchema(opts.schema) as never,
+          temperature: 0,
+        },
       },
-    });
+      requestOptions,
+    );
 
     const generate = traceable(
       async (prompt: string) => {

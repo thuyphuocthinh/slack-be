@@ -20,7 +20,8 @@ describe('SupervisorService', () => {
   let service: SupervisorService;
 
   const mockMcpAuthClient = { getConnectionStatus: jest.fn() };
-  const mockStrategy = { id: 'gemini', generateStructured: jest.fn() };
+  const mockSession = { sendMessage: jest.fn() };
+  const mockStrategy = { id: 'gemini', generateStructured: jest.fn(), startChat: jest.fn() };
   const mockLlmFactory = { resolve: jest.fn() };
   // Pass-through mặc định — giữ nguyên hành vi mọi test đã có từ trước Step 6.
   const mockCircuitBreaker = {
@@ -32,6 +33,7 @@ describe('SupervisorService', () => {
       strategy: mockStrategy,
       model: ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
     });
+    mockStrategy.startChat.mockReturnValue(mockSession);
     mockCircuitBreaker.run.mockImplementation(
       (_key: string, action: () => Promise<unknown>) => action(),
     );
@@ -294,8 +296,8 @@ describe('SupervisorService', () => {
 
   describe('synthesize', () => {
     it('asks the LLM to summarize all collected rounds and returns its answer', async () => {
-      mockStrategy.generateStructured.mockResolvedValue({
-        answer: 'Tổng hợp: A có 5 bảng, B có 10 dòng.',
+      mockSession.sendMessage.mockResolvedValue({
+        text: 'Tổng hợp: A có 5 bảng, B có 10 dòng.',
       });
 
       const answer = await service.synthesize('câu hỏi gốc', [
@@ -304,13 +306,13 @@ describe('SupervisorService', () => {
       ]);
 
       expect(answer).toBe('Tổng hợp: A có 5 bảng, B có 10 dòng.');
-      const call = mockStrategy.generateStructured.mock.calls[0][0];
-      expect(call.prompt).toContain('A có 5 bảng');
-      expect(call.prompt).toContain('B có 10 dòng');
+      const call = mockSession.sendMessage.mock.calls[0][0];
+      expect(call).toContain('A có 5 bảng');
+      expect(call).toContain('B có 10 dòng');
     });
 
     it('falls back to the raw error message when the LLM call fails', async () => {
-      mockStrategy.generateStructured.mockRejectedValue(
+      mockSession.sendMessage.mockRejectedValue(
         new Error('provider is down'),
       );
 
@@ -322,7 +324,7 @@ describe('SupervisorService', () => {
     });
 
     it('Giai đoạn 4, Step 6 — routes the LLM call through the breaker keyed by "llm:<strategy.id>"', async () => {
-      mockStrategy.generateStructured.mockResolvedValue({ answer: 'ok' });
+      mockSession.sendMessage.mockResolvedValue({ text: 'ok' });
 
       await service.synthesize('câu hỏi gốc', []);
 

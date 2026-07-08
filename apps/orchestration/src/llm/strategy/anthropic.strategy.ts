@@ -31,10 +31,11 @@ export class AnthropicStrategy implements LlmStrategy {
   private readonly client?: Anthropic;
 
   constructor() {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.ANTHROPIC_API_KEY || 'fake-key';
     if (apiKey) {
+      const baseURL = process.env.AI_ROUTER_URL || 'http://slack-9router:20128/v1';
       // maxRetries: SDK tự retry lỗi tạm thời (429/5xx) với backoff, giống OpenAI.
-      this.client = new Anthropic({ apiKey, maxRetries: 3 });
+      this.client = new Anthropic({ apiKey, baseURL, maxRetries: 3 });
     } else {
       this.logger.warn(
         'ANTHROPIC_API_KEY is not defined in environment variables',
