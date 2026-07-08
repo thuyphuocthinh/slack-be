@@ -84,12 +84,31 @@ export class OpenAiStrategy implements LlmStrategy {
       { name: 'openai.generateStructured', run_type: 'llm' },
     );
 
-    const completion = await generate(opts);
+    let completion = await generate(opts) as any;
+    
+    // Workaround for 9Router bug: Sometimes it returns a double-stringified JSON 
+    // or appends `data: [DONE]` to a non-streaming response.
+    if (typeof completion === 'string') {
+      const cleanStr = completion.replace(/data:\s*\[DONE\]\s*$/g, '').trim();
+      try {
+        completion = JSON.parse(cleanStr);
+      } catch (e) {
+        throw new Error(`9Router parsing error. Raw string: ${cleanStr}`);
+      }
+    }
+
     if (!completion.choices) {
       throw new Error(`9Router/OpenAI Error: ${JSON.stringify(completion)}`);
     }
     const text = completion.choices[0]?.message?.content ?? '{}';
-    return JSON.parse(text) as T;
+    let cleanJson = text.trim();
+    if (cleanJson.startsWith('```json')) {
+      cleanJson = cleanJson.replace(/^```json\n?/, '').replace(/```$/, '').trim();
+    } else if (cleanJson.startsWith('```')) {
+      cleanJson = cleanJson.replace(/^```\n?/, '').replace(/```$/, '').trim();
+    }
+    
+    return JSON.parse(cleanJson) as T;
   }
 }
 

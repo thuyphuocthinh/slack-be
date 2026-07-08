@@ -158,7 +158,15 @@ export class GeminiStrategy implements LlmStrategy {
       { name: 'gemini.generateStructured', run_type: 'llm' },
     );
     const result = await generate(opts.prompt);
-    return JSON.parse(result.response.text()) as T;
+    const text = result.response.text();
+    let cleanJson = text.trim();
+    if (cleanJson.startsWith('```json')) {
+      cleanJson = cleanJson.replace(/^```json\n?/, '').replace(/```$/, '').trim();
+    } else if (cleanJson.startsWith('```')) {
+      cleanJson = cleanJson.replace(/^```\n?/, '').replace(/```$/, '').trim();
+    }
+    
+    return JSON.parse(cleanJson) as T;
   }
 
   /**
