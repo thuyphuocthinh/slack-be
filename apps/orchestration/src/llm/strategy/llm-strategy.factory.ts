@@ -4,6 +4,7 @@ import { LLM_MODEL_REGISTRY, ORCHESTRATION_ERROR, type LlmStrategyId } from '@sl
 import { GeminiStrategy } from './gemini.strategy';
 import { OpenAiStrategy } from './openai.strategy';
 import { AnthropicStrategy } from './anthropic.strategy';
+import { MockStrategy } from './mock.strategy';
 import { LlmStrategy } from './llm-strategy.interface';
 
 /**
@@ -14,17 +15,22 @@ import { LlmStrategy } from './llm-strategy.interface';
  */
 @Injectable()
 export class LlmStrategyFactory {
-  private readonly strategies: Record<LlmStrategyId, LlmStrategy>;
+  private readonly strategies: Record<LlmStrategyId | 'mock', LlmStrategy>;
 
   constructor(
     private readonly gemini: GeminiStrategy,
     private readonly openai: OpenAiStrategy,
     private readonly anthropic: AnthropicStrategy,
+    private readonly mock: MockStrategy,
   ) {
-    this.strategies = { gemini: this.gemini, openai: this.openai, anthropic: this.anthropic };
+    this.strategies = { gemini: this.gemini, openai: this.openai, anthropic: this.anthropic, mock: this.mock };
   }
 
   resolve(modelId: string): { strategy: LlmStrategy; model: string } {
+    if (process.env.LOAD_TEST_MODE === 'true') {
+      return { strategy: this.strategies['mock'], model: 'mock-model' };
+    }
+
     const entry = LLM_MODEL_REGISTRY[modelId];
     if (!entry) {
       throw new RpcException(ORCHESTRATION_ERROR.UNKNOWN_LLM_MODEL);

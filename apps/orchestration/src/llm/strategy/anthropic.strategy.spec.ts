@@ -2,11 +2,12 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { RpcException } from '@nestjs/microservices';
 
 const mockCreate = jest.fn();
+const mockStream = jest.fn();
 
 jest.mock('@anthropic-ai/sdk', () => {
   return jest
     .fn()
-    .mockImplementation(() => ({ messages: { create: mockCreate } }));
+    .mockImplementation(() => ({ messages: { create: mockCreate, stream: mockStream } }));
 });
 
 const mockGetCurrentRunTree = jest.fn();
@@ -53,16 +54,19 @@ describe('AnthropicStrategy', () => {
 
   describe('startChat / sendMessage', () => {
     it('extracts text + tool_use blocks into the generic LlmTurnResult shape', async () => {
-      mockCreate.mockResolvedValue({
-        content: [
-          { type: 'text', text: 'Để trả lời, mình cần xem schema.' },
-          {
-            type: 'tool_use',
-            id: 'toolu_1',
-            name: 'get_schema',
-            input: { table: 'Orders' },
-          },
-        ],
+      mockStream.mockReturnValue({
+        on: jest.fn().mockReturnThis(),
+        finalMessage: async () => ({
+          content: [
+            { type: 'text', text: 'Để trả lời, mình cần xem schema.' },
+            {
+              type: 'tool_use',
+              id: 'toolu_1',
+              name: 'get_schema',
+              input: { table: 'Orders' },
+            },
+          ],
+        }),
       });
 
       const session = strategy.startChat({
@@ -86,16 +90,19 @@ describe('AnthropicStrategy', () => {
         ],
       });
       // system truyền qua tham số "system" riêng, KHÔNG nằm trong mảng messages (khác OpenAI)
-      const firstCallArgs = mockCreate.mock.calls[0][0];
-      expect(firstCallArgs.system).toBe('system prompt');
+      const firstCallArgs = mockStream.mock.calls[0][0];
+      expect(firstCallArgs.system[0].text).toBe('system prompt');
       expect(firstCallArgs.messages.slice(0, 2)).toEqual([
         { role: 'assistant', content: 'chào' },
         { role: 'user', content: 'hỏi gì đó' },
       ]);
     });
 
-    it('passes opts.temperature through to every messages.create call (Step 7)', async () => {
-      mockCreate.mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] });
+    it('passes opts.temperature through to every messages.stream call (Step 7)', async () => {
+      mockStream.mockReturnValue({
+        on: jest.fn().mockReturnThis(),
+        finalMessage: async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+      });
 
       const session = strategy.startChat({
         model: 'claude-haiku',
@@ -106,20 +113,26 @@ describe('AnthropicStrategy', () => {
       });
       await session.sendMessage('hi');
 
-      expect(mockCreate).toHaveBeenCalledWith(
+      expect(mockStream).toHaveBeenCalledWith(
         expect.objectContaining({ temperature: 0.2 }),
       );
     });
 
     it('sends tool results back as a user turn with tool_result blocks, correlated by tool_use_id', async () => {
-      mockCreate
-        .mockResolvedValueOnce({
-          content: [
-            { type: 'tool_use', id: 'toolu_1', name: 'get_schema', input: {} },
-          ],
+      mockStream
+        .mockReturnValueOnce({
+          on: jest.fn().mockReturnThis(),
+          finalMessage: async () => ({
+            content: [
+              { type: 'tool_use', id: 'toolu_1', name: 'get_schema', input: {} },
+            ],
+          }),
         })
-        .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'đã xong' }],
+        .mockReturnValueOnce({
+          on: jest.fn().mockReturnThis(),
+          finalMessage: async () => ({
+            content: [{ type: 'text', text: 'đã xong' }],
+          }),
         });
 
       const session = strategy.startChat({
@@ -134,7 +147,7 @@ describe('AnthropicStrategy', () => {
       ]);
 
       expect(second.text).toBe('đã xong');
-      const secondCallMessages = mockCreate.mock.calls[1][0].messages;
+      const secondCallMessages = mockStream.mock.calls[1][0].messages;
       expect(secondCallMessages.slice(0, 3)).toEqual([
         { role: 'user', content: 'hỏi gì đó' },
         expect.objectContaining({ role: 'assistant' }),
@@ -154,9 +167,12 @@ describe('AnthropicStrategy', () => {
     it('Giai đoạn 4, Step 7 — attaches token usage from message.usage onto the current trace', async () => {
       const runTree: { metadata?: unknown } = {};
       mockGetCurrentRunTree.mockReturnValueOnce(runTree);
-      mockCreate.mockResolvedValue({
-        content: [{ type: 'text', text: 'ok' }],
-        usage: { input_tokens: 40, output_tokens: 9 },
+      mockStream.mockReturnValue({
+        on: jest.fn().mockReturnThis(),
+        finalMessage: async () => ({
+          content: [{ type: 'text', text: 'ok' }],
+          usage: { input_tokens: 40, output_tokens: 9 },
+        }),
       });
 
       const session = strategy.startChat({

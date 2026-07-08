@@ -8,7 +8,7 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, message: string)
         clearTimeout(timer);
         resolve(value);
       },
-      (error) => {
+      (error: any) => {
         clearTimeout(timer);
         reject(error);
       },

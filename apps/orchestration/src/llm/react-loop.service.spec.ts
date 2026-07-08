@@ -138,6 +138,7 @@ describe('ReactLoopService', () => {
     expect(mockSession.sendMessage).toHaveBeenNthCalledWith(
       3,
       ORCHESTRATION_SELF_CHECK_PROMPT,
+      expect.any(Function)
     );
   });
 
@@ -181,6 +182,36 @@ describe('ReactLoopService', () => {
     expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
     // 1 initial + 1 sau tool A + 1 self-check (muốn gọi tool B) + 1 sau tool B = 4
     expect(mockSession.sendMessage).toHaveBeenCalledTimes(4);
+  });
+
+  it('executes multiple tool calls in a single turn in parallel (Giai đoạn 4, Step 2.1)', async () => {
+    mockSession.sendMessage
+      .mockResolvedValueOnce({
+        text: '',
+        toolCalls: [
+          { name: 'get_table1', args: {} },
+          { name: 'get_table2', args: {} },
+        ],
+      })
+      .mockResolvedValueOnce({ text: 'đã tổng hợp xong 2 bảng', toolCalls: [] })
+      .mockResolvedValueOnce({ text: 'xác nhận đã xong', toolCalls: [] });
+
+    // Cố tình delay callTool để kiểm tra tính song song (cả 2 sẽ chạy cùng lúc)
+    let activeCalls = 0;
+    let maxConcurrent = 0;
+    mockMcpClient.callTool.mockImplementation(async () => {
+      activeCalls++;
+      maxConcurrent = Math.max(maxConcurrent, activeCalls);
+      await new Promise(resolve => setTimeout(resolve, 50));
+      activeCalls--;
+      return { content: [{ type: 'text', text: 'data' }], isError: false };
+    });
+
+    const result = await service.run(baseDto);
+
+    expect(result.answer).toBe('đã tổng hợp xong 2 bảng');
+    expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
+    expect(maxConcurrent).toBe(2); // Cả 2 tool đều chạy đồng thời
   });
 
   it('stops after MAX_REACT_STEPS iterations and returns the fallback message if the model never converges', async () => {

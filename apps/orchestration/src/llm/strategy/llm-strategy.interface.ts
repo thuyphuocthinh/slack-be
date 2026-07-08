@@ -55,7 +55,10 @@ export interface LlmChatOptions {
  * `ReactLoopService` chỉ gọi `sendMessage` lặp lại, không tự quản history.
  */
 export interface LlmChatSession {
-  sendMessage(input: string | LlmToolResult[]): Promise<LlmTurnResult>;
+  sendMessage(
+    input: string | LlmToolResult[],
+    onToken?: (chunk: string) => void
+  ): Promise<LlmTurnResult>;
 }
 
 export interface LlmStructuredOptions {

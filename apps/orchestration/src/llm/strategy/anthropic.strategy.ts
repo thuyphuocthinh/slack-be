@@ -110,6 +110,7 @@ class AnthropicChatSession implements LlmChatSession {
   private readonly messages: MessageParam[];
   private readonly tracedSend: (
     input: string | LlmToolResult[],
+    onToken?: (chunk: string) => void,
   ) => Promise<LlmTurnResult>;
 
   constructor(
@@ -131,15 +132,22 @@ class AnthropicChatSession implements LlmChatSession {
     this.tracedSend = traceable(this.rawSend.bind(this), {
       name: 'anthropic.sendMessage',
       run_type: 'llm',
-    }) as (input: string | LlmToolResult[]) => Promise<LlmTurnResult>;
+    }) as (
+      input: string | LlmToolResult[],
+      onToken?: (chunk: string) => void,
+    ) => Promise<LlmTurnResult>;
   }
 
-  sendMessage(input: string | LlmToolResult[]): Promise<LlmTurnResult> {
-    return this.tracedSend(input);
+  sendMessage(
+    input: string | LlmToolResult[],
+    onToken?: (chunk: string) => void,
+  ): Promise<LlmTurnResult> {
+    return this.tracedSend(input, onToken);
   }
 
   private async rawSend(
     input: string | LlmToolResult[],
+    onToken?: (chunk: string) => void,
   ): Promise<LlmTurnResult> {
     if (typeof input === 'string') {
       this.messages.push({ role: 'user', content: input });
@@ -154,14 +162,26 @@ class AnthropicChatSession implements LlmChatSession {
       });
     }
 
-    const message = await this.client.messages.create({
+    const stream = this.client.messages.stream({
       model: this.model,
       max_tokens: MAX_TOKENS,
-      system: this.system,
+      system: [
+        {
+          type: 'text',
+          text: this.system,
+          cache_control: { type: 'ephemeral' },
+        }
+      ],
       messages: this.messages,
       tools: this.tools.length > 0 ? this.tools : undefined,
       temperature: this.temperature,
     });
+
+    if (onToken) {
+      stream.on('text', (textDelta) => onToken(textDelta));
+    }
+
+    const message = await stream.finalMessage();
 
     if (message.usage) {
       attachLlmCostMetadata(this.model, {

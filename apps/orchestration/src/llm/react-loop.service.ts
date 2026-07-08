@@ -68,16 +68,31 @@ export class ReactLoopService {
       { name: 'mcp.callTool' },
     );
 
-    const sendMessage = (input: string | LlmToolResult[]): Promise<LlmTurnResult> =>
+    const sendMessage = (
+      input: string | LlmToolResult[],
+      onToken?: (chunk: string) => void,
+    ): Promise<LlmTurnResult> =>
       this.circuitBreaker.run(`llm:${strategy.id}`, () =>
         withTimeout(
-          session.sendMessage(input),
+          session.sendMessage(input, onToken),
           ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
           `ReactLoop sendMessage() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (provider=${dto.provider}, model=${model})`,
         ),
       );
 
-    return this.executeReactLoop(dto, sendMessage, callTool, toolCalls);
+    const onToken = (chunk: string) => {
+      this.agentStream.emitStep(
+        {
+          userId: dto.userId,
+          channelId: dto.channelId,
+          messageId: dto.messageId,
+          channelType: dto.channelType,
+        },
+        { type: 'token', text: chunk },
+      ).catch(() => {}); // fire and forget
+    };
+
+    return this.executeReactLoop(dto, sendMessage, callTool, toolCalls, onToken);
   }
 
   private async buildSystemInstruction(
@@ -155,11 +170,15 @@ export class ReactLoopService {
 
   private async executeReactLoop(
     dto: RunReactLoopRequestDto,
-    sendMessage: (input: string | LlmToolResult[]) => Promise<LlmTurnResult>,
+    sendMessage: (
+      input: string | LlmToolResult[],
+      onToken?: (chunk: string) => void,
+    ) => Promise<LlmTurnResult>,
     callTool: (name: string, args: Record<string, unknown>) => Promise<string>,
     toolCalls: ToolCallTraceDto[],
+    onToken: (chunk: string) => void,
   ): Promise<RunReactLoopResponseDto> {
-    let turn = await sendMessage(dto.prompt);
+    let turn = await sendMessage(dto.prompt, onToken);
     let selfChecked = false;
 
     for (let step = 0; step < ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS; step++) {
@@ -168,7 +187,7 @@ export class ReactLoopService {
           selfChecked = true;
           const answerBeforeSelfCheck = turn.text;
           this.logger.log('self-check nudge triggered');
-          const selfCheckTurn = await sendMessage(ORCHESTRATION_SELF_CHECK_PROMPT);
+          const selfCheckTurn = await sendMessage(ORCHESTRATION_SELF_CHECK_PROMPT, onToken);
           if (selfCheckTurn.toolCalls.length > 0) {
             turn = selfCheckTurn;
             continue;
@@ -188,13 +207,14 @@ export class ReactLoopService {
         };
       }
 
-      const results: LlmToolResult[] = [];
-      for (const call of turn.toolCalls) {
-        const content = await callTool(call.name, call.args);
-        results.push({ id: call.id, name: call.name, content });
-      }
+      const results: LlmToolResult[] = await Promise.all(
+        turn.toolCalls.map(async (call) => {
+          const content = await callTool(call.name, call.args);
+          return { id: call.id, name: call.name, content };
+        })
+      );
 
-      turn = await sendMessage(results);
+      turn = await sendMessage(results, onToken);
     }
 
     this.logger.warn(

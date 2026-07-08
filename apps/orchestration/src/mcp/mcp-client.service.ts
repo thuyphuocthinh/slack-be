@@ -14,8 +14,8 @@ import {
 import { withTimeout } from '../llm/with-timeout.util';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 
-interface CachedTools {
-  tools: McpToolDto[];
+interface CacheEntry<T> {
+  data: T[];
   fetchedAt: number;
 }
 
@@ -23,11 +23,11 @@ interface CachedTools {
 export class McpClientService {
   private readonly logger = new Logger(McpClientService.name);
   private readonly clients = new Map<string, Client>();
-  private readonly toolsCache = new Map<string, CachedTools>();
-  private readonly resourcesCache = new Map<string, { resources: McpResourceDto[]; fetchedAt: number }>();
-  private readonly promptsCache = new Map<string, { prompts: McpPromptDto[]; fetchedAt: number }>();
+  private readonly toolsCache = new Map<string, CacheEntry<McpToolDto>>();
+  private readonly resourcesCache = new Map<string, CacheEntry<McpResourceDto>>();
+  private readonly promptsCache = new Map<string, CacheEntry<McpPromptDto>>();
 
-  constructor(private readonly circuitBreaker: CircuitBreakerService) {}
+  constructor(private readonly circuitBreaker: CircuitBreakerService) { }
 
   // Header là static per-transport (SDK không hỗ trợ header per-call) — nên
   // cache 1 client riêng cho mỗi (provider, ownerId) khi cần gọi tool thật;
@@ -67,73 +67,58 @@ export class McpClientService {
     return client;
   }
 
-  async getTools(provider: string): Promise<McpToolDto[]> {
-    const cached = this.toolsCache.get(provider);
+  private async getCachedList<T>(
+    provider: string,
+    cacheMap: Map<string, CacheEntry<T>>,
+    fetchFn: (client: Client) => Promise<T[]>,
+  ): Promise<T[]> {
+    const cached = cacheMap.get(provider);
     if (
       cached &&
       Date.now() - cached.fetchedAt <
-        ORCHESTRATION_CONSTANTS.MCP_TOOLS_CACHE_TTL_MS
+      ORCHESTRATION_CONSTANTS.MCP_TOOLS_CACHE_TTL_MS
     ) {
-      return cached.tools;
+      return cached.data;
     }
 
-    const tools = await this.withReconnect(
+    const data = await this.withReconnect(
       provider,
       undefined,
-      async (client) => {
-        const result = await client.listTools();
-        return result.tools as McpToolDto[];
-      },
+      fetchFn
     );
 
-    this.toolsCache.set(provider, { tools, fetchedAt: Date.now() });
-    return tools;
+    cacheMap.set(provider, { data, fetchedAt: Date.now() });
+    return data;
+  }
+
+  async getTools(provider: string): Promise<McpToolDto[]> {
+    return this.getCachedList(provider, this.toolsCache, async (client) => {
+      const result = await client.listTools().catch(e => {
+        this.logger.warn(`listTools failed or not supported for ${provider}: ${e.message}`);
+        return { tools: [] };
+      });
+      return (result.tools || []) as McpToolDto[];
+    });
   }
 
   async getResources(provider: string): Promise<McpResourceDto[]> {
-    const cached = this.resourcesCache.get(provider);
-    if (
-      cached &&
-      Date.now() - cached.fetchedAt <
-        ORCHESTRATION_CONSTANTS.MCP_TOOLS_CACHE_TTL_MS
-    ) {
-      return cached.resources;
-    }
-
-    const resources = await this.withReconnect(
-      provider,
-      undefined,
-      async (client) => {
-        const result = await client.listResources();
-        return (result.resources || []) as McpResourceDto[];
-      },
-    );
-
-    this.resourcesCache.set(provider, { resources, fetchedAt: Date.now() });
-    return resources;
+    return this.getCachedList(provider, this.resourcesCache, async (client) => {
+      const result = await client.listResources().catch(e => {
+        this.logger.warn(`listResources failed or not supported for ${provider}: ${e.message}`);
+        return { resources: [] };
+      });
+      return (result.resources || []) as McpResourceDto[];
+    });
   }
 
   async getPrompts(provider: string): Promise<McpPromptDto[]> {
-    const cached = this.promptsCache.get(provider);
-    if (
-      cached &&
-      Date.now() - cached.fetchedAt <
-        ORCHESTRATION_CONSTANTS.MCP_TOOLS_CACHE_TTL_MS
-    ) {
-      return cached.prompts;
-    }
-
-    const prompts = await this.withReconnect(
-      provider,
-      undefined,
-      async (client) => {
-        const result = await client.listPrompts();
-        return (result.prompts || []) as McpPromptDto[];
-      },
-    );
-
-    this.promptsCache.set(provider, { prompts, fetchedAt: Date.now() });
-    return prompts;
+    return this.getCachedList(provider, this.promptsCache, async (client) => {
+      const result = await client.listPrompts().catch(e => {
+        this.logger.warn(`listPrompts failed or not supported for ${provider}: ${e.message}`);
+        return { prompts: [] };
+      });
+      return (result.prompts || []) as McpPromptDto[];
+    });
   }
 
   async callTool(dto: CallToolRequestDto): Promise<CallToolResponseDto> {
@@ -203,24 +188,35 @@ export class McpClientService {
   ): Promise<T> {
     const cacheKey = `${provider}:${ownerId ?? '__anon__'}`;
     const timeoutMsg = `MCP call timeout sau ${ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS / 1000}s (${cacheKey})`;
-    const client = await this.getClient(provider, ownerId);
-    try {
-      return await withTimeout(
-        fn(client),
-        ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS,
-        timeoutMsg,
-      );
-    } catch (error) {
-      this.logger.warn(
-        `MCP call failed for "${cacheKey}", reconnecting and retrying once: ${error.message}`,
-      );
-      this.clients.delete(cacheKey);
-      const freshClient = await this.getClient(provider, ownerId);
-      return withTimeout(
-        fn(freshClient),
-        ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS,
-        timeoutMsg,
-      );
+
+    const maxRetries = 3;
+    let attempt = 0;
+
+    while (attempt < maxRetries) {
+      try {
+        const client = await this.getClient(provider, ownerId);
+        return await withTimeout(
+          fn(client),
+          ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS,
+          timeoutMsg,
+        );
+      } catch (error: any) {
+        attempt++;
+        this.logger.warn(
+          `MCP call failed for "${cacheKey}", attempt ${attempt}/${maxRetries}: ${error.message}`,
+        );
+        this.clients.delete(cacheKey);
+
+        if (attempt >= maxRetries) {
+          throw error;
+        }
+
+        // Exponential backoff: 500ms, 1500ms...
+        const delay = 500 * Math.pow(3, attempt - 1);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     }
+
+    throw new Error('Unreachable');
   }
 }
