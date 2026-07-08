@@ -212,6 +212,7 @@ export class GeminiStrategy implements LlmStrategy {
 class GeminiChatSession implements LlmChatSession {
   private readonly tracedSend: (
     input: string | LlmToolResult[],
+    onToken?: (chunk: string) => void,
   ) => Promise<LlmTurnResult>;
 
   constructor(
@@ -222,15 +223,19 @@ class GeminiChatSession implements LlmChatSession {
     this.tracedSend = traceable(this.rawSend.bind(this), {
       name: 'gemini.sendMessage',
       run_type: 'llm',
-    }) as (input: string | LlmToolResult[]) => Promise<LlmTurnResult>;
+    }) as (input: string | LlmToolResult[], onToken?: (chunk: string) => void) => Promise<LlmTurnResult>;
   }
 
-  sendMessage(input: string | LlmToolResult[]): Promise<LlmTurnResult> {
-    return this.tracedSend(input);
+  sendMessage(
+    input: string | LlmToolResult[],
+    onToken?: (chunk: string) => void,
+  ): Promise<LlmTurnResult> {
+    return this.tracedSend(input, onToken);
   }
 
   private async rawSend(
     input: string | LlmToolResult[],
+    onToken?: (chunk: string) => void,
   ): Promise<LlmTurnResult> {
     const message: string | Part[] =
       typeof input === 'string'
@@ -243,10 +248,20 @@ class GeminiChatSession implements LlmChatSession {
           }));
 
     const result = await withGeminiRetry(
-      () => this.chat.sendMessage(message),
+      () => this.chat.sendMessageStream(message),
       this.logger,
     );
-    const response = result.response;
+    
+    let fullText = '';
+    for await (const chunk of result.stream) {
+      const chunkText = chunk.text();
+      if (chunkText) {
+        fullText += chunkText;
+        if (onToken) onToken(chunkText);
+      }
+    }
+
+    const response = await result.response;
     const calls = response.functionCalls() ?? [];
 
     const usage = response.usageMetadata;
@@ -258,7 +273,7 @@ class GeminiChatSession implements LlmChatSession {
     }
 
     return {
-      text: response.text() || '',
+      text: fullText,
       toolCalls: calls.map((c) => ({
         name: c.name,
         args: c.args as Record<string, unknown>,

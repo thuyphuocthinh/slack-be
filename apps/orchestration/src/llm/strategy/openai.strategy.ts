@@ -94,6 +94,7 @@ class OpenAiChatSession implements LlmChatSession {
   private readonly messages: ChatCompletionMessageParam[];
   private readonly tracedSend: (
     input: string | LlmToolResult[],
+    onToken?: (chunk: string) => void,
   ) => Promise<LlmTurnResult>;
 
   constructor(
@@ -122,15 +123,19 @@ class OpenAiChatSession implements LlmChatSession {
     this.tracedSend = traceable(this.rawSend.bind(this), {
       name: 'openai.sendMessage',
       run_type: 'llm',
-    }) as (input: string | LlmToolResult[]) => Promise<LlmTurnResult>;
+    }) as (input: string | LlmToolResult[], onToken?: (chunk: string) => void) => Promise<LlmTurnResult>;
   }
 
-  sendMessage(input: string | LlmToolResult[]): Promise<LlmTurnResult> {
-    return this.tracedSend(input);
+  sendMessage(
+    input: string | LlmToolResult[],
+    onToken?: (chunk: string) => void,
+  ): Promise<LlmTurnResult> {
+    return this.tracedSend(input, onToken);
   }
 
   private async rawSend(
     input: string | LlmToolResult[],
+    onToken?: (chunk: string) => void,
   ): Promise<LlmTurnResult> {
     if (typeof input === 'string') {
       this.messages.push({ role: 'user', content: input });
@@ -144,32 +149,53 @@ class OpenAiChatSession implements LlmChatSession {
       }
     }
 
-    const completion = await this.client.chat.completions.create({
+    const stream = await this.client.chat.completions.create({
       model: this.model,
       messages: this.messages,
       tools: this.tools.length > 0 ? this.tools : undefined,
       temperature: this.temperature,
+      stream: true,
     });
 
-    if (completion.usage) {
-      attachLlmCostMetadata(this.model, {
-        inputTokens: completion.usage.prompt_tokens,
-        outputTokens: completion.usage.completion_tokens,
-      });
+    let fullText = '';
+    const toolCallsMap: Record<number, any> = {};
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta;
+      if (!delta) continue;
+
+      if (delta.content) {
+        fullText += delta.content;
+        if (onToken) {
+          onToken(delta.content);
+        }
+      }
+
+      if (delta.tool_calls) {
+        for (const call of delta.tool_calls) {
+          if (!toolCallsMap[call.index]) {
+            toolCallsMap[call.index] = { id: call.id, function: { name: call.function?.name || '', arguments: '' } };
+          }
+          if (call.function?.arguments) {
+            toolCallsMap[call.index].function.arguments += call.function.arguments;
+          }
+        }
+      }
     }
 
-    const message = completion.choices[0].message;
-    this.messages.push(message as ChatCompletionAssistantMessageParam);
+    const toolCalls = Object.values(toolCallsMap).map((call: any) => ({
+      id: call.id,
+      name: call.function.name,
+      args: this.safeParseArgs(call.function.arguments),
+    }));
 
-    const toolCalls = (message.tool_calls ?? [])
-      .filter((call) => call.type === 'function')
-      .map((call) => ({
-        id: call.id,
-        name: call.function.name,
-        args: this.safeParseArgs(call.function.arguments),
-      }));
+    this.messages.push({
+      role: 'assistant',
+      content: fullText || null,
+      tool_calls: Object.values(toolCallsMap).length > 0 ? Object.values(toolCallsMap) : undefined,
+    } as ChatCompletionAssistantMessageParam);
 
-    return { text: message.content ?? '', toolCalls };
+    return { text: fullText, toolCalls };
   }
 
   private safeParseArgs(raw: string): Record<string, unknown> {
