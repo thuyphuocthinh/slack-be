@@ -251,6 +251,25 @@ describe('ReactLoopService', () => {
     );
   });
 
+  it('fetches MCP resources and injects them into systemInstruction', async () => {
+    mockSession.sendMessage.mockResolvedValueOnce({ text: 'ok', toolCalls: [] });
+    
+    mockMcpClient.getResources.mockResolvedValueOnce([
+      { uri: 'resource://1', name: 'DatabaseSchema', description: 'DB' },
+    ]);
+    mockMcpClient.readResource.mockResolvedValueOnce('TABLE users (id INT)');
+
+    await service.run(baseDto);
+
+    expect(mockMcpClient.getResources).toHaveBeenCalledWith('sql_server');
+    expect(mockMcpClient.readResource).toHaveBeenCalledWith('sql_server', 'resource://1', 'user-1');
+    expect(mockStrategy.startChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemInstruction: expect.stringContaining('TABLE users (id INT)'),
+      })
+    );
+  });
+
   describe('tool step streaming (via AgentStreamService)', () => {
     it('emits tool_call then tool_result with the reply messageId/channel context, in order', async () => {
       mockSession.sendMessage

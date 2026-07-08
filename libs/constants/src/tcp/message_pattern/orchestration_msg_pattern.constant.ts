@@ -4,4 +4,5 @@ export const ORCHESTRATION_MESSAGE_PATTERNS = {
   SUBMIT_CREDENTIALS: 'orchestration.submit_credentials',
   DISCONNECT_PROVIDER: 'orchestration.disconnect_provider',
   RESOLVE_APPROVAL: 'orchestration.resolve_approval',
+  TRIGGER_PROMPT: 'orchestration.trigger_prompt',
 } as const;
