@@ -149,6 +149,15 @@ services:
       - '--path.sysfs=/host/sys'
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
 
+  9router:
+    image: decolua/9router:latest
+    container_name: slack-9router
+    restart: always
+    ports:
+      - "20128:20128"
+    volumes:
+      - 9router_data:/root/.9router
+
 # Docker Volume
 volumes:
   redis_cache_data:
@@ -156,6 +165,7 @@ volumes:
   loki_data:
   grafana_data:
   prometheus_data:
+  9router_data:
 
 networks:
   default:
