@@ -49,14 +49,14 @@ export const LLM_MODEL_REGISTRY: Record<string, LlmModelRegistryEntry> = {
   },
   'gpt-4o-mini': {
     strategyId: 'openai',
-    model: 'gpt-4o-mini',
+    model: 'openai/gpt-4o-mini',
     label: 'GPT-4o mini',
     pricePerMillionInputTokens: 0.15,
     pricePerMillionOutputTokens: 0.6,
   },
   'gpt-4o': {
     strategyId: 'openai',
-    model: 'gpt-4o',
+    model: 'openai/gpt-4o',
     label: 'GPT-4o',
     pricePerMillionInputTokens: 2.5,
     pricePerMillionOutputTokens: 10,

@@ -85,6 +85,9 @@ export class OpenAiStrategy implements LlmStrategy {
     );
 
     const completion = await generate(opts);
+    if (!completion.choices) {
+      throw new Error(`9Router/OpenAI Error: ${JSON.stringify(completion)}`);
+    }
     const text = completion.choices[0]?.message?.content ?? '{}';
     return JSON.parse(text) as T;
   }
@@ -164,8 +167,13 @@ class OpenAiChatSession implements LlmChatSession {
     const toolCallsMap: Record<number, any> = {};
 
     for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta;
-      if (!delta) continue;
+      const delta = chunk.choices?.[0]?.delta;
+      if (!delta) {
+        if ((chunk as any).error) {
+           throw new Error(`9Router Stream Error: ${(chunk as any).error.message || JSON.stringify((chunk as any).error)}`);
+        }
+        continue;
+      }
 
       if (delta.content) {
         fullText += delta.content;
