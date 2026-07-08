@@ -111,6 +111,7 @@ export class SupervisorService {
   async synthesize(
     originalPrompt: string,
     rounds: SupervisorRoundDto[],
+    onToken?: (chunk: string) => void,
   ): Promise<string> {
     const roundsText = rounds
       .map(
@@ -124,20 +125,25 @@ export class SupervisorService {
         process.env.SUPERVISOR_MODEL ??
           ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
       );
+      
+      const session = strategy.startChat({
+        model,
+        systemInstruction: SUPERVISOR_SYNTHESIS_PROMPT,
+        tools: [],
+        history: [],
+      });
+      
+      const prompt = `Câu hỏi gốc: ${originalPrompt}\n\nDữ liệu đã thu thập được:\n${roundsText}\n\nHãy tổng hợp các dữ liệu trên thành một câu trả lời hoàn chỉnh cho người dùng.`;
+
       const result = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
         withTimeout(
-          strategy.generateStructured<{ answer: string }>({
-            model,
-            systemInstruction: SUPERVISOR_SYNTHESIS_PROMPT,
-            prompt: `Câu hỏi gốc: ${originalPrompt}\n\nDữ liệu đã thu thập được:\n${roundsText}`,
-            schema: SUPERVISOR_SYNTHESIS_SCHEMA,
-          }),
+          session.sendMessage(prompt, onToken),
           ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
           `Supervisor synthesize() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
         ),
       );
-      this.logger.log(`synthesize() result=${result.answer}`);
-      return result.answer;
+      this.logger.log(`synthesize() result=${result.text}`);
+      return result.text;
     } catch (error) {
       this.logger.error(
         `Supervisor synthesize() failed: ${(error as Error).message}`,

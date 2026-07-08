@@ -28,7 +28,7 @@ export interface AgentStreamStep {
  */
 @Injectable()
 export class AgentStreamService {
-  constructor(private readonly queueService: QueueService) {}
+  constructor(private readonly queueService: QueueService) { }
 
   /**
    * Chi tiết (tool đang chạy, kết quả, done...) → chỉ vào room riêng của
@@ -42,12 +42,5 @@ export class AgentStreamService {
       data: { ...step, channelId: context.channelId, messageId: context.messageId },
     });
 
-    if (context.channelType === 'group') {
-      await this.queueService.addJob(EQueueName.SOCKET_QUEUE, EJobName.EMIT_EVENT, {
-        event: ESocketEvent.AGENT_STREAM,
-        room: context.channelId,
-        data: { type: step.type, channelId: context.channelId, messageId: context.messageId, ...(step.text !== undefined ? { text: step.text } : {}) },
-      });
-    }
   }
 }

@@ -1279,6 +1279,7 @@ describe('AiOrchestrationProcessor', () => {
             result: 'Đơn OrderId=1 đã Completed.',
           },
         ],
+        expect.any(Function),
       );
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
         id: 'approval-msg-1',
