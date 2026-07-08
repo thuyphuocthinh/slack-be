@@ -115,8 +115,22 @@ export class OpenAiStrategy implements LlmStrategy {
       { name: 'openai.generateStructured', run_type: 'llm' },
     );
 
-    const completion = await generate(opts);
-    if (!completion.choices) {
+    let completion = await generate(opts) as any;
+
+    if (typeof completion === 'string' || completion instanceof String) {
+      const rawStr = completion.toString();
+      // Extract the JSON object ignoring any prefixes, suffixes, quotes, or SSE garbage
+      const match = rawStr.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          completion = JSON.parse(match[0]);
+        } catch (e) {
+          throw new Error(`9Router parsing error: Unable to parse extracted JSON. Raw: ${rawStr}`);
+        }
+      }
+    }
+
+    if (!completion || !completion.choices) {
       throw new Error(`9Router/OpenAI Error: ${JSON.stringify(completion)}`);
     }
     
