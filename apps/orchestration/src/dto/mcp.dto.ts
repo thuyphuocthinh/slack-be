@@ -28,3 +28,16 @@ export class CallToolResponseDto {
   // thật sự thành công hay lỗi.
   isError?: boolean;
 }
+
+export class McpResourceDto {
+  uri: string;
+  name: string;
+  description?: string;
+  mimeType?: string;
+}
+
+export class McpPromptDto {
+  name: string;
+  description?: string;
+  arguments?: Array<{ name: string; description?: string; required?: boolean }>;
+}

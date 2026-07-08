@@ -40,12 +40,20 @@ export class OrchestrationController {
       statuses.map(async (status) => {
         const provider = status.provider_id;
         let tools: ProviderSummaryDto['tools'] = [];
+        let resources: ProviderSummaryDto['resources'] = [];
+        let prompts: ProviderSummaryDto['prompts'] = [];
 
         if (AGENT_REGISTRY[provider]?.endpoint) {
           try {
-            tools = await this.mcpClient.getTools(provider);
+            [tools, resources, prompts] = await Promise.all([
+              this.mcpClient.getTools(provider),
+              this.mcpClient.getResources(provider),
+              this.mcpClient.getPrompts(provider)
+            ]);
           } catch {
             tools = [];
+            resources = [];
+            prompts = [];
           }
         }
 
@@ -55,6 +63,8 @@ export class OrchestrationController {
           description: PROVIDER_DESCRIPTIONS[provider] ?? '',
           isConnected: status.is_connected,
           tools,
+          resources,
+          prompts,
         };
       }),
     );

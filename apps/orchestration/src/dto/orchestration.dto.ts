@@ -1,4 +1,4 @@
-import { McpToolDto } from './mcp.dto';
+import { McpToolDto, McpResourceDto, McpPromptDto } from './mcp.dto';
 
 export class GetProvidersRequestDto {
   userId: string;
@@ -10,6 +10,8 @@ export class ProviderSummaryDto {
   description: string;
   isConnected: boolean;
   tools: McpToolDto[];
+  resources: McpResourceDto[];
+  prompts: McpPromptDto[];
 }
 
 export class InitiateConnectProviderRequestDto {

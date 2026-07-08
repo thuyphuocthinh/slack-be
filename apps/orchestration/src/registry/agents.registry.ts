@@ -19,4 +19,24 @@ export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
     label: 'GitHub',
     endpoint: process.env.AGENT_GITHUB_URL,
   },
+  google_sheets: {
+    label: 'Google Sheets',
+    endpoint: process.env.AGENT_GOOGLE_SHEETS_URL,
+  },
+  google_docs: {
+    label: 'Google Docs',
+    endpoint: process.env.AGENT_GOOGLE_DOCS_URL,
+  },
+  google_mail: {
+    label: 'Gmail',
+    endpoint: process.env.AGENT_GOOGLE_MAIL_URL,
+  },
+  google_drive: {
+    label: 'Google Drive',
+    endpoint: process.env.AGENT_GOOGLE_DRIVE_URL,
+  },
+  slack: {
+    label: 'Slack',
+    endpoint: process.env.AGENT_SLACK_URL,
+  },
 };
