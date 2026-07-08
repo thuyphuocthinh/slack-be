@@ -5,12 +5,20 @@ import { CircuitBreakerService } from '../common/circuit-breaker.service';
 const mockConnect = jest.fn();
 const mockListTools = jest.fn();
 const mockCallTool = jest.fn();
+const mockListResources = jest.fn();
+const mockListPrompts = jest.fn();
+const mockReadResource = jest.fn();
+const mockGetPrompt = jest.fn();
 
 jest.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
   Client: jest.fn().mockImplementation(() => ({
     connect: mockConnect,
     listTools: mockListTools,
     callTool: mockCallTool,
+    listResources: mockListResources,
+    listPrompts: mockListPrompts,
+    readResource: mockReadResource,
+    getPrompt: mockGetPrompt,
   })),
 }));
 
@@ -173,6 +181,52 @@ describe('McpClientService', () => {
       ).rejects.toThrow('CIRCUIT BREAKER OPEN');
       expect(mockConnect).not.toHaveBeenCalled();
       expect(mockCallTool).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getResources and getPrompts', () => {
+    it('caches the results of getResources and getPrompts', async () => {
+      mockListResources.mockResolvedValue({
+        resources: [{ uri: 'file://a', name: 'A' }],
+      });
+      mockListPrompts.mockResolvedValue({
+        prompts: [{ name: 'prompt1', description: 'desc' }],
+      });
+
+      await service.getResources('sql_server');
+      await service.getResources('sql_server');
+      expect(mockListResources).toHaveBeenCalledTimes(1);
+
+      await service.getPrompts('sql_server');
+      await service.getPrompts('sql_server');
+      expect(mockListPrompts).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('readResource and getPrompt', () => {
+    it('reads a resource and formats text contents properly', async () => {
+      mockReadResource.mockResolvedValue({
+        contents: [
+          { text: 'line 1' },
+          { blob: 'ignore me' },
+          { text: 'line 2' },
+        ],
+      });
+
+      const text = await service.readResource('sql_server', 'file://test');
+      expect(text).toBe('line 1\nline 2');
+      expect(mockReadResource).toHaveBeenCalledWith({ uri: 'file://test' });
+    });
+
+    it('gets a prompt and returns the full result object', async () => {
+      mockGetPrompt.mockResolvedValue({
+        description: 'Test',
+        messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+      });
+
+      const result = await service.getPrompt('sql_server', 'greet', { name: 'Alice' });
+      expect(result.messages[0].content).toEqual({ type: 'text', text: 'hello' });
+      expect(mockGetPrompt).toHaveBeenCalledWith({ name: 'greet', arguments: { name: 'Alice' } });
     });
   });
 });

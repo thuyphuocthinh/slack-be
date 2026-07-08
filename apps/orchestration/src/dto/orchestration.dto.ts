@@ -49,3 +49,14 @@ export class ResolveApprovalRequestDto {
 export class ResolveApprovalResponseDto {
   success: boolean;
 }
+
+export class TriggerPromptRequestDto {
+  userId: string;
+  provider: string;
+  name: string;
+  args: Record<string, string>;
+}
+
+export class TriggerPromptResponseDto {
+  text: string;
+}

@@ -19,6 +19,8 @@ import {
   ResolveApprovalResponseDto,
   SubmitProviderCredentialsRequestDto,
   SubmitProviderCredentialsResponseDto,
+  TriggerPromptRequestDto,
+  TriggerPromptResponseDto,
 } from './dto/orchestration.dto';
 import { InitiateConnectResponseDto } from './dto/mcp-auth.dto';
 
@@ -109,5 +111,31 @@ export class OrchestrationController {
   ): Promise<ResolveApprovalResponseDto> {
     await this.aiOrchestrationProcessor.resolveApproval(dto);
     return { success: true };
+  }
+
+  @MessagePattern(ORCHESTRATION_MESSAGE_PATTERNS.TRIGGER_PROMPT)
+  async triggerPrompt(
+    @Payload() dto: TriggerPromptRequestDto,
+  ): Promise<TriggerPromptResponseDto> {
+    const result = await this.mcpClient.getPrompt(
+      dto.provider,
+      dto.name,
+      dto.args,
+      dto.userId,
+    );
+
+    // Prompt MCP trả về dạng `messages` (role: user/assistant).
+    // Gộp tất cả thành 1 chuỗi text để Frontend tự gọi API gửi tin nhắn.
+    const text = (result.messages || [])
+      .map((msg) => {
+        if (msg.content.type === 'text') {
+          return msg.content.text;
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n');
+
+    return { text: text || 'Template bị rỗng.' };
   }
 }

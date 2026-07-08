@@ -4,6 +4,7 @@ import { CurrentUser, type JwtUser } from '@slack/common';
 import { AiProvidersService } from './ai-providers.service';
 import { SubmitProviderCredentialsDto } from './dto/submit-provider-credentials.dto';
 import { ResolveApprovalDto } from './dto/resolve-approval.dto';
+import { TriggerPromptDto } from './dto/trigger-prompt.dto';
 import { RateLimit } from '../common/guards/rate-limit.decorator';
 
 @ApiTags('ai-providers')
@@ -69,6 +70,21 @@ export class AiProvidersController {
       user.sub,
       messageId,
       dto.action,
+    );
+  }
+
+  @Post(':provider/prompts')
+  @ApiOperation({ summary: 'Trigger a prompt template to get the resulting text' })
+  async triggerPrompt(
+    @Param('provider') provider: string,
+    @Body() dto: TriggerPromptDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.aiProvidersService.triggerPrompt(
+      user.sub,
+      provider,
+      dto.name,
+      dto.args,
     );
   }
 }

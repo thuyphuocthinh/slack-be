@@ -162,6 +162,18 @@ export class McpClientService {
     });
   }
 
+  async getPrompt(
+    provider: string,
+    name: string,
+    args: Record<string, string>,
+    ownerId?: string,
+  ) {
+    return this.withReconnect(provider, ownerId, async (client) => {
+      const result = await client.getPrompt({ name, arguments: args });
+      return result;
+    });
+  }
+
   /**
    * Giai đoạn 4, Step 6 — circuit breaker theo TỪNG PROVIDER (không theo
    * ownerId — 1 MCP server sập là lỗi hạ tầng, không phải lỗi riêng của 1

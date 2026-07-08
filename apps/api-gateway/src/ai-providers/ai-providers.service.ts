@@ -107,4 +107,28 @@ export class AiProvidersService {
       'AiProvidersService',
     );
   }
+
+  async triggerPrompt(
+    userId: string,
+    provider: string,
+    name: string,
+    args: Record<string, string>,
+  ) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        lastValueFrom(
+          this.orchestrationClient.send(
+            ORCHESTRATION_MESSAGE_PATTERNS.TRIGGER_PROMPT,
+            {
+              userId,
+              provider,
+              name,
+              args,
+            },
+          ),
+        ),
+      'triggerPrompt',
+      'AiProvidersService',
+    );
+  }
 }
