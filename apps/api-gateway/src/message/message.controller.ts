@@ -48,7 +48,7 @@ export class MessageController {
   ) { }
 
   @Post()
-  // @RateLimit({ limit: 10, window: 10 })
+  @RateLimit({ limit: 10, window: 10 })
   @ApiOperation({ summary: 'Create a new message' })
   async createMessage(
     @Param('workspaceId') workspaceId: string,
