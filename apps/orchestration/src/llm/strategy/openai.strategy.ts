@@ -174,7 +174,7 @@ class OpenAiChatSession implements LlmChatSession {
       if (delta.tool_calls) {
         for (const call of delta.tool_calls) {
           if (!toolCallsMap[call.index]) {
-            toolCallsMap[call.index] = { id: call.id, function: { name: call.function?.name || '', arguments: '' } };
+            toolCallsMap[call.index] = { id: call.id, type: 'function', function: { name: call.function?.name || '', arguments: '' } };
           }
           if (call.function?.arguments) {
             toolCallsMap[call.index].function.arguments += call.function.arguments;
