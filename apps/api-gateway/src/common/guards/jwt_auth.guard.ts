@@ -43,7 +43,7 @@ export class JwtAuthGuard implements CanActivate {
     const req = context.switchToHttp().getRequest();
 
     const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return false;
+    if (!token) throw new UnauthorizedException(AUTH_ERROR.UNAUTHORIZED);
 
     try {
       const payload = this.jwtService.verify(token);
