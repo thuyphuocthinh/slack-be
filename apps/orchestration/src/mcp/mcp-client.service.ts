@@ -8,6 +8,8 @@ import {
   CallToolRequestDto,
   CallToolResponseDto,
   McpToolDto,
+  McpResourceDto,
+  McpPromptDto,
 } from '../dto/mcp.dto';
 import { withTimeout } from '../llm/with-timeout.util';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
@@ -22,6 +24,8 @@ export class McpClientService {
   private readonly logger = new Logger(McpClientService.name);
   private readonly clients = new Map<string, Client>();
   private readonly toolsCache = new Map<string, CachedTools>();
+  private readonly resourcesCache = new Map<string, { resources: McpResourceDto[]; fetchedAt: number }>();
+  private readonly promptsCache = new Map<string, { prompts: McpPromptDto[]; fetchedAt: number }>();
 
   constructor(private readonly circuitBreaker: CircuitBreakerService) {}
 
@@ -86,6 +90,52 @@ export class McpClientService {
     return tools;
   }
 
+  async getResources(provider: string): Promise<McpResourceDto[]> {
+    const cached = this.resourcesCache.get(provider);
+    if (
+      cached &&
+      Date.now() - cached.fetchedAt <
+        ORCHESTRATION_CONSTANTS.MCP_TOOLS_CACHE_TTL_MS
+    ) {
+      return cached.resources;
+    }
+
+    const resources = await this.withReconnect(
+      provider,
+      undefined,
+      async (client) => {
+        const result = await client.listResources();
+        return (result.resources || []) as McpResourceDto[];
+      },
+    );
+
+    this.resourcesCache.set(provider, { resources, fetchedAt: Date.now() });
+    return resources;
+  }
+
+  async getPrompts(provider: string): Promise<McpPromptDto[]> {
+    const cached = this.promptsCache.get(provider);
+    if (
+      cached &&
+      Date.now() - cached.fetchedAt <
+        ORCHESTRATION_CONSTANTS.MCP_TOOLS_CACHE_TTL_MS
+    ) {
+      return cached.prompts;
+    }
+
+    const prompts = await this.withReconnect(
+      provider,
+      undefined,
+      async (client) => {
+        const result = await client.listPrompts();
+        return (result.prompts || []) as McpPromptDto[];
+      },
+    );
+
+    this.promptsCache.set(provider, { prompts, fetchedAt: Date.now() });
+    return prompts;
+  }
+
   async callTool(dto: CallToolRequestDto): Promise<CallToolResponseDto> {
     return this.withReconnect(
       dto.provider,
@@ -96,6 +146,20 @@ export class McpClientService {
           arguments: dto.args,
         }) as Promise<CallToolResponseDto>,
     );
+  }
+
+  async readResource(
+    provider: string,
+    uri: string,
+    ownerId?: string,
+  ): Promise<string> {
+    return this.withReconnect(provider, ownerId, async (client) => {
+      const result = await client.readResource({ uri });
+      return (result.contents || [])
+        .map((c) => ('text' in c ? c.text : ''))
+        .filter(Boolean)
+        .join('\n');
+    });
   }
 
   /**

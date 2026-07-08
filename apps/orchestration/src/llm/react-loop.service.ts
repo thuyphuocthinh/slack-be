@@ -13,11 +13,12 @@ import {
   ToolCallTraceDto,
 } from '../dto/react-loop.dto';
 import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
-import { LlmToolResult } from './strategy/llm-strategy.interface';
+import { LlmToolResult, LlmTurnResult } from './strategy/llm-strategy.interface';
 import { AgentStreamService } from '../socket/agent-stream.service';
 import { withTimeout } from './with-timeout.util';
 import { ApprovalRequiredError } from './approval-required.error';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
+import { McpToolDto } from '../dto/mcp.dto';
 
 // Root trace + "done" thuộc về AiOrchestrationProcessor, không phải ở đây.
 @Injectable()
@@ -34,7 +35,10 @@ export class ReactLoopService {
   async run(dto: RunReactLoopRequestDto): Promise<RunReactLoopResponseDto> {
     const toolCalls: ToolCallTraceDto[] = [];
 
-    const mcpTools = await this.mcpClient.getTools(dto.provider);
+    const [mcpTools, systemInstruction] = await Promise.all([
+      this.mcpClient.getTools(dto.provider),
+      this.buildSystemInstruction(dto.provider, dto.userId),
+    ]);
 
     const { strategy, model } = this.llmFactory.resolve(
       dto.model ??
@@ -47,7 +51,7 @@ export class ReactLoopService {
 
     const session = strategy.startChat({
       model,
-      systemInstruction: ORCHESTRATION_SYSTEM_PROMPT,
+      systemInstruction,
       tools: mcpTools.map((t) => ({
         name: t.name,
         description: t.description,
@@ -59,63 +63,12 @@ export class ReactLoopService {
 
     // Wrap ở đây để nest đúng cây trace nếu processor đang có traceable() bao quanh.
     const callTool = traceable(
-      async (name: string, args: Record<string, unknown>) => {
-        // Giai đoạn 3 (HITL) — Risk Gate: tool destructiveHint=true KHÔNG được
-        // gọi thật, dừng ngay ở đây để AiOrchestrationProcessor lưu checkpoint
-        // + tạo message chờ duyệt (xem ApprovalRequiredError).
-        if (
-          mcpTools.find((t) => t.name === name)?.annotations?.destructiveHint
-        ) {
-          this.logger.log(
-            `tool_call ${dto.provider}.${name} requires approval — blocked before execution`,
-          );
-          throw new ApprovalRequiredError(
-            { provider: dto.provider, name, args },
-            toolCalls,
-          );
-        }
-
-        const displayName = `${dto.provider}.${name}`;
-        this.logger.log(
-          `tool_call ${displayName} args=${JSON.stringify(args)}`,
-        );
-        await this.emitStep(dto, { type: 'tool_call', tool: displayName });
-        const result = await this.mcpClient.callTool({
-          provider: dto.provider,
-          name,
-          args,
-          ownerId: dto.userId,
-        });
-        const text = extractTextFromMcpResult(result);
-        const status: 'success' | 'error' = result.isError
-          ? 'error'
-          : 'success';
-        const resultPreview = this.formatResultPreview(text);
-        if (status === 'error') {
-          this.logger.warn(
-            `tool_result ${displayName} FAILED: ${resultPreview}`,
-          );
-        } else {
-          this.logger.log(`tool_result ${displayName} ok: ${resultPreview}`);
-        }
-        await this.emitStep(dto, {
-          type: 'tool_result',
-          tool: displayName,
-          status,
-          resultPreview,
-        });
-        toolCalls.push({ tool: displayName, status, resultPreview });
-        return text;
-      },
+      (name: string, args: Record<string, unknown>) =>
+        this.handleToolCall(name, args, dto, mcpTools, toolCalls),
       { name: 'mcp.callTool' },
     );
 
-    // Không có timeout thì 1 provider bị treo (VD model mới/quá tải) làm cả
-    // turn "Đang xử lý..." vô thời hạn — bọc chung 1 chỗ cho cả 3 lượt gọi.
-    // Giai đoạn 4, Step 6 — circuit breaker theo `strategy.id` (gemini/openai/
-    // anthropic) — provider LLM chết kéo dài thì các lượt gọi SAU fail nhanh
-    // thay vì đợi hết LLM_CALL_TIMEOUT_MS mỗi lần.
-    const sendMessage = (input: string | LlmToolResult[]) =>
+    const sendMessage = (input: string | LlmToolResult[]): Promise<LlmTurnResult> =>
       this.circuitBreaker.run(`llm:${strategy.id}`, () =>
         withTimeout(
           session.sendMessage(input),
@@ -124,6 +77,88 @@ export class ReactLoopService {
         ),
       );
 
+    return this.executeReactLoop(dto, sendMessage, callTool, toolCalls);
+  }
+
+  private async buildSystemInstruction(
+    provider: string,
+    userId: string,
+  ): Promise<string> {
+    const mcpResources = await this.mcpClient.getResources(provider);
+    const resourceContents = await Promise.all(
+      mcpResources.map(async (r) => {
+        try {
+          const content = await this.mcpClient.readResource(provider, r.uri, userId);
+          return `\n--- Resource: ${r.name} ---\n${content}`;
+        } catch (error) {
+          this.logger.warn(`Failed to read resource ${r.uri}: ${(error as Error).message}`);
+          return '';
+        }
+      }),
+    );
+
+    let systemInstruction = ORCHESTRATION_SYSTEM_PROMPT;
+    const injectedResources = resourceContents.filter(Boolean).join('\n');
+    if (injectedResources) {
+      systemInstruction += `\n\nBạn có sẵn các Context/Resources sau trong bộ nhớ để tham khảo, tuyệt đối ưu tiên sử dụng thông tin này nếu liên quan đến câu hỏi của người dùng:\n${injectedResources}`;
+    }
+    return systemInstruction;
+  }
+
+  private async handleToolCall(
+    name: string,
+    args: Record<string, unknown>,
+    dto: RunReactLoopRequestDto,
+    mcpTools: McpToolDto[],
+    toolCalls: ToolCallTraceDto[],
+  ): Promise<string> {
+    if (mcpTools.find((t) => t.name === name)?.annotations?.destructiveHint) {
+      this.logger.log(
+        `tool_call ${dto.provider}.${name} requires approval — blocked before execution`,
+      );
+      throw new ApprovalRequiredError(
+        { provider: dto.provider, name, args },
+        toolCalls,
+      );
+    }
+
+    const displayName = `${dto.provider}.${name}`;
+    this.logger.log(`tool_call ${displayName} args=${JSON.stringify(args)}`);
+    await this.emitStep(dto, { type: 'tool_call', tool: displayName });
+
+    const result = await this.mcpClient.callTool({
+      provider: dto.provider,
+      name,
+      args,
+      ownerId: dto.userId,
+    });
+
+    const text = extractTextFromMcpResult(result);
+    const status: 'success' | 'error' = result.isError ? 'error' : 'success';
+    const resultPreview = this.formatResultPreview(text);
+
+    if (status === 'error') {
+      this.logger.warn(`tool_result ${displayName} FAILED: ${resultPreview}`);
+    } else {
+      this.logger.log(`tool_result ${displayName} ok: ${resultPreview}`);
+    }
+
+    await this.emitStep(dto, {
+      type: 'tool_result',
+      tool: displayName,
+      status,
+      resultPreview,
+    });
+    toolCalls.push({ tool: displayName, status, resultPreview });
+    return text;
+  }
+
+  private async executeReactLoop(
+    dto: RunReactLoopRequestDto,
+    sendMessage: (input: string | LlmToolResult[]) => Promise<LlmTurnResult>,
+    callTool: (name: string, args: Record<string, unknown>) => Promise<string>,
+    toolCalls: ToolCallTraceDto[],
+  ): Promise<RunReactLoopResponseDto> {
     let turn = await sendMessage(dto.prompt);
     let selfChecked = false;
 
@@ -131,18 +166,9 @@ export class ReactLoopService {
       if (turn.toolCalls.length === 0) {
         if (!selfChecked && toolCalls.length > 0) {
           selfChecked = true;
-          // Giữ lại câu trả lời TRƯỚC self-check (đã có dữ liệu thật từ tool) —
-          // model trả lời self-check nudge thường là 1 câu XÁC NHẬN meta ("đã
-          // dùng dữ liệu thật rồi, không cần gọi thêm tool"), KHÔNG PHẢI lặp
-          // lại số liệu. Bug thật gặp khi test: tool trả total_rows=3 nhưng
-          // câu trả lời cuối lại là "14 dòng" — do dùng THẲNG câu xác nhận đó
-          // làm answer, số liệu thật bị mất, Supervisor nhận 1 round rỗng dữ
-          // liệu nên tự bịa số (nhặt nhầm "14" từ nhiễu lịch sử chat gần đó).
           const answerBeforeSelfCheck = turn.text;
           this.logger.log('self-check nudge triggered');
-          const selfCheckTurn = await sendMessage(
-            ORCHESTRATION_SELF_CHECK_PROMPT,
-          );
+          const selfCheckTurn = await sendMessage(ORCHESTRATION_SELF_CHECK_PROMPT);
           if (selfCheckTurn.toolCalls.length > 0) {
             turn = selfCheckTurn;
             continue;
@@ -151,15 +177,11 @@ export class ReactLoopService {
             `run() done at step=${step} toolCalls=${toolCalls.length} (giữ câu trả lời TRƯỚC self-check)`,
           );
           return {
-            answer:
-              answerBeforeSelfCheck ||
-              'Xin lỗi, mình chưa có câu trả lời phù hợp.',
+            answer: answerBeforeSelfCheck || 'Xin lỗi, mình chưa có câu trả lời phù hợp.',
             toolCalls,
           };
         }
-        this.logger.log(
-          `run() done at step=${step} toolCalls=${toolCalls.length}`,
-        );
+        this.logger.log(`run() done at step=${step} toolCalls=${toolCalls.length}`);
         return {
           answer: turn.text || 'Xin lỗi, mình chưa có câu trả lời phù hợp.',
           toolCalls,
@@ -179,9 +201,7 @@ export class ReactLoopService {
       `run() hit MAX_REACT_STEPS=${ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS} userId=${dto.userId}`,
     );
     return {
-      answer:
-        turn.text ||
-        'Xin lỗi, câu hỏi này cần nhiều bước hơn mình hỗ trợ được.',
+      answer: turn.text || 'Xin lỗi, câu hỏi này cần nhiều bước hơn mình hỗ trợ được.',
       toolCalls,
     };
   }

@@ -29,7 +29,12 @@ jest.mock('@slack/common', () => ({
 describe('ReactLoopService', () => {
   let service: ReactLoopService;
 
-  const mockMcpClient = { getTools: jest.fn(), callTool: jest.fn() };
+  const mockMcpClient = { 
+    getTools: jest.fn(), 
+    callTool: jest.fn(),
+    getResources: jest.fn(),
+    readResource: jest.fn(),
+  };
   const mockAgentStream = { emitStep: jest.fn() };
   const mockSession = { sendMessage: jest.fn() };
   const mockStrategy = {
@@ -61,6 +66,8 @@ describe('ReactLoopService', () => {
     mockMcpClient.getTools.mockResolvedValue([
       { name: 'get_database_schema', description: 'desc', inputSchema: {} },
     ]);
+    mockMcpClient.getResources.mockResolvedValue([]);
+    mockMcpClient.readResource.mockResolvedValue('');
     mockMcpClient.callTool.mockResolvedValue({
       content: [{ type: 'text', text: 'result data' }],
       isError: false,
@@ -352,7 +359,7 @@ describe('ReactLoopService', () => {
       const result = await service.run(baseDto);
 
       expect(result.toolCalls[0].resultPreview).toBe(`long result ${longText}`);
-      expect(result.toolCalls[0].resultPreview.length).toBeGreaterThan(200);
+      expect(result.toolCalls[0].resultPreview!.length).toBeGreaterThan(200);
     });
   });
 
