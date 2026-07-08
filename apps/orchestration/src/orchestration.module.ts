@@ -17,6 +17,7 @@ import { LlmStrategyFactory } from './llm/strategy/llm-strategy.factory';
 import { GeminiStrategy } from './llm/strategy/gemini.strategy';
 import { OpenAiStrategy } from './llm/strategy/openai.strategy';
 import { AnthropicStrategy } from './llm/strategy/anthropic.strategy';
+import { MockStrategy } from './llm/strategy/mock.strategy';
 import { AgentStreamService } from './socket/agent-stream.service';
 import { OrchestrationCheckpointEntity } from './entity/orchestration-checkpoint.entity';
 import { OrchestrationTriggerClaimEntity } from './entity/orchestration-trigger-claim.entity';
@@ -57,6 +58,7 @@ import { CircuitBreakerService } from './common/circuit-breaker.service';
     GeminiStrategy,
     OpenAiStrategy,
     AnthropicStrategy,
+    MockStrategy,
     AgentStreamService,
     CheckpointService,
     CheckpointCleanupService,

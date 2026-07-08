@@ -11,10 +11,11 @@ export interface AgentStreamContext {
 }
 
 export interface AgentStreamStep {
-  type: 'tool_call' | 'tool_result' | 'done';
+  type: 'tool_call' | 'tool_result' | 'done' | 'token';
   tool?: string;
   status?: 'success' | 'error';
   resultPreview?: string;
+  text?: string;
 }
 
 /**
@@ -45,7 +46,7 @@ export class AgentStreamService {
       await this.queueService.addJob(EQueueName.SOCKET_QUEUE, EJobName.EMIT_EVENT, {
         event: ESocketEvent.AGENT_STREAM,
         room: context.channelId,
-        data: { type: step.type, channelId: context.channelId, messageId: context.messageId },
+        data: { type: step.type, channelId: context.channelId, messageId: context.messageId, ...(step.text !== undefined ? { text: step.text } : {}) },
       });
     }
   }

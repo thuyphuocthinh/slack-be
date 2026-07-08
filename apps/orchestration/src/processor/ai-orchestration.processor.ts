@@ -63,7 +63,11 @@ type AiOrchestrationJobData =
   | IProcessAiTriggerJobData
   | IProcessApprovalJobData;
 
-@Processor(EQueueName.AI_ORCHESTRATION_QUEUE, { concurrency: 5 })
+@Processor(EQueueName.AI_ORCHESTRATION_QUEUE, { 
+  concurrency: 5,
+  lockDuration: 60000,
+  maxStalledCount: 1 
+})
 export class AiOrchestrationProcessor extends BaseProcessor<
   AiOrchestrationJobData,
   void,

@@ -30,7 +30,7 @@ export class OrchestrationController {
     private readonly mcpAuthClient: McpAuthClientService,
     private readonly mcpClient: McpClientService,
     private readonly aiOrchestrationProcessor: AiOrchestrationProcessor,
-  ) {}
+  ) { }
 
   @MessagePattern(ORCHESTRATION_MESSAGE_PATTERNS.GET_PROVIDERS)
   async getProviders(
