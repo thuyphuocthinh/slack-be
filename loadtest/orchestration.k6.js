@@ -24,7 +24,7 @@ export const options = {
 const WORKSPACE_ID = '16c2e327-af40-457c-b361-245c86cf5198';
 const CHANNEL_ID = 'ccb7e0f6-35e3-4ce0-b30c-8c1dedd05208';
 const AUTH_TOKEN =
-  'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzYzE5NWI1My1mZWUxLTRlY2MtOGQwYS05ZTdkOTIzOGM1YmIiLCJlbWFpbCI6InRwdEBnbWFpbC5jb20iLCJ0b2tlblZlcnNpb24iOjEsImlhdCI6MTc4MzUwMzMwOCwiZXhwIjoxNzgzNTA1MTA4fQ.VNgI5bJzCt8NH97lugEIw_XENwOHFzSom5er6P_hIx0';
+  'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzYzE5NWI1My1mZWUxLTRlY2MtOGQwYS05ZTdkOTIzOGM1YmIiLCJlbWFpbCI6InRwdEBnbWFpbC5jb20iLCJ0b2tlblZlcnNpb24iOjEsImlhdCI6MTc4MzUwNDI4NywiZXhwIjoxNzgzNTA2MDg3fQ.90hi5HEAK0XG0VNoqj6jY8Oqe99f9Yb3hNF0QhoCepg';
 const API_URL = `https://api.tpt.io.vn/api/v1/workspaces/${WORKSPACE_ID}/channels/${CHANNEL_ID}/messages`;
 
 export default function () {

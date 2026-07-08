@@ -23,8 +23,11 @@ export class MockStrategy implements LlmStrategy {
     // Giả lập độ trễ LLM
     await new Promise((resolve) => setTimeout(resolve, 500));
     
-    // Trả về JSON rỗng thay vì parse schema thật
-    return {} as T;
+    // Trả về mock decision để Supervisor không bị nhầm là không có agent
+    return {
+      action: 'respond',
+      answer: '🤖 Hệ thống đang bật chế độ LOAD_TEST_MODE, nên mọi luồng AI thật (OpenAI/Anthropic) đều bị ngắt mạch để tiết kiệm chi phí. Vui lòng vào file `.env` tắt biến môi trường này đi (`LOAD_TEST_MODE=false`) và khởi động lại server để sử dụng AI thật nhé!',
+    } as unknown as T;
   }
 }
 
