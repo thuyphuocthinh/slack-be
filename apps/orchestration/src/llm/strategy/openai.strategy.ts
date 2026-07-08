@@ -28,10 +28,41 @@ export class OpenAiStrategy implements LlmStrategy {
     const apiKey = process.env.OPENAI_API_KEY || 'fake-key';
     if (apiKey) {
       const baseURL = process.env.AI_ROUTER_URL || 'http://slack-9router:20128/v1';
-      this.client = new OpenAI({ 
+      this.client = new OpenAI({
         apiKey,
         baseURL, // Trỏ thẳng vào 9Router chạy qua Docker
-        maxRetries: 3 
+        maxRetries: 3,
+        fetch: async (url: RequestInfo, init?: RequestInit): Promise<Response> => {
+          const response = await fetch(url, init);
+          
+          // Bỏ qua nếu là stream (vì stream chunk được xử lý riêng rẽ)
+          const isStream = init?.body && typeof init.body === 'string' && init.body.includes('"stream":true');
+          
+          // Nếu là API gọi bình thường, ta chặn luồng HTTP response lại để dọn rác do 9Router sinh ra
+          if (!isStream && response.headers.get('content-type')?.includes('application/json')) {
+            let text = await response.text();
+            
+            // 1. Dọn rác `data: [DONE]` do 9Router gắn nhầm vào cuối response
+            text = text.replace(/data:\s*\[DONE\]\s*$/g, '').trim();
+            
+            // 2. Dọn lỗi double-stringified (chuỗi JSON bị mã hoá thành string 2 lần)
+            try {
+              const parsed = JSON.parse(text);
+              if (typeof parsed === 'string') {
+                text = parsed;
+              }
+            } catch (e) {
+              // Bỏ qua nếu parse lỗi, giữ nguyên text gốc
+            }
+
+            return new Response(text, {
+              status: response.status,
+              statusText: response.statusText,
+              headers: response.headers
+            });
+          }
+          return response;
+        }
       });
     } else {
       this.logger.warn(
@@ -84,24 +115,15 @@ export class OpenAiStrategy implements LlmStrategy {
       { name: 'openai.generateStructured', run_type: 'llm' },
     );
 
-    let completion = await generate(opts) as any;
-    
-    // Workaround for 9Router bug: Sometimes it returns a double-stringified JSON 
-    // or appends `data: [DONE]` to a non-streaming response.
-    if (typeof completion === 'string') {
-      const cleanStr = completion.replace(/data:\s*\[DONE\]\s*$/g, '').trim();
-      try {
-        completion = JSON.parse(cleanStr);
-      } catch (e) {
-        throw new Error(`9Router parsing error. Raw string: ${cleanStr}`);
-      }
-    }
-
+    const completion = await generate(opts);
     if (!completion.choices) {
       throw new Error(`9Router/OpenAI Error: ${JSON.stringify(completion)}`);
     }
+    
     const text = completion.choices[0]?.message?.content ?? '{}';
     let cleanJson = text.trim();
+    
+    // Dọn rác Markdown nếu LLM hallucinate (trả về ```json thay vì JSON thuần)
     if (cleanJson.startsWith('```json')) {
       cleanJson = cleanJson.replace(/^```json\n?/, '').replace(/```$/, '').trim();
     } else if (cleanJson.startsWith('```')) {
@@ -189,7 +211,7 @@ class OpenAiChatSession implements LlmChatSession {
       const delta = chunk.choices?.[0]?.delta;
       if (!delta) {
         if ((chunk as any).error) {
-           throw new Error(`9Router Stream Error: ${(chunk as any).error.message || JSON.stringify((chunk as any).error)}`);
+          throw new Error(`9Router Stream Error: ${(chunk as any).error.message || JSON.stringify((chunk as any).error)}`);
         }
         continue;
       }
