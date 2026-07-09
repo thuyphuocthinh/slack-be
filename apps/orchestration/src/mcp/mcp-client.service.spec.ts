@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { McpClientService } from './mcp-client.service';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
+import { DynamicToolRegistryService } from '../registry/dynamic-tool-registry.service';
+import { DynamicToolExecutorService } from '../executor/dynamic-tool-executor.service';
 
 const mockConnect = jest.fn();
 const mockListTools = jest.fn();
@@ -54,6 +56,8 @@ describe('McpClientService', () => {
       providers: [
         McpClientService,
         { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
+        { provide: DynamicToolRegistryService, useValue: { isDynamicProvider: jest.fn().mockReturnValue(false) } },
+        { provide: DynamicToolExecutorService, useValue: {} },
       ],
     }).compile();
 

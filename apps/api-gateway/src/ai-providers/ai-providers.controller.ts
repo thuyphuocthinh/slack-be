@@ -5,6 +5,7 @@ import { AiProvidersService } from './ai-providers.service';
 import { SubmitProviderCredentialsDto } from './dto/submit-provider-credentials.dto';
 import { ResolveApprovalDto } from './dto/resolve-approval.dto';
 import { TriggerPromptDto } from './dto/trigger-prompt.dto';
+import { RegisterDynamicProviderDto } from './dto/register-dynamic-provider.dto';
 import { RateLimit } from '../common/guards/rate-limit.decorator';
 
 @ApiTags('ai-providers')
@@ -86,5 +87,28 @@ export class AiProvidersController {
       dto.name,
       dto.args,
     );
+  }
+
+  @Post('dynamic')
+  @ApiOperation({ summary: 'Register a new dynamic custom Swagger provider' })
+  async registerDynamicProvider(
+    @Body() dto: RegisterDynamicProviderDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.aiProvidersService.registerDynamicProvider(
+      user.sub,
+      dto.name,
+      dto.specUrl,
+      dto.apiKey,
+    );
+  }
+
+  @Delete('dynamic/:providerId')
+  @ApiOperation({ summary: 'Delete a dynamic custom Swagger provider' })
+  async deleteDynamicProvider(
+    @Param('providerId') providerId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.aiProvidersService.deleteDynamicProvider(user.sub, providerId);
   }
 }

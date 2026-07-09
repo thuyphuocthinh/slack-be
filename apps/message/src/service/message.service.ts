@@ -466,7 +466,11 @@ export class MessageService {
       },
       // Giai đoạn 4, Step 1 — jobId tường minh, BullMQ tự chặn enqueue trùng
       // cho CÙNG messageId (VD race ở tầng gọi tạo 2 job cho 1 message).
-      { jobId: `ai_trigger_${savedMessage.id}` },
+      { 
+        jobId: `ai_trigger_${savedMessage.id}`,
+        attempts: 3, 
+        backoff: { type: 'exponential', delay: 3000 } 
+      },
     );
   }
 
