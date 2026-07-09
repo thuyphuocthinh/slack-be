@@ -5,7 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DynamicProviderEntity } from '../entity/dynamic-provider.entity';
 
-@Processor(EQueueName.AI_ORCHESTRATION_QUEUE, {
+@Processor(EQueueName.DYNAMIC_PROVIDER_QUEUE, {
   concurrency: 2,
   lockDuration: 30000,
 })

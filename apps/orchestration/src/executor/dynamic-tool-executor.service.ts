@@ -160,7 +160,7 @@ export class DynamicToolExecutorService {
 
       // Đẩy vào Queue để đảm bảo token được lưu xuống DB 100% (có retry)
       this.queueService.addJob(
-        EQueueName.AI_ORCHESTRATION_QUEUE,
+        EQueueName.DYNAMIC_PROVIDER_QUEUE,
         EJobName.UPDATE_DYNAMIC_PROVIDER_TOKEN,
         {
           providerId,
