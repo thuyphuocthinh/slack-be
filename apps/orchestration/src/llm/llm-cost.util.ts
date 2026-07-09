@@ -14,7 +14,11 @@ export function estimateCostUsd(
   modelId: string,
   usage: TokenUsage,
 ): number | null {
-  const entry = LLM_MODEL_REGISTRY[modelId];
+  let entry = LLM_MODEL_REGISTRY[modelId];
+  if (!entry) {
+    // Reverse lookup cho trường hợp dùng 9Router (modelId bị gắn thêm tiền tố openai/...)
+    entry = Object.values(LLM_MODEL_REGISTRY).find((e) => e.model === modelId) as any;
+  }
   if (!entry) return null;
   return (
     (usage.inputTokens / 1_000_000) * entry.pricePerMillionInputTokens +
