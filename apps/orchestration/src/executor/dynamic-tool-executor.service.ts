@@ -9,6 +9,8 @@ import { Repository } from 'typeorm';
 import { DynamicProviderEntity, EDynamicProviderAuthType } from '../entity/dynamic-provider.entity';
 import { buildTTL } from '@slack/common';
 import { QueueService, EQueueName, EJobName } from '@slack/queue';
+import { PiiScrubberUtil } from './pii-scrubber.util';
+import { ResponseTruncatorUtil } from './response-truncator.util';
 
 @Injectable()
 export class DynamicToolExecutorService {
@@ -70,10 +72,16 @@ export class DynamicToolExecutorService {
          timeout: 15000,
       });
 
-      // 6. Format success response for LLM
-      const responseText = typeof response.data === 'string' 
-        ? response.data 
-        : JSON.stringify(response.data, null, 2);
+      // 6. PII Scrubbing (Bảo mật dữ liệu nhạy cảm)
+      let safeData = PiiScrubberUtil.scrub(response.data);
+
+      // 7. Response Truncation (Tránh nổ Context Window)
+      safeData = ResponseTruncatorUtil.truncate(safeData);
+
+      // 8. Format success response for LLM
+      const responseText = typeof safeData === 'string' 
+        ? safeData 
+        : JSON.stringify(safeData, null, 2);
 
       return {
         isError: false,

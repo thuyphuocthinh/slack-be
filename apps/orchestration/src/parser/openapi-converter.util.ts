@@ -1,5 +1,6 @@
 import { OpenAPI, OpenAPIV2, OpenAPIV3 } from 'openapi-types';
 import { McpToolDto } from '../dto/mcp.dto';
+import { StrictJsonObject, StrictJsonArray, StrictJsonValue } from '@slack/common';
 
 export class OpenApiConverter {
   /**
@@ -83,17 +84,17 @@ export class OpenApiConverter {
 
   private static buildInputSchema(
     operation: OpenAPIV3.OperationObject | OpenAPIV2.OperationObject,
-  ): Record<string, unknown> {
-    const properties: Record<string, unknown> = {};
+  ): StrictJsonObject {
+    const properties: StrictJsonObject = {};
     const required: string[] = [];
 
     // Parse parameters (path, query, header) - flatten them for LLM simplicity
     if (operation.parameters && Array.isArray(operation.parameters)) {
       for (const param of operation.parameters) {
         // Because the document is dereferenced, param is a ParameterObject, not a ReferenceObject
-        const p = param as OpenAPIV3.ParameterObject;
+        const p = param as OpenAPIV3.ParameterObject & { type?: string };
         
-        const rawType = (p as any).type || 'string';
+        const rawType = p.type || 'string';
         const schema = p.schema || { type: rawType === 'file' ? 'string' : rawType };
 
         // Skip common auth headers as they should be handled by the Executor/HTTP Client globally
@@ -105,9 +106,9 @@ export class OpenApiConverter {
         }
 
         properties[p.name] = this.sanitizeJsonSchema({
-          ...schema,
-          description: p.description,
-        });
+          ...(schema as object),
+          description: p.description ? String(p.description) : null,
+        } as StrictJsonObject);
 
         if (p.required) {
           required.push(p.name);
@@ -125,30 +126,31 @@ export class OpenApiConverter {
       requestBody.content['application/json']
     ) {
       // Put the entire body schema into a 'requestBody' property
-      properties.requestBody = this.sanitizeJsonSchema({
+      properties['requestBody'] = this.sanitizeJsonSchema({
         ...(requestBody.content['application/json'].schema as object),
         description: requestBody.description || 'Payload for the request',
-      });
+      } as StrictJsonObject);
       if (requestBody.required) {
         required.push('requestBody');
       }
     } else if ((operation as OpenAPIV2.OperationObject).parameters) {
       // Fallback for Swagger v2 body parameters
       const bodyParam = (operation as OpenAPIV2.OperationObject).parameters?.find(
-        (p) => (p as any).in === 'body',
-      ) as any;
+        (p) => (p as OpenAPIV2.ParameterObject).in === 'body',
+      ) as OpenAPIV2.ParameterObject | undefined;
+      
       if (bodyParam && bodyParam.schema) {
-        properties.requestBody = this.sanitizeJsonSchema({
-          ...bodyParam.schema,
+        properties['requestBody'] = this.sanitizeJsonSchema({
+          ...(bodyParam.schema as object),
           description: bodyParam.description || 'Payload for the request',
-        });
+        } as StrictJsonObject);
         if (bodyParam.required) {
           required.push('requestBody');
         }
       }
     }
 
-    const schemaObj: Record<string, unknown> = {
+    const schemaObj: StrictJsonObject = {
       type: 'object',
       properties,
     };
@@ -160,29 +162,35 @@ export class OpenApiConverter {
     return schemaObj;
   }
 
-  private static sanitizeJsonSchema(schema: any): any {
+  private static sanitizeJsonSchema(schema: StrictJsonValue): StrictJsonValue {
     if (!schema || typeof schema !== 'object') return schema;
 
     if (Array.isArray(schema)) {
-      return schema.map((item) => this.sanitizeJsonSchema(item));
+      return schema.map((item) => this.sanitizeJsonSchema(item)) as StrictJsonArray;
     }
 
-    const result: any = { ...schema };
+    const result: StrictJsonObject = { ...(schema as StrictJsonObject) };
 
     // OpenAI API strict JSON Schema only supports standard types.
-    if (result.type === 'file') {
-      result.type = 'string';
-      result.format = 'binary';
+    if (result['type'] === 'file') {
+      result['type'] = 'string';
+      const desc = result['description'];
+      result['description'] = desc && typeof desc === 'string'
+        ? `${desc} (Base64 Encoded Binary Data)`
+        : 'Base64 Encoded Binary Data';
+      // Do not use format: 'binary' because strict mode often rejects unsupported string formats.
+      delete result['format'];
     }
 
-    if (result.properties) {
-      for (const [key, val] of Object.entries(result.properties)) {
-        result.properties[key] = this.sanitizeJsonSchema(val);
+    if (result['properties'] && typeof result['properties'] === 'object' && !Array.isArray(result['properties'])) {
+      const props = result['properties'] as StrictJsonObject;
+      for (const [key, val] of Object.entries(props)) {
+        props[key] = this.sanitizeJsonSchema(val);
       }
     }
 
-    if (result.items) {
-      result.items = this.sanitizeJsonSchema(result.items);
+    if (result['items']) {
+      result['items'] = this.sanitizeJsonSchema(result['items']);
     }
 
     return result;
