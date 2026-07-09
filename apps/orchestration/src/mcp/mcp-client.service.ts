@@ -13,6 +13,8 @@ import {
 } from '../dto/mcp.dto';
 import { withTimeout } from '../llm/with-timeout.util';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
+import { DynamicToolRegistryService } from '../registry/dynamic-tool-registry.service';
+import { DynamicToolExecutorService } from '../executor/dynamic-tool-executor.service';
 
 interface CacheEntry<T> {
   data: T[];
@@ -27,7 +29,11 @@ export class McpClientService {
   private readonly resourcesCache = new Map<string, CacheEntry<McpResourceDto>>();
   private readonly promptsCache = new Map<string, CacheEntry<McpPromptDto>>();
 
-  constructor(private readonly circuitBreaker: CircuitBreakerService) { }
+  constructor(
+    private readonly circuitBreaker: CircuitBreakerService,
+    private readonly dynamicRegistry: DynamicToolRegistryService,
+    private readonly dynamicExecutor: DynamicToolExecutorService,
+  ) { }
 
   // Header là static per-transport (SDK không hỗ trợ header per-call) — nên
   // cache 1 client riêng cho mỗi (provider, ownerId) khi cần gọi tool thật;
@@ -92,6 +98,10 @@ export class McpClientService {
   }
 
   async getTools(provider: string): Promise<McpToolDto[]> {
+    if (await this.dynamicRegistry.isDynamicProvider(provider)) {
+      return this.dynamicRegistry.getTools(provider);
+    }
+    
     return this.getCachedList(provider, this.toolsCache, async (client) => {
       const result = await client.listTools().catch(e => {
         this.logger.warn(`listTools failed or not supported for ${provider}: ${e.message}`);
@@ -102,6 +112,8 @@ export class McpClientService {
   }
 
   async getResources(provider: string): Promise<McpResourceDto[]> {
+    if (await this.dynamicRegistry.isDynamicProvider(provider)) return [];
+    
     return this.getCachedList(provider, this.resourcesCache, async (client) => {
       const result = await client.listResources().catch(e => {
         this.logger.warn(`listResources failed or not supported for ${provider}: ${e.message}`);
@@ -112,6 +124,8 @@ export class McpClientService {
   }
 
   async getPrompts(provider: string): Promise<McpPromptDto[]> {
+    if (await this.dynamicRegistry.isDynamicProvider(provider)) return [];
+    
     return this.getCachedList(provider, this.promptsCache, async (client) => {
       const result = await client.listPrompts().catch(e => {
         this.logger.warn(`listPrompts failed or not supported for ${provider}: ${e.message}`);
@@ -122,6 +136,15 @@ export class McpClientService {
   }
 
   async callTool(dto: CallToolRequestDto): Promise<CallToolResponseDto> {
+    if (await this.dynamicRegistry.isDynamicProvider(dto.provider)) {
+      return this.dynamicExecutor.execute(
+        dto.provider,
+        dto.name,
+        dto.args,
+        dto.ownerId,
+      );
+    }
+    
     return this.withReconnect(
       dto.provider,
       dto.ownerId,

@@ -60,3 +60,35 @@ export class TriggerPromptRequestDto {
 export class TriggerPromptResponseDto {
   text: string;
 }
+
+export class DynamicProviderDto {
+  id: string;
+  userId: string;
+  name: string;
+  specUrl: string;
+  hasAuth: boolean;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export class RegisterDynamicProviderRequestDto {
+  userId: string;
+  name: string;
+  specUrl: string;
+  apiKey?: string;
+}
+
+export class RegisterDynamicProviderResponseDto {
+  id: string;
+  success: boolean;
+}
+
+export class DeleteDynamicProviderRequestDto {
+  userId: string;
+  providerId: string;
+}
+
+export class DeleteDynamicProviderResponseDto {
+  success: boolean;
+}

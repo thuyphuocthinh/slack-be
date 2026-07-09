@@ -21,10 +21,15 @@ import { MockStrategy } from './llm/strategy/mock.strategy';
 import { AgentStreamService } from './socket/agent-stream.service';
 import { OrchestrationCheckpointEntity } from './entity/orchestration-checkpoint.entity';
 import { OrchestrationTriggerClaimEntity } from './entity/orchestration-trigger-claim.entity';
+import { DynamicProviderEntity } from './entity/dynamic-provider.entity';
 import { CheckpointService } from './checkpoint/checkpoint.service';
 import { CheckpointCleanupService } from './checkpoint/checkpoint-cleanup.service';
 import { TriggerClaimService } from './trigger-claim/trigger-claim.service';
 import { CircuitBreakerService } from './common/circuit-breaker.service';
+import { OpenApiParserService } from './parser/openapi-parser.service';
+import { DynamicToolRegistryService } from './registry/dynamic-tool-registry.service';
+import { DynamicProviderDbService } from './registry/dynamic-provider-db.service';
+import { DynamicToolExecutorService } from './executor/dynamic-tool-executor.service';
 
 @Module({
   imports: [
@@ -32,6 +37,7 @@ import { CircuitBreakerService } from './common/circuit-breaker.service';
     TypeOrmModule.forFeature([
       OrchestrationCheckpointEntity,
       OrchestrationTriggerClaimEntity,
+      DynamicProviderEntity,
     ]),
     ScheduleModule.forRoot(),
     QueueModule.forRoot(),
@@ -51,6 +57,10 @@ import { CircuitBreakerService } from './common/circuit-breaker.service';
     AiOrchestrationProcessor,
     McpClientService,
     McpAuthClientService,
+    OpenApiParserService,
+    DynamicToolRegistryService,
+    DynamicProviderDbService,
+    DynamicToolExecutorService,
     ReactLoopService,
     SupervisorService,
     MessageClientService,

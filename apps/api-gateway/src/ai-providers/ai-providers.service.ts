@@ -131,4 +131,37 @@ export class AiProvidersService {
       'AiProvidersService',
     );
   }
+
+  async registerDynamicProvider(
+    userId: string,
+    name: string,
+    specUrl: string,
+    apiKey?: string,
+  ) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        lastValueFrom(
+          this.orchestrationClient.send(
+            ORCHESTRATION_MESSAGE_PATTERNS.REGISTER_DYNAMIC_PROVIDER,
+            { userId, name, specUrl, apiKey },
+          ),
+        ),
+      'registerDynamicProvider',
+      'AiProvidersService',
+    );
+  }
+
+  async deleteDynamicProvider(userId: string, providerId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        lastValueFrom(
+          this.orchestrationClient.send(
+            ORCHESTRATION_MESSAGE_PATTERNS.DELETE_DYNAMIC_PROVIDER,
+            { userId, providerId },
+          ),
+        ),
+      'deleteDynamicProvider',
+      'AiProvidersService',
+    );
+  }
 }

@@ -28,7 +28,7 @@ export class SupervisorService {
     private readonly mcpAuthClient: McpAuthClientService,
     private readonly llmFactory: LlmStrategyFactory,
     private readonly circuitBreaker: CircuitBreakerService,
-  ) {}
+  ) { }
 
   /**
    * Agent "khả dụng" cho Supervisor = vừa đã connect (mcp-auth) VỪA có hạ
@@ -64,8 +64,8 @@ export class SupervisorService {
     const agentListText =
       agents.length > 0
         ? agents
-            .map((a) => `- ${a.provider} (${a.label}): ${a.description}`)
-            .join('\n')
+          .map((a) => `- ${a.provider} (${a.label}): ${a.description}`)
+          .join('\n')
         : '(Người dùng chưa kết nối agent nào — nếu câu hỏi cần dữ liệu, trả lời "respond" và nhắc user vào Settings để kết nối.)';
 
     const fullPrompt = this.buildPrompt(prompt, previousRounds, history);
@@ -73,7 +73,7 @@ export class SupervisorService {
     try {
       const { strategy, model } = this.llmFactory.resolve(
         process.env.SUPERVISOR_MODEL ??
-          ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
+        ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
       );
       this.logger.log(
         `decide() model=${model} agents=${agents.length} historyTurns=${history.length} prompt=${fullPrompt}`,
@@ -123,16 +123,16 @@ export class SupervisorService {
     try {
       const { strategy, model } = this.llmFactory.resolve(
         process.env.SUPERVISOR_MODEL ??
-          ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
+        ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
       );
-      
+
       const session = strategy.startChat({
         model,
         systemInstruction: SUPERVISOR_SYNTHESIS_PROMPT,
         tools: [],
         history: [],
       });
-      
+
       const prompt = `Câu hỏi gốc: ${originalPrompt}\n\nDữ liệu đã thu thập được:\n${roundsText}\n\nHãy tổng hợp các dữ liệu trên thành một câu trả lời hoàn chỉnh cho người dùng.`;
 
       const result = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>

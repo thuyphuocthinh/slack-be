@@ -5,4 +5,6 @@ export const ORCHESTRATION_MESSAGE_PATTERNS = {
   DISCONNECT_PROVIDER: 'orchestration.disconnect_provider',
   RESOLVE_APPROVAL: 'orchestration.resolve_approval',
   TRIGGER_PROMPT: 'orchestration.trigger_prompt',
+  REGISTER_DYNAMIC_PROVIDER: 'orchestration.register_dynamic_provider',
+  DELETE_DYNAMIC_PROVIDER: 'orchestration.delete_dynamic_provider',
 } as const;
