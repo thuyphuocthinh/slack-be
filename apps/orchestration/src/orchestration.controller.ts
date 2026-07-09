@@ -93,7 +93,7 @@ export class OrchestrationController {
         return {
           provider: entity.id,
           label: entity.name,
-          description: `Custom Swagger API: ${entity.specUrl}`,
+          description: entity.description || `Custom Swagger API: ${entity.specUrl}`,
           isConnected: true, // Dynamic provider luôn connected sau khi register
           hasAuth: entity.hasAuth,
           isDynamic: true,
@@ -183,6 +183,7 @@ export class OrchestrationController {
       dto.name,
       dto.specUrl,
       dto.apiKey,
+      dto.description,
     );
     return { id: entity.id, success: true };
   }

@@ -14,6 +14,9 @@ export class DynamicProviderEntity {
   @Column({ name: 'spec_url', type: 'text' })
   specUrl: string;
 
+  @Column({ type: 'text', nullable: true })
+  description?: string;
+
   @Column({ name: 'api_key', nullable: true })
   apiKey?: string;
 
