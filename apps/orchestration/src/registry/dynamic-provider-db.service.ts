@@ -5,6 +5,7 @@ import { DynamicProviderEntity } from '../entity/dynamic-provider.entity';
 import { DynamicToolRegistryService } from './dynamic-tool-registry.service';
 import { DynamicProviderDto } from '../dto/orchestration.dto';
 import { OpenApiParserService } from '../parser/openapi-parser.service';
+import { EDynamicProviderAuthType } from '../entity/dynamic-provider.entity';
 import { RpcException } from '@nestjs/microservices';
 import { ORCHESTRATION_ERROR } from '@slack/constants';
 import { v4 as uuidv4 } from 'uuid';
@@ -23,7 +24,14 @@ export class DynamicProviderDbService {
   /**
    * Tạo 1 tích hợp Swagger mới (Lưu DB)
    */
-  async createProvider(userId: string, name: string, specUrl: string, accessToken?: string, description?: string): Promise<DynamicProviderDto> {
+  async createProvider(
+    userId: string, 
+    name: string, 
+    specUrl: string, 
+    accessToken?: string, 
+    authType?: EDynamicProviderAuthType,
+    description?: string
+  ): Promise<DynamicProviderDto> {
     const id = `dynamic_${uuidv4().replace(/-/g, '')}`;
 
     // Parse thử xem link có sống không trước khi lưu DB
@@ -36,6 +44,7 @@ export class DynamicProviderDbService {
       specUrl,
       description,
       accessToken,
+      authType,
     });
 
     let saved: DynamicProviderEntity;

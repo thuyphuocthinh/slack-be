@@ -182,7 +182,8 @@ export class OrchestrationController {
       dto.userId,
       dto.name,
       dto.specUrl,
-      dto.apiKey,
+      dto.accessToken,
+      dto.authType,
       dto.description,
     );
     return { id: entity.id, success: true };
