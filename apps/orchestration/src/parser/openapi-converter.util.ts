@@ -105,10 +105,12 @@ export class OpenApiConverter {
           continue;
         }
 
-        properties[p.name] = this.sanitizeJsonSchema({
-          ...(schema as object),
-          description: p.description ? String(p.description) : null,
-        } as StrictJsonObject);
+        const paramSchema = { ...(schema as object) } as StrictJsonObject;
+        if (p.description) {
+          paramSchema['description'] = String(p.description);
+        }
+
+        properties[p.name] = this.sanitizeJsonSchema(paramSchema);
 
         if (p.required) {
           required.push(p.name);
@@ -180,6 +182,23 @@ export class OpenApiConverter {
         : 'Base64 Encoded Binary Data';
       // Do not use format: 'binary' because strict mode often rejects unsupported string formats.
       delete result['format'];
+    }
+
+    // Strip keys that cause issues in OpenAI Strict Mode
+    delete result['default'];
+    delete result['example'];
+    delete result['examples'];
+    delete result['pattern'];
+    delete result['minLength'];
+    delete result['maxLength'];
+    delete result['minimum'];
+    delete result['maximum'];
+    
+    // Remove any explicit null values as OpenAI strict JSON schema parser complains "None is not of type ..."
+    for (const key of Object.keys(result)) {
+      if (result[key] === null) {
+        delete result[key];
+      }
     }
 
     if (result['properties'] && typeof result['properties'] === 'object' && !Array.isArray(result['properties'])) {
