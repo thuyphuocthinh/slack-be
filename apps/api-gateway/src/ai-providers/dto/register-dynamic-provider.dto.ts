@@ -15,5 +15,10 @@ export class RegisterDynamicProviderDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
+  description?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
   apiKey?: string;
 }

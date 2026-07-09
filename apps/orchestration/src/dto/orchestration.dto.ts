@@ -66,6 +66,7 @@ export class DynamicProviderDto {
   userId: string;
   name: string;
   specUrl: string;
+  description?: string;
   hasAuth: boolean;
   isActive: boolean;
   createdAt: Date;
@@ -76,6 +77,7 @@ export class RegisterDynamicProviderRequestDto {
   userId: string;
   name: string;
   specUrl: string;
+  description?: string;
   apiKey?: string;
 }
 

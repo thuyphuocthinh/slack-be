@@ -9,6 +9,7 @@ import {
 } from '@slack/constants';
 import { McpAuthClientService } from '../mcp-auth/mcp-auth-client.service';
 import { AGENT_REGISTRY } from '../registry/agents.registry';
+import { DynamicProviderDbService } from '../registry/dynamic-provider-db.service';
 import {
   AvailableAgentDto,
   SupervisorDecisionDto,
@@ -28,6 +29,7 @@ export class SupervisorService {
     private readonly mcpAuthClient: McpAuthClientService,
     private readonly llmFactory: LlmStrategyFactory,
     private readonly circuitBreaker: CircuitBreakerService,
+    private readonly dynamicProviderDb: DynamicProviderDbService,
   ) { }
 
   /**
@@ -37,7 +39,7 @@ export class SupervisorService {
    */
   async getAvailableAgents(userId: string): Promise<AvailableAgentDto[]> {
     const statuses = await this.mcpAuthClient.getConnectionStatus(userId);
-    return statuses
+    const staticAgents = statuses
       .filter(
         (status) =>
           status.is_connected && AGENT_REGISTRY[status.provider_id]?.endpoint,
@@ -47,6 +49,15 @@ export class SupervisorService {
         label: AGENT_REGISTRY[status.provider_id].label,
         description: PROVIDER_DESCRIPTIONS[status.provider_id] ?? '',
       }));
+
+    const dynamicEntities = await this.dynamicProviderDb.getProvidersByUser(userId);
+    const dynamicAgents = dynamicEntities.map(entity => ({
+      provider: entity.id,
+      label: entity.name,
+      description: entity.description || `Hệ thống/API mở rộng (Custom Swagger). TRỌNG TÂM: Hãy ưu tiên chọn agent này nếu yêu cầu liên quan đến các từ khóa hoặc dữ liệu thuộc về hệ thống "${entity.name}" (URL tham khảo: ${entity.specUrl}).`,
+    }));
+
+    return [...staticAgents, ...dynamicAgents];
   }
 
   /**
