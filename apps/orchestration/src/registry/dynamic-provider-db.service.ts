@@ -23,7 +23,7 @@ export class DynamicProviderDbService {
   /**
    * Tạo 1 tích hợp Swagger mới (Lưu DB)
    */
-  async createProvider(userId: string, name: string, specUrl: string, apiKey?: string, description?: string): Promise<DynamicProviderDto> {
+  async createProvider(userId: string, name: string, specUrl: string, accessToken?: string, description?: string): Promise<DynamicProviderDto> {
     const id = `dynamic_${uuidv4().replace(/-/g, '')}`;
 
     // Parse thử xem link có sống không trước khi lưu DB
@@ -35,7 +35,7 @@ export class DynamicProviderDbService {
       name,
       specUrl,
       description,
-      apiKey,
+      accessToken,
     });
 
     let saved: DynamicProviderEntity;
@@ -102,7 +102,9 @@ export class DynamicProviderDbService {
       name: entity.name,
       specUrl: entity.specUrl,
       description: entity.description,
-      hasAuth: !!entity.apiKey,
+      hasAuth: !!entity.accessToken || !!entity.refreshToken,
+      authType: entity.authType,
+      tokenExpiresAt: entity.tokenExpiresAt,
       isActive: entity.isActive,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,

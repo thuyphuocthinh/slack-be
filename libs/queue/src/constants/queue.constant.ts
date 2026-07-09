@@ -62,4 +62,5 @@ export enum EJobName {
   // AI Orchestration
   PROCESS_AI_TRIGGER = 'process_ai_trigger',
   PROCESS_APPROVAL = 'process_approval',
+  UPDATE_DYNAMIC_PROVIDER_TOKEN = 'update_dynamic_provider_token',
 }

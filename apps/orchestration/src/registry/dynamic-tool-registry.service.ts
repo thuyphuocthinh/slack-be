@@ -8,13 +8,23 @@ import { DynamicProviderEntity } from '../entity/dynamic-provider.entity';
 import { OpenAPI } from 'openapi-types';
 import { RpcException } from '@nestjs/microservices';
 import { ORCHESTRATION_ERROR } from '@slack/constants';
+import { buildTTL } from '@slack/common';
+import { EDynamicProviderAuthType } from '../entity/dynamic-provider.entity';
 
 export interface DynamicProviderSpec {
   providerId: string;
   specUrl: string;
   document: OpenAPI.Document;
   tools: McpToolDto[];
-  apiKey?: string;
+
+  /**
+   * Lưu trữ API Key, Basic Auth credentials, hoặc OAuth2 Access Token tuỳ thuộc vào authType.
+   */
+  accessToken?: string;
+  authType?: EDynamicProviderAuthType;
+  refreshToken?: string;
+  tokenExpiresAt?: Date;
+  authConfig?: any;
 }
 
 interface CacheEntry {
@@ -30,7 +40,7 @@ export class DynamicToolRegistryService implements OnModuleDestroy {
   private readonly registry = new Map<string, CacheEntry>();
   
   // Tự động giải phóng RAM sau 1 giờ không có ai sử dụng
-  private readonly CACHE_TTL_MS = 60 * 60 * 1000; 
+  private readonly CACHE_TTL_MS = buildTTL('HOUR', 1); 
   private cleanupInterval: NodeJS.Timeout;
 
   constructor(
@@ -39,7 +49,7 @@ export class DynamicToolRegistryService implements OnModuleDestroy {
     private readonly providerRepo: Repository<DynamicProviderEntity>,
   ) { 
     // Định kỳ 30 phút quét 1 lần để dọn rác RAM
-    this.cleanupInterval = setInterval(() => this.cleanupExpiredCache(), 30 * 60 * 1000);
+    this.cleanupInterval = setInterval(() => this.cleanupExpiredCache(), buildTTL('MINUTE', 30));
   }
 
   onModuleDestroy() {
@@ -91,7 +101,11 @@ export class DynamicToolRegistryService implements OnModuleDestroy {
           specUrl: entity.specUrl,
           document,
           tools,
-          apiKey: entity.apiKey,
+          accessToken: entity.accessToken,
+          authType: entity.authType,
+          refreshToken: entity.refreshToken,
+          tokenExpiresAt: entity.tokenExpiresAt,
+          authConfig: entity.authConfig,
         },
         lastAccessed: Date.now()
       });

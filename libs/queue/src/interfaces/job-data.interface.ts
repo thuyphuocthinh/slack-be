@@ -185,6 +185,13 @@ export interface IProcessApprovalJobData {
   userId: string;
 }
 
+export interface IUpdateDynamicProviderTokenJobData {
+  providerId: string;
+  accessToken?: string;
+  refreshToken?: string;
+  tokenExpiresAt?: Date;
+}
+
 export type TJobData = {
   [EJobName.SEND_VERIFICATION_EMAIL]: IEmailJobData;
   [EJobName.SEND_INVITE_EMAIL]: IInviteJobData;
@@ -210,4 +217,5 @@ export type TJobData = {
   [EJobName.CALENDAR_EXPORT_EXCEL]: ICalendarExportExcelJobData;
   [EJobName.PROCESS_AI_TRIGGER]: IProcessAiTriggerJobData;
   [EJobName.PROCESS_APPROVAL]: IProcessApprovalJobData;
+  [EJobName.UPDATE_DYNAMIC_PROVIDER_TOKEN]: IUpdateDynamicProviderTokenJobData;
 };

@@ -8,6 +8,7 @@ import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { getMicroserviceClientConfig } from '@slack/common';
 import { OrchestrationController } from './orchestration.controller';
 import { AiOrchestrationProcessor } from './processor/ai-orchestration.processor';
+import { DynamicProviderProcessor } from './processor/dynamic-provider.processor';
 import { McpClientService } from './mcp/mcp-client.service';
 import { McpAuthClientService } from './mcp-auth/mcp-auth-client.service';
 import { ReactLoopService } from './llm/react-loop.service';
@@ -55,6 +56,7 @@ import { DynamicToolExecutorService } from './executor/dynamic-tool-executor.ser
   controllers: [OrchestrationController],
   providers: [
     AiOrchestrationProcessor,
+    DynamicProviderProcessor,
     McpClientService,
     McpAuthClientService,
     OpenApiParserService,

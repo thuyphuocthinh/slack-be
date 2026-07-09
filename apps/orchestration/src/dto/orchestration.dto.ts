@@ -68,6 +68,8 @@ export class DynamicProviderDto {
   specUrl: string;
   description?: string;
   hasAuth: boolean;
+  authType: EDynamicProviderAuthType;
+  tokenExpiresAt?: Date;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -78,7 +80,16 @@ export class RegisterDynamicProviderRequestDto {
   name: string;
   specUrl: string;
   description?: string;
-  apiKey?: string;
+  
+  /**
+   * Đóng vai trò là "Chìa khoá chính" (Primary Secret).
+   * Lưu trữ API Key, Basic Auth credentials, hoặc OAuth2 Access Token tuỳ thuộc vào authType.
+   */
+  accessToken?: string;
+  authType?: EDynamicProviderAuthType;
+  refreshToken?: string;
+  tokenExpiresAt?: Date;
+  authConfig?: Record<string, unknown>;
 }
 
 export class RegisterDynamicProviderResponseDto {
