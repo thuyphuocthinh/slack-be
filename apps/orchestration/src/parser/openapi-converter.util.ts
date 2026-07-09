@@ -93,8 +93,8 @@ export class OpenApiConverter {
         // Because the document is dereferenced, param is a ParameterObject, not a ReferenceObject
         const p = param as OpenAPIV3.ParameterObject;
         
-        // Some v2 specs might have 'type' directly on the parameter object
-        const schema = p.schema || { type: (p as any).type || 'string' };
+        const rawType = (p as any).type || 'string';
+        const schema = p.schema || { type: rawType === 'file' ? 'string' : rawType };
 
         // Skip common auth headers as they should be handled by the Executor/HTTP Client globally
         if (
@@ -104,10 +104,10 @@ export class OpenApiConverter {
           continue;
         }
 
-        properties[p.name] = {
+        properties[p.name] = this.sanitizeJsonSchema({
           ...schema,
           description: p.description,
-        };
+        });
 
         if (p.required) {
           required.push(p.name);
@@ -125,10 +125,10 @@ export class OpenApiConverter {
       requestBody.content['application/json']
     ) {
       // Put the entire body schema into a 'requestBody' property
-      properties.requestBody = {
+      properties.requestBody = this.sanitizeJsonSchema({
         ...(requestBody.content['application/json'].schema as object),
         description: requestBody.description || 'Payload for the request',
-      };
+      });
       if (requestBody.required) {
         required.push('requestBody');
       }
@@ -138,10 +138,10 @@ export class OpenApiConverter {
         (p) => (p as any).in === 'body',
       ) as any;
       if (bodyParam && bodyParam.schema) {
-        properties.requestBody = {
+        properties.requestBody = this.sanitizeJsonSchema({
           ...bodyParam.schema,
           description: bodyParam.description || 'Payload for the request',
-        };
+        });
         if (bodyParam.required) {
           required.push('requestBody');
         }
@@ -158,5 +158,33 @@ export class OpenApiConverter {
     }
 
     return schemaObj;
+  }
+
+  private static sanitizeJsonSchema(schema: any): any {
+    if (!schema || typeof schema !== 'object') return schema;
+
+    if (Array.isArray(schema)) {
+      return schema.map((item) => this.sanitizeJsonSchema(item));
+    }
+
+    const result: any = { ...schema };
+
+    // OpenAI API strict JSON Schema only supports standard types.
+    if (result.type === 'file') {
+      result.type = 'string';
+      result.format = 'binary';
+    }
+
+    if (result.properties) {
+      for (const [key, val] of Object.entries(result.properties)) {
+        result.properties[key] = this.sanitizeJsonSchema(val);
+      }
+    }
+
+    if (result.items) {
+      result.items = this.sanitizeJsonSchema(result.items);
+    }
+
+    return result;
   }
 }
