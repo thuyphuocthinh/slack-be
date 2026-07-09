@@ -115,7 +115,15 @@ export class DynamicToolRegistryService implements OnModuleDestroy {
    */
   async getTools(providerId: string): Promise<McpToolDto[]> {
     await this.ensureLoaded(providerId);
-    return this.registry.get(providerId)!.data.tools;
+    const tools = this.registry.get(providerId)!.data.tools;
+    
+    // Khắc phục lỗi "Invalid 'tools': array too long. Expected an array with maximum of 128 items" của OpenAI gpt-4o-mini
+    if (tools.length > 128) {
+      this.logger.warn(`Provider ${providerId} có ${tools.length} tools. Tạm thời cắt xuống 128 để tránh lỗi 400 từ OpenAI.`);
+      return tools.slice(0, 128);
+    }
+    
+    return tools;
   }
 
   /**
