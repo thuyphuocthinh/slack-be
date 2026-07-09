@@ -26,6 +26,9 @@ import { TriggerClaimService } from '../trigger-claim/trigger-claim.service';
 jest.mock('@slack/common', () => ({ extractTextFromMcpResult: jest.fn() }));
 import { extractTextFromMcpResult } from '@slack/common';
 
+// Fix Jest ESM import issue with uuid package
+jest.mock('uuid', () => ({ v4: jest.fn(() => 'test-uuid') }));
+
 describe('AiOrchestrationProcessor', () => {
   let processor: AiOrchestrationProcessor;
 
@@ -227,6 +230,34 @@ describe('AiOrchestrationProcessor', () => {
 
     expect(mockReactLoop.run).toHaveBeenCalledWith(
       expect.objectContaining({ prompt: 'có bao nhiêu bảng?' }),
+    );
+  });
+
+  it('maps an agent label back to its provider ID when the LLM hallucinates the label instead of the ID (e.g., Dynamic Providers)', async () => {
+    // Setup agents with a dynamic UUID provider but a semantic label
+    const agentsWithDynamic = [
+      { provider: 'sql_server', label: 'SQL Server', description: 'desc' },
+      { provider: 'dynamic_12345', label: 'Themoviedb', description: 'desc' },
+    ];
+    mockSupervisor.getAvailableAgents.mockResolvedValue(agentsWithDynamic);
+    
+    mockSupervisor.decide
+      .mockResolvedValueOnce({
+        action: 'delegate',
+        // LLM returns the label 'Themoviedb' instead of the uuid
+        delegations: [{ agent: 'Themoviedb', task: 'tìm phim' }],
+      })
+      .mockResolvedValueOnce({ action: 'respond', answer: 'Đã tìm xong.' });
+    mockReactLoop.run.mockResolvedValue({ answer: 'ok', toolCalls: [] });
+
+    // Note: the test's `runJob()` uses `availableAgents` (only sql_server) for the initial
+    // `mockSupervisor.getAvailableAgents` resolve, but here we overwrite it. Wait, runJob() doesn't pass agents.
+    // However, the test's `beforeEach` sets it to `availableAgents`. We just overrode it, so the processor will see `agentsWithDynamic`.
+    await runJob();
+
+    // The processor should have rewritten `d.agent` to 'dynamic_12345'
+    expect(mockReactLoop.run).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'dynamic_12345' }),
     );
   });
 

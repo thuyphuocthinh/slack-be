@@ -222,6 +222,15 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       }
 
       const delegations = this.dedupeByAgent(decision.delegations ?? []);
+      
+      // Khắc phục lỗi LLM trả về label (tên agent) thay vì provider ID (đặc biệt với Dynamic Agent có ID là UUID)
+      delegations.forEach(d => {
+        const matchedAgent = agents.find(a => a.provider === d.agent || a.label === d.agent);
+        if (matchedAgent && matchedAgent.provider !== d.agent) {
+          d.agent = matchedAgent.provider;
+        }
+      });
+
       if (
         delegations.every((d) => !agents.some((a) => a.provider === d.agent))
       ) {
