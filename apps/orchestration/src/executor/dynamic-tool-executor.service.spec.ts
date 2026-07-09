@@ -3,8 +3,14 @@ import { DynamicToolExecutorService } from './dynamic-tool-executor.service';
 import { DynamicToolRegistryService } from '../registry/dynamic-tool-registry.service';
 import axios from 'axios';
 import { OpenAPIV3 } from 'openapi-types';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { DynamicProviderEntity } from '../entity/dynamic-provider.entity';
+import { QueueService } from '@slack/queue';
 
 jest.mock('axios');
+jest.mock('nanoid', () => ({
+  customAlphabet: jest.fn().mockReturnValue(() => 'mocked-id'),
+}), { virtual: true });
 
 describe('DynamicToolExecutorService', () => {
   let service: DynamicToolExecutorService;
@@ -12,7 +18,11 @@ describe('DynamicToolExecutorService', () => {
 
   beforeEach(async () => {
     const mockRegistryService = {
-      getSpec: jest.fn(),
+      getProviderSpec: jest.fn(),
+    };
+
+    const mockRepo = {
+      update: jest.fn().mockResolvedValue({}),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -21,6 +31,14 @@ describe('DynamicToolExecutorService', () => {
         {
           provide: DynamicToolRegistryService,
           useValue: mockRegistryService,
+        },
+        {
+          provide: getRepositoryToken(DynamicProviderEntity),
+          useValue: mockRepo,
+        },
+        {
+          provide: QueueService,
+          useValue: { addJob: jest.fn().mockResolvedValue({}) },
         },
       ],
     }).compile();
@@ -51,7 +69,12 @@ describe('DynamicToolExecutorService', () => {
       },
     };
 
-    registryService.getSpec.mockReturnValue(mockSpec);
+    registryService.getProviderSpec.mockResolvedValue({ 
+      providerId: 'test_provider',
+      specUrl: 'http://test',
+      document: mockSpec, 
+      tools: [] 
+    });
     (axios as unknown as jest.Mock).mockResolvedValue({ data: { id: 123, name: 'John' } });
 
     const result = await service.execute('test_provider', 'getUser', {
@@ -85,7 +108,12 @@ describe('DynamicToolExecutorService', () => {
       },
     };
 
-    registryService.getSpec.mockReturnValue(mockSpec);
+    registryService.getProviderSpec.mockResolvedValue({ 
+      providerId: 'test_provider',
+      specUrl: 'http://test',
+      document: mockSpec, 
+      tools: [] 
+    });
     (axios as unknown as jest.Mock).mockResolvedValue({ data: { success: true } });
 
     await service.execute('test_provider', 'createPost', {
@@ -110,7 +138,12 @@ describe('DynamicToolExecutorService', () => {
       },
     };
 
-    registryService.getSpec.mockReturnValue(mockSpec);
+    registryService.getProviderSpec.mockResolvedValue({ 
+      providerId: 'test_provider',
+      specUrl: 'http://test',
+      document: mockSpec, 
+      tools: [] 
+    });
     
     // Simulate HTTP 404
     (axios as unknown as jest.Mock).mockRejectedValue({
@@ -135,7 +168,12 @@ describe('DynamicToolExecutorService', () => {
       paths: {},
     };
 
-    registryService.getSpec.mockReturnValue(mockSpec);
+    registryService.getProviderSpec.mockResolvedValue({ 
+      providerId: 'test_provider',
+      specUrl: 'http://test',
+      document: mockSpec, 
+      tools: [] 
+    });
 
     const result = await service.execute('test_provider', 'unknown_tool', {});
 

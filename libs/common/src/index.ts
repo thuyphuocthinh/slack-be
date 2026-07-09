@@ -22,3 +22,4 @@ export * from './custom_decorators/public.decorator';
 export * from './custom_decorators/role.decorator';
 export * from './custom_decorators/currentUser.decorator';
 export * from './logger/logger.config';
+export * from './types/json.type';
