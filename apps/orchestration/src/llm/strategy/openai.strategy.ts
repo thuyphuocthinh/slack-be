@@ -34,17 +34,17 @@ export class OpenAiStrategy implements LlmStrategy {
         maxRetries: 3,
         fetch: async (url: RequestInfo, init?: RequestInit): Promise<Response> => {
           const response = await fetch(url, init);
-          
+
           // Bỏ qua nếu là stream (vì stream chunk được xử lý riêng rẽ)
           const isStream = init?.body && typeof init.body === 'string' && init.body.includes('"stream":true');
-          
+
           // Nếu là API gọi bình thường, ta chặn luồng HTTP response lại để dọn rác do 9Router sinh ra
           if (!isStream && response.headers.get('content-type')?.includes('application/json')) {
             let text = await response.text();
-            
+
             // 1. Dọn rác `data: [DONE]` do 9Router gắn nhầm vào cuối response
             text = text.replace(/data:\s*\[DONE\]\s*$/g, '').trim();
-            
+
             // 2. Dọn lỗi double-stringified (chuỗi JSON bị mã hoá thành string 2 lần)
             try {
               const parsed = JSON.parse(text);
@@ -90,7 +90,7 @@ export class OpenAiStrategy implements LlmStrategy {
         prompt: string;
         schema: Record<string, unknown>;
       }) => {
-        const completion = await this.client!.chat.completions.create({
+        let completion = (await this.client!.chat.completions.create({
           model: params.model,
           messages: [
             { role: 'system', content: params.systemInstruction },
@@ -101,7 +101,21 @@ export class OpenAiStrategy implements LlmStrategy {
             json_schema: { name: 'decision', schema: params.schema },
           },
           temperature: 0,
-        });
+        })) as any;
+
+        if (typeof completion === 'string' || completion instanceof String) {
+          const rawStr = completion.toString();
+          const match = rawStr.match(/\{[\s\S]*\}/);
+          if (match) {
+            try {
+              completion = JSON.parse(match[0]);
+            } catch (e) {
+              // ignore, let it fail below
+              this.logger.error('OpenAI Error: Failed to parse completion', e);
+            }
+          }
+        }
+
         // Giai đoạn 4, Step 7 — gắn usage/chi phí ước lượng vào chính trace
         // "openai.generateStructured" này (bên trong hàm traceable() bọc).
         if (completion.usage) {
@@ -115,35 +129,22 @@ export class OpenAiStrategy implements LlmStrategy {
       { name: 'openai.generateStructured', run_type: 'llm' },
     );
 
-    let completion = await generate(opts) as any;
-
-    if (typeof completion === 'string' || completion instanceof String) {
-      const rawStr = completion.toString();
-      // Extract the JSON object ignoring any prefixes, suffixes, quotes, or SSE garbage
-      const match = rawStr.match(/\{[\s\S]*\}/);
-      if (match) {
-        try {
-          completion = JSON.parse(match[0]);
-        } catch (e) {
-          throw new Error(`9Router parsing error: Unable to parse extracted JSON. Raw: ${rawStr}`);
-        }
-      }
-    }
+    const completion = await generate(opts);
 
     if (!completion || !completion.choices) {
       throw new Error(`9Router/OpenAI Error: ${JSON.stringify(completion)}`);
     }
-    
+
     const text = completion.choices[0]?.message?.content ?? '{}';
     let cleanJson = text.trim();
-    
+
     // Dọn rác Markdown nếu LLM hallucinate (trả về ```json thay vì JSON thuần)
     if (cleanJson.startsWith('```json')) {
       cleanJson = cleanJson.replace(/^```json\n?/, '').replace(/```$/, '').trim();
     } else if (cleanJson.startsWith('```')) {
       cleanJson = cleanJson.replace(/^```\n?/, '').replace(/```$/, '').trim();
     }
-    
+
     return JSON.parse(cleanJson) as T;
   }
 }
