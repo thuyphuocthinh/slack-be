@@ -1,4 +1,5 @@
 import { McpToolDto, McpResourceDto, McpPromptDto } from './mcp.dto';
+import { EDynamicProviderAuthType } from '../entity/dynamic-provider.entity';
 
 export class GetProvidersRequestDto {
   userId: string;
