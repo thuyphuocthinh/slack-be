@@ -225,7 +225,12 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       
       // Khắc phục lỗi LLM trả về label (tên agent) thay vì provider ID (đặc biệt với Dynamic Agent có ID là UUID)
       delegations.forEach(d => {
-        const matchedAgent = agents.find(a => a.provider === d.agent || a.label === d.agent);
+        const safeAgent = d.agent || '';
+        const matchedAgent = agents.find(a => 
+          a.provider === safeAgent || 
+          a.label.toLowerCase() === safeAgent.toLowerCase() ||
+          a.label.toLowerCase().replace(/[^a-z0-9]/g, '') === safeAgent.toLowerCase().replace(/[^a-z0-9]/g, '')
+        );
         if (matchedAgent && matchedAgent.provider !== d.agent) {
           d.agent = matchedAgent.provider;
         }
@@ -234,9 +239,10 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       if (
         delegations.every((d) => !agents.some((a) => a.provider === d.agent))
       ) {
+        const attemptedAgents = delegations.map(d => d.agent || 'unknown').join(', ');
         return this.buildAnswer(
           decision.answer ||
-            'Mình chưa thể xử lý yêu cầu này với các kết nối hiện có. Vào Settings để kết nối agent phù hợp nhé.',
+            `Mình chưa thể xử lý yêu cầu này với các kết nối hiện có (Tên hệ thống mà AI đang cố gọi: "${attemptedAgents}" - Vui lòng đổi tên hoặc viết đúng tên). Vào Settings để kết nối agent phù hợp nhé.`,
           toolCalls,
         );
       }
