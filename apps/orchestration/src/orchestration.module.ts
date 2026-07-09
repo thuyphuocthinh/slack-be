@@ -45,6 +45,7 @@ import { DynamicToolExecutorService } from './executor/dynamic-tool-executor.ser
     QueueModule.forFeature([
       EQueueName.AI_ORCHESTRATION_QUEUE,
       EQueueName.SOCKET_QUEUE,
+      EQueueName.DYNAMIC_PROVIDER_QUEUE,
     ]),
     ClientsModule.registerAsync([
       getMicroserviceClientConfig(

@@ -14,6 +14,7 @@ export enum EQueueName {
   CALENDAR_QUEUE = 'calendar',
   INTEGRATION_SYNC_QUEUE = 'integration_sync',
   AI_ORCHESTRATION_QUEUE = 'ai_orchestration',
+  DYNAMIC_PROVIDER_QUEUE = 'dynamic_provider',
 }
 
 export enum EJobName {
