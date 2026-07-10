@@ -2,6 +2,12 @@ import { Logger } from '@nestjs/common';
 
 import { EDynamicProviderAuthType } from '../entity/dynamic-provider.entity';
 
+/**
+ * @deprecated Not called anymore — dynamic-tool-executor.service.ts now uses
+ * agentic-openapi-parser's OpenApiSecurityInjector (services subpath) instead, which
+ * reimplements this exact logic. Kept here for reference only; safe to delete once confirmed
+ * unneeded.
+ */
 export class OpenApiSecurityInjector {
   private static readonly logger = new Logger(OpenApiSecurityInjector.name);
 
