@@ -99,7 +99,9 @@ export class AiProvidersController {
       user.sub,
       dto.name,
       dto.specUrl,
-      dto.apiKey,
+      dto.accessToken,
+      dto.authType,
+      dto.description,
     );
   }
 

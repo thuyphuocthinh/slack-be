@@ -20,5 +20,10 @@ export class RegisterDynamicProviderDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
-  apiKey?: string;
+  accessToken?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  authType?: string;
 }
