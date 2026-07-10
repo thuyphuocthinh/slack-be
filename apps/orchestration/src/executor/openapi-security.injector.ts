@@ -58,7 +58,15 @@ export class OpenApiSecurityInjector {
         // Xử lý theo từng loại Authentication có xét đến authType của user
         if (scheme.type === 'apiKey' && (authType === EDynamicProviderAuthType.API_KEY || !authType)) {
           if (scheme.in === 'header') {
-            headers[scheme.name] = accessToken;
+            let finalToken = accessToken;
+            // Hack for TMDB and others: if the header is 'Authorization', it often requires 'Bearer ' prefix 
+            // even if the scheme is incorrectly defined as 'apiKey' in the Swagger document.
+            if (scheme.name.toLowerCase() === 'authorization' && !accessToken.toLowerCase().startsWith('bearer ') && !accessToken.toLowerCase().startsWith('basic ')) {
+              if (accessToken.startsWith('eyJ') || (scheme as any)['x-bearer-format']?.toLowerCase() === 'bearer') {
+                finalToken = `Bearer ${accessToken}`;
+              }
+            }
+            headers[scheme.name] = finalToken;
             injected = true;
           } else if (scheme.in === 'query') {
             queryParams[scheme.name] = accessToken;
@@ -109,6 +117,8 @@ export class OpenApiSecurityInjector {
     queryParams: Record<string, any>,
     authType?: EDynamicProviderAuthType
   ): void {
+    if (authType === EDynamicProviderAuthType.NONE) return;
+
     if (authType === EDynamicProviderAuthType.API_KEY) {
       // Fallback: TMDB and many others use api_key or apiKey in query. We could put in header but query is safer if not known.
       queryParams['api_key'] = accessToken;

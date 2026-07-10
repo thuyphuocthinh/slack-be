@@ -190,7 +190,17 @@ export class DynamicToolExecutorService {
     
     // Mask the sensitive token in the debug output
     let safeHeaders = { ...reqConfig?.headers };
-    if (safeHeaders['Authorization']) safeHeaders['Authorization'] = 'Bearer ***';
+    if (safeHeaders['Authorization']) {
+      const authVal = String(safeHeaders['Authorization']);
+      if (authVal.toLowerCase().startsWith('bearer ')) {
+        safeHeaders['Authorization'] = 'Bearer ***';
+      } else if (authVal.toLowerCase().startsWith('basic ')) {
+        safeHeaders['Authorization'] = 'Basic ***';
+      } else {
+        safeHeaders['Authorization'] = '*** (No Prefix / Raw Token)';
+      }
+    }
+    
     let safeParams = { ...reqConfig?.params };
     if (safeParams['api_key']) safeParams['api_key'] = '***';
 
