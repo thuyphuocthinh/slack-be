@@ -156,7 +156,11 @@ services:
     ports:
       - "20128:20128"
     volumes:
-      - 9router_data:/root/.9router
+      # Was mounted at /root/.9router — the image actually stores its SQLite DB under
+      # $DATA_DIR (defaults to /app/data), so /root/.9router sat empty and every
+      # container recreate wiped the real data (API keys/config) since it lived in the
+      # ephemeral layer instead of this volume.
+      - 9router_data:/app/data
 
 # Docker Volume
 volumes:
