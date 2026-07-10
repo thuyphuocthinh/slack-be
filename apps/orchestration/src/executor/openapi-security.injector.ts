@@ -17,6 +17,7 @@ export class OpenApiSecurityInjector {
     authType?: EDynamicProviderAuthType
   ): void {
     if (!accessToken) return;
+    accessToken = accessToken.trim();
 
     // 1. Tìm các yêu cầu bảo mật áp dụng cho Endpoint này (ưu tiên operation > global)
     const activeSecurities = operation.security || spec.security;
