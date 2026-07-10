@@ -3,25 +3,27 @@ import axios from 'axios';
 import { DynamicToolRegistryService, DynamicProviderSpec } from '../registry/dynamic-tool-registry.service';
 import { CallToolResponseDto } from '../dto/mcp.dto';
 import { OpenAPIV3, OpenAPIV2 } from 'openapi-types';
-import { OpenApiSecurityInjector } from './openapi-security.injector';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { DynamicProviderEntity, EDynamicProviderAuthType } from '../entity/dynamic-provider.entity';
-import { buildTTL } from '@slack/common';
+import { EDynamicProviderAuthType } from '../entity/dynamic-provider.entity';
 import { QueueService, EQueueName, EJobName } from '@slack/queue';
 import { PiiScrubberUtil } from './pii-scrubber.util';
-import { ResponseTruncatorUtil } from './response-truncator.util';
+import {
+  OpenApiSecurityInjector as LibSecurityInjector,
+  Oauth2RefreshTokenRefresher,
+  TruncateResponseProcessor,
+  DynamicProviderAuthType as ELibAuthType,
+} from '../common/agentic-openapi-parser';
 
 @Injectable()
 export class DynamicToolExecutorService {
   private readonly logger = new Logger(DynamicToolExecutorService.name);
+  // agentic-openapi-parser: swapped-in mechanisms (parity confirmed against the code they replace)
+  private readonly securityInjector = new LibSecurityInjector();
+  private readonly responseTruncator = new TruncateResponseProcessor();
 
   constructor(
     private readonly registry: DynamicToolRegistryService,
-    @InjectRepository(DynamicProviderEntity)
-    private readonly providerRepo: Repository<DynamicProviderEntity>,
     private readonly queueService: QueueService,
-  ) {}
+  ) { }
 
   /**
    * Nhận Tool Call từ LLM và thực thi HTTP request dựa trên OpenAPI spec.
@@ -34,17 +36,17 @@ export class DynamicToolExecutorService {
   ): Promise<CallToolResponseDto> {
     try {
       this.logger.log(`Executing dynamic tool "${toolName}" for provider "${providerId}"`);
-      
+
       const providerSpec = await this.registry.getProviderSpec(providerId);
       const spec = providerSpec.document;
       const operationInfo = this.findOperationByToolName(spec, toolName);
-      
+
       if (!operationInfo) {
         return this.formatErrorResponse(`Tool "${toolName}" not found in spec for provider "${providerId}"`);
       }
 
       const { path, method, operation } = operationInfo;
-      
+
       // 1. Determine Base URL & Build Params
       const baseUrl = this.getBaseUrl(spec);
       const { requestUrl, queryParams, headers } = this.buildRequestParams(baseUrl, path, operation, args);
@@ -55,32 +57,39 @@ export class DynamicToolExecutorService {
       // 3. Token Auto-Renew (OAuth2)
       await this.handleOAuth2AutoRenew(providerId, providerSpec);
 
-      // 4. Inject Authentication using Smart Security Injector
+      // 4. Inject Authentication using Smart Security Injector (agentic-openapi-parser)
       if (providerSpec.accessToken) {
-        OpenApiSecurityInjector.inject(spec, operation, providerSpec.accessToken, headers, queryParams, providerSpec.authType);
+        this.securityInjector.inject(
+          spec as unknown as Record<string, unknown>,
+          operation,
+          providerSpec.accessToken,
+          headers,
+          queryParams,
+          providerSpec.authType as unknown as ELibAuthType,
+        );
       }
 
       // 5. Chuẩn bị Axios Request
       this.logger.debug(`[${method.toUpperCase()}] Requesting: ${requestUrl}`);
-      
+
       const response = await axios({
-         method: method as any,
-         url: requestUrl,
-         params: queryParams,
-         data: requestBody,
-         headers,
-         timeout: 15000,
+        method: method as any,
+        url: requestUrl,
+        params: queryParams,
+        data: requestBody,
+        headers,
+        timeout: 15000,
       });
 
       // 6. PII Scrubbing (Bảo mật dữ liệu nhạy cảm)
       let safeData = PiiScrubberUtil.scrub(response.data);
 
-      // 7. Response Truncation (Tránh nổ Context Window)
-      safeData = ResponseTruncatorUtil.truncate(safeData);
+      // 7. Response Truncation (Tránh nổ Context Window) — agentic-openapi-parser
+      safeData = this.responseTruncator.process(safeData) as any;
 
       // 8. Format success response for LLM
-      const responseText = typeof safeData === 'string' 
-        ? safeData 
+      const responseText = typeof safeData === 'string'
+        ? safeData
         : JSON.stringify(safeData, null, 2);
 
       return {
@@ -94,39 +103,39 @@ export class DynamicToolExecutorService {
 
   private getBaseUrl(spec: any): string {
     if ((spec as OpenAPIV3.Document).servers?.length) {
-       let baseUrl = (spec as OpenAPIV3.Document).servers![0].url;
-       if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
-       return baseUrl;
+      let baseUrl = (spec as OpenAPIV3.Document).servers![0].url;
+      if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+      return baseUrl;
     } else if ((spec as OpenAPIV2.Document).host) {
-       const v2 = spec as OpenAPIV2.Document;
-       const scheme = v2.schemes?.length ? v2.schemes[0] : 'https';
-       return `${scheme}://${v2.host}${v2.basePath || ''}`;
+      const v2 = spec as OpenAPIV2.Document;
+      const scheme = v2.schemes?.length ? v2.schemes[0] : 'https';
+      return `${scheme}://${v2.host}${v2.basePath || ''}`;
     }
     return '';
   }
 
   private buildRequestParams(
-    baseUrl: string, 
-    path: string, 
-    operation: any, 
+    baseUrl: string,
+    path: string,
+    operation: any,
     args: Record<string, unknown>
   ) {
     let requestUrl = `${baseUrl}${path}`;
     const queryParams: Record<string, any> = {};
     const headers: Record<string, string> = {
-       'Content-Type': 'application/json',
+      'Content-Type': 'application/json',
     };
-    
+
     if (operation.parameters && Array.isArray(operation.parameters)) {
       for (const p of operation.parameters as OpenAPIV3.ParameterObject[]) {
         const val = args[p.name];
         if (val !== undefined && val !== null) {
           if (p.in === 'path') {
-             requestUrl = requestUrl.replace(`{${p.name}}`, String(val));
+            requestUrl = requestUrl.replace(`{${p.name}}`, String(val));
           } else if (p.in === 'query') {
-             queryParams[p.name] = val;
+            queryParams[p.name] = val;
           } else if (p.in === 'header') {
-             headers[p.name] = String(val);
+            headers[p.name] = String(val);
           }
         }
       }
@@ -136,58 +145,59 @@ export class DynamicToolExecutorService {
 
   private async handleOAuth2AutoRenew(providerId: string, providerSpec: DynamicProviderSpec) {
     if (providerSpec.authType !== EDynamicProviderAuthType.OAUTH2 || !providerSpec.tokenExpiresAt) return;
-    
-    const expiresInMs = new Date(providerSpec.tokenExpiresAt).getTime() - Date.now();
-    if (expiresInMs >= buildTTL('MINUTE', 5) || !providerSpec.refreshToken || !providerSpec.authConfig?.tokenUrl) return;
 
-    this.logger.warn(`Token for provider "${providerId}" is expiring soon. Auto-renewing...`);
-    try {
-      const refreshRes = await axios.post(providerSpec.authConfig.tokenUrl, {
-        grant_type: 'refresh_token',
-        refresh_token: providerSpec.refreshToken,
-        client_id: providerSpec.authConfig.clientId,
-        client_secret: providerSpec.authConfig.clientSecret,
-      }, {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-      });
+    // agentic-openapi-parser: mirrors this method's previous inline logic exactly (5-minute
+    // threshold, refresh_token grant POST, swallow-and-log on failure). A fresh instance is
+    // created per call so `onRefreshed` can close over this specific `providerId` for the queue job.
+    const refresher = new Oauth2RefreshTokenRefresher({
+      onRefreshed: (newState) => {
+        this.queueService
+          .addJob(
+            EQueueName.DYNAMIC_PROVIDER_QUEUE,
+            EJobName.UPDATE_DYNAMIC_PROVIDER_TOKEN,
+            {
+              providerId,
+              accessToken: newState.accessToken,
+              refreshToken: newState.refreshToken,
+              tokenExpiresAt: newState.tokenExpiresAt,
+            },
+            {
+              attempts: 3,
+              backoff: { type: 'exponential', delay: 1000 },
+              removeOnComplete: true,
+            },
+          )
+          .catch((qErr: any) => this.logger.error(`Failed to enqueue token update job: ${qErr.message}`));
+      },
+    });
 
-      providerSpec.accessToken = refreshRes.data.access_token;
-      if (refreshRes.data.refresh_token) {
-          providerSpec.refreshToken = refreshRes.data.refresh_token;
-      }
-      const expiresInSecs = refreshRes.data.expires_in || 3600;
-      providerSpec.tokenExpiresAt = new Date(Date.now() + expiresInSecs * 1000);
+    const newState = await refresher.refreshIfNeeded({
+      accessToken: providerSpec.accessToken!,
+      refreshToken: providerSpec.refreshToken,
+      tokenExpiresAt: providerSpec.tokenExpiresAt,
+      tokenUrl: providerSpec.authConfig?.tokenUrl,
+      clientId: providerSpec.authConfig?.clientId,
+      clientSecret: providerSpec.authConfig?.clientSecret,
+    });
 
-      // Đẩy vào Queue để đảm bảo token được lưu xuống DB 100% (có retry)
-      this.queueService.addJob(
-        EQueueName.DYNAMIC_PROVIDER_QUEUE,
-        EJobName.UPDATE_DYNAMIC_PROVIDER_TOKEN,
-        {
-          providerId,
-          accessToken: providerSpec.accessToken,
-          refreshToken: providerSpec.refreshToken,
-          tokenExpiresAt: providerSpec.tokenExpiresAt,
-        },
-        {
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 1000 },
-          removeOnComplete: true,
-        }
-      ).catch(qErr => this.logger.error(`Failed to enqueue token update job: ${qErr.message}`));
-
+    // Mutate the cached DynamicProviderSpec in place — DynamicToolRegistryService.getProviderSpec()
+    // returns the same object reference from its RAM cache, so this keeps subsequent calls within
+    // the cache TTL using the refreshed token without needing a DB round-trip.
+    if (newState) {
+      providerSpec.accessToken = newState.accessToken;
+      providerSpec.refreshToken = newState.refreshToken;
+      providerSpec.tokenExpiresAt = newState.tokenExpiresAt;
       this.logger.log(`Successfully auto-renewed token for "${providerId}"`);
-    } catch (refreshErr: any) {
-      this.logger.error(`Failed to auto-renew token: ${refreshErr.message}`);
     }
   }
 
   private handleExecutionError(error: any): CallToolResponseDto {
     this.logger.error(`Error executing dynamic tool: ${error.message}`);
-    
+
     const status = error.response?.status;
     const data = error.response?.data;
     const reqConfig = error.config;
-    
+
     // Mask the sensitive token in the debug output
     let safeHeaders = { ...reqConfig?.headers };
     if (safeHeaders['Authorization']) {
@@ -200,7 +210,7 @@ export class DynamicToolExecutorService {
         safeHeaders['Authorization'] = '*** (No Prefix / Raw Token)';
       }
     }
-    
+
     let safeParams = { ...reqConfig?.params };
     if (safeParams['api_key']) safeParams['api_key'] = '***';
 
@@ -209,11 +219,10 @@ export class DynamicToolExecutorService {
       params: safeParams,
       headers: safeHeaders,
     };
-    
-    const errorText = `API Request Failed: Status ${status}: ${
-      typeof data === 'object' ? JSON.stringify(data) : data
-    }\nRequest Sent: ${JSON.stringify(debugInfo)}`;
-    
+
+    const errorText = `API Request Failed: Status ${status}: ${typeof data === 'object' ? JSON.stringify(data) : data
+      }\nRequest Sent: ${JSON.stringify(debugInfo)}`;
+
     return this.formatErrorResponse(errorText);
   }
 
@@ -221,30 +230,30 @@ export class DynamicToolExecutorService {
    * Helper function: Tìm ngược lại Endpoint dựa trên toolName
    */
   private findOperationByToolName(spec: any, targetToolName: string) {
-     const paths = spec.paths || {};
-     const methods = ['get', 'post', 'put', 'delete', 'patch', 'options', 'head'];
-     
-     for (const [path, pathItem] of Object.entries(paths)) {
-        if (!pathItem) continue;
-        for (const method of methods) {
-           const operation = (pathItem as any)[method];
-           if (!operation) continue;
-           
-           const rawName = operation.operationId || `${method}_${path.replace(/[^a-zA-Z0-9]/g, '_')}`;
-           const generatedName = rawName
-             .replace(/[^a-zA-Z0-9_-]/g, '_')
-             .replace(/_+/g, '_')
-             .substring(0, 64)
-             .replace(/^_+|_+$/g, '') || 'unknown_tool';
-             
-           if (generatedName === targetToolName) {
-              return { path, method, operation };
-           }
+    const paths = spec.paths || {};
+    const methods = ['get', 'post', 'put', 'delete', 'patch', 'options', 'head'];
+
+    for (const [path, pathItem] of Object.entries(paths)) {
+      if (!pathItem) continue;
+      for (const method of methods) {
+        const operation = (pathItem as any)[method];
+        if (!operation) continue;
+
+        const rawName = operation.operationId || `${method}_${path.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const generatedName = rawName
+          .replace(/[^a-zA-Z0-9_-]/g, '_')
+          .replace(/_+/g, '_')
+          .substring(0, 64)
+          .replace(/^_+|_+$/g, '') || 'unknown_tool';
+
+        if (generatedName === targetToolName) {
+          return { path, method, operation };
         }
-     }
-     return null;
+      }
+    }
+    return null;
   }
-  
+
   private formatErrorResponse(message: string): CallToolResponseDto {
     return {
       isError: true,

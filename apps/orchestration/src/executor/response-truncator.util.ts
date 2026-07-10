@@ -3,6 +3,11 @@ import { StrictJsonObject, StrictJsonValue } from "@slack/common";
 /**
  * Utility to safely truncate large objects, arrays, and strings
  * to prevent overflowing the LLM context window.
+ *
+ * @deprecated Not called anymore — dynamic-tool-executor.service.ts now uses
+ * agentic-openapi-parser's TruncateResponseProcessor (services subpath) instead, which
+ * reimplements this exact logic. Kept here for reference only; safe to delete once confirmed
+ * unneeded.
  */
 export class ResponseTruncatorUtil {
   // Maximum length for a single string
