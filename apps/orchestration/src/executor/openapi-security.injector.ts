@@ -1,5 +1,7 @@
 import { Logger } from '@nestjs/common';
 
+import { EDynamicProviderAuthType } from '../entity/dynamic-provider.entity';
+
 export class OpenApiSecurityInjector {
   private static readonly logger = new Logger(OpenApiSecurityInjector.name);
 
@@ -11,7 +13,8 @@ export class OpenApiSecurityInjector {
     operation: any,
     accessToken: string,
     headers: Record<string, string>,
-    queryParams: Record<string, any>
+    queryParams: Record<string, any>,
+    authType?: EDynamicProviderAuthType
   ): void {
     if (!accessToken) return;
 
@@ -27,10 +30,10 @@ export class OpenApiSecurityInjector {
     // 2. Tìm kho chứa định nghĩa bảo mật (Security Definitions/Schemes)
     const securitySchemes = spec.components?.securitySchemes || spec.securityDefinitions || {};
 
-    // 3. Nếu không có định nghĩa nào trong file Swagger, fallback về Bearer mặc định cho an toàn
+    // 3. Nếu không có định nghĩa nào trong file Swagger, ép dùng theo authType
     if (Object.keys(securitySchemes).length === 0) {
-       this.logger.debug('No securitySchemes found in spec. Fallback to Bearer token.');
-       headers['Authorization'] = `Bearer ${accessToken}`;
+       this.logger.debug('No securitySchemes found in spec. Forcing auth by user selection.');
+       this.forceInjectByAuthType(accessToken, headers, queryParams, authType);
        return;
     }
 
@@ -51,8 +54,8 @@ export class OpenApiSecurityInjector {
         const scheme = securitySchemes[schemeName];
         if (!scheme) continue;
 
-        // Xử lý theo từng loại Authentication
-        if (scheme.type === 'apiKey') {
+        // Xử lý theo từng loại Authentication có xét đến authType của user
+        if (scheme.type === 'apiKey' && (authType === EDynamicProviderAuthType.API_KEY || !authType)) {
           if (scheme.in === 'header') {
             headers[scheme.name] = accessToken;
             injected = true;
@@ -61,24 +64,22 @@ export class OpenApiSecurityInjector {
             injected = true;
           }
         } 
-        else if (scheme.type === 'http') {
-          if (scheme.scheme?.toLowerCase() === 'bearer') {
+        else if (scheme.type === 'http' && (authType === EDynamicProviderAuthType.BEARER || authType === EDynamicProviderAuthType.BASIC || !authType)) {
+          if (scheme.scheme?.toLowerCase() === 'bearer' && (authType === EDynamicProviderAuthType.BEARER || !authType)) {
             headers['Authorization'] = `Bearer ${accessToken}`;
             injected = true;
-          } else if (scheme.scheme?.toLowerCase() === 'basic') {
-            // Giả định accessToken chứa sẵn username:password, nếu chưa có base64 thì encode
+          } else if (scheme.scheme?.toLowerCase() === 'basic' && (authType === EDynamicProviderAuthType.BASIC || !authType)) {
             const isBase64 = Buffer.from(accessToken, 'base64').toString('base64') === accessToken;
             const encoded = isBase64 ? accessToken : Buffer.from(accessToken).toString('base64');
             headers['Authorization'] = `Basic ${encoded}`;
             injected = true;
           }
         }
-        else if (scheme.type === 'oauth2' || scheme.type === 'openIdConnect') {
+        else if ((scheme.type === 'oauth2' || scheme.type === 'openIdConnect') && (authType === EDynamicProviderAuthType.OAUTH2 || authType === EDynamicProviderAuthType.BEARER || !authType)) {
           headers['Authorization'] = `Bearer ${accessToken}`;
           injected = true;
         }
-        else if (scheme.type === 'basic') {
-          // OAS 2.0 basic auth
+        else if (scheme.type === 'basic' && (authType === EDynamicProviderAuthType.BASIC || !authType)) {
           const isBase64 = Buffer.from(accessToken, 'base64').toString('base64') === accessToken;
           const encoded = isBase64 ? accessToken : Buffer.from(accessToken).toString('base64');
           headers['Authorization'] = `Basic ${encoded}`;
@@ -94,10 +95,29 @@ export class OpenApiSecurityInjector {
       if (injected) break;
     }
 
-    // 5. Nếu quét hết mà vẫn không inject được gì (do Swagger viết sai/thiếu), ép Fallback Bearer
+    // 5. Nếu quét hết mà vẫn không inject được gì (do Swagger viết sai/thiếu), ép Fallback theo authType
     if (!injected) {
-       this.logger.warn('Could not match any security scheme. Fallback to Bearer token.');
-       headers['Authorization'] = `Bearer ${accessToken}`;
+       this.logger.warn('Could not match any security scheme. Forcing auth by user selection.');
+       this.forceInjectByAuthType(accessToken, headers, queryParams, authType);
+    }
+  }
+
+  private static forceInjectByAuthType(
+    accessToken: string,
+    headers: Record<string, string>,
+    queryParams: Record<string, any>,
+    authType?: EDynamicProviderAuthType
+  ): void {
+    if (authType === EDynamicProviderAuthType.API_KEY) {
+      // Fallback: TMDB and many others use api_key or apiKey in query. We could put in header but query is safer if not known.
+      queryParams['api_key'] = accessToken;
+    } else if (authType === EDynamicProviderAuthType.BASIC) {
+      const isBase64 = Buffer.from(accessToken, 'base64').toString('base64') === accessToken;
+      const encoded = isBase64 ? accessToken : Buffer.from(accessToken).toString('base64');
+      headers['Authorization'] = `Basic ${encoded}`;
+    } else {
+      // BEARER, OAUTH2, or unknown
+      headers['Authorization'] = `Bearer ${accessToken}`;
     }
   }
 }

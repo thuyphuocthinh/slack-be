@@ -57,7 +57,7 @@ export class DynamicToolExecutorService {
 
       // 4. Inject Authentication using Smart Security Injector
       if (providerSpec.accessToken) {
-        OpenApiSecurityInjector.inject(spec, operation, providerSpec.accessToken, headers, queryParams);
+        OpenApiSecurityInjector.inject(spec, operation, providerSpec.accessToken, headers, queryParams, providerSpec.authType);
       }
 
       // 5. Chuẩn bị Axios Request
