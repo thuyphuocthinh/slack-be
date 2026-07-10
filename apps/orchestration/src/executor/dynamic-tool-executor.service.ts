@@ -184,16 +184,27 @@ export class DynamicToolExecutorService {
   private handleExecutionError(error: any): CallToolResponseDto {
     this.logger.error(`Error executing dynamic tool: ${error.message}`);
     
-    let errorText = error.message;
-    if (error.response) {
-      errorText = `Status ${error.response.status}: ${
-        typeof error.response.data === 'object' 
-          ? JSON.stringify(error.response.data) 
-          : error.response.data
-      }`;
-    }
+    const status = error.response?.status;
+    const data = error.response?.data;
+    const reqConfig = error.config;
     
-    return this.formatErrorResponse(`API Request Failed: ${errorText}`);
+    // Mask the sensitive token in the debug output
+    let safeHeaders = { ...reqConfig?.headers };
+    if (safeHeaders['Authorization']) safeHeaders['Authorization'] = 'Bearer ***';
+    let safeParams = { ...reqConfig?.params };
+    if (safeParams['api_key']) safeParams['api_key'] = '***';
+
+    const debugInfo = {
+      url: reqConfig?.url,
+      params: safeParams,
+      headers: safeHeaders,
+    };
+    
+    const errorText = `API Request Failed: Status ${status}: ${
+      typeof data === 'object' ? JSON.stringify(data) : data
+    }\nRequest Sent: ${JSON.stringify(debugInfo)}`;
+    
+    return this.formatErrorResponse(errorText);
   }
 
   /**
