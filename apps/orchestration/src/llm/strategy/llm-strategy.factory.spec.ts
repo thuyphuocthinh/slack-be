@@ -5,6 +5,7 @@ import { LlmStrategyFactory } from './llm-strategy.factory';
 import { GeminiStrategy } from './gemini.strategy';
 import { OpenAiStrategy } from './openai.strategy';
 import { AnthropicStrategy } from './anthropic.strategy';
+import { MockStrategy } from './mock.strategy';
 
 describe('LlmStrategyFactory', () => {
   let factory: LlmStrategyFactory;
@@ -12,6 +13,7 @@ describe('LlmStrategyFactory', () => {
   const mockGemini = { id: 'gemini' };
   const mockOpenAi = { id: 'openai' };
   const mockAnthropic = { id: 'anthropic' };
+  const mockMockStrategy = { id: 'mock' };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -20,6 +22,7 @@ describe('LlmStrategyFactory', () => {
         { provide: GeminiStrategy, useValue: mockGemini },
         { provide: OpenAiStrategy, useValue: mockOpenAi },
         { provide: AnthropicStrategy, useValue: mockAnthropic },
+        { provide: MockStrategy, useValue: mockMockStrategy },
       ],
     }).compile();
 
@@ -37,7 +40,8 @@ describe('LlmStrategyFactory', () => {
   it('resolves an OpenAI model id to the OpenAI strategy', () => {
     const result = factory.resolve('gpt-4o-mini');
     expect(result.strategy).toBe(mockOpenAi);
-    expect(result.model).toBe('gpt-4o-mini');
+    // 9Router requires a provider-prefixed model id to route correctly — see LLM_MODEL_REGISTRY.
+    expect(result.model).toBe('openai/gpt-4o-mini');
   });
 
   it('resolves an Anthropic model id to the Anthropic strategy', () => {

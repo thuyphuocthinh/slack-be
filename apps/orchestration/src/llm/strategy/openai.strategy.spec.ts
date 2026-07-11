@@ -17,6 +17,21 @@ jest.mock('langsmith/traceable', () => ({
 
 import { OpenAiStrategy } from './openai.strategy';
 
+// rawSend() always calls chat.completions.create() with stream: true and iterates the result as
+// an async-iterable of chunks shaped { choices: [{ delta }] } — this fakes that shape from a plain
+// array of chunks, matching what the real OpenAI SDK stream yields.
+function mockStream(chunks: any[]): AsyncIterable<any> {
+  return {
+    [Symbol.asyncIterator]() {
+      let i = 0;
+      return {
+        next: async () =>
+          i < chunks.length ? { value: chunks[i++], done: false } : { value: undefined, done: true },
+      };
+    },
+  };
+}
+
 describe('OpenAiStrategy', () => {
   let strategy: OpenAiStrategy;
 
@@ -53,26 +68,19 @@ describe('OpenAiStrategy', () => {
 
   describe('startChat / sendMessage', () => {
     it('sends system + history on the first turn and maps tool_calls into LlmTurnResult', async () => {
-      mockCreate.mockResolvedValue({
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: null,
-              tool_calls: [
-                {
-                  id: 'call_1',
-                  type: 'function',
-                  function: {
-                    name: 'get_schema',
-                    arguments: '{"table":"Orders"}',
-                  },
-                },
-              ],
+      mockCreate.mockResolvedValue(mockStream([
+        {
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  { index: 0, id: 'call_1', type: 'function', function: { name: 'get_schema', arguments: '{"table":"Orders"}' } },
+                ],
+              },
             },
-          },
-        ],
-      });
+          ],
+        },
+      ]));
 
       const session = strategy.startChat({
         model: 'gpt-4o-mini',
@@ -103,11 +111,9 @@ describe('OpenAiStrategy', () => {
     });
 
     it('passes opts.temperature through to every chat.completions.create call (Step 7)', async () => {
-      mockCreate.mockResolvedValue({
-        choices: [
-          { message: { role: 'assistant', content: 'ok', tool_calls: [] } },
-        ],
-      });
+      mockCreate.mockResolvedValue(mockStream([
+        { choices: [{ delta: { content: 'ok' } }] },
+      ]));
 
       const session = strategy.startChat({
         model: 'gpt-4o-mini',
@@ -125,34 +131,16 @@ describe('OpenAiStrategy', () => {
 
     it('carries assistant + tool-result turns forward across sequential sendMessage calls (stateful session)', async () => {
       mockCreate
-        .mockResolvedValueOnce({
-          choices: [
-            {
-              message: {
-                role: 'assistant',
-                content: null,
-                tool_calls: [
-                  {
-                    id: 'call_1',
-                    type: 'function',
-                    function: { name: 'get_schema', arguments: '{}' },
-                  },
-                ],
-              },
-            },
-          ],
-        })
-        .mockResolvedValueOnce({
-          choices: [
-            {
-              message: {
-                role: 'assistant',
-                content: 'đã xong',
-                tool_calls: [],
-              },
-            },
-          ],
-        });
+        .mockResolvedValueOnce(mockStream([
+          {
+            choices: [
+              { delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'get_schema', arguments: '{}' } }] } },
+            ],
+          },
+        ]))
+        .mockResolvedValueOnce(mockStream([
+          { choices: [{ delta: { content: 'đã xong' } }] },
+        ]));
 
       const session = strategy.startChat({
         model: 'gpt-4o-mini',
@@ -179,23 +167,13 @@ describe('OpenAiStrategy', () => {
     });
 
     it('falls back to an empty args object when the model returns malformed JSON arguments', async () => {
-      mockCreate.mockResolvedValue({
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: null,
-              tool_calls: [
-                {
-                  id: 'call_1',
-                  type: 'function',
-                  function: { name: 'x', arguments: '{not-json' },
-                },
-              ],
-            },
-          },
-        ],
-      });
+      mockCreate.mockResolvedValue(mockStream([
+        {
+          choices: [
+            { delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'x', arguments: '{not-json' } }] } },
+          ],
+        },
+      ]));
 
       const session = strategy.startChat({
         model: 'gpt-4o-mini',
@@ -210,13 +188,11 @@ describe('OpenAiStrategy', () => {
 
     it('Giai đoạn 4, Step 7 — attaches token usage from completion.usage onto the current trace', async () => {
       const runTree: { metadata?: unknown } = {};
-      mockGetCurrentRunTree.mockReturnValueOnce(runTree);
-      mockCreate.mockResolvedValue({
-        choices: [
-          { message: { role: 'assistant', content: 'ok', tool_calls: [] } },
-        ],
-        usage: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 },
-      });
+      mockGetCurrentRunTree.mockReturnValue(runTree);
+      mockCreate.mockResolvedValue(mockStream([
+        { choices: [{ delta: { content: 'ok' } }] },
+        { choices: [], usage: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 } },
+      ]));
 
       const session = strategy.startChat({
         model: 'gpt-4o-mini',
@@ -265,7 +241,7 @@ describe('OpenAiStrategy', () => {
 
     it('Giai đoạn 4, Step 7 — attaches token usage from completion.usage onto the current trace', async () => {
       const runTree: { metadata?: unknown } = {};
-      mockGetCurrentRunTree.mockReturnValueOnce(runTree);
+      mockGetCurrentRunTree.mockReturnValue(runTree);
       mockCreate.mockResolvedValue({
         choices: [{ message: { content: '{}' } }],
         usage: { prompt_tokens: 15, completion_tokens: 3, total_tokens: 18 },
