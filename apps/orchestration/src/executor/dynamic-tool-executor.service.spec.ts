@@ -180,4 +180,94 @@ describe('DynamicToolExecutorService', () => {
     expect(result.isError).toBe(true);
     expect(result.content![0].text).toContain('not found in spec');
   });
+
+  it('redacts sensitive keys in the response via the PII scrub processor', async () => {
+    const mockSpec: OpenAPIV3.Document = {
+      openapi: '3.0.0',
+      info: { title: 'Test', version: '1.0' },
+      servers: [{ url: 'https://api.test.com' }],
+      paths: {
+        '/login': {
+          post: { operationId: 'login' } as any,
+        },
+      },
+    };
+
+    registryService.getProviderSpec.mockResolvedValue({
+      providerId: 'test_provider',
+      specUrl: 'http://test',
+      document: mockSpec,
+      tools: [],
+    });
+    (axios as unknown as jest.Mock).mockResolvedValue({
+      data: { username: 'johndoe', password: 'MySecretPassword123!' },
+    });
+
+    const result = await service.execute('test_provider', 'login', {});
+
+    expect(result.isError).toBe(false);
+    expect(result.content![0].text).toContain('johndoe');
+    expect(result.content![0].text).toContain('[REDACTED_BY_SECURITY_GATE]');
+    expect(result.content![0].text).not.toContain('MySecretPassword123!');
+  });
+
+  it('retries a retryable failure (503) and succeeds, without surfacing an error', async () => {
+    const mockSpec: OpenAPIV3.Document = {
+      openapi: '3.0.0',
+      info: { title: 'Test', version: '1.0' },
+      servers: [{ url: 'https://api.test.com' }],
+      paths: {
+        '/flaky': {
+          get: { operationId: 'getFlaky' } as any,
+        },
+      },
+    };
+
+    registryService.getProviderSpec.mockResolvedValue({
+      providerId: 'test_provider',
+      specUrl: 'http://test',
+      document: mockSpec,
+      tools: [],
+    });
+    (axios as unknown as jest.Mock)
+      .mockRejectedValueOnce({ response: { status: 503, data: 'Service Unavailable' }, config: {} })
+      .mockResolvedValueOnce({ data: { ok: true } });
+
+    const result = await service.execute('test_provider', 'getFlaky', {});
+
+    expect(result.isError).toBe(false);
+    expect(result.content![0].text).toContain('"ok": true');
+    expect(axios).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up after exhausting retries on a persistently failing call', async () => {
+    const mockSpec: OpenAPIV3.Document = {
+      openapi: '3.0.0',
+      info: { title: 'Test', version: '1.0' },
+      servers: [{ url: 'https://api.test.com' }],
+      paths: {
+        '/always-down': {
+          get: { operationId: 'getAlwaysDown' } as any,
+        },
+      },
+    };
+
+    registryService.getProviderSpec.mockResolvedValue({
+      providerId: 'test_provider',
+      specUrl: 'http://test',
+      document: mockSpec,
+      tools: [],
+    });
+    (axios as unknown as jest.Mock).mockRejectedValue({
+      response: { status: 503, data: 'Service Unavailable' },
+      config: {},
+    });
+
+    const result = await service.execute('test_provider', 'getAlwaysDown', {});
+
+    expect(result.isError).toBe(true);
+    expect(result.content![0].text).toContain('Status 503');
+    // Initial attempt + 2 retries (maxRetries: 2), matching the configured retry policy.
+    expect(axios).toHaveBeenCalledTimes(3);
+  });
 });
