@@ -25,7 +25,7 @@ export class OpenAiStrategy implements LlmStrategy {
   private readonly client?: OpenAI;
 
   constructor() {
-    const apiKey = process.env.OPENAI_API_KEY || 'fake-key';
+    const apiKey = process.env.OPENAI_API_KEY;
     if (apiKey) {
       const baseURL = process.env.AI_ROUTER_URL || 'http://slack-9router:20128/v1';
       this.client = new OpenAI({
@@ -217,12 +217,18 @@ class OpenAiChatSession implements LlmChatSession {
       tools: this.tools.length > 0 ? this.tools : undefined,
       temperature: this.temperature,
       stream: true,
+      stream_options: { include_usage: true },
     });
 
     let fullText = '';
     const toolCallsMap: Record<number, any> = {};
+    let usage: { prompt_tokens: number; completion_tokens: number } | undefined;
 
     for await (const chunk of stream) {
+      if (chunk.usage) {
+        usage = chunk.usage;
+      }
+
       const delta = chunk.choices?.[0]?.delta;
       if (!delta) {
         if ((chunk as any).error) {
@@ -261,6 +267,16 @@ class OpenAiChatSession implements LlmChatSession {
       content: fullText || null,
       tool_calls: Object.values(toolCallsMap).length > 0 ? Object.values(toolCallsMap) : undefined,
     } as ChatCompletionAssistantMessageParam);
+
+    // Giai đoạn 4, Step 7 — gắn usage/chi phí ước lượng vào trace hiện tại, giống hệt
+    // generateStructured(). Bị rớt mất khi rawSend() chuyển sang streaming; stream_options
+    // include_usage đưa usage về ở chunk cuối (choices rỗng) thay vì completion.usage.
+    if (usage) {
+      attachLlmCostMetadata(this.model, {
+        inputTokens: usage.prompt_tokens,
+        outputTokens: usage.completion_tokens,
+      });
+    }
 
     return { text: fullText, toolCalls };
   }

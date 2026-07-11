@@ -196,7 +196,10 @@
       "^@slack/common(|/.*)$": "<rootDir>/libs/common/src/$1",
       "^@slack/constants(|/.*)$": "<rootDir>/libs/constants/src/$1",
       "^@slack/database(|/.*)$": "<rootDir>/libs/database/src/$1",
-      "^@slack/queue(|/.*)$": "<rootDir>/libs/queue/src/$1"
+      "^@slack/queue(|/.*)$": "<rootDir>/libs/queue/src/$1",
+      "^axios$": "<rootDir>/node_modules/axios",
+      "^nanoid$": "<rootDir>/libs/common/src/__mocks__/nanoid.js",
+      "^uuid$": "<rootDir>/libs/common/src/__mocks__/uuid.js"
     }
   }
 }

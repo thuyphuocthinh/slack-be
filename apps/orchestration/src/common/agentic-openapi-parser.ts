@@ -7,8 +7,16 @@ export {
   OpenApiSecurityInjector,
   Oauth2RefreshTokenRefresher,
   TruncateResponseProcessor,
+  DynamicToolExecutorService,
   iterateOperations,
   deriveToolName,
+} from 'agentic-openapi-parser';
+
+export {
+  AgenticOpenApiError,
+  ToolNotFoundError,
+  ToolExecutionError,
+  ResponseProcessingError,
 } from 'agentic-openapi-parser';
 
 export type {
@@ -18,6 +26,9 @@ export type {
   ResponseProcessor,
   TokenRefresher,
   OAuth2TokenState,
+  ExecuteToolOptions,
+  ObservabilityHooks,
+  RetryOptions,
 } from 'agentic-openapi-parser';
 
 export { buildStrictInputSchema, deriveMethodAnnotations } from 'agentic-openapi-parser/adapters/shared';

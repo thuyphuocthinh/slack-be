@@ -4,6 +4,7 @@ import { SupervisorService } from './supervisor.service';
 import { McpAuthClientService } from '../mcp-auth/mcp-auth-client.service';
 import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
+import { DynamicProviderDbService } from '../registry/dynamic-provider-db.service';
 
 // Cô lập test khỏi giá trị thật của process.env.AGENT_SQL_SERVER_URL — mock
 // thẳng registry để chủ động quyết định agent nào có/thiếu hạ tầng thật.
@@ -27,6 +28,9 @@ describe('SupervisorService', () => {
   const mockCircuitBreaker = {
     run: jest.fn((_key: string, action: () => Promise<unknown>) => action()),
   };
+  // Default: no dynamic (custom Swagger) providers — keeps every pre-existing static-agent test
+  // unaffected. Tests that care about dynamic agents override this per-test.
+  const mockDynamicProviderDb = { getProvidersByUser: jest.fn().mockResolvedValue([]) };
 
   beforeEach(async () => {
     mockLlmFactory.resolve.mockReturnValue({
@@ -37,6 +41,7 @@ describe('SupervisorService', () => {
     mockCircuitBreaker.run.mockImplementation(
       (_key: string, action: () => Promise<unknown>) => action(),
     );
+    mockDynamicProviderDb.getProvidersByUser.mockResolvedValue([]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -44,6 +49,7 @@ describe('SupervisorService', () => {
         { provide: McpAuthClientService, useValue: mockMcpAuthClient },
         { provide: LlmStrategyFactory, useValue: mockLlmFactory },
         { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
+        { provide: DynamicProviderDbService, useValue: mockDynamicProviderDb },
       ],
     }).compile();
 

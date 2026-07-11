@@ -31,9 +31,8 @@ export class AgentStreamService {
   constructor(private readonly queueService: QueueService) { }
 
   /**
-   * Chi tiết (tool đang chạy, kết quả, done...) → chỉ vào room riêng của
-   * người trigger. Signal thô (chỉ type, không kèm tool) → thêm vào room
-   * channel, chỉ khi channel là GROUP (DIRECT chỉ có 1 người, không cần).
+   * Luôn chỉ emit vào room riêng của người trigger (`user_<userId>`) —
+   * không broadcast vào room channel/group.
    */
   async emitStep(context: AgentStreamContext, step: AgentStreamStep): Promise<void> {
     await this.queueService.addJob(EQueueName.SOCKET_QUEUE, EJobName.EMIT_EVENT, {
@@ -41,6 +40,5 @@ export class AgentStreamService {
       room: `user_${context.userId}`,
       data: { ...step, channelId: context.channelId, messageId: context.messageId },
     });
-
   }
 }

@@ -9,10 +9,25 @@ jest.mock('langsmith/traceable', () => ({
 
 import { GeminiStrategy } from './gemini.strategy';
 
+// rawSend() calls chat.sendMessageStream(), which returns { stream, response } — stream is an
+// async-iterable of partial chunks (accumulated for the final text), response is a Promise
+// resolving to the full response (used for functionCalls()/usageMetadata).
+function mockStream(chunks: any[]): AsyncIterable<any> {
+  return {
+    [Symbol.asyncIterator]() {
+      let i = 0;
+      return {
+        next: async () =>
+          i < chunks.length ? { value: chunks[i++], done: false } : { value: undefined, done: true },
+      };
+    },
+  };
+}
+
 const mockChatSendMessage = jest.fn();
 const mockStartChat = jest
   .fn()
-  .mockReturnValue({ sendMessage: mockChatSendMessage });
+  .mockReturnValue({ sendMessageStream: mockChatSendMessage });
 const mockGenerateContent = jest.fn();
 const mockGetGenerativeModel = jest.fn().mockReturnValue({
   startChat: mockStartChat,
@@ -72,12 +87,12 @@ describe('GeminiStrategy', () => {
   describe('startChat / sendMessage', () => {
     it('converts the model response into the generic LlmTurnResult shape', async () => {
       mockChatSendMessage.mockResolvedValue({
-        response: {
-          text: () => 'Đây là câu trả lời',
+        stream: mockStream([{ text: () => 'Đây là câu trả lời' }]),
+        response: Promise.resolve({
           functionCalls: () => [
             { name: 'get_schema', args: { table: 'Orders' } },
           ],
-        },
+        }),
       });
 
       const session = strategy.startChat({
@@ -103,7 +118,8 @@ describe('GeminiStrategy', () => {
 
     it('passes opts.temperature through to generationConfig when provided (Step 7)', async () => {
       mockChatSendMessage.mockResolvedValue({
-        response: { text: () => 'ok', functionCalls: () => [] },
+        stream: mockStream([{ text: () => 'ok' }]),
+        response: Promise.resolve({ functionCalls: () => [] }),
       });
 
       strategy.startChat({
@@ -116,12 +132,14 @@ describe('GeminiStrategy', () => {
 
       expect(mockGetGenerativeModel).toHaveBeenCalledWith(
         expect.objectContaining({ generationConfig: { temperature: 0.2 } }),
+        expect.anything(),
       );
     });
 
     it('serializes tool results into Gemini functionResponse parts', async () => {
       mockChatSendMessage.mockResolvedValue({
-        response: { text: () => 'ok', functionCalls: () => [] },
+        stream: mockStream([{ text: () => 'ok' }]),
+        response: Promise.resolve({ functionCalls: () => [] }),
       });
 
       const session = strategy.startChat({
@@ -151,7 +169,8 @@ describe('GeminiStrategy', () => {
           new Error('[429 Too Many Requests] quota exceeded'),
         )
         .mockResolvedValueOnce({
-          response: { text: () => 'ok sau khi retry', functionCalls: () => [] },
+          stream: mockStream([{ text: () => 'ok sau khi retry' }]),
+          response: Promise.resolve({ functionCalls: () => [] }),
         });
 
       const session = strategy.startChat({
@@ -187,13 +206,13 @@ describe('GeminiStrategy', () => {
 
     it('Giai đoạn 4, Step 7 — attaches token usage from usageMetadata onto the current trace', async () => {
       const runTree: { metadata?: unknown } = {};
-      mockGetCurrentRunTree.mockReturnValueOnce(runTree);
+      mockGetCurrentRunTree.mockReturnValue(runTree);
       mockChatSendMessage.mockResolvedValue({
-        response: {
-          text: () => 'ok',
+        stream: mockStream([{ text: () => 'ok' }]),
+        response: Promise.resolve({
           functionCalls: () => [],
           usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 34 },
-        },
+        }),
       });
 
       const session = strategy.startChat({
@@ -284,7 +303,7 @@ describe('GeminiStrategy', () => {
 
     it('Giai đoạn 4, Step 7 — attaches token usage from usageMetadata onto the current trace', async () => {
       const runTree: { metadata?: unknown } = {};
-      mockGetCurrentRunTree.mockReturnValueOnce(runTree);
+      mockGetCurrentRunTree.mockReturnValue(runTree);
       mockGenerateContent.mockResolvedValue({
         response: {
           text: () => '{}',
