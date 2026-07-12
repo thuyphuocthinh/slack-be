@@ -56,7 +56,10 @@ describe('McpClientService', () => {
       providers: [
         McpClientService,
         { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
-        { provide: DynamicToolRegistryService, useValue: { isDynamicProvider: jest.fn().mockReturnValue(false) } },
+        {
+          provide: DynamicToolRegistryService,
+          useValue: { isDynamicProvider: jest.fn().mockReturnValue(false) },
+        },
         { provide: DynamicToolExecutorService, useValue: {} },
       ],
     }).compile();
@@ -101,6 +104,37 @@ describe('McpClientService', () => {
       await service.getTools('sql_server');
 
       expect(mockListTools).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('getTools — query passthrough for dynamic (Swagger) providers', () => {
+    it('forwards the query straight through to DynamicToolRegistryService.getTools, for semantic tool search (Giai đoạn 4 — Tool RAG)', async () => {
+      const mockDynamicRegistry = {
+        isDynamicProvider: jest.fn().mockResolvedValue(true),
+        getTools: jest.fn().mockResolvedValue([]),
+      };
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          McpClientService,
+          { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
+          {
+            provide: DynamicToolRegistryService,
+            useValue: mockDynamicRegistry,
+          },
+          { provide: DynamicToolExecutorService, useValue: {} },
+        ],
+      }).compile();
+      const dynamicService = module.get<McpClientService>(McpClientService);
+
+      await dynamicService.getTools(
+        'dynamic_provider_1',
+        'tôi cần refund đơn hàng',
+      );
+
+      expect(mockDynamicRegistry.getTools).toHaveBeenCalledWith(
+        'dynamic_provider_1',
+        'tôi cần refund đơn hàng',
+      );
     });
   });
 
@@ -228,9 +262,17 @@ describe('McpClientService', () => {
         messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
       });
 
-      const result = await service.getPrompt('sql_server', 'greet', { name: 'Alice' });
-      expect(result.messages[0].content).toEqual({ type: 'text', text: 'hello' });
-      expect(mockGetPrompt).toHaveBeenCalledWith({ name: 'greet', arguments: { name: 'Alice' } });
+      const result = await service.getPrompt('sql_server', 'greet', {
+        name: 'Alice',
+      });
+      expect(result.messages[0].content).toEqual({
+        type: 'text',
+        text: 'hello',
+      });
+      expect(mockGetPrompt).toHaveBeenCalledWith({
+        name: 'greet',
+        arguments: { name: 'Alice' },
+      });
     });
   });
 });

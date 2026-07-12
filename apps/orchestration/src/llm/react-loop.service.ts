@@ -13,7 +13,10 @@ import {
   ToolCallTraceDto,
 } from '../dto/react-loop.dto';
 import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
-import { LlmToolResult, LlmTurnResult } from './strategy/llm-strategy.interface';
+import {
+  LlmToolResult,
+  LlmTurnResult,
+} from './strategy/llm-strategy.interface';
 import { AgentStreamService } from '../socket/agent-stream.service';
 import { withTimeout } from './with-timeout.util';
 import { ApprovalRequiredError } from './approval-required.error';
@@ -36,7 +39,7 @@ export class ReactLoopService {
     const toolCalls: ToolCallTraceDto[] = [];
 
     const [mcpTools, systemInstruction] = await Promise.all([
-      this.mcpClient.getTools(dto.provider),
+      this.mcpClient.getTools(dto.provider, dto.prompt),
       this.buildSystemInstruction(dto.provider, dto.userId),
     ]);
 
@@ -81,18 +84,26 @@ export class ReactLoopService {
       );
 
     const onToken = (chunk: string) => {
-      this.agentStream.emitStep(
-        {
-          userId: dto.userId,
-          channelId: dto.channelId,
-          messageId: dto.messageId,
-          channelType: dto.channelType,
-        },
-        { type: 'token', text: chunk },
-      ).catch(() => {}); // fire and forget
+      this.agentStream
+        .emitStep(
+          {
+            userId: dto.userId,
+            channelId: dto.channelId,
+            messageId: dto.messageId,
+            channelType: dto.channelType,
+          },
+          { type: 'token', text: chunk },
+        )
+        .catch(() => {}); // fire and forget
     };
 
-    return this.executeReactLoop(dto, sendMessage, callTool, toolCalls, onToken);
+    return this.executeReactLoop(
+      dto,
+      sendMessage,
+      callTool,
+      toolCalls,
+      onToken,
+    );
   }
 
   private async buildSystemInstruction(
@@ -103,10 +114,16 @@ export class ReactLoopService {
     const resourceContents = await Promise.all(
       mcpResources.map(async (r) => {
         try {
-          const content = await this.mcpClient.readResource(provider, r.uri, userId);
+          const content = await this.mcpClient.readResource(
+            provider,
+            r.uri,
+            userId,
+          );
           return `\n--- Resource: ${r.name} ---\n${content}`;
         } catch (error) {
-          this.logger.warn(`Failed to read resource ${r.uri}: ${(error as Error).message}`);
+          this.logger.warn(
+            `Failed to read resource ${r.uri}: ${(error as Error).message}`,
+          );
           return '';
         }
       }),
@@ -187,7 +204,10 @@ export class ReactLoopService {
           selfChecked = true;
           const answerBeforeSelfCheck = turn.text;
           this.logger.log('self-check nudge triggered');
-          const selfCheckTurn = await sendMessage(ORCHESTRATION_SELF_CHECK_PROMPT, onToken);
+          const selfCheckTurn = await sendMessage(
+            ORCHESTRATION_SELF_CHECK_PROMPT,
+            onToken,
+          );
           if (selfCheckTurn.toolCalls.length > 0) {
             turn = selfCheckTurn;
             continue;
@@ -196,11 +216,15 @@ export class ReactLoopService {
             `run() done at step=${step} toolCalls=${toolCalls.length} (giữ câu trả lời TRƯỚC self-check)`,
           );
           return {
-            answer: answerBeforeSelfCheck || 'Xin lỗi, mình chưa có câu trả lời phù hợp.',
+            answer:
+              answerBeforeSelfCheck ||
+              'Xin lỗi, mình chưa có câu trả lời phù hợp.',
             toolCalls,
           };
         }
-        this.logger.log(`run() done at step=${step} toolCalls=${toolCalls.length}`);
+        this.logger.log(
+          `run() done at step=${step} toolCalls=${toolCalls.length}`,
+        );
         return {
           answer: turn.text || 'Xin lỗi, mình chưa có câu trả lời phù hợp.',
           toolCalls,
@@ -211,7 +235,7 @@ export class ReactLoopService {
         turn.toolCalls.map(async (call) => {
           const content = await callTool(call.name, call.args);
           return { id: call.id, name: call.name, content };
-        })
+        }),
       );
 
       turn = await sendMessage(results, onToken);
@@ -221,7 +245,9 @@ export class ReactLoopService {
       `run() hit MAX_REACT_STEPS=${ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS} userId=${dto.userId}`,
     );
     return {
-      answer: turn.text || 'Xin lỗi, câu hỏi này cần nhiều bước hơn mình hỗ trợ được.',
+      answer:
+        turn.text ||
+        'Xin lỗi, câu hỏi này cần nhiều bước hơn mình hỗ trợ được.',
       toolCalls,
     };
   }

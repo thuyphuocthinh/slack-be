@@ -29,8 +29,8 @@ jest.mock('@slack/common', () => ({
 describe('ReactLoopService', () => {
   let service: ReactLoopService;
 
-  const mockMcpClient = { 
-    getTools: jest.fn(), 
+  const mockMcpClient = {
+    getTools: jest.fn(),
     callTool: jest.fn(),
     getResources: jest.fn(),
     readResource: jest.fn(),
@@ -138,7 +138,7 @@ describe('ReactLoopService', () => {
     expect(mockSession.sendMessage).toHaveBeenNthCalledWith(
       3,
       ORCHESTRATION_SELF_CHECK_PROMPT,
-      expect.any(Function)
+      expect.any(Function),
     );
   });
 
@@ -202,7 +202,7 @@ describe('ReactLoopService', () => {
     mockMcpClient.callTool.mockImplementation(async () => {
       activeCalls++;
       maxConcurrent = Math.max(maxConcurrent, activeCalls);
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 50));
       activeCalls--;
       return { content: [{ type: 'text', text: 'data' }], isError: false };
     });
@@ -231,6 +231,20 @@ describe('ReactLoopService', () => {
     // 1 lượt gọi ban đầu + đúng MAX_REACT_STEPS lượt trong loop
     expect(mockSession.sendMessage).toHaveBeenCalledTimes(
       ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS + 1,
+    );
+  });
+
+  it('passes dto.prompt as the query to mcpClient.getTools (Giai đoạn 4 — Tool RAG, semantic tool search for large providers)', async () => {
+    mockSession.sendMessage.mockResolvedValueOnce({
+      text: 'ok',
+      toolCalls: [],
+    });
+
+    await service.run(baseDto);
+
+    expect(mockMcpClient.getTools).toHaveBeenCalledWith(
+      'sql_server',
+      baseDto.prompt,
     );
   });
 
@@ -283,8 +297,11 @@ describe('ReactLoopService', () => {
   });
 
   it('fetches MCP resources and injects them into systemInstruction', async () => {
-    mockSession.sendMessage.mockResolvedValueOnce({ text: 'ok', toolCalls: [] });
-    
+    mockSession.sendMessage.mockResolvedValueOnce({
+      text: 'ok',
+      toolCalls: [],
+    });
+
     mockMcpClient.getResources.mockResolvedValueOnce([
       { uri: 'resource://1', name: 'DatabaseSchema', description: 'DB' },
     ]);
@@ -293,11 +310,15 @@ describe('ReactLoopService', () => {
     await service.run(baseDto);
 
     expect(mockMcpClient.getResources).toHaveBeenCalledWith('sql_server');
-    expect(mockMcpClient.readResource).toHaveBeenCalledWith('sql_server', 'resource://1', 'user-1');
+    expect(mockMcpClient.readResource).toHaveBeenCalledWith(
+      'sql_server',
+      'resource://1',
+      'user-1',
+    );
     expect(mockStrategy.startChat).toHaveBeenCalledWith(
       expect.objectContaining({
         systemInstruction: expect.stringContaining('TABLE users (id INT)'),
-      })
+      }),
     );
   });
 
