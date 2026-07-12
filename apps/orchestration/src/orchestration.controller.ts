@@ -36,14 +36,14 @@ export class OrchestrationController {
     private readonly mcpClient: McpClientService,
     private readonly aiOrchestrationProcessor: AiOrchestrationProcessor,
     private readonly dynamicProviderDb: DynamicProviderDbService,
-  ) { }
+  ) {}
 
   @MessagePattern(ORCHESTRATION_MESSAGE_PATTERNS.GET_PROVIDERS)
   async getProviders(
     @Payload() dto: GetProvidersRequestDto,
   ): Promise<ProviderSummaryDto[]> {
     const statuses = await this.mcpAuthClient.getConnectionStatus(dto.userId);
-    
+
     // Providers tĩnh
     const staticProviders = await Promise.all(
       statuses.map(async (status) => {
@@ -57,7 +57,7 @@ export class OrchestrationController {
             [tools, resources, prompts] = await Promise.all([
               this.mcpClient.getTools(provider),
               this.mcpClient.getResources(provider),
-              this.mcpClient.getPrompts(provider)
+              this.mcpClient.getPrompts(provider),
             ]);
           } catch {
             tools = [];
@@ -80,7 +80,9 @@ export class OrchestrationController {
     );
 
     // Providers động (Swagger)
-    const dynamicEntities = await this.dynamicProviderDb.getProvidersByUser(dto.userId);
+    const dynamicEntities = await this.dynamicProviderDb.getProvidersByUser(
+      dto.userId,
+    );
     const dynamicProviders = await Promise.all(
       dynamicEntities.map(async (entity) => {
         let tools: ProviderSummaryDto['tools'] = [];
@@ -93,7 +95,8 @@ export class OrchestrationController {
         return {
           provider: entity.id,
           label: entity.name,
-          description: entity.description || `Custom Swagger API: ${entity.specUrl}`,
+          description:
+            entity.description || `Custom Swagger API: ${entity.specUrl}`,
           isConnected: true, // Dynamic provider luôn connected sau khi register
           hasAuth: entity.hasAuth,
           isDynamic: true,
@@ -101,7 +104,7 @@ export class OrchestrationController {
           resources: [],
           prompts: [],
         };
-      })
+      }),
     );
 
     return [...staticProviders, ...dynamicProviders];
@@ -178,14 +181,17 @@ export class OrchestrationController {
   async registerDynamicProvider(
     @Payload() dto: RegisterDynamicProviderRequestDto,
   ): Promise<RegisterDynamicProviderResponseDto> {
-    const entity = await this.dynamicProviderDb.createProvider(
-      dto.userId,
-      dto.name,
-      dto.specUrl,
-      dto.accessToken,
-      dto.authType,
-      dto.description,
-    );
+    const entity = await this.dynamicProviderDb.createProvider({
+      userId: dto.userId,
+      name: dto.name,
+      specUrl: dto.specUrl,
+      accessToken: dto.accessToken,
+      authType: dto.authType,
+      description: dto.description,
+      refreshToken: dto.refreshToken,
+      tokenExpiresAt: dto.tokenExpiresAt,
+      authConfig: dto.authConfig,
+    });
     return { id: entity.id, success: true };
   }
 
