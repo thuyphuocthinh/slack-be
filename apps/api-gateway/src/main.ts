@@ -31,7 +31,7 @@ async function bootstrap() {
       logger: WinstonModule.createLogger(getLoggerConfig('GATEWAY')),
       rawBody: true, // Required for Stripe webhook signature verification
     });
-    
+
     const expressApp = app.getHttpAdapter().getInstance();
     if (typeof expressApp.set === 'function') {
       expressApp.set('trust proxy', true);
@@ -94,7 +94,7 @@ async function bootstrap() {
           link.target = '_blank';
           link.rel = 'noopener';
           link.textContent = 'openapi.json';
-          link.style.cssText = 'position:fixed;top:10px;right:20px;z-index:9999;padding:6px 14px;background:#89bf04;color:#1b1b1b;font:600 13px sans-serif;border-radius:4px;text-decoration:none;';
+          link.style.cssText = 'position:fixed;top:120px;right:20px;z-index:9999;padding:6px 14px;background:#89bf04;color:#1b1b1b;font:600 13px sans-serif;border-radius:4px;text-decoration:none;';
           document.body.appendChild(link);
         });
       `,
