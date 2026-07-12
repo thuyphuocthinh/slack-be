@@ -85,6 +85,8 @@ async function bootstrap() {
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('docs', app, document, {
       explorer: true,
+      jsonDocumentUrl: '/openapi.json',
+      swaggerUrl: '/openapi.json',
     });
 
     const port = process.env.GATEWAY_PORT || 3000;
