@@ -1,13 +1,8 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import {
-  ORCHESTRATION_MESSAGE_PATTERNS,
-  PROVIDER_DESCRIPTIONS,
-  PROVIDER_LABELS,
-} from '@slack/constants';
+import { ORCHESTRATION_MESSAGE_PATTERNS } from '@slack/constants';
 import { McpAuthClientService } from './mcp-auth/mcp-auth-client.service';
 import { McpClientService } from './mcp/mcp-client.service';
-import { AGENT_REGISTRY } from './registry/agents.registry';
 import { AiOrchestrationProcessor } from './processor/ai-orchestration.processor';
 import {
   DisconnectProviderRequestDto,
@@ -28,6 +23,7 @@ import {
 } from './dto/orchestration.dto';
 import { InitiateConnectResponseDto } from './dto/mcp-auth.dto';
 import { DynamicProviderDbService } from './registry/dynamic-provider-db.service';
+import { ProviderSummaryService } from './registry/provider-summary.service';
 
 @Controller()
 export class OrchestrationController {
@@ -36,78 +32,14 @@ export class OrchestrationController {
     private readonly mcpClient: McpClientService,
     private readonly aiOrchestrationProcessor: AiOrchestrationProcessor,
     private readonly dynamicProviderDb: DynamicProviderDbService,
+    private readonly providerSummary: ProviderSummaryService,
   ) {}
 
   @MessagePattern(ORCHESTRATION_MESSAGE_PATTERNS.GET_PROVIDERS)
   async getProviders(
     @Payload() dto: GetProvidersRequestDto,
   ): Promise<ProviderSummaryDto[]> {
-    const statuses = await this.mcpAuthClient.getConnectionStatus(dto.userId);
-
-    // Providers tĩnh
-    const staticProviders = await Promise.all(
-      statuses.map(async (status) => {
-        const provider = status.provider_id;
-        let tools: ProviderSummaryDto['tools'] = [];
-        let resources: ProviderSummaryDto['resources'] = [];
-        let prompts: ProviderSummaryDto['prompts'] = [];
-
-        if (AGENT_REGISTRY[provider]?.endpoint) {
-          try {
-            [tools, resources, prompts] = await Promise.all([
-              this.mcpClient.getTools(provider),
-              this.mcpClient.getResources(provider),
-              this.mcpClient.getPrompts(provider),
-            ]);
-          } catch {
-            tools = [];
-            resources = [];
-            prompts = [];
-          }
-        }
-
-        return {
-          provider,
-          label: PROVIDER_LABELS[provider] ?? provider,
-          description: PROVIDER_DESCRIPTIONS[provider] ?? '',
-          isConnected: status.is_connected,
-          tools,
-          resources,
-          prompts,
-          isDynamic: false,
-        };
-      }),
-    );
-
-    // Providers động (Swagger)
-    const dynamicEntities = await this.dynamicProviderDb.getProvidersByUser(
-      dto.userId,
-    );
-    const dynamicProviders = await Promise.all(
-      dynamicEntities.map(async (entity) => {
-        let tools: ProviderSummaryDto['tools'] = [];
-        try {
-          tools = await this.mcpClient.getTools(entity.id);
-        } catch {
-          tools = [];
-        }
-
-        return {
-          provider: entity.id,
-          label: entity.name,
-          description:
-            entity.description || `Custom Swagger API: ${entity.specUrl}`,
-          isConnected: true, // Dynamic provider luôn connected sau khi register
-          hasAuth: entity.hasAuth,
-          isDynamic: true,
-          tools,
-          resources: [],
-          prompts: [],
-        };
-      }),
-    );
-
-    return [...staticProviders, ...dynamicProviders];
+    return this.providerSummary.getProviders(dto.userId);
   }
 
   @MessagePattern(ORCHESTRATION_MESSAGE_PATTERNS.INITIATE_CONNECT)
@@ -181,17 +113,7 @@ export class OrchestrationController {
   async registerDynamicProvider(
     @Payload() dto: RegisterDynamicProviderRequestDto,
   ): Promise<RegisterDynamicProviderResponseDto> {
-    const entity = await this.dynamicProviderDb.createProvider({
-      userId: dto.userId,
-      name: dto.name,
-      specUrl: dto.specUrl,
-      accessToken: dto.accessToken,
-      authType: dto.authType,
-      description: dto.description,
-      refreshToken: dto.refreshToken,
-      tokenExpiresAt: dto.tokenExpiresAt,
-      authConfig: dto.authConfig,
-    });
+    const entity = await this.dynamicProviderDb.registerProvider(dto);
     return { id: entity.id, success: true };
   }
 

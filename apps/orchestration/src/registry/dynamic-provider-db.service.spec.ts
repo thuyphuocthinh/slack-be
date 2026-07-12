@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import axios from 'axios';
 import { DynamicProviderDbService } from './dynamic-provider-db.service';
 import { DynamicToolRegistryService } from './dynamic-tool-registry.service';
 import { OpenApiParserService } from '../parser/openapi-parser.service';
@@ -8,6 +9,8 @@ import {
   EDynamicProviderAuthType,
 } from '../entity/dynamic-provider.entity';
 import { RpcException } from '@nestjs/microservices';
+
+jest.mock('axios');
 
 describe('DynamicProviderDbService', () => {
   let service: DynamicProviderDbService;
@@ -50,7 +53,6 @@ describe('DynamicProviderDbService', () => {
 
   describe('createProvider', () => {
     it('persists the OAuth2 lifecycle fields (refreshToken/tokenExpiresAt/authConfig) — regression test for the bug where they were silently dropped', async () => {
-      const tokenExpiresAt = new Date('2026-08-01T00:00:00Z');
       mockRepo.save.mockImplementation((entity: any) =>
         Promise.resolve({
           ...entity,
@@ -66,7 +68,9 @@ describe('DynamicProviderDbService', () => {
         authType: EDynamicProviderAuthType.OAUTH2,
         accessToken: 'initial-access-token',
         refreshToken: 'initial-refresh-token',
-        tokenExpiresAt,
+        // Absolute expiry, as resolved by the controller's eager-refresh step — this service just
+        // passes it through unchanged.
+        tokenExpiresAt: new Date('2026-08-01T00:00:00Z'),
         authConfig: {
           tokenUrl: 'https://accounts.spotify.com/api/token',
           clientId: 'cid',
@@ -77,13 +81,29 @@ describe('DynamicProviderDbService', () => {
       expect(mockRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
           refreshToken: 'initial-refresh-token',
-          tokenExpiresAt,
+          tokenExpiresAt: new Date('2026-08-01T00:00:00Z'),
           authConfig: {
             tokenUrl: 'https://accounts.spotify.com/api/token',
             clientId: 'cid',
             clientSecret: 'csecret',
           },
         }),
+      );
+    });
+
+    it('leaves tokenExpiresAt undefined when not given', async () => {
+      mockRepo.save.mockImplementation((entity: any) =>
+        Promise.resolve(entity),
+      );
+
+      await service.createProvider({
+        userId: 'user-1',
+        name: 'Test API',
+        specUrl: 'https://example.com/spec.json',
+      });
+
+      expect(mockRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ tokenExpiresAt: undefined }),
       );
     });
 
@@ -145,6 +165,155 @@ describe('DynamicProviderDbService', () => {
       });
 
       expect(result.id).toBeDefined();
+    });
+  });
+
+  describe('registerProvider', () => {
+    beforeEach(() => {
+      mockRepo.save.mockImplementation((entity: any) =>
+        Promise.resolve(entity),
+      );
+    });
+
+    it('creates the provider as-is when no refreshToken/tokenUrl is given (no eager refresh attempted)', async () => {
+      const result = await service.registerProvider({
+        userId: 'user-1',
+        name: 'TMDB',
+        specUrl: 'https://api.themoviedb.org/openapi.json',
+        accessToken: 'plain-bearer-token',
+        authType: EDynamicProviderAuthType.BEARER,
+      });
+
+      expect(axios.post).not.toHaveBeenCalled();
+      expect(mockRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accessToken: 'plain-bearer-token',
+          refreshToken: undefined,
+          tokenExpiresAt: undefined,
+        }),
+      );
+      expect(result.id).toBeDefined();
+    });
+
+    it('eagerly refreshes once at registration when refreshToken+tokenUrl are given, and persists the real token/expiry from the provider — so the user never has to know or type "expires_in" themselves', async () => {
+      (axios.post as jest.Mock).mockResolvedValue({
+        data: {
+          access_token: 'fresh-access-token',
+          refresh_token: 'rotated-refresh-token',
+          expires_in: 3600,
+        },
+      });
+
+      await service.registerProvider({
+        userId: 'user-1',
+        name: 'Spotify',
+        specUrl: 'https://api.spotify.com/openapi.json',
+        accessToken: 'stale-pasted-access-token',
+        authType: EDynamicProviderAuthType.OAUTH2,
+        refreshToken: 'initial-refresh-token',
+        tokenUrl: 'https://accounts.spotify.com/api/token',
+        clientId: 'cid',
+        clientSecret: 'csecret',
+      });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        'https://accounts.spotify.com/api/token',
+        expect.objectContaining({
+          grant_type: 'refresh_token',
+          refresh_token: 'initial-refresh-token',
+        }),
+        expect.anything(),
+      );
+      expect(mockRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accessToken: 'fresh-access-token',
+          refreshToken: 'rotated-refresh-token',
+          authConfig: {
+            tokenUrl: 'https://accounts.spotify.com/api/token',
+            clientId: 'cid',
+            clientSecret: 'csecret',
+            refreshRequestFormat: 'form',
+          },
+        }),
+      );
+      const createdArgs = mockRepo.create.mock.calls[0][0];
+      expect(createdArgs.tokenExpiresAt).toBeInstanceOf(Date);
+    });
+
+    it("auto-detects a JSON body for Atlassian's token endpoint (Jira/Confluence) without the user having to configure anything", async () => {
+      (axios.post as jest.Mock).mockResolvedValue({
+        data: {
+          access_token: 'fresh-access-token',
+          refresh_token: 'rotated-refresh-token',
+          expires_in: 3600,
+        },
+      });
+
+      await service.registerProvider({
+        userId: 'user-1',
+        name: 'Jira',
+        specUrl: 'https://your-domain.atlassian.net/openapi.json',
+        authType: EDynamicProviderAuthType.OAUTH2,
+        refreshToken: 'initial-refresh-token',
+        tokenUrl: 'https://auth.atlassian.com/oauth/token',
+        clientId: 'cid',
+        clientSecret: 'csecret',
+      });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        'https://auth.atlassian.com/oauth/token',
+        expect.anything(),
+        { headers: { 'Content-Type': 'application/json' } },
+      );
+      expect(mockRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          authConfig: expect.objectContaining({ refreshRequestFormat: 'json' }),
+        }),
+      );
+    });
+
+    it('lets an explicit refreshRequestFormat override the auto-detected one', async () => {
+      (axios.post as jest.Mock).mockResolvedValue({
+        data: { access_token: 'fresh-access-token', expires_in: 3600 },
+      });
+
+      await service.registerProvider({
+        userId: 'user-1',
+        name: 'Spotify',
+        specUrl: 'https://api.spotify.com/openapi.json',
+        authType: EDynamicProviderAuthType.OAUTH2,
+        refreshToken: 'initial-refresh-token',
+        tokenUrl: 'https://accounts.spotify.com/api/token',
+        clientId: 'cid',
+        clientSecret: 'csecret',
+        refreshRequestFormat: 'json',
+      });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        'https://accounts.spotify.com/api/token',
+        expect.anything(),
+        { headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+
+    it('throws OAUTH2_REFRESH_FAILED and never creates the provider when the eager refresh fails (bad tokenUrl/clientId/clientSecret) — fails fast at connect time instead of silently 401ing later', async () => {
+      (axios.post as jest.Mock).mockRejectedValue(new Error('invalid_client'));
+
+      await expect(
+        service.registerProvider({
+          userId: 'user-1',
+          name: 'Spotify',
+          specUrl: 'https://api.spotify.com/openapi.json',
+          accessToken: 'stale-pasted-access-token',
+          authType: EDynamicProviderAuthType.OAUTH2,
+          refreshToken: 'initial-refresh-token',
+          tokenUrl: 'https://accounts.spotify.com/api/token',
+          clientId: 'wrong-cid',
+          clientSecret: 'wrong-csecret',
+        }),
+      ).rejects.toThrow(RpcException);
+
+      expect(mockRepo.save).not.toHaveBeenCalled();
     });
   });
 });

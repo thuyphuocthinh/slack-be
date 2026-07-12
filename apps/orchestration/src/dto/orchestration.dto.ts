@@ -81,16 +81,23 @@ export class RegisterDynamicProviderRequestDto {
   name: string;
   specUrl: string;
   description?: string;
-  
+
   /**
    * Đóng vai trò là "Chìa khoá chính" (Primary Secret).
    * Lưu trữ API Key, Basic Auth credentials, hoặc OAuth2 Access Token tuỳ thuộc vào authType.
    */
   accessToken?: string;
   authType?: EDynamicProviderAuthType;
+
+  // Chỉ dùng khi authType = OAUTH2 — thiếu refreshToken hoặc tokenUrl thì sẽ không bao giờ tự
+  // refresh được (không auto-renew, không eager-refresh lúc đăng ký).
   refreshToken?: string;
-  tokenExpiresAt?: Date;
-  authConfig?: Record<string, unknown>;
+  tokenUrl?: string;
+  clientId?: string;
+  clientSecret?: string;
+  /** Ghi đè thủ công định dạng body khi gọi refresh_token grant — để trống thì server tự suy ra
+   *  từ tokenUrl (VD: auth.atlassian.com -> 'json'), mặc định 'form' cho các trường hợp còn lại. */
+  refreshRequestFormat?: 'form' | 'json';
 }
 
 export class RegisterDynamicProviderResponseDto {

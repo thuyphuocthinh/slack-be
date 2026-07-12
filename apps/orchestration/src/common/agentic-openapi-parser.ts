@@ -27,6 +27,7 @@ export type {
   ResponseProcessor,
   TokenRefresher,
   OAuth2TokenState,
+  OAuth2RefreshRequestFormat,
   ExecuteToolOptions,
   ObservabilityHooks,
   RetryOptions,

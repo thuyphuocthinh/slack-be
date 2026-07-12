@@ -4,13 +4,20 @@ import { DynamicToolRegistryService } from '../registry/dynamic-tool-registry.se
 import axios from 'axios';
 import { OpenAPIV3 } from 'openapi-types';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DynamicProviderEntity } from '../entity/dynamic-provider.entity';
+import {
+  DynamicProviderEntity,
+  EDynamicProviderAuthType,
+} from '../entity/dynamic-provider.entity';
 import { QueueService } from '@slack/queue';
 
 jest.mock('axios');
-jest.mock('nanoid', () => ({
-  customAlphabet: jest.fn().mockReturnValue(() => 'mocked-id'),
-}), { virtual: true });
+jest.mock(
+  'nanoid',
+  () => ({
+    customAlphabet: jest.fn().mockReturnValue(() => 'mocked-id'),
+  }),
+  { virtual: true },
+);
 
 describe('DynamicToolExecutorService', () => {
   let service: DynamicToolExecutorService;
@@ -43,7 +50,9 @@ describe('DynamicToolExecutorService', () => {
       ],
     }).compile();
 
-    service = module.get<DynamicToolExecutorService>(DynamicToolExecutorService);
+    service = module.get<DynamicToolExecutorService>(
+      DynamicToolExecutorService,
+    );
     registryService = module.get(DynamicToolRegistryService);
   });
 
@@ -69,13 +78,15 @@ describe('DynamicToolExecutorService', () => {
       },
     };
 
-    registryService.getProviderSpec.mockResolvedValue({ 
+    registryService.getProviderSpec.mockResolvedValue({
       providerId: 'test_provider',
       specUrl: 'http://test',
-      document: mockSpec, 
-      tools: [] 
+      document: mockSpec,
+      tools: [],
     });
-    (axios as unknown as jest.Mock).mockResolvedValue({ data: { id: 123, name: 'John' } });
+    (axios as unknown as jest.Mock).mockResolvedValue({
+      data: { id: 123, name: 'John' },
+    });
 
     const result = await service.execute('test_provider', 'getUser', {
       userId: 123,
@@ -86,11 +97,13 @@ describe('DynamicToolExecutorService', () => {
     expect(result.content).toHaveLength(1);
     expect(result.content![0].text).toContain('John');
 
-    expect(axios).toHaveBeenCalledWith(expect.objectContaining({
-      method: 'get',
-      url: 'https://api.test.com/users/123',
-      params: { includeDetails: true },
-    }));
+    expect(axios).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'get',
+        url: 'https://api.test.com/users/123',
+        params: { includeDetails: true },
+      }),
+    );
   });
 
   it('should attach requestBody correctly for POST method', async () => {
@@ -108,23 +121,27 @@ describe('DynamicToolExecutorService', () => {
       },
     };
 
-    registryService.getProviderSpec.mockResolvedValue({ 
+    registryService.getProviderSpec.mockResolvedValue({
       providerId: 'test_provider',
       specUrl: 'http://test',
-      document: mockSpec, 
-      tools: [] 
+      document: mockSpec,
+      tools: [],
     });
-    (axios as unknown as jest.Mock).mockResolvedValue({ data: { success: true } });
+    (axios as unknown as jest.Mock).mockResolvedValue({
+      data: { success: true },
+    });
 
     await service.execute('test_provider', 'createPost', {
       requestBody: { title: 'Hello', content: 'World' },
     });
 
-    expect(axios).toHaveBeenCalledWith(expect.objectContaining({
-      method: 'post',
-      url: 'https://api.test.com/posts',
-      data: { title: 'Hello', content: 'World' },
-    }));
+    expect(axios).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'post',
+        url: 'https://api.test.com/posts',
+        data: { title: 'Hello', content: 'World' },
+      }),
+    );
   });
 
   it('should return error DTO if API request fails', async () => {
@@ -138,20 +155,20 @@ describe('DynamicToolExecutorService', () => {
       },
     };
 
-    registryService.getProviderSpec.mockResolvedValue({ 
+    registryService.getProviderSpec.mockResolvedValue({
       providerId: 'test_provider',
       specUrl: 'http://test',
-      document: mockSpec, 
-      tools: [] 
+      document: mockSpec,
+      tools: [],
     });
-    
+
     // Simulate HTTP 404
     (axios as unknown as jest.Mock).mockRejectedValue({
       message: 'Request failed with status code 404',
       response: {
         status: 404,
-        data: { error: 'Not Found' }
-      }
+        data: { error: 'Not Found' },
+      },
     });
 
     const result = await service.execute('test_provider', 'getFail', {});
@@ -168,11 +185,11 @@ describe('DynamicToolExecutorService', () => {
       paths: {},
     };
 
-    registryService.getProviderSpec.mockResolvedValue({ 
+    registryService.getProviderSpec.mockResolvedValue({
       providerId: 'test_provider',
       specUrl: 'http://test',
-      document: mockSpec, 
-      tools: [] 
+      document: mockSpec,
+      tools: [],
     });
 
     const result = await service.execute('test_provider', 'unknown_tool', {});
@@ -230,7 +247,10 @@ describe('DynamicToolExecutorService', () => {
       tools: [],
     });
     (axios as unknown as jest.Mock)
-      .mockRejectedValueOnce({ response: { status: 503, data: 'Service Unavailable' }, config: {} })
+      .mockRejectedValueOnce({
+        response: { status: 503, data: 'Service Unavailable' },
+        config: {},
+      })
       .mockResolvedValueOnce({ data: { ok: true } });
 
     const result = await service.execute('test_provider', 'getFlaky', {});
@@ -238,6 +258,186 @@ describe('DynamicToolExecutorService', () => {
     expect(result.isError).toBe(false);
     expect(result.content![0].text).toContain('"ok": true');
     expect(axios).toHaveBeenCalledTimes(2);
+  });
+
+  describe('reactive OAuth2 renew on 401', () => {
+    const mockSpec: OpenAPIV3.Document = {
+      openapi: '3.0.0',
+      info: { title: 'Test', version: '1.0' },
+      servers: [{ url: 'https://api.test.com' }],
+      paths: {
+        '/me': {
+          get: { operationId: 'getMe' } as any,
+        },
+      },
+    };
+
+    it('renews the token and retries exactly once after a 401, succeeding without surfacing an error', async () => {
+      registryService.getProviderSpec.mockResolvedValue({
+        providerId: 'spotify_provider',
+        specUrl: 'http://test',
+        document: mockSpec,
+        tools: [],
+        authType: EDynamicProviderAuthType.OAUTH2,
+        accessToken: 'stale-access-token',
+        refreshToken: 'refresh-token',
+        authConfig: {
+          tokenUrl: 'https://accounts.spotify.com/api/token',
+          clientId: 'cid',
+          clientSecret: 'csecret',
+        },
+      } as any);
+
+      (axios as unknown as jest.Mock)
+        .mockRejectedValueOnce({
+          response: { status: 401, data: 'Unauthorized' },
+          config: {},
+        })
+        .mockResolvedValueOnce({ data: { ok: true } });
+      (axios.post as jest.Mock).mockResolvedValue({
+        data: {
+          access_token: 'fresh-access-token',
+          refresh_token: 'rotated-refresh-token',
+          expires_in: 3600,
+        },
+      });
+
+      const result = await service.execute('spotify_provider', 'getMe', {});
+
+      expect(result.isError).toBe(false);
+      expect(result.content![0].text).toContain('"ok": true');
+      expect(axios.post).toHaveBeenCalledTimes(1);
+      // Retry chỉ xảy ra đúng 1 lần: gọi ban đầu (401) + 1 lần retry sau refresh = 2 lần gọi axios.
+      expect(axios).toHaveBeenCalledTimes(2);
+    });
+
+    it('uses the persisted refreshRequestFormat from authConfig when renewing', async () => {
+      registryService.getProviderSpec.mockResolvedValue({
+        providerId: 'jira_provider',
+        specUrl: 'http://test',
+        document: mockSpec,
+        tools: [],
+        authType: EDynamicProviderAuthType.OAUTH2,
+        accessToken: 'stale-access-token',
+        refreshToken: 'refresh-token',
+        authConfig: {
+          tokenUrl: 'https://auth.atlassian.com/oauth/token',
+          clientId: 'cid',
+          clientSecret: 'csecret',
+          refreshRequestFormat: 'json',
+        },
+      } as any);
+
+      (axios as unknown as jest.Mock)
+        .mockRejectedValueOnce({
+          response: { status: 401, data: 'Unauthorized' },
+          config: {},
+        })
+        .mockResolvedValueOnce({ data: { ok: true } });
+      (axios.post as jest.Mock).mockResolvedValue({
+        data: { access_token: 'fresh-access-token', expires_in: 3600 },
+      });
+
+      await service.execute('jira_provider', 'getMe', {});
+
+      expect(axios.post).toHaveBeenCalledWith(
+        'https://auth.atlassian.com/oauth/token',
+        expect.anything(),
+        { headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+
+    it('falls back to auto-detecting the format from tokenUrl when authConfig has no refreshRequestFormat (providers created before this feature)', async () => {
+      registryService.getProviderSpec.mockResolvedValue({
+        providerId: 'jira_provider_legacy',
+        specUrl: 'http://test',
+        document: mockSpec,
+        tools: [],
+        authType: EDynamicProviderAuthType.OAUTH2,
+        accessToken: 'stale-access-token',
+        refreshToken: 'refresh-token',
+        authConfig: {
+          tokenUrl: 'https://auth.atlassian.com/oauth/token',
+          clientId: 'cid',
+          clientSecret: 'csecret',
+          // no refreshRequestFormat — pre-existing provider row
+        },
+      } as any);
+
+      (axios as unknown as jest.Mock)
+        .mockRejectedValueOnce({
+          response: { status: 401, data: 'Unauthorized' },
+          config: {},
+        })
+        .mockResolvedValueOnce({ data: { ok: true } });
+      (axios.post as jest.Mock).mockResolvedValue({
+        data: { access_token: 'fresh-access-token', expires_in: 3600 },
+      });
+
+      await service.execute('jira_provider_legacy', 'getMe', {});
+
+      expect(axios.post).toHaveBeenCalledWith(
+        'https://auth.atlassian.com/oauth/token',
+        expect.anything(),
+        { headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+
+    it('does not attempt a renew when the provider has no refreshToken/tokenUrl — surfaces the 401 as-is', async () => {
+      registryService.getProviderSpec.mockResolvedValue({
+        providerId: 'plain_bearer_provider',
+        specUrl: 'http://test',
+        document: mockSpec,
+        tools: [],
+        authType: EDynamicProviderAuthType.BEARER,
+        accessToken: 'plain-token',
+      } as any);
+
+      (axios as unknown as jest.Mock).mockRejectedValue({
+        response: { status: 401, data: 'Unauthorized' },
+        config: {},
+      });
+
+      const result = await service.execute(
+        'plain_bearer_provider',
+        'getMe',
+        {},
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content![0].text).toContain('Status 401');
+      expect(axios.post).not.toHaveBeenCalled();
+    });
+
+    it('surfaces the original 401 (without retrying) when the renew itself fails', async () => {
+      registryService.getProviderSpec.mockResolvedValue({
+        providerId: 'spotify_provider',
+        specUrl: 'http://test',
+        document: mockSpec,
+        tools: [],
+        authType: EDynamicProviderAuthType.OAUTH2,
+        accessToken: 'stale-access-token',
+        refreshToken: 'refresh-token',
+        authConfig: {
+          tokenUrl: 'https://accounts.spotify.com/api/token',
+          clientId: 'wrong-cid',
+          clientSecret: 'wrong-csecret',
+        },
+      } as any);
+
+      (axios as unknown as jest.Mock).mockRejectedValue({
+        response: { status: 401, data: 'Unauthorized' },
+        config: {},
+      });
+      (axios.post as jest.Mock).mockRejectedValue(new Error('invalid_client'));
+
+      const result = await service.execute('spotify_provider', 'getMe', {});
+
+      expect(result.isError).toBe(true);
+      expect(result.content![0].text).toContain('Status 401');
+      // Không retry lại tool call vì renew thất bại — chỉ gọi axios (tool call) đúng 1 lần.
+      expect(axios).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('gives up after exhausting retries on a persistently failing call', async () => {
