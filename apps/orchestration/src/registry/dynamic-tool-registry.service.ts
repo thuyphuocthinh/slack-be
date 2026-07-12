@@ -10,6 +10,18 @@ import { RpcException } from '@nestjs/microservices';
 import { ORCHESTRATION_ERROR } from '@slack/constants';
 import { buildTTL } from '@slack/common';
 import { EDynamicProviderAuthType } from '../entity/dynamic-provider.entity';
+import { SemanticToolIndex } from '../common/agentic-openapi-parser';
+import { OpenAiEmbeddingProvider } from './openai-embedding.provider';
+
+// McpToolDto.description is optional (real MCP servers may omit it), but SemanticToolIndex
+// requires a plain string — narrowed to '' when missing, only for ranking purposes.
+interface IndexableMcpTool extends McpToolDto {
+  description: string;
+}
+
+/** How many of the semantically-ranked tools to hand to the LLM — well under the 128 hard cap,
+ *  small enough that a static-filter-only setup (0-100 tools) never even reaches this path. */
+const SEMANTIC_SEARCH_TOP_K = 20;
 
 export interface DynamicProviderSpec {
   providerId: string;
@@ -30,26 +42,34 @@ export interface DynamicProviderSpec {
 interface CacheEntry {
   data: DynamicProviderSpec;
   lastAccessed: number;
+  // Built lazily, only for providers with >128 tools — see getTools(). Replaced automatically
+  // whenever ensureLoaded() reloads the entry (e.g. after cache TTL expiry), so it can never
+  // serve stale rankings for a tool list that no longer matches.
+  semanticIndex?: SemanticToolIndex<IndexableMcpTool>;
 }
 
 @Injectable()
 export class DynamicToolRegistryService implements OnModuleDestroy {
   private readonly logger = new Logger(DynamicToolRegistryService.name);
-  
+
   // Cache trên RAM kết hợp TTL (Thời gian sống)
   private readonly registry = new Map<string, CacheEntry>();
-  
+
   // Tự động giải phóng RAM sau 1 giờ không có ai sử dụng
-  private readonly CACHE_TTL_MS = buildTTL('HOUR', 1); 
+  private readonly CACHE_TTL_MS = buildTTL('HOUR', 1);
   private cleanupInterval: NodeJS.Timeout;
 
   constructor(
     private readonly parserService: OpenApiParserService,
     @InjectRepository(DynamicProviderEntity)
     private readonly providerRepo: Repository<DynamicProviderEntity>,
-  ) { 
+    private readonly embeddingProvider: OpenAiEmbeddingProvider,
+  ) {
     // Định kỳ 30 phút quét 1 lần để dọn rác RAM
-    this.cleanupInterval = setInterval(() => this.cleanupExpiredCache(), buildTTL('MINUTE', 30));
+    this.cleanupInterval = setInterval(
+      () => this.cleanupExpiredCache(),
+      buildTTL('MINUTE', 30),
+    );
   }
 
   onModuleDestroy() {
@@ -59,16 +79,18 @@ export class DynamicToolRegistryService implements OnModuleDestroy {
   private cleanupExpiredCache() {
     const now = Date.now();
     let deletedCount = 0;
-    
+
     for (const [key, entry] of this.registry.entries()) {
       if (now - entry.lastAccessed > this.CACHE_TTL_MS) {
         this.registry.delete(key);
         deletedCount++;
       }
     }
-    
+
     if (deletedCount > 0) {
-      this.logger.log(`Cleaned up ${deletedCount} unused dynamic providers from RAM to free memory.`);
+      this.logger.log(
+        `Cleaned up ${deletedCount} unused dynamic providers from RAM to free memory.`,
+      );
     }
   }
 
@@ -83,7 +105,9 @@ export class DynamicToolRegistryService implements OnModuleDestroy {
       return;
     }
 
-    const entity = await this.providerRepo.findOne({ where: { id: providerId, isActive: true } });
+    const entity = await this.providerRepo.findOne({
+      where: { id: providerId, isActive: true },
+    });
     if (!entity) {
       throw new RpcException({
         ...ORCHESTRATION_ERROR.DYNAMIC_PROVIDER_NOT_FOUND,
@@ -94,7 +118,7 @@ export class DynamicToolRegistryService implements OnModuleDestroy {
     try {
       const document = await this.parserService.loadSpec(entity.specUrl);
       const tools = OpenApiConverter.convertToMcpTools(document);
-      
+
       this.registry.set(providerId, {
         data: {
           providerId,
@@ -107,11 +131,13 @@ export class DynamicToolRegistryService implements OnModuleDestroy {
           tokenExpiresAt: entity.tokenExpiresAt,
           authConfig: entity.authConfig,
         },
-        lastAccessed: Date.now()
+        lastAccessed: Date.now(),
       });
       this.logger.log(`Lazy-loaded dynamic provider "${providerId}" into RAM.`);
     } catch (error: any) {
-      this.logger.error(`Failed to lazy-load dynamic provider "${providerId}": ${error.message}`);
+      this.logger.error(
+        `Failed to lazy-load dynamic provider "${providerId}": ${error.message}`,
+      );
       // Lỗi từ ParserService vốn đã là RpcException (INVALID_OPENAPI_SPEC), nên ta cứ ném thẳng nó ra
       if (error instanceof RpcException) {
         throw error;
@@ -125,19 +151,59 @@ export class DynamicToolRegistryService implements OnModuleDestroy {
   }
 
   /**
-   * Lấy danh sách các tools đã parse cho provider này để đưa vào LLM
+   * Lấy danh sách các tools đã parse cho provider này để đưa vào LLM.
+   *
+   * `query` (thường là dto.prompt — câu hỏi hiện tại của user) chỉ được dùng khi > 128 tools: xếp
+   * hạng theo mức liên quan ngữ nghĩa (Tool RAG) và chỉ trả về top `SEMANTIC_SEARCH_TOP_K`, thay vì
+   * cắt cứng theo thứ tự xuất hiện trong spec. Không truyền `query` (hoặc embedding provider lỗi) →
+   * fallback về hành vi cũ (cắt 128 tool đầu) để không phá vỡ các endpoint không có ngữ cảnh câu hỏi
+   * (vd danh sách tool hiển thị UI).
    */
-  async getTools(providerId: string): Promise<McpToolDto[]> {
+  async getTools(providerId: string, query?: string): Promise<McpToolDto[]> {
     await this.ensureLoaded(providerId);
-    const tools = this.registry.get(providerId)!.data.tools;
-    
-    // Khắc phục lỗi "Invalid 'tools': array too long. Expected an array with maximum of 128 items" của OpenAI gpt-4o-mini
-    if (tools.length > 128) {
-      this.logger.warn(`Provider ${providerId} có ${tools.length} tools. Tạm thời cắt xuống 128 để tránh lỗi 400 từ OpenAI.`);
-      return tools.slice(0, 128);
+    const entry = this.registry.get(providerId)!;
+    const tools = entry.data.tools;
+
+    if (tools.length <= 128) return tools;
+
+    if (query) {
+      try {
+        const index = await this.getOrBuildSemanticIndex(entry, tools);
+        const ranked = await index.search(query, SEMANTIC_SEARCH_TOP_K);
+        if (ranked.length > 0) return ranked;
+      } catch (error: any) {
+        this.logger.warn(
+          `Semantic tool search failed for provider ${providerId}, falling back to the first 128 tools: ${error.message}`,
+        );
+      }
     }
-    
-    return tools;
+
+    // Khắc phục lỗi "Invalid 'tools': array too long. Expected an array with maximum of 128 items" của OpenAI gpt-4o-mini
+    this.logger.warn(
+      `Provider ${providerId} có ${tools.length} tools. Tạm thời cắt xuống 128 để tránh lỗi 400 từ OpenAI.`,
+    );
+    return tools.slice(0, 128);
+  }
+
+  /** Embeds the tool set once per cache entry — reused across every search() until the entry itself
+   *  is reloaded (see CacheEntry.semanticIndex). */
+  private async getOrBuildSemanticIndex(
+    entry: CacheEntry,
+    tools: McpToolDto[],
+  ): Promise<SemanticToolIndex<IndexableMcpTool>> {
+    if (entry.semanticIndex) return entry.semanticIndex;
+
+    const index = new SemanticToolIndex<IndexableMcpTool>(
+      this.embeddingProvider,
+    );
+    const indexable: IndexableMcpTool[] = tools.map((tool) => ({
+      ...tool,
+      description: tool.description ?? '',
+    }));
+    await index.build(indexable);
+
+    entry.semanticIndex = index;
+    return index;
   }
 
   /**
@@ -161,7 +227,9 @@ export class DynamicToolRegistryService implements OnModuleDestroy {
    */
   async isDynamicProvider(providerId: string): Promise<boolean> {
     if (this.registry.has(providerId)) return true;
-    const count = await this.providerRepo.count({ where: { id: providerId, isActive: true } });
+    const count = await this.providerRepo.count({
+      where: { id: providerId, isActive: true },
+    });
     return count > 0;
   }
 

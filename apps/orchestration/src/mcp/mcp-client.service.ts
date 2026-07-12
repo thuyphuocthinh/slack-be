@@ -26,14 +26,17 @@ export class McpClientService {
   private readonly logger = new Logger(McpClientService.name);
   private readonly clients = new Map<string, Client>();
   private readonly toolsCache = new Map<string, CacheEntry<McpToolDto>>();
-  private readonly resourcesCache = new Map<string, CacheEntry<McpResourceDto>>();
+  private readonly resourcesCache = new Map<
+    string,
+    CacheEntry<McpResourceDto>
+  >();
   private readonly promptsCache = new Map<string, CacheEntry<McpPromptDto>>();
 
   constructor(
     private readonly circuitBreaker: CircuitBreakerService,
     private readonly dynamicRegistry: DynamicToolRegistryService,
     private readonly dynamicExecutor: DynamicToolExecutorService,
-  ) { }
+  ) {}
 
   // Header là static per-transport (SDK không hỗ trợ header per-call) — nên
   // cache 1 client riêng cho mỗi (provider, ownerId) khi cần gọi tool thật;
@@ -82,29 +85,27 @@ export class McpClientService {
     if (
       cached &&
       Date.now() - cached.fetchedAt <
-      ORCHESTRATION_CONSTANTS.MCP_TOOLS_CACHE_TTL_MS
+        ORCHESTRATION_CONSTANTS.MCP_TOOLS_CACHE_TTL_MS
     ) {
       return cached.data;
     }
 
-    const data = await this.withReconnect(
-      provider,
-      undefined,
-      fetchFn
-    );
+    const data = await this.withReconnect(provider, undefined, fetchFn);
 
     cacheMap.set(provider, { data, fetchedAt: Date.now() });
     return data;
   }
 
-  async getTools(provider: string): Promise<McpToolDto[]> {
+  async getTools(provider: string, query?: string): Promise<McpToolDto[]> {
     if (await this.dynamicRegistry.isDynamicProvider(provider)) {
-      return this.dynamicRegistry.getTools(provider);
+      return this.dynamicRegistry.getTools(provider, query);
     }
-    
+
     return this.getCachedList(provider, this.toolsCache, async (client) => {
-      const result = await client.listTools().catch(e => {
-        this.logger.warn(`listTools failed or not supported for ${provider}: ${e.message}`);
+      const result = await client.listTools().catch((e) => {
+        this.logger.warn(
+          `listTools failed or not supported for ${provider}: ${e.message}`,
+        );
         return { tools: [] };
       });
       return (result.tools || []) as McpToolDto[];
@@ -113,10 +114,12 @@ export class McpClientService {
 
   async getResources(provider: string): Promise<McpResourceDto[]> {
     if (await this.dynamicRegistry.isDynamicProvider(provider)) return [];
-    
+
     return this.getCachedList(provider, this.resourcesCache, async (client) => {
-      const result = await client.listResources().catch(e => {
-        this.logger.warn(`listResources failed or not supported for ${provider}: ${e.message}`);
+      const result = await client.listResources().catch((e) => {
+        this.logger.warn(
+          `listResources failed or not supported for ${provider}: ${e.message}`,
+        );
         return { resources: [] };
       });
       return (result.resources || []) as McpResourceDto[];
@@ -125,10 +128,12 @@ export class McpClientService {
 
   async getPrompts(provider: string): Promise<McpPromptDto[]> {
     if (await this.dynamicRegistry.isDynamicProvider(provider)) return [];
-    
+
     return this.getCachedList(provider, this.promptsCache, async (client) => {
-      const result = await client.listPrompts().catch(e => {
-        this.logger.warn(`listPrompts failed or not supported for ${provider}: ${e.message}`);
+      const result = await client.listPrompts().catch((e) => {
+        this.logger.warn(
+          `listPrompts failed or not supported for ${provider}: ${e.message}`,
+        );
         return { prompts: [] };
       });
       return (result.prompts || []) as McpPromptDto[];
@@ -144,7 +149,7 @@ export class McpClientService {
         dto.ownerId,
       );
     }
-    
+
     return this.withReconnect(
       dto.provider,
       dto.ownerId,
@@ -236,7 +241,7 @@ export class McpClientService {
 
         // Exponential backoff: 500ms, 1500ms...
         const delay = 500 * Math.pow(3, attempt - 1);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
 
