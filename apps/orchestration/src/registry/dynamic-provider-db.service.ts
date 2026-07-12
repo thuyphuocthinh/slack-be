@@ -6,12 +6,17 @@ import {
   DynamicProviderAuthConfig,
 } from '../entity/dynamic-provider.entity';
 import { DynamicToolRegistryService } from './dynamic-tool-registry.service';
-import { DynamicProviderDto } from '../dto/orchestration.dto';
+import {
+  DynamicProviderDto,
+  RegisterDynamicProviderRequestDto,
+} from '../dto/orchestration.dto';
 import { OpenApiParserService } from '../parser/openapi-parser.service';
 import { EDynamicProviderAuthType } from '../entity/dynamic-provider.entity';
 import { RpcException } from '@nestjs/microservices';
 import { ORCHESTRATION_ERROR } from '@slack/constants';
 import { v4 as uuidv4 } from 'uuid';
+import { Oauth2RefreshTokenRefresher } from '../common/agentic-openapi-parser';
+import { inferOAuth2RefreshFormat } from '../common/oauth2-refresh-format.util';
 
 export interface CreateDynamicProviderParams {
   userId: string;
@@ -20,9 +25,12 @@ export interface CreateDynamicProviderParams {
   description?: string;
   accessToken?: string;
   authType?: EDynamicProviderAuthType;
-  // OAUTH2 auto-renew (DynamicToolExecutorService.handleOAuth2AutoRenew) needs all 3 of these —
-  // missing any one of them makes it a permanent no-op (silently never refreshes).
+  // OAUTH2 reactive renew (DynamicToolExecutorService.tryRenewOAuth2Token, triggered on a 401)
+  // needs refreshToken + authConfig.tokenUrl/clientId/clientSecret — missing refreshToken or
+  // tokenUrl makes it a permanent no-op.
   refreshToken?: string;
+  /** Informational only — not required for the reactive renew (which triggers off an actual 401,
+   *  not this timestamp). Set once by the controller's eager-refresh-at-connect step. */
   tokenExpiresAt?: Date;
   authConfig?: DynamicProviderAuthConfig;
 }
@@ -37,6 +45,74 @@ export class DynamicProviderDbService {
     private readonly registryService: DynamicToolRegistryService,
     private readonly parserService: OpenApiParserService,
   ) {}
+
+  /**
+   * Đăng ký 1 tích hợp Swagger mới từ request của user — resolve xong OAuth2 credentials
+   * (eager-refresh nếu cần) rồi mới gọi createProvider() để lưu DB.
+   */
+  async registerProvider(
+    dto: RegisterDynamicProviderRequestDto,
+  ): Promise<DynamicProviderDto> {
+    const hasAuthConfig = dto.tokenUrl || dto.clientId || dto.clientSecret;
+    let accessToken = dto.accessToken;
+    let refreshToken = dto.refreshToken;
+    let tokenExpiresAt: Date | undefined;
+    // Đa số token endpoint nhận form-urlencoded — 1 số ít (VD: Atlassian cho Jira/Confluence)
+    // bắt buộc JSON. Tự suy ra từ tokenUrl, cho phép FE ghi đè thủ công qua "Nâng cao" nếu cần.
+    const refreshRequestFormat = dto.tokenUrl
+      ? (dto.refreshRequestFormat ?? inferOAuth2RefreshFormat(dto.tokenUrl))
+      : undefined;
+
+    // User không thể biết trước "expires_in" của access token họ paste vào. Nếu có đủ
+    // refreshToken + tokenUrl, refresh ngay 1 lần lúc đăng ký: vừa lấy được expires_in thật từ
+    // chính provider (không cần hỏi user), vừa xác nhận sớm bộ refresh credential có hoạt động
+    // không thay vì để tới lúc access token hết hạn mới phát hiện là refresh không tự chạy được.
+    if (dto.refreshToken && dto.tokenUrl) {
+      const refresher = new Oauth2RefreshTokenRefresher({
+        logger: this.logger,
+        requestFormat: refreshRequestFormat,
+      });
+      const refreshed = await refresher.refreshIfNeeded({
+        accessToken: dto.accessToken ?? '',
+        refreshToken: dto.refreshToken,
+        tokenExpiresAt: new Date(0), // luôn coi như đã hết hạn để ép refresh ngay, bất kể accessToken user paste còn hạn hay không
+        tokenUrl: dto.tokenUrl,
+        clientId: dto.clientId,
+        clientSecret: dto.clientSecret,
+      });
+
+      if (!refreshed) {
+        throw new RpcException({
+          ...ORCHESTRATION_ERROR.OAUTH2_REFRESH_FAILED,
+          details:
+            'Could not obtain an access token using the provided refreshToken/tokenUrl/clientId/clientSecret. Please double check these values.',
+        });
+      }
+
+      accessToken = refreshed.accessToken;
+      refreshToken = refreshed.refreshToken;
+      tokenExpiresAt = refreshed.tokenExpiresAt;
+    }
+
+    return this.createProvider({
+      userId: dto.userId,
+      name: dto.name,
+      specUrl: dto.specUrl,
+      accessToken,
+      authType: dto.authType,
+      description: dto.description,
+      refreshToken,
+      tokenExpiresAt,
+      authConfig: hasAuthConfig
+        ? {
+            tokenUrl: dto.tokenUrl,
+            clientId: dto.clientId,
+            clientSecret: dto.clientSecret,
+            refreshRequestFormat,
+          }
+        : undefined,
+    });
+  }
 
   /**
    * Tạo 1 tích hợp Swagger mới (Lưu DB)

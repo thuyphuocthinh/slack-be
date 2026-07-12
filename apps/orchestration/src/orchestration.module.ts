@@ -30,6 +30,7 @@ import { CircuitBreakerService } from './common/circuit-breaker.service';
 import { OpenApiParserService } from './parser/openapi-parser.service';
 import { DynamicToolRegistryService } from './registry/dynamic-tool-registry.service';
 import { DynamicProviderDbService } from './registry/dynamic-provider-db.service';
+import { ProviderSummaryService } from './registry/provider-summary.service';
 import { OpenAiEmbeddingProvider } from './registry/openai-embedding.provider';
 import { DynamicToolExecutorService } from './executor/dynamic-tool-executor.service';
 
@@ -64,6 +65,7 @@ import { DynamicToolExecutorService } from './executor/dynamic-tool-executor.ser
     OpenApiParserService,
     DynamicToolRegistryService,
     DynamicProviderDbService,
+    ProviderSummaryService,
     OpenAiEmbeddingProvider,
     DynamicToolExecutorService,
     ReactLoopService,

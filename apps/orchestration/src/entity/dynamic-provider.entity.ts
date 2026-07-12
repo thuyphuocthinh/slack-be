@@ -1,4 +1,11 @@
-import { Entity, Column, PrimaryColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+} from 'typeorm';
 
 export interface DynamicProviderAuthConfig {
   clientId?: string;
@@ -6,6 +13,11 @@ export interface DynamicProviderAuthConfig {
   tokenUrl?: string;
   authorizationUrl?: string;
   scope?: string;
+  /** Most OAuth2 token endpoints accept form-urlencoded (the default); some (e.g. Atlassian's
+   *  auth.atlassian.com, used by Jira/Confluence) require JSON instead. Resolved once at
+   *  registration time (auto-detected from tokenUrl, or explicitly overridden) and reused as-is
+   *  by the reactive renew on a 401 — never re-inferred later. */
+  refreshRequestFormat?: 'form' | 'json';
   [key: string]: unknown;
 }
 
@@ -45,7 +57,12 @@ export class DynamicProviderEntity {
   @Column({ name: 'access_token', nullable: true })
   accessToken?: string;
 
-  @Column({ name: 'auth_type', type: 'varchar', length: 50, default: EDynamicProviderAuthType.BEARER })
+  @Column({
+    name: 'auth_type',
+    type: 'varchar',
+    length: 50,
+    default: EDynamicProviderAuthType.BEARER,
+  })
   authType: EDynamicProviderAuthType;
 
   @Column({ name: 'refresh_token', type: 'text', nullable: true })
