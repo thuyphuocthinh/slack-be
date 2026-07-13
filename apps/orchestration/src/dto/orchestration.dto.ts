@@ -13,6 +13,12 @@ export class ProviderSummaryDto {
   tools: McpToolDto[];
   resources: McpResourceDto[];
   prompts: McpPromptDto[];
+  isDynamic?: boolean;
+  hasAuth?: boolean;
+  authType?: EDynamicProviderAuthType;
+  hasAccessToken?: boolean;
+  hasRefreshToken?: boolean;
+  hasTokenUrl?: boolean;
 }
 
 export class InitiateConnectProviderRequestDto {
@@ -70,6 +76,9 @@ export class DynamicProviderDto {
   description?: string;
   hasAuth: boolean;
   authType: EDynamicProviderAuthType;
+  hasAccessToken: boolean;
+  hasRefreshToken: boolean;
+  hasTokenUrl: boolean;
   tokenExpiresAt?: Date;
   isActive: boolean;
   createdAt: Date;

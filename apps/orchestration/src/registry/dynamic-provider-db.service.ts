@@ -99,6 +99,13 @@ export class DynamicProviderDbService {
       tokenExpiresAt = refreshed.tokenExpiresAt;
     }
 
+    this.assertUsableAuthConfig(
+      dto.authType,
+      accessToken,
+      refreshToken,
+      dto.tokenUrl,
+    );
+
     return this.createProvider({
       userId: dto.userId,
       name: dto.name,
@@ -200,6 +207,8 @@ export class DynamicProviderDbService {
     if (dto.specUrl && dto.specUrl !== entity.specUrl) {
       await this.parserService.loadSpec(dto.specUrl);
     }
+
+    this.assertUsableAuthConfig(authType, accessToken, refreshToken, tokenUrl);
 
     const hasAuthConfig = tokenUrl || clientId || clientSecret;
 
@@ -349,10 +358,34 @@ export class DynamicProviderDbService {
       description: entity.description,
       hasAuth: !!entity.accessToken || !!entity.refreshToken,
       authType: entity.authType,
+      hasAccessToken: !!entity.accessToken,
+      hasRefreshToken: !!entity.refreshToken,
+      hasTokenUrl: !!entity.authConfig?.tokenUrl,
       tokenExpiresAt: entity.tokenExpiresAt,
       isActive: entity.isActive,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
     };
+  }
+
+  /**
+   * Chặn lưu 1 provider có authType đòi hỏi xác thực (khác NONE) nhưng cuối cùng không có cách
+   * nào để inject credential (không accessToken, không đủ cặp refreshToken+tokenUrl) — tránh lặp
+   * lại bug: FE gửi thiếu field/đổi authType mà không kèm credential mới, BE vẫn lưu "thành công"
+   * ra 1 provider không bao giờ gọi API thật được.
+   */
+  private assertUsableAuthConfig(
+    authType: EDynamicProviderAuthType | undefined,
+    accessToken: string | undefined,
+    refreshToken: string | undefined,
+    tokenUrl: string | undefined,
+  ): void {
+    if (!authType || authType === EDynamicProviderAuthType.NONE) return;
+    if (accessToken || (refreshToken && tokenUrl)) return;
+
+    throw new RpcException({
+      ...ORCHESTRATION_ERROR.INVALID_AUTH_CONFIG,
+      details: `authType "${authType}" requires either an accessToken or a refreshToken+tokenUrl pair, but none were provided or already stored.`,
+    });
   }
 }
