@@ -98,6 +98,10 @@ export class ProviderSummaryService {
             entity.description || `Custom Swagger API: ${entity.specUrl}`,
           isConnected: true, // Dynamic provider luôn connected sau khi register
           hasAuth: entity.hasAuth,
+          authType: entity.authType,
+          hasAccessToken: entity.hasAccessToken,
+          hasRefreshToken: entity.hasRefreshToken,
+          hasTokenUrl: entity.hasTokenUrl,
           isDynamic: true,
           tools,
           resources: [],

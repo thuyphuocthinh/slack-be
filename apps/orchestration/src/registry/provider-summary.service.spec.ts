@@ -185,4 +185,32 @@ describe('ProviderSummaryService', () => {
       'Custom Swagger API: https://example.com/spec.json',
     );
   });
+
+  it('forwards authType and the granular hasAccessToken/hasRefreshToken/hasTokenUrl booleans for a dynamic provider — regression test for the reconnect dialog defaulting to the wrong authType because these were previously dropped', async () => {
+    dynamicProviderDb.getProvidersByUser.mockResolvedValue([
+      {
+        id: 'dynamic_abc',
+        userId: 'user-1',
+        name: 'Jira',
+        specUrl: 'https://example.com/spec.json',
+        hasAuth: true,
+        authType: 'OAUTH2',
+        hasAccessToken: false,
+        hasRefreshToken: true,
+        hasTokenUrl: true,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as any,
+    ]);
+
+    const result = await service.getProviders('user-1');
+
+    expect(result[0]).toMatchObject({
+      authType: 'OAUTH2',
+      hasAccessToken: false,
+      hasRefreshToken: true,
+      hasTokenUrl: true,
+    });
+  });
 });

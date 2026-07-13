@@ -357,6 +357,35 @@ describe('DynamicProviderDbService', () => {
 
       expect(mockRepo.save).not.toHaveBeenCalled();
     });
+
+    it('throws INVALID_AUTH_CONFIG and never creates the provider when authType requires credentials but none are given', async () => {
+      // File-level jest.mock('axios') never resets between tests — clear call history so this
+      // assertion checks calls from THIS test only, not accumulated calls from earlier tests.
+      (axios.post as jest.Mock).mockClear();
+
+      await expect(
+        service.registerProvider({
+          userId: 'user-1',
+          name: 'Some API',
+          specUrl: 'https://api.example.com/openapi.json',
+          authType: EDynamicProviderAuthType.OAUTH2,
+        }),
+      ).rejects.toThrow(RpcException);
+
+      expect(axios.post).not.toHaveBeenCalled();
+      expect(mockRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('allows authType NONE with no credentials at all', async () => {
+      const result = await service.registerProvider({
+        userId: 'user-1',
+        name: 'Public API',
+        specUrl: 'https://api.example.com/openapi.json',
+        authType: EDynamicProviderAuthType.NONE,
+      });
+
+      expect(result.id).toBeDefined();
+    });
   });
 
   describe('updateProvider', () => {
@@ -542,6 +571,45 @@ describe('DynamicProviderDbService', () => {
       expect(mockRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({ accessToken: 'new-bearer-token' }),
       );
+    });
+
+    it('throws INVALID_AUTH_CONFIG and does not save when switching to an authType that needs credentials and the provider has none at all stored — regression test for reconnect saving a non-functional auth config', async () => {
+      (axios.post as jest.Mock).mockClear();
+      mockRepo.findOne.mockResolvedValue({
+        id: 'dynamic_new',
+        userId: 'user-1',
+        name: 'Fresh API',
+        specUrl: 'https://api.example.com/openapi.json',
+        authType: EDynamicProviderAuthType.NONE,
+        isActive: true,
+      });
+
+      await expect(
+        service.updateProvider({
+          userId: 'user-1',
+          providerId: 'dynamic_new',
+          authType: EDynamicProviderAuthType.OAUTH2,
+        }),
+      ).rejects.toThrow(RpcException);
+
+      expect(axios.post).not.toHaveBeenCalled();
+      expect(mockRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('returns hasAccessToken/hasRefreshToken/hasTokenUrl booleans reflecting the saved state', async () => {
+      mockRepo.findOne.mockResolvedValue(existingEntity());
+      (axios.post as jest.Mock).mockResolvedValue({
+        data: { access_token: 'fresh-access-token', expires_in: 3600 },
+      });
+
+      const result = await service.updateProvider({
+        userId: 'user-1',
+        providerId: 'dynamic_abc',
+      });
+
+      expect(result.hasAccessToken).toBe(true);
+      expect(result.hasRefreshToken).toBe(true);
+      expect(result.hasTokenUrl).toBe(true);
     });
   });
 });
