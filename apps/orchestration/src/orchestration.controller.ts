@@ -18,6 +18,8 @@ import {
   TriggerPromptResponseDto,
   RegisterDynamicProviderRequestDto,
   RegisterDynamicProviderResponseDto,
+  UpdateDynamicProviderRequestDto,
+  UpdateDynamicProviderResponseDto,
   DeleteDynamicProviderRequestDto,
   DeleteDynamicProviderResponseDto,
 } from './dto/orchestration.dto';
@@ -114,6 +116,14 @@ export class OrchestrationController {
     @Payload() dto: RegisterDynamicProviderRequestDto,
   ): Promise<RegisterDynamicProviderResponseDto> {
     const entity = await this.dynamicProviderDb.registerProvider(dto);
+    return { id: entity.id, success: true };
+  }
+
+  @MessagePattern(ORCHESTRATION_MESSAGE_PATTERNS.UPDATE_DYNAMIC_PROVIDER)
+  async updateDynamicProvider(
+    @Payload() dto: UpdateDynamicProviderRequestDto,
+  ): Promise<UpdateDynamicProviderResponseDto> {
+    const entity = await this.dynamicProviderDb.updateProvider(dto);
     return { id: entity.id, success: true };
   }
 

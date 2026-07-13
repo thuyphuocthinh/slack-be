@@ -18,6 +18,15 @@ export interface DynamicProviderAuthConfig {
    *  registration time (auto-detected from tokenUrl, or explicitly overridden) and reused as-is
    *  by the reactive renew on a 401 — never re-inferred later. */
   refreshRequestFormat?: 'form' | 'json';
+  /** Escape hatch for refresh_token response shapes the built-in auto-detection (snake_case,
+   *  camelCase, 1-level "data"/"result" envelope) can't cover — dot-path into the response
+   *  (e.g. "payload.token.accessToken"). Only needed for fully custom internal auth endpoints. */
+  responseAccessTokenPath?: string;
+  responseRefreshTokenPath?: string;
+  responseExpiresInPath?: string;
+  /** Used only when no expiry field is found anywhere in the refresh response. Defaults to 3600
+   *  (1 hour) — many hand-rolled internal auth endpoints don't return a TTL at all. */
+  defaultExpiresInSecs?: number;
   [key: string]: unknown;
 }
 

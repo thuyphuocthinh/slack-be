@@ -9,6 +9,7 @@ import { DynamicToolRegistryService } from './dynamic-tool-registry.service';
 import {
   DynamicProviderDto,
   RegisterDynamicProviderRequestDto,
+  UpdateDynamicProviderRequestDto,
 } from '../dto/orchestration.dto';
 import { OpenApiParserService } from '../parser/openapi-parser.service';
 import { EDynamicProviderAuthType } from '../entity/dynamic-provider.entity';
@@ -71,6 +72,10 @@ export class DynamicProviderDbService {
       const refresher = new Oauth2RefreshTokenRefresher({
         logger: this.logger,
         requestFormat: refreshRequestFormat,
+        responseAccessTokenPath: dto.responseAccessTokenPath,
+        responseRefreshTokenPath: dto.responseRefreshTokenPath,
+        responseExpiresInPath: dto.responseExpiresInPath,
+        defaultExpiresInSecs: dto.defaultExpiresInSecs,
       });
       const refreshed = await refresher.refreshIfNeeded({
         accessToken: dto.accessToken ?? '',
@@ -109,9 +114,141 @@ export class DynamicProviderDbService {
             clientId: dto.clientId,
             clientSecret: dto.clientSecret,
             refreshRequestFormat,
+            responseAccessTokenPath: dto.responseAccessTokenPath,
+            responseRefreshTokenPath: dto.responseRefreshTokenPath,
+            responseExpiresInPath: dto.responseExpiresInPath,
+            defaultExpiresInSecs: dto.defaultExpiresInSecs,
           }
         : undefined,
     });
+  }
+
+  /**
+   * Cập nhật ("Kết nối lại") 1 dynamic provider đã tồn tại — giữ nguyên ID/tools đã parse.
+   * Field nào không truyền thì giữ nguyên giá trị cũ (đặc biệt quan trọng cho secret — user không
+   * cần dán lại accessToken/clientSecret nếu chỉ muốn sửa 1 field khác). Nếu có đủ
+   * refreshToken + tokenUrl (mới hoặc cũ), luôn thử lấy 1 access token mới ngay — đúng ý "kết nối
+   * lại" là để có token còn hạn, không chỉ đơn thuần lưu lại config cũ.
+   */
+  async updateProvider(
+    dto: UpdateDynamicProviderRequestDto,
+  ): Promise<DynamicProviderDto> {
+    const entity = await this.providerRepo.findOne({
+      where: { id: dto.providerId, userId: dto.userId },
+    });
+    if (!entity) {
+      throw new RpcException({
+        ...ORCHESTRATION_ERROR.DYNAMIC_PROVIDER_NOT_FOUND,
+        details: `Dynamic provider ${dto.providerId} not found or you don't have permission to update it.`,
+      });
+    }
+
+    const authType = dto.authType ?? entity.authType;
+    let accessToken = dto.accessToken || entity.accessToken;
+    let refreshToken = dto.refreshToken || entity.refreshToken;
+    let tokenExpiresAt = entity.tokenExpiresAt;
+    const tokenUrl = dto.tokenUrl || entity.authConfig?.tokenUrl;
+    const clientId = dto.clientId || entity.authConfig?.clientId;
+    const clientSecret = dto.clientSecret || entity.authConfig?.clientSecret;
+    const refreshRequestFormat = tokenUrl
+      ? (dto.refreshRequestFormat ??
+        entity.authConfig?.refreshRequestFormat ??
+        inferOAuth2RefreshFormat(tokenUrl))
+      : undefined;
+    const responseAccessTokenPath =
+      dto.responseAccessTokenPath ?? entity.authConfig?.responseAccessTokenPath;
+    const responseRefreshTokenPath =
+      dto.responseRefreshTokenPath ??
+      entity.authConfig?.responseRefreshTokenPath;
+    const responseExpiresInPath =
+      dto.responseExpiresInPath ?? entity.authConfig?.responseExpiresInPath;
+    const defaultExpiresInSecs =
+      dto.defaultExpiresInSecs ?? entity.authConfig?.defaultExpiresInSecs;
+
+    if (refreshToken && tokenUrl) {
+      const refresher = new Oauth2RefreshTokenRefresher({
+        logger: this.logger,
+        requestFormat: refreshRequestFormat,
+        responseAccessTokenPath,
+        responseRefreshTokenPath,
+        responseExpiresInPath,
+        defaultExpiresInSecs,
+      });
+      const refreshed = await refresher.refreshIfNeeded({
+        accessToken: accessToken ?? '',
+        refreshToken,
+        tokenExpiresAt: new Date(0),
+        tokenUrl,
+        clientId,
+        clientSecret,
+      });
+
+      if (!refreshed) {
+        throw new RpcException({
+          ...ORCHESTRATION_ERROR.OAUTH2_REFRESH_FAILED,
+          details:
+            'Could not obtain an access token using the provided refreshToken/tokenUrl/clientId/clientSecret. Please double check these values.',
+        });
+      }
+
+      accessToken = refreshed.accessToken;
+      refreshToken = refreshed.refreshToken;
+      tokenExpiresAt = refreshed.tokenExpiresAt;
+    }
+
+    // specUrl đổi thì validate lại trước khi lưu — tránh lưu 1 spec hỏng (giống createProvider).
+    if (dto.specUrl && dto.specUrl !== entity.specUrl) {
+      await this.parserService.loadSpec(dto.specUrl);
+    }
+
+    const hasAuthConfig = tokenUrl || clientId || clientSecret;
+
+    entity.name = dto.name || entity.name;
+    entity.specUrl = dto.specUrl || entity.specUrl;
+    entity.description = dto.description ?? entity.description;
+    entity.authType = authType;
+    entity.accessToken = accessToken;
+    entity.refreshToken = refreshToken;
+    entity.tokenExpiresAt = tokenExpiresAt;
+    entity.authConfig = hasAuthConfig
+      ? {
+          tokenUrl,
+          clientId,
+          clientSecret,
+          refreshRequestFormat,
+          responseAccessTokenPath,
+          responseRefreshTokenPath,
+          responseExpiresInPath,
+          defaultExpiresInSecs,
+        }
+      : undefined;
+
+    let saved: DynamicProviderEntity;
+    try {
+      saved = await this.providerRepo.save(entity);
+      this.logger.log(
+        `Updated dynamic provider "${saved.name}" with ID "${saved.id}"`,
+      );
+    } catch (dbError: any) {
+      this.logger.error(`Failed to update provider in DB: ${dbError.message}`);
+      throw new RpcException({
+        ...ORCHESTRATION_ERROR.DATABASE_OPERATION_FAILED,
+        details: 'Could not update dynamic provider in database',
+      });
+    }
+
+    // Xoá cache RAM cũ để lần gọi tool tiếp theo đọc lại credentials/spec mới từ DB — registry chỉ
+    // tự đọc lại DB khi chưa có trong cache (xem DynamicToolRegistryService.ensureLoaded).
+    this.registryService.removeProvider(saved.id);
+    try {
+      await this.registryService.getTools(saved.id);
+    } catch (err) {
+      this.logger.error(
+        `Failed to reload spec for updated provider "${saved.name}": ${(err as Error).message}`,
+      );
+    }
+
+    return this.mapToDto(saved);
   }
 
   /**

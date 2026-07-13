@@ -98,9 +98,43 @@ export class RegisterDynamicProviderRequestDto {
   /** Ghi đè thủ công định dạng body khi gọi refresh_token grant — để trống thì server tự suy ra
    *  từ tokenUrl (VD: auth.atlassian.com -> 'json'), mặc định 'form' cho các trường hợp còn lại. */
   refreshRequestFormat?: 'form' | 'json';
+
+  // Escape hatch — chỉ cần khi hệ thống refresh trả về response quá khác biệt mà auto-detection
+  // (snake_case/camelCase/envelope 1 lớp) không đoán ra được. Để trống ở tuyệt đại đa số trường hợp.
+  responseAccessTokenPath?: string;
+  responseRefreshTokenPath?: string;
+  responseExpiresInPath?: string;
+  defaultExpiresInSecs?: number;
 }
 
 export class RegisterDynamicProviderResponseDto {
+  id: string;
+  success: boolean;
+}
+
+// Cập nhật (reconnect) 1 dynamic provider đã tồn tại — mọi field đều optional theo đúng ngữ nghĩa
+// PATCH: để trống thì giữ nguyên giá trị cũ (đặc biệt quan trọng cho secret — user không cần dán
+// lại accessToken/clientSecret nếu chỉ muốn đổi refreshToken chẳng hạn).
+export class UpdateDynamicProviderRequestDto {
+  userId: string;
+  providerId: string;
+  name?: string;
+  specUrl?: string;
+  description?: string;
+  accessToken?: string;
+  authType?: EDynamicProviderAuthType;
+  refreshToken?: string;
+  tokenUrl?: string;
+  clientId?: string;
+  clientSecret?: string;
+  refreshRequestFormat?: 'form' | 'json';
+  responseAccessTokenPath?: string;
+  responseRefreshTokenPath?: string;
+  responseExpiresInPath?: string;
+  defaultExpiresInSecs?: number;
+}
+
+export class UpdateDynamicProviderResponseDto {
   id: string;
   success: boolean;
 }

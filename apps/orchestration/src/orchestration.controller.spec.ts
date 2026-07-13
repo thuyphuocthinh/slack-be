@@ -10,7 +10,7 @@ import { EDynamicProviderAuthType } from './entity/dynamic-provider.entity';
 describe('OrchestrationController', () => {
   let controller: OrchestrationController;
   let dynamicProviderDb: jest.Mocked<
-    Pick<DynamicProviderDbService, 'registerProvider'>
+    Pick<DynamicProviderDbService, 'registerProvider' | 'updateProvider'>
   >;
   let providerSummary: jest.Mocked<
     Pick<ProviderSummaryService, 'getProviders'>
@@ -19,6 +19,7 @@ describe('OrchestrationController', () => {
   beforeEach(async () => {
     dynamicProviderDb = {
       registerProvider: jest.fn().mockResolvedValue({ id: 'dynamic_abc123' }),
+      updateProvider: jest.fn().mockResolvedValue({ id: 'dynamic_abc123' }),
     };
     providerSummary = {
       getProviders: jest.fn().mockResolvedValue([]),
@@ -66,6 +67,21 @@ describe('OrchestrationController', () => {
       const result = await controller.registerDynamicProvider(dto);
 
       expect(dynamicProviderDb.registerProvider).toHaveBeenCalledWith(dto);
+      expect(result).toEqual({ id: 'dynamic_abc123', success: true });
+    });
+  });
+
+  describe('updateDynamicProvider', () => {
+    it('delegates the request as-is to DynamicProviderDbService.updateProvider and maps its result', async () => {
+      const dto = {
+        userId: 'user-1',
+        providerId: 'dynamic_abc123',
+        refreshToken: 'new-refresh-token',
+      };
+
+      const result = await controller.updateDynamicProvider(dto);
+
+      expect(dynamicProviderDb.updateProvider).toHaveBeenCalledWith(dto);
       expect(result).toEqual({ id: 'dynamic_abc123', success: true });
     });
   });

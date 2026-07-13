@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { Logger } from '@nestjs/common';
 import { DynamicToolExecutorService } from './dynamic-tool-executor.service';
 import { DynamicToolRegistryService } from '../registry/dynamic-tool-registry.service';
 import axios from 'axios';
@@ -311,6 +312,48 @@ describe('DynamicToolExecutorService', () => {
       expect(axios).toHaveBeenCalledTimes(2);
     });
 
+    it("routes the refresher's internal logs through the app's NestJS Logger instead of the library's default — regression test for a missing `logger` option", async () => {
+      registryService.getProviderSpec.mockResolvedValue({
+        providerId: 'spotify_provider',
+        specUrl: 'http://test',
+        document: mockSpec,
+        tools: [],
+        authType: EDynamicProviderAuthType.OAUTH2,
+        accessToken: 'stale-access-token',
+        refreshToken: 'refresh-token',
+        authConfig: {
+          tokenUrl: 'https://accounts.spotify.com/api/token',
+          clientId: 'cid',
+          clientSecret: 'csecret',
+        },
+      } as any);
+
+      (axios as unknown as jest.Mock)
+        .mockRejectedValueOnce({
+          response: { status: 401, data: 'Unauthorized' },
+          config: {},
+        })
+        .mockResolvedValueOnce({ data: { ok: true } });
+      (axios.post as jest.Mock).mockResolvedValue({
+        data: { access_token: 'fresh-access-token', expires_in: 3600 },
+      });
+
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn');
+      const logSpy = jest.spyOn(Logger.prototype, 'log');
+
+      await service.execute('spotify_provider', 'getMe', {});
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('expiring soon'),
+      );
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.stringContaining('auto-renewed'),
+      );
+
+      warnSpy.mockRestore();
+      logSpy.mockRestore();
+    });
+
     it('uses the persisted refreshRequestFormat from authConfig when renewing', async () => {
       registryService.getProviderSpec.mockResolvedValue({
         providerId: 'jira_provider',
@@ -381,6 +424,44 @@ describe('DynamicToolExecutorService', () => {
         expect.anything(),
         { headers: { 'Content-Type': 'application/json' } },
       );
+    });
+
+    it('uses the persisted responseAccessTokenPath/responseRefreshTokenPath/responseExpiresInPath/defaultExpiresInSecs when renewing against a fully custom internal auth endpoint', async () => {
+      registryService.getProviderSpec.mockResolvedValue({
+        providerId: 'internal_hr_provider',
+        specUrl: 'http://test',
+        document: mockSpec,
+        tools: [],
+        authType: EDynamicProviderAuthType.OAUTH2,
+        accessToken: 'stale-access-token',
+        refreshToken: 'refresh-token',
+        authConfig: {
+          tokenUrl: 'https://hr.internal.company.com/auth/refresh',
+          responseAccessTokenPath: 'payload.token.at',
+          responseRefreshTokenPath: 'payload.token.rt',
+          responseExpiresInPath: 'payload.token.ttl',
+          defaultExpiresInSecs: 900,
+        },
+      } as any);
+
+      (axios as unknown as jest.Mock)
+        .mockRejectedValueOnce({
+          response: { status: 401, data: 'Unauthorized' },
+          config: {},
+        })
+        .mockResolvedValueOnce({ data: { ok: true } });
+      (axios.post as jest.Mock).mockResolvedValue({
+        data: {
+          payload: {
+            token: { at: 'fresh-access-token', rt: 'rotated-refresh-token' },
+          },
+        },
+      });
+
+      const result = await service.execute('internal_hr_provider', 'getMe', {});
+
+      expect(result.isError).toBe(false);
+      expect(axios).toHaveBeenCalledTimes(2);
     });
 
     it('does not attempt a renew when the provider has no refreshToken/tokenUrl — surfaces the 401 as-is', async () => {
