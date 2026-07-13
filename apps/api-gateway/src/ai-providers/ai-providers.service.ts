@@ -6,6 +6,8 @@ import {
   ORCHESTRATION_MESSAGE_PATTERNS,
 } from '@slack/constants';
 import { MicroserviceErrorHandler } from '../common/microservice_error.handler';
+import { RegisterDynamicProviderDto } from './dto/register-dynamic-provider.dto';
+import { UpdateDynamicProviderDto } from './dto/update-dynamic-provider.dto';
 
 @Injectable()
 export class AiProvidersService {
@@ -134,21 +136,35 @@ export class AiProvidersService {
 
   async registerDynamicProvider(
     userId: string,
-    name: string,
-    specUrl: string,
-    accessToken?: string,
-    authType?: string,
-    description?: string,
+    dto: RegisterDynamicProviderDto,
   ) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         lastValueFrom(
           this.orchestrationClient.send(
             ORCHESTRATION_MESSAGE_PATTERNS.REGISTER_DYNAMIC_PROVIDER,
-            { userId, name, specUrl, accessToken, authType, description },
+            { userId, ...dto },
           ),
         ),
       'registerDynamicProvider',
+      'AiProvidersService',
+    );
+  }
+
+  async updateDynamicProvider(
+    userId: string,
+    providerId: string,
+    dto: UpdateDynamicProviderDto,
+  ) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        lastValueFrom(
+          this.orchestrationClient.send(
+            ORCHESTRATION_MESSAGE_PATTERNS.UPDATE_DYNAMIC_PROVIDER,
+            { userId, providerId, ...dto },
+          ),
+        ),
+      'updateDynamicProvider',
       'AiProvidersService',
     );
   }

@@ -1,4 +1,12 @@
-import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, type JwtUser } from '@slack/common';
 import { AiProvidersService } from './ai-providers.service';
@@ -6,6 +14,7 @@ import { SubmitProviderCredentialsDto } from './dto/submit-provider-credentials.
 import { ResolveApprovalDto } from './dto/resolve-approval.dto';
 import { TriggerPromptDto } from './dto/trigger-prompt.dto';
 import { RegisterDynamicProviderDto } from './dto/register-dynamic-provider.dto';
+import { UpdateDynamicProviderDto } from './dto/update-dynamic-provider.dto';
 import { RateLimit } from '../common/guards/rate-limit.decorator';
 
 @ApiTags('ai-providers')
@@ -75,7 +84,9 @@ export class AiProvidersController {
   }
 
   @Post(':provider/prompts')
-  @ApiOperation({ summary: 'Trigger a prompt template to get the resulting text' })
+  @ApiOperation({
+    summary: 'Trigger a prompt template to get the resulting text',
+  })
   async triggerPrompt(
     @Param('provider') provider: string,
     @Body() dto: TriggerPromptDto,
@@ -95,13 +106,23 @@ export class AiProvidersController {
     @Body() dto: RegisterDynamicProviderDto,
     @CurrentUser() user: JwtUser,
   ) {
-    return this.aiProvidersService.registerDynamicProvider(
+    return this.aiProvidersService.registerDynamicProvider(user.sub, dto);
+  }
+
+  @Patch('dynamic/:providerId')
+  @ApiOperation({
+    summary:
+      'Update (reconnect) an existing dynamic custom Swagger provider — fields left out keep their previous value',
+  })
+  async updateDynamicProvider(
+    @Param('providerId') providerId: string,
+    @Body() dto: UpdateDynamicProviderDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.aiProvidersService.updateDynamicProvider(
       user.sub,
-      dto.name,
-      dto.specUrl,
-      dto.accessToken,
-      dto.authType,
-      dto.description,
+      providerId,
+      dto,
     );
   }
 

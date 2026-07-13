@@ -153,7 +153,13 @@ export class DynamicToolExecutorService {
       providerSpec.authConfig?.refreshRequestFormat ??
       inferOAuth2RefreshFormat(providerSpec.authConfig?.tokenUrl);
     const refresher = new Oauth2RefreshTokenRefresher({
+      logger: this.logger,
       requestFormat,
+      responseAccessTokenPath: providerSpec.authConfig?.responseAccessTokenPath,
+      responseRefreshTokenPath:
+        providerSpec.authConfig?.responseRefreshTokenPath,
+      responseExpiresInPath: providerSpec.authConfig?.responseExpiresInPath,
+      defaultExpiresInSecs: providerSpec.authConfig?.defaultExpiresInSecs,
       onRefreshed: (newState) => {
         this.queueService
           .addJob(
