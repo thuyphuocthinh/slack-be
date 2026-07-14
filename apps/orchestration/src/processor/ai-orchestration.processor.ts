@@ -63,10 +63,10 @@ type AiOrchestrationJobData =
   | IProcessAiTriggerJobData
   | IProcessApprovalJobData;
 
-@Processor(EQueueName.AI_ORCHESTRATION_QUEUE, { 
+@Processor(EQueueName.AI_ORCHESTRATION_QUEUE, {
   concurrency: 5,
   lockDuration: 60000,
-  maxStalledCount: 1 
+  maxStalledCount: 1,
 })
 export class AiOrchestrationProcessor extends BaseProcessor<
   AiOrchestrationJobData,
@@ -187,7 +187,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     data: IProcessAiTriggerJobData,
     replyMessageId: string,
   ): Promise<AnswerResult> {
-    const { userId, channelId, messageId } = data;
+    const { userId, channelId, messageId, channelType } = data;
     const [prompt, agents, history] = await Promise.all([
       this.messageClient.getMessageText({ id: messageId, userId }),
       this.supervisor.getAvailableAgents(userId),
@@ -215,6 +215,30 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       );
 
       if (decision.action === 'respond') {
+        // Nguyên tắc "stream = save":
+        // - rounds.length === 1: đúng 1 delegate đã trả lời — dùng thẳng kết
+        //   quả ĐÃ STREAM của nó (rounds[0].result), bỏ qua decision.answer
+        //   (decide() không stream, paraphrase sẽ khác nội dung đã hiện ra).
+        // - rounds.length > 1: cần tổng hợp thật nhiều agent — gọi lại
+        //   synthesize() (CÓ stream, khác decide()) để nội dung stream ra và
+        //   nội dung lưu luôn khớp nhau, thay vì dùng decision.answer chưa
+        //   từng stream.
+        // - rounds.length === 0: Supervisor tự trả lời ngay, chưa từng
+        //   delegate — không có gì để stream lại (decide() không stream),
+        //   biết là ngoại lệ chưa xử lý, chấp nhận không stream cho case này
+        //   (thường là câu ngắn/không cần dữ liệu, đổi 1 lượt LLM để có
+        //   stream không đáng).
+        if (rounds.length === 1) {
+          return this.buildAnswer(rounds[0].result, toolCalls);
+        }
+        if (rounds.length > 1) {
+          const finalAnswer = await this.supervisor.synthesize(
+            prompt,
+            rounds,
+            this.buildOnToken(userId, channelId, replyMessageId, channelType),
+          );
+          return this.buildAnswer(finalAnswer, toolCalls);
+        }
         return this.buildAnswer(
           decision.answer || 'Xin lỗi, mình chưa có câu trả lời phù hợp.',
           toolCalls,
@@ -222,14 +246,16 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       }
 
       const delegations = this.dedupeByAgent(decision.delegations ?? []);
-      
+
       // Khắc phục lỗi LLM trả về label (tên agent) thay vì provider ID (đặc biệt với Dynamic Agent có ID là UUID)
-      delegations.forEach(d => {
+      delegations.forEach((d) => {
         const safeAgent = d.agent || '';
-        const matchedAgent = agents.find(a => 
-          a.provider === safeAgent || 
-          a.label.toLowerCase() === safeAgent.toLowerCase() ||
-          a.label.toLowerCase().replace(/[^a-z0-9]/g, '') === safeAgent.toLowerCase().replace(/[^a-z0-9]/g, '')
+        const matchedAgent = agents.find(
+          (a) =>
+            a.provider === safeAgent ||
+            a.label.toLowerCase() === safeAgent.toLowerCase() ||
+            a.label.toLowerCase().replace(/[^a-z0-9]/g, '') ===
+              safeAgent.toLowerCase().replace(/[^a-z0-9]/g, ''),
         );
         if (matchedAgent && matchedAgent.provider !== d.agent) {
           d.agent = matchedAgent.provider;
@@ -239,7 +265,9 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       if (
         delegations.every((d) => !agents.some((a) => a.provider === d.agent))
       ) {
-        const attemptedAgents = delegations.map(d => d.agent || 'unknown').join(', ');
+        const attemptedAgents = delegations
+          .map((d) => d.agent || 'unknown')
+          .join(', ');
         return this.buildAnswer(
           decision.answer ||
             `Mình chưa thể xử lý yêu cầu này với các kết nối hiện có (Tên hệ thống mà AI đang cố gọi: "${attemptedAgents}" - Vui lòng đổi tên hoặc viết đúng tên). Vào Settings để kết nối agent phù hợp nhé.`,
@@ -276,7 +304,11 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     this.logger.warn(
       `Supervisor chưa hội tụ sau ${ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS} vòng cho user ${userId}, tổng hợp lại kết quả đã có`,
     );
-    const finalAnswer = await this.supervisor.synthesize(prompt, rounds);
+    const finalAnswer = await this.supervisor.synthesize(
+      prompt,
+      rounds,
+      this.buildOnToken(userId, channelId, replyMessageId, channelType),
+    );
     return this.buildAnswer(finalAnswer, toolCalls);
   }
 
@@ -295,6 +327,26 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     toolCalls: ToolCallTraceDto[],
   ): AnswerResult {
     return { content, toolCalls: toolCalls.length > 0 ? toolCalls : undefined };
+  }
+
+  // Dùng chung cho mọi lệnh gọi LLM cần stream ra đúng messageId của bot reply
+  // (synthesize() ở nhánh respond multi-agent, ở fallback hết MAX_SUPERVISOR_ROUNDS,
+  // và ở approveCheckpoint) — đảm bảo nội dung stream ra và nội dung lưu DB luôn
+  // đến từ CÙNG 1 lời gọi (nguyên tắc "stream = save").
+  private buildOnToken(
+    userId: string,
+    channelId: string,
+    messageId: string,
+    channelType: string,
+  ): (chunk: string) => void {
+    return (chunk: string) => {
+      this.agentStream
+        .emitStep(
+          { userId, channelId, messageId, channelType },
+          { type: 'token', text: chunk },
+        )
+        .catch(() => {});
+    };
   }
 
   // Gộp kết quả 1 vòng delegate vào rounds/toolCalls (mutate tại chỗ). Trả về
@@ -688,7 +740,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         checkpoint,
         userId,
       );
-      
+
       // Xoá luồng stream cũ (do ReactLoop vừa chạy trong executeApprovedTool sinh ra)
       await this.agentStream.emitStep(
         { userId, channelId, messageId: replyMessageId, channelType },
@@ -702,17 +754,14 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         content: '🤖 Đang tổng hợp kết quả...',
       });
 
-      const onToken = (chunk: string) => {
-        this.agentStream.emitStep(
-          { userId, channelId, messageId: replyMessageId, channelType },
-          { type: 'token', text: chunk },
-        ).catch(() => {});
-      };
-
-      const finalAnswer = await this.supervisor.synthesize(originalPrompt, [
-        ...roundsSoFar,
-        { agent: pendingTool.provider, task: pendingTask, result: text },
-      ], onToken);
+      const finalAnswer = await this.supervisor.synthesize(
+        originalPrompt,
+        [
+          ...roundsSoFar,
+          { agent: pendingTool.provider, task: pendingTask, result: text },
+        ],
+        this.buildOnToken(userId, channelId, replyMessageId, channelType),
+      );
       await this.messageClient.updateMessage({
         id: replyMessageId,
         userId: botUserId,

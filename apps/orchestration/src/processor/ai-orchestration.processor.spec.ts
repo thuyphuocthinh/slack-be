@@ -240,7 +240,7 @@ describe('AiOrchestrationProcessor', () => {
       { provider: 'dynamic_12345', label: 'Themoviedb', description: 'desc' },
     ];
     mockSupervisor.getAvailableAgents.mockResolvedValue(agentsWithDynamic);
-    
+
     mockSupervisor.decide
       .mockResolvedValueOnce({
         action: 'delegate',
@@ -353,6 +353,11 @@ describe('AiOrchestrationProcessor', () => {
           })
         : Promise.reject(new Error('connect ECONNREFUSED')),
     );
+    // rounds.length === 2 ở vòng respond (sql_server + github) — nguyên tắc
+    // "stream = save" gọi synthesize() (CÓ stream) thay vì dùng decision.answer.
+    mockSupervisor.synthesize.mockResolvedValue(
+      'Đã có 5 bảng, GitHub thì lỗi.',
+    );
 
     await runJob();
 
@@ -368,6 +373,12 @@ describe('AiOrchestrationProcessor', () => {
       ]),
     );
     // Lỗi 1 nhánh không làm sập cả turn — vẫn respond bình thường ở vòng 2
+    // (qua synthesize(), không phải decision.answer trực tiếp — rounds.length > 1)
+    expect(mockSupervisor.synthesize).toHaveBeenCalledWith(
+      'có bao nhiêu bảng?',
+      secondCallRounds,
+      expect.any(Function),
+    );
     expect(mockMessageClient.updateMessage).toHaveBeenCalledWith(
       expect.objectContaining({ content: 'Đã có 5 bảng, GitHub thì lỗi.' }),
     );
@@ -406,10 +417,14 @@ describe('AiOrchestrationProcessor', () => {
     );
     // chỉ 1 vòng thật sự gọi ReactLoop — vòng 2 Supervisor tự tổng hợp, không delegate tiếp
     expect(mockReactLoop.run).toHaveBeenCalledTimes(1);
+    // Nguyên tắc "stream = save": đúng 1 delegate đã trả lời (rounds.length === 1) nên
+    // content lưu DB phải là answer ReactLoop ĐÃ STREAM ('Bảng Users có cột Email'),
+    // KHÔNG phải bản decide() paraphrase thêm ('...có 10 dòng.') — decide() không stream,
+    // nếu dùng bản đó thì nội dung lưu sẽ khác nội dung người dùng đã thấy lúc stream.
     expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
       id: 'reply-1',
       userId: jobData.botUserId,
-      content: 'Bảng Users có cột Email, có 10 dòng.',
+      content: 'Bảng Users có cột Email',
       toolCalls: [{ tool: 'get_database_schema', status: 'success' }],
     });
   });
@@ -444,6 +459,11 @@ describe('AiOrchestrationProcessor', () => {
             answer: '3 issue đang mở',
             toolCalls: [{ tool: 'github.list_issues', status: 'success' }],
           }),
+    );
+    // rounds.length === 2 (sql_server + github cùng vòng) — nguyên tắc
+    // "stream = save" gọi synthesize() (CÓ stream) thay vì decision.answer.
+    mockSupervisor.synthesize.mockResolvedValue(
+      'Có 5 bảng và 3 issue đang mở.',
     );
 
     await runJob();
@@ -507,6 +527,11 @@ describe('AiOrchestrationProcessor', () => {
         answer: 'Đã tạo issue #12',
         toolCalls: [{ tool: 'github.create_issue', status: 'success' }],
       });
+    // rounds.length === 2 sau 2 vòng delegate (sql_server rồi github) —
+    // nguyên tắc "stream = save" gọi synthesize() (CÓ stream) thay vì decision.answer.
+    mockSupervisor.synthesize.mockResolvedValue(
+      'Đã tìm khách VIP và tạo issue GitHub nhắc follow-up.',
+    );
 
     await runJob();
 
