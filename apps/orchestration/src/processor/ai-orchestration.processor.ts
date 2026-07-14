@@ -37,8 +37,14 @@ import {
   PendingToolCall,
 } from '../entity/orchestration-checkpoint.entity';
 import { CheckpointResponseDto } from '../dto/checkpoint.dto';
-import { ResolveApprovalRequestDto } from '../dto/orchestration.dto';
+import {
+  CancelTurnRequestDto,
+  ResolveApprovalRequestDto,
+} from '../dto/orchestration.dto';
 import { TriggerClaimService } from '../trigger-claim/trigger-claim.service';
+import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
+import { runCancellable } from '../common/cancellable-run.util';
+import { TurnCancelledError } from '../llm/turn-cancelled.error';
 
 interface AnswerResult {
   // Object content (approval_request) đi qua createMessage() riêng, không qua đây.
@@ -85,6 +91,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     private readonly mcpClient: McpClientService,
     private readonly queueService: QueueService,
     private readonly triggerClaim: TriggerClaimService,
+    private readonly cancellation: AgentCancellationService,
   ) {
     super();
   }
@@ -137,6 +144,10 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       senderId: botUserId,
       content: '🤖 Đang xử lý...',
     });
+    // Ghi lại chủ turn NGAY khi bắt đầu chạy — endpoint Stop cần biết ai được
+    // phép huỷ (chỉ đúng userId này), và vòng lặp bên trong cần biết khoá Redis
+    // nào để tự kiểm tra (đều khoá theo reply.id, xem AgentCancellationService).
+    await this.cancellation.startTurn(reply.id, userId);
 
     // traceable() lồng theo AsyncLocalStorage — 1 root trace/turn, tự nest mọi span con.
     const traced = traceable(
@@ -162,15 +173,26 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         ...result,
       });
     } catch (error) {
-      this.logger.error(
-        `AI orchestration failed for message ${messageId}: ${error.message}`,
-        error.stack,
-      );
-      await this.messageClient.updateMessage({
-        id: reply.id,
-        userId: botUserId,
-        content: describeExternalServiceError(error),
-      });
+      if (error instanceof TurnCancelledError) {
+        this.logger.log(
+          `handleAiTrigger() messageId=${messageId} bị huỷ theo yêu cầu (Stop)`,
+        );
+        await this.messageClient.updateMessage({
+          id: reply.id,
+          userId: botUserId,
+          content: '⏹️ Đã dừng theo yêu cầu.',
+        });
+      } else {
+        this.logger.error(
+          `AI orchestration failed for message ${messageId}: ${error.message}`,
+          error.stack,
+        );
+        await this.messageClient.updateMessage({
+          id: reply.id,
+          userId: botUserId,
+          content: describeExternalServiceError(error),
+        });
+      }
     } finally {
       // Luôn báo "done" — FE dựa vào đây để tắt icon "đang chạy tool...".
       await this.agentStream.emitStep(
@@ -207,6 +229,13 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       round < ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS;
       round++
     ) {
+      // decide() dùng generateStructured() (không stream) nên không bọc được
+      // AbortSignal như ReactLoop/synthesize() — kiểm tra cờ huỷ GIỮA các vòng
+      // là đủ, vì decide() vốn đã là 1 lệnh gọi ngắn (JSON quyết định, không
+      // phải câu trả lời dài).
+      if (await this.cancellation.isCancelled(replyMessageId)) {
+        throw new TurnCancelledError();
+      }
       const decision = await this.supervisor.decide(
         prompt,
         agents,
@@ -232,10 +261,16 @@ export class AiOrchestrationProcessor extends BaseProcessor<
           return this.buildAnswer(rounds[0].result, toolCalls);
         }
         if (rounds.length > 1) {
-          const finalAnswer = await this.supervisor.synthesize(
-            prompt,
-            rounds,
-            this.buildOnToken(userId, channelId, replyMessageId, channelType),
+          const finalAnswer = await runCancellable(
+            replyMessageId,
+            this.cancellation,
+            (signal) =>
+              this.supervisor.synthesize(
+                prompt,
+                rounds,
+                this.buildOnToken(userId, channelId, replyMessageId, channelType),
+                signal,
+              ),
           );
           return this.buildAnswer(finalAnswer, toolCalls);
         }
@@ -304,10 +339,16 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     this.logger.warn(
       `Supervisor chưa hội tụ sau ${ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS} vòng cho user ${userId}, tổng hợp lại kết quả đã có`,
     );
-    const finalAnswer = await this.supervisor.synthesize(
-      prompt,
-      rounds,
-      this.buildOnToken(userId, channelId, replyMessageId, channelType),
+    const finalAnswer = await runCancellable(
+      replyMessageId,
+      this.cancellation,
+      (signal) =>
+        this.supervisor.synthesize(
+          prompt,
+          rounds,
+          this.buildOnToken(userId, channelId, replyMessageId, channelType),
+          signal,
+        ),
     );
     return this.buildAnswer(finalAnswer, toolCalls);
   }
@@ -617,6 +658,23 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     }
   }
 
+  // Chỉ đặt cờ huỷ vào Redis rồi trả về ngay — vòng lặp đang chạy (ReactLoop
+  // hoặc round loop của resolveAnswer) tự phát hiện qua isCancelled()/signal,
+  // không có gì để "chờ" ở đây cả.
+  async cancelTurn(dto: CancelTurnRequestDto): Promise<void> {
+    const owner = await this.cancellation.getOwner(dto.messageId);
+    if (!owner) {
+      throw new RpcException(ORCHESTRATION_ERROR.TURN_NOT_FOUND);
+    }
+    if (owner !== dto.userId) {
+      this.logger.warn(
+        `User ${dto.userId} tried to stop turn ${dto.messageId} owned by ${owner}`,
+      );
+      throw new RpcException(ORCHESTRATION_ERROR.TURN_FORBIDDEN);
+    }
+    await this.cancellation.requestCancel(dto.messageId);
+  }
+
   // Chỉ làm phần NHANH (check quyền + claim() atomic) rồi trả về ngay —
   // "approve" thật (gọi tool + resume ReactLoop + synthesize, 2 lượt LLM nối
   // tiếp) có thể mất 10-20s, đẩy qua queue để HTTP request không phải chờ.
@@ -735,6 +793,11 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       roundsSoFar,
       originalPrompt,
     } = checkpoint;
+    // Checkpoint có thể pending tới 24h (CHECKPOINT_EXPIRY_MS) trước khi được
+    // duyệt, trong khi bản ghi chủ turn (startTurn ở handleAiTrigger) chỉ sống
+    // TURN_TTL (15 phút) — ghi lại NGAY LÚC NÀY để Stop vẫn xác thực được quyền
+    // trong suốt thời gian resume/chạy thật (thường vài giây tới vài chục giây).
+    await this.cancellation.startTurn(replyMessageId, userId);
     try {
       const { text, toolCalls } = await this.executeApprovedTool(
         checkpoint,
@@ -754,13 +817,19 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         content: '🤖 Đang tổng hợp kết quả...',
       });
 
-      const finalAnswer = await this.supervisor.synthesize(
-        originalPrompt,
-        [
-          ...roundsSoFar,
-          { agent: pendingTool.provider, task: pendingTask, result: text },
-        ],
-        this.buildOnToken(userId, channelId, replyMessageId, channelType),
+      const finalAnswer = await runCancellable(
+        replyMessageId,
+        this.cancellation,
+        (signal) =>
+          this.supervisor.synthesize(
+            originalPrompt,
+            [
+              ...roundsSoFar,
+              { agent: pendingTool.provider, task: pendingTask, result: text },
+            ],
+            this.buildOnToken(userId, channelId, replyMessageId, channelType),
+            signal,
+          ),
       );
       await this.messageClient.updateMessage({
         id: replyMessageId,
@@ -769,11 +838,22 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       });
     } catch (error) {
-      this.logger.error(
-        `approveCheckpoint() failed for checkpoint ${id}: ${(error as Error).message}`,
-        (error as Error).stack,
-      );
-      await this.tryDisplayError(replyMessageId, botUserId, error);
+      if (error instanceof TurnCancelledError) {
+        this.logger.log(
+          `approveCheckpoint() checkpoint=${id} bị huỷ theo yêu cầu (Stop)`,
+        );
+        await this.messageClient.updateMessage({
+          id: replyMessageId,
+          userId: botUserId,
+          content: '⏹️ Đã dừng theo yêu cầu.',
+        });
+      } else {
+        this.logger.error(
+          `approveCheckpoint() failed for checkpoint ${id}: ${(error as Error).message}`,
+          (error as Error).stack,
+        );
+        await this.tryDisplayError(replyMessageId, botUserId, error);
+      }
     } finally {
       await this.agentStream.emitStep(
         { userId, channelId, messageId: replyMessageId, channelType },

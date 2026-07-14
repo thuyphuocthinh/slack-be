@@ -112,6 +112,7 @@ class AnthropicChatSession implements LlmChatSession {
   private readonly tracedSend: (
     input: string | LlmToolResult[],
     onToken?: (chunk: string) => void,
+    signal?: AbortSignal,
   ) => Promise<LlmTurnResult>;
 
   constructor(
@@ -136,19 +137,22 @@ class AnthropicChatSession implements LlmChatSession {
     }) as (
       input: string | LlmToolResult[],
       onToken?: (chunk: string) => void,
+      signal?: AbortSignal,
     ) => Promise<LlmTurnResult>;
   }
 
   sendMessage(
     input: string | LlmToolResult[],
     onToken?: (chunk: string) => void,
+    signal?: AbortSignal,
   ): Promise<LlmTurnResult> {
-    return this.tracedSend(input, onToken);
+    return this.tracedSend(input, onToken, signal);
   }
 
   private async rawSend(
     input: string | LlmToolResult[],
     onToken?: (chunk: string) => void,
+    signal?: AbortSignal,
   ): Promise<LlmTurnResult> {
     if (typeof input === 'string') {
       this.messages.push({ role: 'user', content: input });
@@ -163,20 +167,23 @@ class AnthropicChatSession implements LlmChatSession {
       });
     }
 
-    const stream = this.client.messages.stream({
-      model: this.model,
-      max_tokens: MAX_TOKENS,
-      system: [
-        {
-          type: 'text',
-          text: this.system,
-          cache_control: { type: 'ephemeral' },
-        }
-      ],
-      messages: this.messages,
-      tools: this.tools.length > 0 ? this.tools : undefined,
-      temperature: this.temperature,
-    });
+    const stream = this.client.messages.stream(
+      {
+        model: this.model,
+        max_tokens: MAX_TOKENS,
+        system: [
+          {
+            type: 'text',
+            text: this.system,
+            cache_control: { type: 'ephemeral' },
+          }
+        ],
+        messages: this.messages,
+        tools: this.tools.length > 0 ? this.tools : undefined,
+        temperature: this.temperature,
+      },
+      { signal },
+    );
 
     if (onToken) {
       stream.on('text', (textDelta) => onToken(textDelta));

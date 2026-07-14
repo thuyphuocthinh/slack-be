@@ -55,9 +55,16 @@ export interface LlmChatOptions {
  * `ReactLoopService` chỉ gọi `sendMessage` lặp lại, không tự quản history.
  */
 export interface LlmChatSession {
+  /**
+   * `signal` (Stop/Cancel, Giai đoạn System) — truyền thẳng vào request options
+   * của SDK provider (OpenAI/Anthropic/Gemini đều hỗ trợ sẵn `signal` ở tham
+   * số 2 của call thật) để huỷ được NGAY GIỮA lúc đang stream, không phải đợi
+   * xong response mới kiểm tra.
+   */
   sendMessage(
     input: string | LlmToolResult[],
-    onToken?: (chunk: string) => void
+    onToken?: (chunk: string) => void,
+    signal?: AbortSignal,
   ): Promise<LlmTurnResult>;
 }
 

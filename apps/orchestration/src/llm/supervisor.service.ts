@@ -123,6 +123,7 @@ export class SupervisorService {
     originalPrompt: string,
     rounds: SupervisorRoundDto[],
     onToken?: (chunk: string) => void,
+    signal?: AbortSignal,
   ): Promise<string> {
     const roundsText = rounds
       .map(
@@ -148,7 +149,7 @@ export class SupervisorService {
 
       const result = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
         withTimeout(
-          session.sendMessage(prompt, onToken),
+          session.sendMessage(prompt, onToken, signal),
           ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
           `Supervisor synthesize() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
         ),

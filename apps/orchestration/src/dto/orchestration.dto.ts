@@ -57,6 +57,17 @@ export class ResolveApprovalResponseDto {
   success: boolean;
 }
 
+// messageId ở đây là reply messageId của BOT (cùng ID stream token/tool-call
+// đang dùng xuyên suốt), KHÔNG phải messageId gốc user hỏi ban đầu.
+export class CancelTurnRequestDto {
+  userId: string;
+  messageId: string;
+}
+
+export class CancelTurnResponseDto {
+  success: boolean;
+}
+
 export class TriggerPromptRequestDto {
   userId: string;
   provider: string;

@@ -39,12 +39,19 @@ async function withGeminiRetry<T>(
   fn: () => Promise<T>,
   logger: Logger,
   maxAttempts = 3,
+  signal?: AbortSignal,
 ): Promise<T> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       return await fn();
     } catch (error) {
-      if (attempt === maxAttempts || !isRetryableGeminiError(error)) {
+      // Đã bị huỷ (Stop) — đừng thử lại, cứ để lỗi bay thẳng lên cho
+      // runCancellable() nhận ra signal.aborted và quy về TurnCancelledError.
+      if (
+        attempt === maxAttempts ||
+        signal?.aborted ||
+        !isRetryableGeminiError(error)
+      ) {
         throw error;
       }
       const delayMs = 1000 * 2 ** (attempt - 1); // 1s, 2s, 4s
@@ -239,6 +246,7 @@ class GeminiChatSession implements LlmChatSession {
   private readonly tracedSend: (
     input: string | LlmToolResult[],
     onToken?: (chunk: string) => void,
+    signal?: AbortSignal,
   ) => Promise<LlmTurnResult>;
 
   constructor(
@@ -249,19 +257,25 @@ class GeminiChatSession implements LlmChatSession {
     this.tracedSend = traceable(this.rawSend.bind(this), {
       name: 'gemini.sendMessage',
       run_type: 'llm',
-    }) as (input: string | LlmToolResult[], onToken?: (chunk: string) => void) => Promise<LlmTurnResult>;
+    }) as (
+      input: string | LlmToolResult[],
+      onToken?: (chunk: string) => void,
+      signal?: AbortSignal,
+    ) => Promise<LlmTurnResult>;
   }
 
   sendMessage(
     input: string | LlmToolResult[],
     onToken?: (chunk: string) => void,
+    signal?: AbortSignal,
   ): Promise<LlmTurnResult> {
-    return this.tracedSend(input, onToken);
+    return this.tracedSend(input, onToken, signal);
   }
 
   private async rawSend(
     input: string | LlmToolResult[],
     onToken?: (chunk: string) => void,
+    signal?: AbortSignal,
   ): Promise<LlmTurnResult> {
     const message: string | Part[] =
       typeof input === 'string'
@@ -274,8 +288,10 @@ class GeminiChatSession implements LlmChatSession {
           }));
 
     const result = await withGeminiRetry(
-      () => this.chat.sendMessageStream(message),
+      () => this.chat.sendMessageStream(message, { signal }),
       this.logger,
+      3,
+      signal,
     );
     
     let fullText = '';

@@ -83,6 +83,19 @@ export class AiProvidersController {
     );
   }
 
+  @Post('stop/:messageId')
+  @RateLimit({ limit: 10, window: 60 })
+  @ApiOperation({
+    summary:
+      'Stop a turn that is currently generating (only the user who triggered it can stop it)',
+  })
+  async stopTurn(
+    @Param('messageId') messageId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.aiProvidersService.cancelTurn(user.sub, messageId);
+  }
+
   @Post(':provider/prompts')
   @ApiOperation({
     summary: 'Trigger a prompt template to get the resulting text',

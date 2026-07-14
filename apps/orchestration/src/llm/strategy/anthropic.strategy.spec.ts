@@ -115,6 +115,7 @@ describe('AnthropicStrategy', () => {
 
       expect(mockStream).toHaveBeenCalledWith(
         expect.objectContaining({ temperature: 0.2 }),
+        expect.anything(),
       );
     });
 

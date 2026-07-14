@@ -5,6 +5,8 @@ import { McpAuthClientService } from './mcp-auth/mcp-auth-client.service';
 import { McpClientService } from './mcp/mcp-client.service';
 import { AiOrchestrationProcessor } from './processor/ai-orchestration.processor';
 import {
+  CancelTurnRequestDto,
+  CancelTurnResponseDto,
   DisconnectProviderRequestDto,
   DisconnectProviderResponseDto,
   GetProvidersRequestDto,
@@ -82,6 +84,14 @@ export class OrchestrationController {
     @Payload() dto: ResolveApprovalRequestDto,
   ): Promise<ResolveApprovalResponseDto> {
     await this.aiOrchestrationProcessor.resolveApproval(dto);
+    return { success: true };
+  }
+
+  @MessagePattern(ORCHESTRATION_MESSAGE_PATTERNS.CANCEL_TURN)
+  async cancelTurn(
+    @Payload() dto: CancelTurnRequestDto,
+  ): Promise<CancelTurnResponseDto> {
+    await this.aiOrchestrationProcessor.cancelTurn(dto);
     return { success: true };
   }
 

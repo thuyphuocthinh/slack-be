@@ -10,6 +10,7 @@ import { AgentStreamService } from '../socket/agent-stream.service';
 import { RunReactLoopRequestDto } from '../dto/react-loop.dto';
 import { ApprovalRequiredError } from './approval-required.error';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
+import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
 
 // @slack/common barrel transitively kéo theo "nanoid" (ESM-only) qua
 // string.util.ts — jest không transform được, mock thẳng theo đúng convention
@@ -50,6 +51,14 @@ describe('ReactLoopService', () => {
   const mockCircuitBreaker = {
     run: jest.fn((_key: string, action: () => Promise<unknown>) => action()),
   };
+  // Mặc định "chưa bị huỷ" — runCancellable() poll cái này, test nào cần mô
+  // phỏng Stop thì tự mockResolvedValueOnce(true).
+  const mockCancellation = {
+    isCancelled: jest.fn().mockResolvedValue(false),
+    startTurn: jest.fn(),
+    requestCancel: jest.fn(),
+    getOwner: jest.fn(),
+  };
 
   const baseDto: RunReactLoopRequestDto = {
     prompt: 'có bao nhiêu bảng trong DB?',
@@ -75,6 +84,7 @@ describe('ReactLoopService', () => {
     mockCircuitBreaker.run.mockImplementation(
       (_key: string, action: () => Promise<unknown>) => action(),
     );
+    mockCancellation.isCancelled.mockResolvedValue(false);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -83,6 +93,7 @@ describe('ReactLoopService', () => {
         { provide: LlmStrategyFactory, useValue: mockLlmFactory },
         { provide: AgentStreamService, useValue: mockAgentStream },
         { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
+        { provide: AgentCancellationService, useValue: mockCancellation },
       ],
     }).compile();
 
@@ -139,6 +150,7 @@ describe('ReactLoopService', () => {
       3,
       ORCHESTRATION_SELF_CHECK_PROMPT,
       expect.any(Function),
+      expect.anything(),
     );
   });
 

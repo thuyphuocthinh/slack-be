@@ -126,6 +126,7 @@ describe('OpenAiStrategy', () => {
 
       expect(mockCreate).toHaveBeenCalledWith(
         expect.objectContaining({ temperature: 0.2 }),
+        expect.anything(),
       );
     });
 
