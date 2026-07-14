@@ -19,6 +19,9 @@ export async function runCancellable<T>(
   messageId: string,
   cancellation: AgentCancellationService,
   fn: (signal: AbortSignal) => Promise<T>,
+  // Cho phép nơi gọi đính kèm phần nội dung đã stream tới lúc bị huỷ (VD
+  // ReactLoopService tự theo dõi confirmedText) — mặc định không có gì kèm theo.
+  buildCancelledError: () => TurnCancelledError = () => new TurnCancelledError(),
 ): Promise<T> {
   const controller = new AbortController();
 
@@ -35,7 +38,7 @@ export async function runCancellable<T>(
     return await fn(controller.signal);
   } catch (error) {
     if (controller.signal.aborted) {
-      throw new TurnCancelledError();
+      throw buildCancelledError();
     }
     throw error;
   } finally {

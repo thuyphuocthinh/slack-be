@@ -177,10 +177,14 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         this.logger.log(
           `handleAiTrigger() messageId=${messageId} bị huỷ theo yêu cầu (Stop)`,
         );
+        // Giữ nguyên phần đã stream (nếu có) làm nội dung lưu — giống
+        // ChatGPT/Claude: dừng thì giữ nguyên phần đã có, không xoá sạch
+        // thay bằng 1 câu thông báo. Chỉ dùng câu thông báo khi CHƯA sinh ra
+        // được gì (huỷ gần như ngay lập tức).
         await this.messageClient.updateMessage({
           id: reply.id,
           userId: botUserId,
-          content: '⏹️ Đã dừng theo yêu cầu.',
+          content: error.partialText || '⏹️ Đã dừng theo yêu cầu.',
         });
       } else {
         this.logger.error(
@@ -234,7 +238,12 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       // là đủ, vì decide() vốn đã là 1 lệnh gọi ngắn (JSON quyết định, không
       // phải câu trả lời dài).
       if (await this.cancellation.isCancelled(replyMessageId)) {
-        throw new TurnCancelledError();
+        // Chưa có gì đang stream ở đúng thời điểm này (đang giữa 2 vòng) —
+        // giữ lại kết quả delegate GẦN NHẤT đã có (nếu có) làm nội dung lưu,
+        // thay vì xoá sạch về 1 câu thông báo chung chung.
+        throw new TurnCancelledError(
+          rounds.length > 0 ? rounds[rounds.length - 1].result : undefined,
+        );
       }
       const decision = await this.supervisor.decide(
         prompt,
@@ -261,6 +270,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
           return this.buildAnswer(rounds[0].result, toolCalls);
         }
         if (rounds.length > 1) {
+          const accumulator = { text: '' };
           const finalAnswer = await runCancellable(
             replyMessageId,
             this.cancellation,
@@ -268,9 +278,16 @@ export class AiOrchestrationProcessor extends BaseProcessor<
               this.supervisor.synthesize(
                 prompt,
                 rounds,
-                this.buildOnToken(userId, channelId, replyMessageId, channelType),
+                this.buildOnToken(
+                  userId,
+                  channelId,
+                  replyMessageId,
+                  channelType,
+                  accumulator,
+                ),
                 signal,
               ),
+            () => new TurnCancelledError(accumulator.text || undefined),
           );
           return this.buildAnswer(finalAnswer, toolCalls);
         }
@@ -339,6 +356,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     this.logger.warn(
       `Supervisor chưa hội tụ sau ${ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS} vòng cho user ${userId}, tổng hợp lại kết quả đã có`,
     );
+    const fallbackAccumulator = { text: '' };
     const finalAnswer = await runCancellable(
       replyMessageId,
       this.cancellation,
@@ -346,9 +364,16 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         this.supervisor.synthesize(
           prompt,
           rounds,
-          this.buildOnToken(userId, channelId, replyMessageId, channelType),
+          this.buildOnToken(
+            userId,
+            channelId,
+            replyMessageId,
+            channelType,
+            fallbackAccumulator,
+          ),
           signal,
         ),
+      () => new TurnCancelledError(fallbackAccumulator.text || undefined),
     );
     return this.buildAnswer(finalAnswer, toolCalls);
   }
@@ -373,14 +398,19 @@ export class AiOrchestrationProcessor extends BaseProcessor<
   // Dùng chung cho mọi lệnh gọi LLM cần stream ra đúng messageId của bot reply
   // (synthesize() ở nhánh respond multi-agent, ở fallback hết MAX_SUPERVISOR_ROUNDS,
   // và ở approveCheckpoint) — đảm bảo nội dung stream ra và nội dung lưu DB luôn
-  // đến từ CÙNG 1 lời gọi (nguyên tắc "stream = save").
+  // đến từ CÙNG 1 lời gọi (nguyên tắc "stream = save"). `accumulator` (nếu có)
+  // được cộng dồn theo từng chunk — dùng làm nội dung lưu nếu bị Stop giữa
+  // chừng (synthesize() không có preamble bị bỏ như ReactLoop nên không cần
+  // resync, chỉ cần cộng dồn thẳng).
   private buildOnToken(
     userId: string,
     channelId: string,
     messageId: string,
     channelType: string,
+    accumulator?: { text: string },
   ): (chunk: string) => void {
     return (chunk: string) => {
+      if (accumulator) accumulator.text += chunk;
       this.agentStream
         .emitStep(
           { userId, channelId, messageId, channelType },
@@ -817,6 +847,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         content: '🤖 Đang tổng hợp kết quả...',
       });
 
+      const approveAccumulator = { text: '' };
       const finalAnswer = await runCancellable(
         replyMessageId,
         this.cancellation,
@@ -827,9 +858,16 @@ export class AiOrchestrationProcessor extends BaseProcessor<
               ...roundsSoFar,
               { agent: pendingTool.provider, task: pendingTask, result: text },
             ],
-            this.buildOnToken(userId, channelId, replyMessageId, channelType),
+            this.buildOnToken(
+              userId,
+              channelId,
+              replyMessageId,
+              channelType,
+              approveAccumulator,
+            ),
             signal,
           ),
+        () => new TurnCancelledError(approveAccumulator.text || undefined),
       );
       await this.messageClient.updateMessage({
         id: replyMessageId,
@@ -845,7 +883,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         await this.messageClient.updateMessage({
           id: replyMessageId,
           userId: botUserId,
-          content: '⏹️ Đã dừng theo yêu cầu.',
+          content: error.partialText || '⏹️ Đã dừng theo yêu cầu.',
         });
       } else {
         this.logger.error(

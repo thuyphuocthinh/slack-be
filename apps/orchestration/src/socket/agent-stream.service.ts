@@ -11,7 +11,11 @@ export interface AgentStreamContext {
 }
 
 export interface AgentStreamStep {
-  type: 'tool_call' | 'tool_result' | 'done' | 'token';
+  // 'resync' — FE phải THAY THẾ toàn bộ text đang tích luỹ bằng `text` (không
+  // nối thêm như 'token') — dùng khi 1 đoạn text đã stream ra hoá ra KHÔNG
+  // phải câu trả lời cuối (preamble của vòng có tool-call, hoặc self-check bị
+  // revert) — xem ReactLoopService.executeReactLoop(), nguyên tắc "stream = save".
+  type: 'tool_call' | 'tool_result' | 'done' | 'token' | 'resync';
   tool?: string;
   status?: 'success' | 'error';
   resultPreview?: string;
