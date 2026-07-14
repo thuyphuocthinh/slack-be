@@ -157,6 +157,7 @@ class OpenAiChatSession implements LlmChatSession {
   private readonly tracedSend: (
     input: string | LlmToolResult[],
     onToken?: (chunk: string) => void,
+    signal?: AbortSignal,
   ) => Promise<LlmTurnResult>;
 
   constructor(
@@ -185,19 +186,25 @@ class OpenAiChatSession implements LlmChatSession {
     this.tracedSend = traceable(this.rawSend.bind(this), {
       name: 'openai.sendMessage',
       run_type: 'llm',
-    }) as (input: string | LlmToolResult[], onToken?: (chunk: string) => void) => Promise<LlmTurnResult>;
+    }) as (
+      input: string | LlmToolResult[],
+      onToken?: (chunk: string) => void,
+      signal?: AbortSignal,
+    ) => Promise<LlmTurnResult>;
   }
 
   sendMessage(
     input: string | LlmToolResult[],
     onToken?: (chunk: string) => void,
+    signal?: AbortSignal,
   ): Promise<LlmTurnResult> {
-    return this.tracedSend(input, onToken);
+    return this.tracedSend(input, onToken, signal);
   }
 
   private async rawSend(
     input: string | LlmToolResult[],
     onToken?: (chunk: string) => void,
+    signal?: AbortSignal,
   ): Promise<LlmTurnResult> {
     if (typeof input === 'string') {
       this.messages.push({ role: 'user', content: input });
@@ -211,14 +218,17 @@ class OpenAiChatSession implements LlmChatSession {
       }
     }
 
-    const stream = await this.client.chat.completions.create({
-      model: this.model,
-      messages: this.messages,
-      tools: this.tools.length > 0 ? this.tools : undefined,
-      temperature: this.temperature,
-      stream: true,
-      stream_options: { include_usage: true },
-    });
+    const stream = await this.client.chat.completions.create(
+      {
+        model: this.model,
+        messages: this.messages,
+        tools: this.tools.length > 0 ? this.tools : undefined,
+        temperature: this.temperature,
+        stream: true,
+        stream_options: { include_usage: true },
+      },
+      { signal },
+    );
 
     let fullText = '';
     const toolCallsMap: Record<number, any> = {};

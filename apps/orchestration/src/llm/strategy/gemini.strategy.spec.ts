@@ -113,7 +113,10 @@ describe('GeminiStrategy', () => {
         text: 'Đây là câu trả lời',
         toolCalls: [{ name: 'get_schema', args: { table: 'Orders' } }],
       });
-      expect(mockChatSendMessage).toHaveBeenCalledWith('hỏi gì đó');
+      expect(mockChatSendMessage).toHaveBeenCalledWith(
+        'hỏi gì đó',
+        expect.anything(),
+      );
     });
 
     it('passes opts.temperature through to generationConfig when provided (Step 7)', async () => {
@@ -152,14 +155,17 @@ describe('GeminiStrategy', () => {
         { name: 'get_schema', content: '{"Orders":[]}' },
       ]);
 
-      expect(mockChatSendMessage).toHaveBeenCalledWith([
-        {
-          functionResponse: {
-            name: 'get_schema',
-            response: { content: '{"Orders":[]}' },
+      expect(mockChatSendMessage).toHaveBeenCalledWith(
+        [
+          {
+            functionResponse: {
+              name: 'get_schema',
+              response: { content: '{"Orders":[]}' },
+            },
           },
-        },
-      ]);
+        ],
+        expect.anything(),
+      );
     });
 
     it('retries once on a transient 429 error, then succeeds', async () => {

@@ -269,6 +269,24 @@ export const CACHE = {
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:integration:v1:oauth_state:${stateId}`,
     },
   },
+  ORCHESTRATION: {
+    _VER: 'v1',
+    SETTINGS: {
+      // Turn thật hiếm khi kéo dài quá vài phút (MAX_REACT_STEPS/MAX_SUPERVISOR_ROUNDS
+      // đều giới hạn số vòng) — 15 phút đủ dư để không tự xoá giữa chừng, tự dọn rác
+      // nếu turn không bao giờ dọn (VD worker crash giữa chừng).
+      TURN_TTL: 900,
+    },
+    KEYS: {
+      // Ai là chủ turn (Stop/Cancel, Giai đoạn System) — messageId ở đây là
+      // reply messageId của BOT, cùng ID stream token/tool-call đang dùng xuyên suốt.
+      TURN_OWNER: (messageId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:orchestration:v1:turn_owner:${messageId}`,
+      // Cờ báo turn cần dừng — vòng lặp đang chạy tự poll cờ này.
+      TURN_CANCEL: (messageId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:orchestration:v1:turn_cancel:${messageId}`,
+    },
+  },
 };
 
 /*

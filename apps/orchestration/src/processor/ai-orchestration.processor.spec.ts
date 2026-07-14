@@ -18,6 +18,8 @@ import { ApprovalRequiredError } from '../llm/approval-required.error';
 import { McpClientService } from '../mcp/mcp-client.service';
 import { OrchestrationCheckpointStatus } from '../entity/orchestration-checkpoint.entity';
 import { TriggerClaimService } from '../trigger-claim/trigger-claim.service';
+import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
+import { TurnCancelledError } from '../llm/turn-cancelled.error';
 
 // ai-orchestration.processor.ts import ReactLoopService (dù đã mock qua DI ở
 // dưới) — file thật của nó vẫn import @slack/common ở module scope, kéo theo
@@ -55,6 +57,14 @@ describe('AiOrchestrationProcessor', () => {
   const mockMcpClient = { callTool: jest.fn() };
   const mockQueueService = { addJob: jest.fn() };
   const mockTriggerClaim = { claim: jest.fn() };
+  // Mặc định: turn chưa từng bị yêu cầu Stop — test nào cần mô phỏng Stop tự
+  // override isCancelled/getOwner riêng.
+  const mockCancellation = {
+    startTurn: jest.fn(),
+    getOwner: jest.fn(),
+    requestCancel: jest.fn(),
+    isCancelled: jest.fn().mockResolvedValue(false),
+  };
 
   const jobData: IProcessAiTriggerJobData = {
     userId: 'user-1',
@@ -79,6 +89,7 @@ describe('AiOrchestrationProcessor', () => {
     mockCheckpoint.create.mockResolvedValue(undefined);
     mockQueueService.addJob.mockResolvedValue({ id: 'job-1' });
     mockTriggerClaim.claim.mockResolvedValue(true);
+    mockCancellation.isCancelled.mockResolvedValue(false);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -91,6 +102,7 @@ describe('AiOrchestrationProcessor', () => {
         { provide: McpClientService, useValue: mockMcpClient },
         { provide: QueueService, useValue: mockQueueService },
         { provide: TriggerClaimService, useValue: mockTriggerClaim },
+        { provide: AgentCancellationService, useValue: mockCancellation },
       ],
     }).compile();
 
@@ -240,7 +252,7 @@ describe('AiOrchestrationProcessor', () => {
       { provider: 'dynamic_12345', label: 'Themoviedb', description: 'desc' },
     ];
     mockSupervisor.getAvailableAgents.mockResolvedValue(agentsWithDynamic);
-    
+
     mockSupervisor.decide
       .mockResolvedValueOnce({
         action: 'delegate',
@@ -353,6 +365,11 @@ describe('AiOrchestrationProcessor', () => {
           })
         : Promise.reject(new Error('connect ECONNREFUSED')),
     );
+    // rounds.length === 2 ở vòng respond (sql_server + github) — nguyên tắc
+    // "stream = save" gọi synthesize() (CÓ stream) thay vì dùng decision.answer.
+    mockSupervisor.synthesize.mockResolvedValue(
+      'Đã có 5 bảng, GitHub thì lỗi.',
+    );
 
     await runJob();
 
@@ -368,6 +385,13 @@ describe('AiOrchestrationProcessor', () => {
       ]),
     );
     // Lỗi 1 nhánh không làm sập cả turn — vẫn respond bình thường ở vòng 2
+    // (qua synthesize(), không phải decision.answer trực tiếp — rounds.length > 1)
+    expect(mockSupervisor.synthesize).toHaveBeenCalledWith(
+      'có bao nhiêu bảng?',
+      secondCallRounds,
+      expect.any(Function),
+      expect.anything(),
+    );
     expect(mockMessageClient.updateMessage).toHaveBeenCalledWith(
       expect.objectContaining({ content: 'Đã có 5 bảng, GitHub thì lỗi.' }),
     );
@@ -406,10 +430,14 @@ describe('AiOrchestrationProcessor', () => {
     );
     // chỉ 1 vòng thật sự gọi ReactLoop — vòng 2 Supervisor tự tổng hợp, không delegate tiếp
     expect(mockReactLoop.run).toHaveBeenCalledTimes(1);
+    // Nguyên tắc "stream = save": đúng 1 delegate đã trả lời (rounds.length === 1) nên
+    // content lưu DB phải là answer ReactLoop ĐÃ STREAM ('Bảng Users có cột Email'),
+    // KHÔNG phải bản decide() paraphrase thêm ('...có 10 dòng.') — decide() không stream,
+    // nếu dùng bản đó thì nội dung lưu sẽ khác nội dung người dùng đã thấy lúc stream.
     expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
       id: 'reply-1',
       userId: jobData.botUserId,
-      content: 'Bảng Users có cột Email, có 10 dòng.',
+      content: 'Bảng Users có cột Email',
       toolCalls: [{ tool: 'get_database_schema', status: 'success' }],
     });
   });
@@ -444,6 +472,11 @@ describe('AiOrchestrationProcessor', () => {
             answer: '3 issue đang mở',
             toolCalls: [{ tool: 'github.list_issues', status: 'success' }],
           }),
+    );
+    // rounds.length === 2 (sql_server + github cùng vòng) — nguyên tắc
+    // "stream = save" gọi synthesize() (CÓ stream) thay vì decision.answer.
+    mockSupervisor.synthesize.mockResolvedValue(
+      'Có 5 bảng và 3 issue đang mở.',
     );
 
     await runJob();
@@ -507,6 +540,11 @@ describe('AiOrchestrationProcessor', () => {
         answer: 'Đã tạo issue #12',
         toolCalls: [{ tool: 'github.create_issue', status: 'success' }],
       });
+    // rounds.length === 2 sau 2 vòng delegate (sql_server rồi github) —
+    // nguyên tắc "stream = save" gọi synthesize() (CÓ stream) thay vì decision.answer.
+    mockSupervisor.synthesize.mockResolvedValue(
+      'Đã tìm khách VIP và tạo issue GitHub nhắc follow-up.',
+    );
 
     await runJob();
 
@@ -1311,6 +1349,7 @@ describe('AiOrchestrationProcessor', () => {
           },
         ],
         expect.any(Function),
+        expect.anything(),
       );
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
         id: 'approval-msg-1',
@@ -1418,6 +1457,109 @@ describe('AiOrchestrationProcessor', () => {
       expect(mockMcpClient.callTool).not.toHaveBeenCalled();
       expect(mockReactLoop.run).not.toHaveBeenCalled();
       expect(mockMessageClient.updateMessage).not.toHaveBeenCalled();
+    });
+
+    it('refreshes turn ownership before resuming, so Stop still works even if the original 15-min TTL already expired while the checkpoint sat pending', async () => {
+      mockCheckpoint.findById.mockResolvedValue(checkpoint);
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'raw mcp result' }],
+      });
+      mockReactLoop.run.mockResolvedValue({ answer: 'ok', toolCalls: [] });
+      mockSupervisor.synthesize.mockResolvedValue('ok');
+
+      await runApprovalJob();
+
+      expect(mockCancellation.startTurn).toHaveBeenCalledWith(
+        checkpoint.replyMessageId,
+        'user-1',
+      );
+    });
+
+    it('shows "Đã dừng theo yêu cầu" instead of a generic error when the resumed turn is cancelled mid-flight', async () => {
+      // Reset — 1 test khác trong cùng describe block cố tình để updateMessage()
+      // reject vĩnh viễn (mockRejectedValue, không phải Once); clearAllMocks()
+      // ở afterEach() không xoá implementation đó.
+      mockMessageClient.updateMessage.mockResolvedValue(undefined);
+      mockCheckpoint.findById.mockResolvedValue(checkpoint);
+      mockReactLoop.run.mockRejectedValue(new TurnCancelledError());
+
+      await runApprovalJob();
+
+      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+        id: checkpoint.replyMessageId,
+        userId: checkpoint.botUserId,
+        content: '⏹️ Đã dừng theo yêu cầu.',
+      });
+      expect(mockAgentStream.emitStep).toHaveBeenCalledWith(
+        expect.objectContaining({ messageId: checkpoint.replyMessageId }),
+        { type: 'done' },
+      );
+    });
+  });
+
+  describe('cancelTurn (Stop request)', () => {
+    it('throws TURN_NOT_FOUND when no turn is running for this messageId (finished long ago / never started)', async () => {
+      mockCancellation.getOwner.mockResolvedValue(null);
+
+      await expect(
+        processor.cancelTurn({ userId: 'user-1', messageId: 'reply-1' }),
+      ).rejects.toThrow();
+      expect(mockCancellation.requestCancel).not.toHaveBeenCalled();
+    });
+
+    it('throws TURN_FORBIDDEN when the requester is not the user who triggered the turn', async () => {
+      mockCancellation.getOwner.mockResolvedValue('user-1');
+
+      await expect(
+        processor.cancelTurn({ userId: 'some-other-user', messageId: 'reply-1' }),
+      ).rejects.toThrow();
+      expect(mockCancellation.requestCancel).not.toHaveBeenCalled();
+    });
+
+    it('requests cancellation when the requester owns the turn', async () => {
+      mockCancellation.getOwner.mockResolvedValue('user-1');
+
+      await processor.cancelTurn({ userId: 'user-1', messageId: 'reply-1' });
+
+      expect(mockCancellation.requestCancel).toHaveBeenCalledWith('reply-1');
+    });
+  });
+
+  describe('handleAiTrigger — Stop mid-turn (TurnCancelledError)', () => {
+    it('shows "Đã dừng theo yêu cầu" instead of an error, and still emits done, when the turn is cancelled', async () => {
+      // Reset — 1 test khác trong cùng file cố tình để updateMessage() reject
+      // vĩnh viễn (mockRejectedValue, không phải Once) để test 1 nhánh lỗi
+      // kép; jest.clearAllMocks() ở afterEach() không xoá implementation đó.
+      mockMessageClient.updateMessage.mockResolvedValue(undefined);
+      mockSupervisor.decide.mockResolvedValue({
+        action: 'delegate',
+        delegations: [{ agent: 'sql_server', task: 'liệt kê bảng' }],
+      });
+      // isCancelled() được check NGAY đầu vòng lặp resolveAnswer(), trước
+      // decide() — trả true ngay lần đầu để mô phỏng Stop được bấm giữa chừng.
+      mockCancellation.isCancelled.mockResolvedValueOnce(true);
+
+      await runJob();
+
+      expect(mockCancellation.startTurn).toHaveBeenCalledWith(
+        'reply-1',
+        jobData.userId,
+      );
+      expect(mockSupervisor.decide).not.toHaveBeenCalled();
+      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+        id: 'reply-1',
+        userId: jobData.botUserId,
+        content: '⏹️ Đã dừng theo yêu cầu.',
+      });
+      expect(mockAgentStream.emitStep).toHaveBeenCalledWith(
+        {
+          userId: jobData.userId,
+          channelId: jobData.channelId,
+          messageId: 'reply-1',
+          channelType: jobData.channelType,
+        },
+        { type: 'done' },
+      );
     });
   });
 });

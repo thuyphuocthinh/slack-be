@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ORCHESTRATION_CONSTANTS } from '@slack/constants';
+import {
+  ORCHESTRATION_CONSTANTS,
+  SUPERVISOR_DECISION_SCHEMA,
+  SUPERVISOR_DECISION_SCHEMA_NO_ANSWER,
+} from '@slack/constants';
 import { SupervisorService } from './supervisor.service';
 import { McpAuthClientService } from '../mcp-auth/mcp-auth-client.service';
 import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
@@ -140,6 +144,31 @@ describe('SupervisorService', () => {
             'sql_server (SQL Server): Truy vấn SQL Server.',
           ),
         }),
+      );
+    });
+
+    it('requests the "answer" field in the schema on the FIRST round (no previousRounds yet)', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'respond',
+        answer: 'Chào bạn!',
+      });
+
+      await service.decide('chào bạn', agents);
+
+      expect(mockStrategy.generateStructured).toHaveBeenCalledWith(
+        expect.objectContaining({ schema: SUPERVISOR_DECISION_SCHEMA }),
+      );
+    });
+
+    it('drops the "answer" field from the schema once previousRounds is non-empty — resolveAnswer() never uses decide().answer past the first round, so asking the model to write one just burns tokens for nothing', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({ action: 'respond' });
+
+      await service.decide('có bao nhiêu bảng?', agents, [
+        { agent: 'sql_server', task: 'liệt kê bảng', result: 'Có 2 bảng' },
+      ]);
+
+      expect(mockStrategy.generateStructured).toHaveBeenCalledWith(
+        expect.objectContaining({ schema: SUPERVISOR_DECISION_SCHEMA_NO_ANSWER }),
       );
     });
 

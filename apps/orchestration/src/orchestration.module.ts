@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { DatabaseModule } from '@slack/database';
 import { QueueModule, EQueueName } from '@slack/queue';
+import { CachedModule } from '@slack/cached';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { getMicroserviceClientConfig } from '@slack/common';
 import { OrchestrationController } from './orchestration.controller';
@@ -33,6 +34,7 @@ import { DynamicProviderDbService } from './registry/dynamic-provider-db.service
 import { ProviderSummaryService } from './registry/provider-summary.service';
 import { OpenAiEmbeddingProvider } from './registry/openai-embedding.provider';
 import { DynamicToolExecutorService } from './executor/dynamic-tool-executor.service';
+import { AgentCancellationService } from './cancellation/agent-cancellation.service';
 
 @Module({
   imports: [
@@ -43,6 +45,7 @@ import { DynamicToolExecutorService } from './executor/dynamic-tool-executor.ser
       DynamicProviderEntity,
     ]),
     ScheduleModule.forRoot(),
+    CachedModule.forRoot(),
     QueueModule.forRoot(),
     QueueModule.forFeature([
       EQueueName.AI_ORCHESTRATION_QUEUE,
@@ -81,6 +84,7 @@ import { DynamicToolExecutorService } from './executor/dynamic-tool-executor.ser
     CheckpointCleanupService,
     TriggerClaimService,
     CircuitBreakerService,
+    AgentCancellationService,
   ],
 })
 export class OrchestrationModule {}

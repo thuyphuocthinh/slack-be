@@ -22,6 +22,8 @@ import { withTimeout } from './with-timeout.util';
 import { ApprovalRequiredError } from './approval-required.error';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { McpToolDto } from '../dto/mcp.dto';
+import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
+import { runCancellable } from '../common/cancellable-run.util';
 
 // Root trace + "done" thuộc về AiOrchestrationProcessor, không phải ở đây.
 @Injectable()
@@ -33,6 +35,7 @@ export class ReactLoopService {
     private readonly llmFactory: LlmStrategyFactory,
     private readonly agentStream: AgentStreamService,
     private readonly circuitBreaker: CircuitBreakerService,
+    private readonly cancellation: AgentCancellationService,
   ) {}
 
   async run(dto: RunReactLoopRequestDto): Promise<RunReactLoopResponseDto> {
@@ -71,18 +74,6 @@ export class ReactLoopService {
       { name: 'mcp.callTool' },
     );
 
-    const sendMessage = (
-      input: string | LlmToolResult[],
-      onToken?: (chunk: string) => void,
-    ): Promise<LlmTurnResult> =>
-      this.circuitBreaker.run(`llm:${strategy.id}`, () =>
-        withTimeout(
-          session.sendMessage(input, onToken),
-          ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
-          `ReactLoop sendMessage() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (provider=${dto.provider}, model=${model})`,
-        ),
-      );
-
     const onToken = (chunk: string) => {
       this.agentStream
         .emitStep(
@@ -97,13 +88,30 @@ export class ReactLoopService {
         .catch(() => {}); // fire and forget
     };
 
-    return this.executeReactLoop(
-      dto,
-      sendMessage,
-      callTool,
-      toolCalls,
-      onToken,
-    );
+    // runCancellable() poll Redis (Stop/Cancel) định kỳ, abort() ngay khi phát
+    // hiện — signal truyền xuống tận SDK provider nên huỷ được GIỮA lúc đang
+    // stream, không phải đợi hết response mới dừng.
+    return runCancellable(dto.messageId, this.cancellation, (signal) => {
+      const sendMessage = (
+        input: string | LlmToolResult[],
+        onTok?: (chunk: string) => void,
+      ): Promise<LlmTurnResult> =>
+        this.circuitBreaker.run(`llm:${strategy.id}`, () =>
+          withTimeout(
+            session.sendMessage(input, onTok, signal),
+            ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
+            `ReactLoop sendMessage() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (provider=${dto.provider}, model=${model})`,
+          ),
+        );
+
+      return this.executeReactLoop(
+        dto,
+        sendMessage,
+        callTool,
+        toolCalls,
+        onToken,
+      );
+    });
   }
 
   private async buildSystemInstruction(

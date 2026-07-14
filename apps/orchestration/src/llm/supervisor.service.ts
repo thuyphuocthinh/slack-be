@@ -4,6 +4,7 @@ import {
   SUPERVISOR_SYSTEM_PROMPT,
   SUPERVISOR_SYNTHESIS_PROMPT,
   SUPERVISOR_DECISION_SCHEMA,
+  SUPERVISOR_DECISION_SCHEMA_NO_ANSWER,
   SUPERVISOR_SYNTHESIS_SCHEMA,
   PROVIDER_DESCRIPTIONS,
 } from '@slack/constants';
@@ -80,6 +81,14 @@ export class SupervisorService {
         : '(Người dùng chưa kết nối agent nào — nếu câu hỏi cần dữ liệu, trả lời "respond" và nhắc user vào Settings để kết nối.)';
 
     const fullPrompt = this.buildPrompt(prompt, previousRounds, history);
+    // resolveAnswer() CHỈ dùng decision.answer khi previousRounds rỗng (chưa
+    // từng delegate) — mọi vòng sau đều tự tổng hợp lại (rounds[0].result hoặc
+    // synthesize(), xem "stream = save"). Bỏ field "answer" khỏi schema ở các
+    // vòng đó để khỏi trả tiền completion token cho 1 câu trả lời chắc chắn bị vứt.
+    const decisionSchema =
+      previousRounds.length > 0
+        ? SUPERVISOR_DECISION_SCHEMA_NO_ANSWER
+        : SUPERVISOR_DECISION_SCHEMA;
 
     try {
       const { strategy, model } = this.llmFactory.resolve(
@@ -97,7 +106,7 @@ export class SupervisorService {
             model,
             systemInstruction: `${SUPERVISOR_SYSTEM_PROMPT}\n${agentListText}`,
             prompt: fullPrompt,
-            schema: SUPERVISOR_DECISION_SCHEMA,
+            schema: decisionSchema,
           }),
           ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
           `Supervisor decide() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
@@ -123,6 +132,7 @@ export class SupervisorService {
     originalPrompt: string,
     rounds: SupervisorRoundDto[],
     onToken?: (chunk: string) => void,
+    signal?: AbortSignal,
   ): Promise<string> {
     const roundsText = rounds
       .map(
@@ -148,7 +158,7 @@ export class SupervisorService {
 
       const result = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
         withTimeout(
-          session.sendMessage(prompt, onToken),
+          session.sendMessage(prompt, onToken, signal),
           ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
           `Supervisor synthesize() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
         ),

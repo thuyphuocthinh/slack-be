@@ -110,6 +110,22 @@ export class AiProvidersService {
     );
   }
 
+  // messageId = reply messageId của BOT (message đang stream/hiện tool-call
+  // timeline), KHÔNG phải messageId user hỏi ban đầu.
+  async cancelTurn(userId: string, messageId: string) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        lastValueFrom(
+          this.orchestrationClient.send(ORCHESTRATION_MESSAGE_PATTERNS.CANCEL_TURN, {
+            userId,
+            messageId,
+          }),
+        ),
+      'cancelTurn',
+      'AiProvidersService',
+    );
+  }
+
   async triggerPrompt(
     userId: string,
     provider: string,
