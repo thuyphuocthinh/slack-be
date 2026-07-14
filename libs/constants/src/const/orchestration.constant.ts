@@ -105,6 +105,11 @@ PHẢI dùng ĐÚNG NGUYÊN VĂN số liệu/tên/ID đã có trong các kết q
 // provider đều hỗ trợ) để model tự hiểu ràng buộc qua ngữ nghĩa; runtime
 // (AiOrchestrationProcessor.resolveAnswer) đã tự fallback an toàn nếu model
 // vẫn không tuân theo.
+// Dùng ĐÚNG 1 lần — ở vòng ĐẦU TIÊN (previousRounds rỗng), vì đây là trường hợp
+// DUY NHẤT AiOrchestrationProcessor.resolveAnswer() thật sự dùng decision.answer
+// (action="respond" mà rounds.length === 0 → chưa từng delegate, chưa có gì để
+// stream lại nên dùng thẳng answer này). Mọi vòng sau đều dùng
+// SUPERVISOR_DECISION_SCHEMA_NO_ANSWER — xem giải thích ở đó.
 export const SUPERVISOR_DECISION_SCHEMA = {
   type: 'object',
   properties: {
@@ -118,6 +123,41 @@ export const SUPERVISOR_DECISION_SCHEMA = {
       type: 'string',
       description:
         'Bắt buộc khi action="respond". Bỏ trống khi action="delegate".',
+    },
+    delegations: {
+      type: 'array',
+      minItems: 1,
+      description:
+        'Bắt buộc, ít nhất 1 phần tử, khi action="delegate". Nhiều phần tử = các agent ĐỘC LẬP chạy song song trong vòng này.',
+      items: {
+        type: 'object',
+        properties: {
+          agent: { type: 'string' },
+          task: { type: 'string' },
+        },
+        required: ['agent', 'task'],
+      },
+    },
+  },
+  required: ['action'],
+};
+
+// Dùng từ vòng thứ 2 trở đi (previousRounds.length > 0). Ở các vòng này, nếu
+// decide() trả "respond", AiOrchestrationProcessor.resolveAnswer() KHÔNG BAO
+// GIỜ dùng decision.answer — nó luôn tự tổng hợp lại (rounds.length === 1 dùng
+// thẳng kết quả delegate đã stream, > 1 gọi synthesize() riêng CÓ stream, xem
+// nguyên tắc "stream = save"). Bỏ hẳn field "answer" khỏi schema (không phải
+// chỉ dặn model bỏ trống) để model không tốn completion token viết ra 1 câu trả
+// lời chắc chắn bị vứt — trước đây phải trả tiền 2 lần cho gần như cùng 1 câu
+// trả lời (1 lần ở đây, 1 lần ở synthesize()).
+export const SUPERVISOR_DECISION_SCHEMA_NO_ANSWER = {
+  type: 'object',
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['respond', 'delegate'],
+      description:
+        '"respond" nếu đã đủ dữ liệu để trả lời — hệ thống sẽ TỰ tổng hợp câu trả lời cuối từ dữ liệu đã thu thập, KHÔNG cần (và sẽ không dùng) answer ở đây. "delegate" nếu cần giao việc cho agent — khi đó PHẢI điền "delegations" với ít nhất 1 phần tử.',
     },
     delegations: {
       type: 'array',
