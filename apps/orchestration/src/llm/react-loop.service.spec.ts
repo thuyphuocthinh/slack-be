@@ -11,6 +11,7 @@ import { RunReactLoopRequestDto } from '../dto/react-loop.dto';
 import { ApprovalRequiredError } from './approval-required.error';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
+import { TurnCancelledError } from './turn-cancelled.error';
 
 // @slack/common barrel transitively kéo theo "nanoid" (ESM-only) qua
 // string.util.ts — jest không transform được, mock thẳng theo đúng convention
@@ -85,6 +86,9 @@ describe('ReactLoopService', () => {
       (_key: string, action: () => Promise<unknown>) => action(),
     );
     mockCancellation.isCancelled.mockResolvedValue(false);
+    // resync()/onToken() luôn gọi emitStep(...).catch(...) — cần resolve thật
+    // (không phải undefined mặc định của jest.fn()) để .catch() không throw.
+    mockAgentStream.emitStep.mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -346,8 +350,20 @@ describe('ReactLoopService', () => {
 
       await service.run({ ...baseDto, channelType: 'group' });
 
+      // Vòng #1 có tool-call — resync('') bắn TRƯỚC tool_call (preamble nếu có
+      // của vòng đó không phải câu trả lời cuối, xem "stream = save").
       expect(mockAgentStream.emitStep).toHaveBeenNthCalledWith(
         1,
+        {
+          userId: 'user-1',
+          channelId: 'channel-1',
+          messageId: 'reply-msg-1',
+          channelType: 'group',
+        },
+        { type: 'resync', text: '' },
+      );
+      expect(mockAgentStream.emitStep).toHaveBeenNthCalledWith(
+        2,
         {
           userId: 'user-1',
           channelId: 'channel-1',
@@ -357,7 +373,7 @@ describe('ReactLoopService', () => {
         { type: 'tool_call', tool: 'sql_server.get_database_schema' },
       );
       expect(mockAgentStream.emitStep).toHaveBeenNthCalledWith(
-        2,
+        3,
         {
           userId: 'user-1',
           channelId: 'channel-1',
@@ -375,6 +391,13 @@ describe('ReactLoopService', () => {
       expect(mockAgentStream.emitStep).not.toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({ type: 'done' }),
+      );
+      // Vòng self-check ('vẫn giữ nguyên') bị revert — resync về đúng
+      // answerBeforeSelfCheck ('ok'), không phải nội dung self-check vừa nói.
+      expect(mockAgentStream.emitStep).toHaveBeenNthCalledWith(
+        4,
+        expect.anything(),
+        { type: 'resync', text: 'ok' },
       );
     });
 
@@ -418,8 +441,9 @@ describe('ReactLoopService', () => {
       const result = await service.run(baseDto);
 
       expect(result.toolCalls[0].status).toBe('error');
+      // Call #1 = resync('') (vòng có tool-call), #2 = tool_call, #3 = tool_result.
       expect(mockAgentStream.emitStep).toHaveBeenNthCalledWith(
-        2,
+        3,
         expect.anything(),
         expect.objectContaining({ type: 'tool_result', status: 'error' }),
       );
@@ -554,6 +578,65 @@ describe('ReactLoopService', () => {
         'CIRCUIT BREAKER OPEN',
       );
       expect(mockSession.sendMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Stop mid-stream (runCancellable + AbortSignal)', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('rejects with TurnCancelledError carrying whatever text had already streamed, instead of swallowing it (giống ChatGPT/Claude — Stop giữ nguyên phần đã có)', async () => {
+      jest.useFakeTimers();
+      mockSession.sendMessage.mockImplementation(
+        (
+          _input: unknown,
+          onToken?: (chunk: string) => void,
+          signal?: AbortSignal,
+        ) => {
+          onToken?.('Đang tính toán... ');
+          onToken?.('sắp xong');
+          // Mô phỏng đúng hành vi SDK thật: reject khi signal bị abort giữa chừng.
+          return new Promise((_, reject) => {
+            signal?.addEventListener('abort', () =>
+              reject(new Error('aborted by signal')),
+            );
+          });
+        },
+      );
+      // Cờ huỷ đã được set từ trước (user bấm Stop) — interval của
+      // runCancellable() sẽ phát hiện ở lần poll đầu tiên.
+      mockCancellation.isCancelled.mockResolvedValue(true);
+
+      // Gắn assertion NGAY (trước khi advance timer) để .rejects đăng ký
+      // handler trước khi promise có thể reject — tránh unhandled-rejection
+      // warning do timing giữa fake timer và microtask.
+      const assertion = expect(service.run(baseDto)).rejects.toMatchObject({
+        name: 'TurnCancelledError',
+        partialText: 'Đang tính toán... sắp xong',
+      });
+      await jest.advanceTimersByTimeAsync(1100); // cho interval (1s) chạy ít nhất 1 lần
+      await assertion;
+    });
+
+    it('falls back to no partialText when cancelled before any token ever streamed', async () => {
+      jest.useFakeTimers();
+      mockSession.sendMessage.mockImplementation(
+        (_input: unknown, _onToken?: (chunk: string) => void, signal?: AbortSignal) =>
+          new Promise((_, reject) => {
+            signal?.addEventListener('abort', () =>
+              reject(new Error('aborted by signal')),
+            );
+          }),
+      );
+      mockCancellation.isCancelled.mockResolvedValue(true);
+
+      const assertion = expect(service.run(baseDto)).rejects.toMatchObject({
+        name: 'TurnCancelledError',
+        partialText: undefined,
+      });
+      await jest.advanceTimersByTimeAsync(1100);
+      await assertion;
     });
   });
 });

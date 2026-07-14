@@ -484,11 +484,13 @@ describe('AiOrchestrationProcessor', () => {
     // cả 2 agent chạy trong CÙNG 1 vòng (chỉ 1 lần decide trước khi respond)
     expect(mockSupervisor.decide).toHaveBeenCalledTimes(2);
     expect(mockReactLoop.run).toHaveBeenCalledTimes(2);
+    // streamKey khác nhau giữa 2 agent chạy CÙNG round (fan-out) — nếu không,
+    // FE gộp chung 1 chuỗi text và agent này resync() sẽ xoá mất phần agent kia.
     expect(mockReactLoop.run).toHaveBeenCalledWith(
-      expect.objectContaining({ provider: 'sql_server' }),
+      expect.objectContaining({ provider: 'sql_server', streamKey: 'r0-sql_server' }),
     );
     expect(mockReactLoop.run).toHaveBeenCalledWith(
-      expect.objectContaining({ provider: 'github' }),
+      expect.objectContaining({ provider: 'github', streamKey: 'r0-github' }),
     );
     // round-2 decide() phải thấy CẢ 2 kết quả của vòng 1, không chỉ 1
     const secondCallRounds = mockSupervisor.decide.mock.calls[1][2];
@@ -563,13 +565,15 @@ describe('AiOrchestrationProcessor', () => {
         result: 'Khách chi tiêu nhiều nhất: Nguyễn Văn A, 5.000.000đ',
       },
     ]);
+    // Vòng khác nhau (r0 vs r1) — dù chỉ 1 agent/vòng (không fan-out), streamKey
+    // vẫn phải khác nhau giữa các vòng để không lẫn dữ liệu cũ nếu có phần chưa dọn.
     expect(mockReactLoop.run).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ provider: 'sql_server' }),
+      expect.objectContaining({ provider: 'sql_server', streamKey: 'r0-sql_server' }),
     );
     expect(mockReactLoop.run).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ provider: 'github' }),
+      expect.objectContaining({ provider: 'github', streamKey: 'r1-github' }),
     );
     // toolCalls gộp từ CẢ 2 agent, đúng thứ tự thời gian, tên đã namespace
     // theo agent (Step 6) nên không lẫn lộn dù tên tool trùng giữa các agent.

@@ -24,6 +24,7 @@ import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { McpToolDto } from '../dto/mcp.dto';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
 import { runCancellable } from '../common/cancellable-run.util';
+import { TurnCancelledError } from './turn-cancelled.error';
 
 // Root trace + "done" thuộc về AiOrchestrationProcessor, không phải ở đây.
 @Injectable()
@@ -74,7 +75,12 @@ export class ReactLoopService {
       { name: 'mcp.callTool' },
     );
 
-    const onToken = (chunk: string) => {
+    // Luôn khớp CHÍNH XÁC với những gì FE đang hiển thị (được reset đúng lúc
+    // FE cũng được báo resync) — dùng để: (a) không có tác dụng gì thêm khi
+    // turn xong bình thường (answer đã tự trả về đúng chỗ), (b) làm nội dung
+    // lưu lại khi bị Stop giữa chừng, thay vì vứt bỏ hết những gì đã stream.
+    let confirmedText = '';
+    const emitToken = (step: { type: 'token' | 'resync'; text: string }) => {
       this.agentStream
         .emitStep(
           {
@@ -82,36 +88,54 @@ export class ReactLoopService {
             channelId: dto.channelId,
             messageId: dto.messageId,
             channelType: dto.channelType,
+            streamKey: dto.streamKey,
           },
-          { type: 'token', text: chunk },
+          step,
         )
         .catch(() => {}); // fire and forget
+    };
+    const onToken = (chunk: string) => {
+      confirmedText += chunk;
+      emitToken({ type: 'token', text: chunk });
+    };
+    const resync = (text: string) => {
+      confirmedText = text;
+      emitToken({ type: 'resync', text });
     };
 
     // runCancellable() poll Redis (Stop/Cancel) định kỳ, abort() ngay khi phát
     // hiện — signal truyền xuống tận SDK provider nên huỷ được GIỮA lúc đang
     // stream, không phải đợi hết response mới dừng.
-    return runCancellable(dto.messageId, this.cancellation, (signal) => {
-      const sendMessage = (
-        input: string | LlmToolResult[],
-        onTok?: (chunk: string) => void,
-      ): Promise<LlmTurnResult> =>
-        this.circuitBreaker.run(`llm:${strategy.id}`, () =>
-          withTimeout(
-            session.sendMessage(input, onTok, signal),
-            ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
-            `ReactLoop sendMessage() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (provider=${dto.provider}, model=${model})`,
-          ),
-        );
+    return runCancellable(
+      dto.messageId,
+      this.cancellation,
+      (signal) => {
+        const sendMessage = (
+          input: string | LlmToolResult[],
+          onTok?: (chunk: string) => void,
+        ): Promise<LlmTurnResult> =>
+          this.circuitBreaker.run(`llm:${strategy.id}`, () =>
+            withTimeout(
+              session.sendMessage(input, onTok, signal),
+              ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
+              `ReactLoop sendMessage() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (provider=${dto.provider}, model=${model})`,
+            ),
+          );
 
-      return this.executeReactLoop(
-        dto,
-        sendMessage,
-        callTool,
-        toolCalls,
-        onToken,
-      );
-    });
+        return this.executeReactLoop(
+          dto,
+          sendMessage,
+          callTool,
+          toolCalls,
+          onToken,
+          resync,
+        );
+      },
+      // Giữ lại đúng phần đã stream (đã khớp FE nhờ resync ở trên) làm nội
+      // dung lưu — giống ChatGPT/Claude: dừng thì giữ nguyên phần đã có,
+      // không xoá sạch thay bằng 1 câu thông báo.
+      () => new TurnCancelledError(confirmedText || undefined),
+    );
   }
 
   private async buildSystemInstruction(
@@ -202,6 +226,7 @@ export class ReactLoopService {
     callTool: (name: string, args: Record<string, unknown>) => Promise<string>,
     toolCalls: ToolCallTraceDto[],
     onToken: (chunk: string) => void,
+    resync: (text: string) => void,
   ): Promise<RunReactLoopResponseDto> {
     let turn = await sendMessage(dto.prompt, onToken);
     let selfChecked = false;
@@ -217,11 +242,24 @@ export class ReactLoopService {
             onToken,
           );
           if (selfCheckTurn.toolCalls.length > 0) {
+            // Vòng self-check tự quyết định cần tool tiếp — text nó vừa
+            // stream (nếu có) không phải câu trả lời, sẽ tiếp tục vòng lặp.
+            resync('');
             turn = selfCheckTurn;
             continue;
           }
           this.logger.log(
             `run() done at step=${step} toolCalls=${toolCalls.length} (giữ câu trả lời TRƯỚC self-check)`,
+          );
+          // Vòng self-check vừa stream thêm text (thường là xác nhận lại) SAU
+          // câu trả lời gốc — nhưng câu trả lời CUỐI là answerBeforeSelfCheck,
+          // không phải nội dung self-check vừa nói. Resync về đúng
+          // answerBeforeSelfCheck để FE không còn hiện phần thừa đó (nguyên
+          // tắc "stream = save": FE lúc này phải khớp CHÍNH XÁC bằng những gì
+          // cuối cùng được lưu).
+          resync(
+            answerBeforeSelfCheck ||
+              'Xin lỗi, mình chưa có câu trả lời phù hợp.',
           );
           return {
             answer:
@@ -238,6 +276,12 @@ export class ReactLoopService {
           toolCalls,
         };
       }
+
+      // Vòng này vừa có tool-call — text vừa stream (nếu có, kiểu "Để tôi
+      // kiểm tra...") chỉ là tường thuật tạm thời, KHÔNG phải câu trả lời
+      // cuối (câu trả lời thật đến từ vòng sau, sau khi có kết quả tool).
+      // Resync để FE xoá phần này đi, tránh hiện dính vào câu trả lời thật.
+      resync('');
 
       const results: LlmToolResult[] = await Promise.all(
         turn.toolCalls.map(async (call) => {

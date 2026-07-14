@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ESocketEvent } from '@slack/constants';
 import { EJobName, EQueueName, QueueService } from '@slack/queue';
-import { AgentStreamService } from './agent-stream.service';
+import { AgentStreamService, DEFAULT_STREAM_KEY } from './agent-stream.service';
 
 describe('AgentStreamService', () => {
   let service: AgentStreamService;
@@ -31,8 +31,40 @@ describe('AgentStreamService', () => {
       expect.objectContaining({
         event: ESocketEvent.AGENT_STREAM,
         room: 'user_user-1',
-        data: { type: 'tool_call', tool: 'get_schema', channelId: 'channel-1', messageId: 'msg-1' },
+        data: {
+          type: 'tool_call',
+          tool: 'get_schema',
+          channelId: 'channel-1',
+          messageId: 'msg-1',
+          streamKey: DEFAULT_STREAM_KEY,
+        },
       }),
+    );
+  });
+
+  it('defaults streamKey to DEFAULT_STREAM_KEY when the context does not specify one', async () => {
+    await service.emitStep(
+      { userId: 'user-1', channelId: 'channel-1', messageId: 'msg-1', channelType: 'direct' },
+      { type: 'token', text: 'hi' },
+    );
+
+    expect(mockQueueService.addJob).toHaveBeenCalledWith(
+      EQueueName.SOCKET_QUEUE,
+      EJobName.EMIT_EVENT,
+      expect.objectContaining({ data: expect.objectContaining({ streamKey: DEFAULT_STREAM_KEY }) }),
+    );
+  });
+
+  it('passes through a caller-supplied streamKey untouched (Supervisor fan-out — multiple ReactLoop runs on the same messageId)', async () => {
+    await service.emitStep(
+      { userId: 'user-1', channelId: 'channel-1', messageId: 'msg-1', channelType: 'direct', streamKey: 'r0-sql_server' },
+      { type: 'token', text: 'hi' },
+    );
+
+    expect(mockQueueService.addJob).toHaveBeenCalledWith(
+      EQueueName.SOCKET_QUEUE,
+      EJobName.EMIT_EVENT,
+      expect.objectContaining({ data: expect.objectContaining({ streamKey: 'r0-sql_server' }) }),
     );
   });
 
