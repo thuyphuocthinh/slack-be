@@ -1,0 +1,67 @@
+{
+  "title": "Orchestration — Backpressure & Admission Control",
+  "uid": "orchestration-backpressure",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "tags": ["orchestration", "backpressure"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "AI_ORCHESTRATION_QUEUE depth (waiting/active)",
+      "description": "Số job đang chờ (waiting) và đang chạy (active) trong hàng đợi AI_ORCHESTRATION_QUEUE. Ngưỡng admission control hiện tại: ORCHESTRATION_CONSTANTS.MAX_ORCHESTRATION_QUEUE_DEPTH.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
+          "expr": "orchestration_queue_depth",
+          "legendFormat": "{{state}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Circuit breaker state per key (0=closed, 1=halfOpen, 2=open)",
+      "description": "Trạng thái circuit breaker của từng mcp:<provider>/llm:<strategy>. Cập nhật ngay trong listener open/halfOpen/close của CircuitBreakerService — xem MetricsRegistryService.",
+      "type": "state-timeline",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
+          "expr": "orchestration_circuit_breaker_state",
+          "legendFormat": "{{key}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "closed", "color": "green" },
+                "1": { "text": "halfOpen", "color": "yellow" },
+                "2": { "text": "open", "color": "red" }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

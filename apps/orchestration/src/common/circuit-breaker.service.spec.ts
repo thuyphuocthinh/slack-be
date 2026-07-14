@@ -2,13 +2,14 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { RpcException } from '@nestjs/microservices';
 import { ORCHESTRATION_CONSTANTS } from '@slack/constants';
 import { CircuitBreakerService } from './circuit-breaker.service';
+import { MetricsRegistryService } from './metrics-registry.service';
 
 describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
   let service: CircuitBreakerService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [CircuitBreakerService],
+      providers: [CircuitBreakerService, MetricsRegistryService],
     }).compile();
 
     service = module.get<CircuitBreakerService>(CircuitBreakerService);
@@ -133,5 +134,57 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
 
     expect(result).toBe('ok');
     expect(healthyAction).toHaveBeenCalledTimes(1);
+  });
+
+  describe('getStates (Backpressure/Admission control)', () => {
+    it('returns an empty object before any breaker has been created', () => {
+      expect(service.getStates()).toEqual({});
+    });
+
+    it('reports "closed" for a breaker that has only succeeded', async () => {
+      await service.run('mcp:sql_server', jest.fn().mockResolvedValue('ok'));
+
+      expect(service.getStates()).toEqual({ 'mcp:sql_server': 'closed' });
+    });
+
+    it('reports "open" once the circuit trips', async () => {
+      const action = jest.fn().mockRejectedValue(new Error('down'));
+      await expect(service.run('mcp:down', action)).rejects.toThrow();
+      await expect(service.run('mcp:down', action)).rejects.toThrow();
+      await expect(service.run('mcp:down', action)).rejects.toThrow();
+
+      expect(service.getStates()).toEqual({ 'mcp:down': 'open' });
+    });
+
+    it('reports "halfOpen" right after resetTimeout elapses, then "closed" once the probe succeeds', async () => {
+      jest.useFakeTimers();
+      const action = jest.fn().mockRejectedValue(new Error('down'));
+      await expect(service.run('mcp:recovering', action)).rejects.toThrow();
+      await expect(service.run('mcp:recovering', action)).rejects.toThrow();
+      await expect(service.run('mcp:recovering', action)).rejects.toThrow();
+      expect(service.getStates()).toEqual({ 'mcp:recovering': 'open' });
+
+      await jest.advanceTimersByTimeAsync(
+        ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_RESET_TIMEOUT_MS + 1,
+      );
+      expect(service.getStates()).toEqual({ 'mcp:recovering': 'halfOpen' });
+
+      action.mockResolvedValueOnce('recovered');
+      await service.run('mcp:recovering', action);
+      expect(service.getStates()).toEqual({ 'mcp:recovering': 'closed' });
+    });
+
+    it('keeps independent states per key', async () => {
+      await service.run('mcp:healthy', jest.fn().mockResolvedValue('ok'));
+      const brokenAction = jest.fn().mockRejectedValue(new Error('down'));
+      await expect(service.run('mcp:broken', brokenAction)).rejects.toThrow();
+      await expect(service.run('mcp:broken', brokenAction)).rejects.toThrow();
+      await expect(service.run('mcp:broken', brokenAction)).rejects.toThrow();
+
+      expect(service.getStates()).toEqual({
+        'mcp:healthy': 'closed',
+        'mcp:broken': 'open',
+      });
+    });
   });
 });

@@ -86,6 +86,29 @@ export class QueueService {
     }
   }
 
+  // Backpressure/Admission control — chỉ đếm 'waiting'+'active' (đủ để biết
+  // hàng đợi có đang phình lên do worker xử lý không kịp hay không), bỏ qua
+  // completed/failed/delayed vì không phản ánh tải THỰC hiện tại.
+  async getJobCounts(queueName: EQueueName): Promise<Record<string, number>> {
+    const queue = this.moduleRef.get<Queue>(getQueueToken(queueName), {
+      strict: false,
+    });
+
+    if (!queue) {
+      throw new Error(`Queue ${queueName} not found or not registered`);
+    }
+
+    return queue.getJobCounts('waiting', 'active');
+  }
+
+  async isOverloaded(
+    queueName: EQueueName,
+    maxDepth: number,
+  ): Promise<boolean> {
+    const counts = await this.getJobCounts(queueName);
+    return (counts.waiting ?? 0) + (counts.active ?? 0) > maxDepth;
+  }
+
   async removeJob(queueName: EQueueName, jobId: string) {
     try {
       const queue = this.moduleRef.get<Queue>(getQueueToken(queueName), {

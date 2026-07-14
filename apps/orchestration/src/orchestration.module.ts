@@ -38,6 +38,8 @@ import { AgentCancellationService } from './cancellation/agent-cancellation.serv
 import { TurnResolverService } from './processor/turn-resolver.service';
 import { CheckpointPauseService } from './processor/checkpoint-pause.service';
 import { ApprovalFlowService } from './processor/approval-flow.service';
+import { MetricsRegistryService } from './common/metrics-registry.service';
+import { HealthCheckService } from './common/health-check.service';
 
 @Module({
   imports: [
@@ -91,6 +93,8 @@ import { ApprovalFlowService } from './processor/approval-flow.service';
     TurnResolverService,
     CheckpointPauseService,
     ApprovalFlowService,
+    MetricsRegistryService,
+    HealthCheckService,
   ],
 })
 export class OrchestrationModule {}

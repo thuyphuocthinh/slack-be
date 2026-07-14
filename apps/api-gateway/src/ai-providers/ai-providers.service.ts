@@ -198,4 +198,37 @@ export class AiProvidersService {
       'AiProvidersService',
     );
   }
+
+  // Backpressure/Admission control, mục 2 — orchestration là TCP thuần, không
+  // tự expose HTTP /health được, nên gateway gọi hộ qua đúng client đã có sẵn.
+  async getHealth() {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        lastValueFrom(
+          this.orchestrationClient.send(
+            ORCHESTRATION_MESSAGE_PATTERNS.HEALTH_CHECK,
+            {},
+          ),
+        ),
+      'getHealth',
+      'AiProvidersService',
+    );
+  }
+
+  // mục 3 — text Prometheus (registry riêng của orchestration), gateway ghép
+  // vào response /metrics của chính nó (xem ApiGatewayController.getMetrics()).
+  async getMetricsText(): Promise<string> {
+    const { metricsText } = await MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        lastValueFrom(
+          this.orchestrationClient.send(
+            ORCHESTRATION_MESSAGE_PATTERNS.GET_METRICS,
+            {},
+          ),
+        ),
+      'getMetricsText',
+      'AiProvidersService',
+    );
+    return metricsText;
+  }
 }

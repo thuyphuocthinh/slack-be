@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
 import CircuitBreaker from 'opossum';
 import { ORCHESTRATION_CONSTANTS, ORCHESTRATION_ERROR } from '@slack/constants';
+import { MetricsRegistryService } from './metrics-registry.service';
 
 /**
  * Giai đoạn 4, Step 6 — 1 breaker riêng cho mỗi `key` (VD `mcp:sql_server`,
@@ -21,6 +22,8 @@ export class CircuitBreakerService {
     CircuitBreaker<[() => Promise<unknown>], unknown>
   >();
 
+  constructor(private readonly metrics: MetricsRegistryService) {}
+
   async run<T>(key: string, action: () => Promise<T>): Promise<T> {
     const breaker = this.getOrCreateBreaker(key);
 
@@ -37,6 +40,21 @@ export class CircuitBreakerService {
     }
 
     return (await breaker.fire(action)) as T;
+  }
+
+  // Backpressure/Admission control — trạng thái hiện tại của mọi breaker đã
+  // từng tạo (key = 'mcp:<provider>'/'llm:<strategy>'), dùng cho health-check
+  // và metrics — trước đây chỉ nằm trong log, không đọc được từ bên ngoài.
+  getStates(): Record<string, 'open' | 'halfOpen' | 'closed'> {
+    const states: Record<string, 'open' | 'halfOpen' | 'closed'> = {};
+    this.breakers.forEach((breaker, key) => {
+      states[key] = breaker.opened
+        ? 'open'
+        : breaker.halfOpen
+          ? 'halfOpen'
+          : 'closed';
+    });
+    return states;
   }
 
   private getOrCreateBreaker(
@@ -57,17 +75,20 @@ export class CircuitBreakerService {
       },
     );
 
-    breaker.on('open', () =>
+    breaker.on('open', () => {
       this.logger.warn(
         `Circuit "${key}" OPEN — request mới fail nhanh trong ${ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_RESET_TIMEOUT_MS / 1000}s`,
-      ),
-    );
-    breaker.on('halfOpen', () =>
-      this.logger.log(`Circuit "${key}" HALF_OPEN — thử lại 1 request`),
-    );
-    breaker.on('close', () =>
-      this.logger.log(`Circuit "${key}" CLOSED — provider đã phục hồi`),
-    );
+      );
+      this.metrics.setBreakerState(key, 'open');
+    });
+    breaker.on('halfOpen', () => {
+      this.logger.log(`Circuit "${key}" HALF_OPEN — thử lại 1 request`);
+      this.metrics.setBreakerState(key, 'halfOpen');
+    });
+    breaker.on('close', () => {
+      this.logger.log(`Circuit "${key}" CLOSED — provider đã phục hồi`);
+      this.metrics.setBreakerState(key, 'closed');
+    });
 
     this.breakers.set(key, breaker);
     return breaker;

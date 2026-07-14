@@ -8,7 +8,7 @@ import {
   Post,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { CurrentUser, type JwtUser } from '@slack/common';
+import { CurrentUser, Public, type JwtUser } from '@slack/common';
 import { AiProvidersService } from './ai-providers.service';
 import { SubmitProviderCredentialsDto } from './dto/submit-provider-credentials.dto';
 import { ResolveApprovalDto } from './dto/resolve-approval.dto';
@@ -29,6 +29,16 @@ export class AiProvidersController {
   })
   async getProviders(@CurrentUser() user: JwtUser) {
     return this.aiProvidersService.getProviders(user.sub);
+  }
+
+  @Public()
+  @Get('health')
+  @ApiOperation({
+    summary:
+      'Backpressure/Admission control — orchestration health (redis, database, circuit breakers, queue depth). No auth: for external monitoring.',
+  })
+  async getHealth() {
+    return this.aiProvidersService.getHealth();
   }
 
   @Post(':provider/connect')

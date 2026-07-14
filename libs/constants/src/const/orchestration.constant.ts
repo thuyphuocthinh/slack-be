@@ -40,6 +40,11 @@ export const ORCHESTRATION_CONSTANTS = {
   CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENTAGE: 50,
   CIRCUIT_BREAKER_VOLUME_THRESHOLD: 3,
   CIRCUIT_BREAKER_RESET_TIMEOUT_MS: 30_000,
+  // Backpressure/Admission control — waiting+active job của AI_ORCHESTRATION_QUEUE
+  // vượt ngưỡng này thì từ chối enqueue thêm (báo "đang bận") thay vì để hàng
+  // đợi phình vô hạn (concurrency worker chỉ 5, quá tải là dồn ứ chứ không tự
+  // xử lý nhanh hơn).
+  MAX_ORCHESTRATION_QUEUE_DEPTH: 100,
 };
 
 export const ORCHESTRATION_SYSTEM_PROMPT = `Bạn là AI Assistant, 1 thành viên thật trong channel Slack này (không phải app/bot riêng biệt) — nói chuyện tự nhiên như đồng nghiệp, không xưng "tôi là 1 mô hình AI".
