@@ -65,6 +65,17 @@ interface ApprovalRequiredDelegateResult {
   toolCalls: ToolCallTraceDto[];
 }
 
+// executeApprovedTool() trả dạng này thay vì throw khi vòng resume (sau khi
+// duyệt hành động ĐẦU) lại gặp thêm 1 tool rủi ro KHÁC — approveCheckpoint()
+// cần cả kết quả hành động đầu (`firstActionResult`) để ghép vào lịch sử round
+// trước khi tạo checkpoint mới nối tiếp (xem pauseForApproval()).
+interface ApprovalRequiredResumeResult {
+  approvalRequired: PendingToolCall;
+  task: string;
+  toolCalls: ToolCallTraceDto[];
+  firstActionResult: string;
+}
+
 type AiOrchestrationJobData =
   | IProcessAiTriggerJobData
   | IProcessApprovalJobData;
@@ -844,16 +855,49 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     // trong suốt thời gian resume/chạy thật (thường vài giây tới vài chục giây).
     await this.cancellation.startTurn(replyMessageId, userId);
     try {
-      const { text, toolCalls } = await this.executeApprovedTool(
-        checkpoint,
-        userId,
-      );
+      const resumeResult = await this.executeApprovedTool(checkpoint, userId);
 
       // Xoá luồng stream cũ (do ReactLoop vừa chạy trong executeApprovedTool sinh ra)
       await this.agentStream.emitStep(
         { userId, channelId, messageId: replyMessageId, channelType },
         { type: 'done' },
       );
+
+      // Vòng resume vừa gặp THÊM 1 tool rủi ro khác — không có kết quả cuối để
+      // tổng hợp, phải dừng lại chờ duyệt tiếp giống hệt lần đầu (tạo checkpoint
+      // MỚI nối tiếp), thay vì để lỗi bay lên rồi báo sai thành "crash".
+      if ('approvalRequired' in resumeResult) {
+        this.logger.log(
+          `approveCheckpoint() checkpoint=${id} cần duyệt thêm 1 hành động khác: ${resumeResult.approvalRequired.provider}.${resumeResult.approvalRequired.name}`,
+        );
+        const pauseResult = await this.pauseForApproval(
+          { userId, channelId, workspaceId: checkpoint.workspaceId, messageId: replyMessageId, botUserId, channelType },
+          originalPrompt,
+          [
+            ...roundsSoFar,
+            {
+              agent: pendingTool.provider,
+              task: pendingTask,
+              result: resumeResult.firstActionResult,
+            },
+          ],
+          resumeResult.toolCalls,
+          checkpoint.history,
+          {
+            approvalRequired: resumeResult.approvalRequired,
+            task: resumeResult.task,
+            toolCalls: resumeResult.toolCalls,
+          },
+        );
+        await this.messageClient.updateMessage({
+          id: replyMessageId,
+          userId: botUserId,
+          ...pauseResult,
+        });
+        return;
+      }
+
+      const { text, toolCalls } = resumeResult;
 
       // Chuyển Message UI từ ApprovalRequestCard về text để hiện Markdown
       await this.messageClient.updateMessage({
@@ -915,10 +959,18 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     }
   }
 
+  // Hành động ĐẦU (pendingTool) đã được duyệt nên gọi tool THẬT trực tiếp,
+  // không qua Risk Gate lần nữa. Nhưng vòng resume sau đó (reactLoop.run())
+  // vẫn có thể gặp THÊM 1 tool rủi ro khác — trả về dạng approvalRequired thay
+  // vì để ApprovalRequiredError bay thẳng lên (mất luôn kết quả hành động đầu
+  // vừa chạy xong, và approveCheckpoint() không biết đường tạo checkpoint mới).
   private async executeApprovedTool(
     checkpoint: CheckpointResponseDto,
     userId: string,
-  ): Promise<{ text: string; toolCalls: ToolCallTraceDto[] }> {
+  ): Promise<
+    | { text: string; toolCalls: ToolCallTraceDto[] }
+    | ApprovalRequiredResumeResult
+  > {
     const {
       pendingTool,
       pendingTask,
@@ -938,17 +990,29 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     const toolResultText = extractTextFromMcpResult(toolResult);
     const resumeTask = `Hành động "${pendingTool.name}" cho yêu cầu "${pendingTask}" đã được user DUYỆT và THỰC THI THẬT. Kết quả: ${toolResultText}\n\nDựa vào kết quả này, hoàn thành nốt câu hỏi gốc của user.`;
 
-    const { answer, toolCalls } = await this.reactLoop.run({
-      prompt: resumeTask,
-      provider: pendingTool.provider,
-      userId,
-      channelId,
-      workspaceId,
-      messageId: replyMessageId,
-      channelType,
-      history,
-    });
-    return { text: answer, toolCalls };
+    try {
+      const { answer, toolCalls } = await this.reactLoop.run({
+        prompt: resumeTask,
+        provider: pendingTool.provider,
+        userId,
+        channelId,
+        workspaceId,
+        messageId: replyMessageId,
+        channelType,
+        history,
+      });
+      return { text: answer, toolCalls };
+    } catch (error) {
+      if (error instanceof ApprovalRequiredError) {
+        return {
+          approvalRequired: error.pendingTool,
+          task: pendingTask,
+          toolCalls: error.toolCalls,
+          firstActionResult: toolResultText,
+        };
+      }
+      throw error;
+    }
   }
 
   // Checkpoint đã claim() xong (không rollback) — nếu NGAY CẢ update báo lỗi
