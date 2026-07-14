@@ -3,6 +3,7 @@ import { OrchestrationController } from './orchestration.controller';
 import { McpAuthClientService } from './mcp-auth/mcp-auth-client.service';
 import { McpClientService } from './mcp/mcp-client.service';
 import { AiOrchestrationProcessor } from './processor/ai-orchestration.processor';
+import { ApprovalFlowService } from './processor/approval-flow.service';
 import { DynamicProviderDbService } from './registry/dynamic-provider-db.service';
 import { ProviderSummaryService } from './registry/provider-summary.service';
 import { EDynamicProviderAuthType } from './entity/dynamic-provider.entity';
@@ -31,6 +32,7 @@ describe('OrchestrationController', () => {
         { provide: McpAuthClientService, useValue: {} },
         { provide: McpClientService, useValue: {} },
         { provide: AiOrchestrationProcessor, useValue: {} },
+        { provide: ApprovalFlowService, useValue: {} },
         { provide: DynamicProviderDbService, useValue: dynamicProviderDb },
         { provide: ProviderSummaryService, useValue: providerSummary },
       ],

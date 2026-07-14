@@ -4,6 +4,7 @@ import { ORCHESTRATION_MESSAGE_PATTERNS } from '@slack/constants';
 import { McpAuthClientService } from './mcp-auth/mcp-auth-client.service';
 import { McpClientService } from './mcp/mcp-client.service';
 import { AiOrchestrationProcessor } from './processor/ai-orchestration.processor';
+import { ApprovalFlowService } from './processor/approval-flow.service';
 import {
   CancelTurnRequestDto,
   CancelTurnResponseDto,
@@ -35,6 +36,7 @@ export class OrchestrationController {
     private readonly mcpAuthClient: McpAuthClientService,
     private readonly mcpClient: McpClientService,
     private readonly aiOrchestrationProcessor: AiOrchestrationProcessor,
+    private readonly approvalFlow: ApprovalFlowService,
     private readonly dynamicProviderDb: DynamicProviderDbService,
     private readonly providerSummary: ProviderSummaryService,
   ) {}
@@ -83,7 +85,7 @@ export class OrchestrationController {
   async resolveApproval(
     @Payload() dto: ResolveApprovalRequestDto,
   ): Promise<ResolveApprovalResponseDto> {
-    await this.aiOrchestrationProcessor.resolveApproval(dto);
+    await this.approvalFlow.resolveApproval(dto);
     return { success: true };
   }
 
