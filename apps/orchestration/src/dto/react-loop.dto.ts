@@ -18,6 +18,13 @@ export class RunReactLoopRequestDto {
   // ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL nếu không truyền. Field đã
   // sẵn để cắm UI chọn model sau này mà không cần sửa ReactLoopService.
   model?: string;
+  // Khoá riêng cho luồng text/resync của LẦN CHẠY NÀY — bắt buộc phải khác
+  // nhau giữa các ReactLoopService.run() chạy SONG SONG cùng messageId (Giai
+  // đoạn Supervisor fan-out nhiều agent 1 lúc), nếu không FE sẽ gộp chung 1
+  // chuỗi và 1 agent resync() có thể xoá mất phần agent kia đang stream.
+  // Không truyền = dùng DEFAULT_STREAM_KEY (an toàn cho các chỗ gọi ĐƠN,
+  // không có rủi ro chạy song song cùng messageId).
+  streamKey?: string;
 }
 
 export class ToolCallTraceDto {

@@ -88,6 +88,7 @@ export class ReactLoopService {
             channelId: dto.channelId,
             messageId: dto.messageId,
             channelType: dto.channelType,
+            streamKey: dto.streamKey,
           },
           step,
         )

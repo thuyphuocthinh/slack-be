@@ -331,7 +331,15 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       // kết quả của delegation anh em đã chạy song song thành công.
       const results = await Promise.all(
         delegations.map((d) =>
-          this.delegateRound(d, agents, data, prompt, replyMessageId, history),
+          this.delegateRound(
+            d,
+            agents,
+            data,
+            prompt,
+            replyMessageId,
+            history,
+            round,
+          ),
         ),
       );
 
@@ -461,6 +469,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     originalPrompt: string,
     replyMessageId: string,
     history: ChatHistoryTurnDto[],
+    round: number,
   ): Promise<DelegateRoundResult | ApprovalRequiredDelegateResult | null> {
     const { userId, channelId, workspaceId, channelType } = data;
     const targetAgent = agents.find((a) => a.provider === delegation.agent);
@@ -483,6 +492,12 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         messageId: replyMessageId,
         channelType,
         history,
+        // Nhiều delegation có thể chạy SONG SONG trong CÙNG round (fan-out) —
+        // khoá riêng theo (round, provider) để FE không gộp chung 1 chuỗi
+        // (agent này resync() sẽ xoá mất phần agent kia đang stream nếu dùng
+        // chung khoá). dedupeByAgent() đã đảm bảo không 2 delegation nào cùng
+        // round trùng provider, nên khoá này luôn duy nhất trong cả turn.
+        streamKey: `r${round}-${targetAgent.provider}`,
       });
       return {
         round: { agent: targetAgent.provider, task, result: answer },
