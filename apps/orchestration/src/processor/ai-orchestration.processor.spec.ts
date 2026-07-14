@@ -1499,6 +1499,62 @@ describe('AiOrchestrationProcessor', () => {
         { type: 'done' },
       );
     });
+
+    it('pauses for a SECOND approval (new checkpoint) instead of crashing when the resumed turn hits another destructive tool', async () => {
+      mockMessageClient.updateMessage.mockResolvedValue(undefined);
+      mockCheckpoint.findById.mockResolvedValue(checkpoint);
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'Đơn OrderId=1 đã Completed.' }],
+      });
+      (extractTextFromMcpResult as jest.Mock).mockReturnValue(
+        'Đơn OrderId=1 đã Completed.',
+      );
+
+      const secondPendingTool = {
+        provider: 'sql_server',
+        name: 'execute_write_query',
+        args: { query: "UPDATE Orders SET Status='Shipped' WHERE OrderId=2" },
+      };
+      mockReactLoop.run.mockRejectedValue(
+        new ApprovalRequiredError(secondPendingTool, [
+          { tool: 'sql_server.execute_write_query', status: 'success' },
+        ]),
+      );
+      mockMessageClient.createMessage.mockResolvedValueOnce({
+        id: 'approval-msg-2',
+      });
+
+      await runApprovalJob();
+
+      // Checkpoint MỚI, roundsSoFar gồm round cũ + kết quả hành động vừa duyệt/chạy
+      expect(mockCheckpoint.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          replyMessageId: 'approval-msg-2',
+          pendingTool: secondPendingTool,
+          roundsSoFar: [
+            ...checkpoint.roundsSoFar,
+            {
+              agent: checkpoint.pendingTool.provider,
+              task: checkpoint.pendingTask,
+              result: 'Đơn OrderId=1 đã Completed.',
+            },
+          ],
+        }),
+      );
+      // Message cũ ("Đang tổng hợp...") được thay bằng lời nhắc chờ duyệt tiếp
+      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: checkpoint.replyMessageId,
+          content: expect.stringContaining('Cần bạn duyệt'),
+        }),
+      );
+      // KHÔNG rơi vào nhánh lỗi chung — không hiện message lỗi nội bộ ra UI
+      expect(mockMessageClient.updateMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.stringContaining('Approval required for tool'),
+        }),
+      );
+    });
   });
 
   describe('cancelTurn (Stop request)', () => {
