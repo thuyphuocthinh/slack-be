@@ -21,17 +21,6 @@ export interface ApprovalRequiredDelegateResult {
   toolCalls: ToolCallTraceDto[];
 }
 
-// executeApprovedTool() trả dạng này thay vì throw khi vòng resume (sau khi
-// duyệt hành động ĐẦU) lại gặp thêm 1 tool rủi ro KHÁC — approveCheckpoint()
-// cần cả kết quả hành động đầu (`firstActionResult`) để ghép vào lịch sử round
-// trước khi tạo checkpoint mới nối tiếp (xem pauseForApproval()).
-export interface ApprovalRequiredResumeResult {
-  approvalRequired: PendingToolCall;
-  task: string;
-  toolCalls: ToolCallTraceDto[];
-  firstActionResult: string;
-}
-
 export function buildAnswer(
   content: string,
   toolCalls: ToolCallTraceDto[],

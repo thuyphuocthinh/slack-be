@@ -25,6 +25,7 @@ import { McpToolDto } from '../dto/mcp.dto';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
 import { runCancellable } from '../common/cancellable-run.util';
 import { TurnCancelledError } from './turn-cancelled.error';
+import { capToolResultSize } from '../executor/tool-result-size-cap.util';
 
 // Root trace + "done" thuộc về AiOrchestrationProcessor, không phải ở đây.
 @Injectable()
@@ -214,7 +215,10 @@ export class ReactLoopService {
       resultPreview,
     });
     toolCalls.push({ tool: displayName, status, resultPreview });
-    return text;
+    // resultPreview (trace UI) giữ NGUYÊN VĂN đầy đủ — chỉ cap phần feed
+    // NGƯỢC LẠI cho LLM, tránh 1 kết quả tool quá lớn (VD JSON lồng nhau từ
+    // dynamic provider) làm sendMessage() kế tiếp timeout vì context quá to.
+    return capToolResultSize(text);
   }
 
   private async executeReactLoop(

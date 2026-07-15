@@ -49,7 +49,7 @@ export class TurnResolverService {
     data: IProcessAiTriggerJobData,
     replyMessageId: string,
   ): Promise<AnswerResult> {
-    const { userId, channelId, messageId, channelType } = data;
+    const { userId, channelId, messageId } = data;
     const [prompt, agents, history] = await Promise.all([
       this.messageClient.getMessageText({ id: messageId, userId }),
       this.supervisor.getAvailableAgents(userId),
@@ -61,8 +61,38 @@ export class TurnResolverService {
       }),
     ]);
 
-    const rounds: SupervisorRoundDto[] = [];
-    const toolCalls: ToolCallTraceDto[] = [];
+    return this.continueRounds(
+      data,
+      replyMessageId,
+      prompt,
+      agents,
+      history,
+      [],
+      [],
+    );
+  }
+
+  // Tách riêng khỏi resolveAnswer() để ApprovalFlowService dùng lại được: sau
+  // khi 1 hành động rủi ro được duyệt + thực thi thật, phần việc CÒN LẠI của
+  // câu hỏi gốc phải quay lại ĐÚNG vòng lặp Supervisor này (rounds đã có sẵn
+  // kết quả hành động vừa duyệt) — thay vì resume cứng trên CÙNG 1 provider
+  // vừa dùng. Bug cũ: agent A không nhìn thấy tool của agent B (mcpClient.getTools
+  // chỉ trả tool của ĐÚNG 1 provider), nên nếu phần còn lại cần agent khác thì
+  // bị ép hallucinate 1 tool sai trên agent A. Nhờ quay lại đây, Supervisor tự
+  // quyết định agent phù hợp cho phần còn lại — và chuỗi duyệt-nhiều-lần cũng
+  // tự động hoạt động (delegateRound() gặp ApprovalRequiredError ở BẤT KỲ vòng
+  // nào, kể cả vòng vừa resume, đều pause bình thường qua
+  // CheckpointPauseService — không cần logic đặc biệt nào khác ở tầng gọi).
+  async continueRounds(
+    data: IProcessAiTriggerJobData,
+    replyMessageId: string,
+    prompt: string,
+    agents: AvailableAgentDto[],
+    history: ChatHistoryTurnDto[],
+    rounds: SupervisorRoundDto[],
+    toolCalls: ToolCallTraceDto[],
+  ): Promise<AnswerResult> {
+    const { userId, channelId, channelType } = data;
 
     for (
       let round = 0;

@@ -2,16 +2,14 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { EJobName, EQueueName, IProcessApprovalJobData, QueueService } from '@slack/queue';
 import { ApprovalFlowService } from './approval-flow.service';
 import { MessageClientService } from '../message-client.service';
-import { ReactLoopService } from '../llm/react-loop.service';
 import { SupervisorService } from '../llm/supervisor.service';
 import { AgentStreamService } from '../socket/agent-stream.service';
 import { CheckpointService } from '../checkpoint/checkpoint.service';
-import { ApprovalRequiredError } from '../llm/approval-required.error';
 import { McpClientService } from '../mcp/mcp-client.service';
 import { OrchestrationCheckpointStatus } from '../entity/orchestration-checkpoint.entity';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
 import { TurnCancelledError } from '../llm/turn-cancelled.error';
-import { CheckpointPauseService } from './checkpoint-pause.service';
+import { TurnResolverService } from './turn-resolver.service';
 
 // approval-flow.service.ts import @slack/common ở module scope (extractTextFromMcpResult)
 // — mock thẳng barrel để tránh kéo theo "nanoid" (ESM-only) mà jest không transform được.
@@ -22,8 +20,7 @@ describe('ApprovalFlowService', () => {
   let service: ApprovalFlowService;
 
   const mockMessageClient = { updateMessage: jest.fn() };
-  const mockReactLoop = { run: jest.fn() };
-  const mockSupervisor = { synthesize: jest.fn() };
+  const mockSupervisor = { getAvailableAgents: jest.fn() };
   const mockAgentStream = { emitStep: jest.fn() };
   const mockCheckpoint = {
     findPendingByReplyMessageId: jest.fn(),
@@ -33,11 +30,8 @@ describe('ApprovalFlowService', () => {
   };
   const mockMcpClient = { callTool: jest.fn() };
   const mockQueueService = { addJob: jest.fn() };
-  const mockCancellation = {
-    startTurn: jest.fn(),
-    isCancelled: jest.fn().mockResolvedValue(false),
-  };
-  const mockCheckpointPause = { pauseForApproval: jest.fn() };
+  const mockCancellation = { startTurn: jest.fn() };
+  const mockTurnResolver = { continueRounds: jest.fn() };
 
   beforeEach(async () => {
     mockMessageClient.updateMessage.mockResolvedValue(undefined);
@@ -45,20 +39,23 @@ describe('ApprovalFlowService', () => {
     mockCheckpoint.claim.mockResolvedValue({ claimed: true });
     mockCheckpoint.claimExecution.mockResolvedValue({ claimed: true });
     mockQueueService.addJob.mockResolvedValue({ id: 'job-1' });
-    mockCancellation.isCancelled.mockResolvedValue(false);
+    mockSupervisor.getAvailableAgents.mockResolvedValue([]);
+    mockTurnResolver.continueRounds.mockResolvedValue({
+      content: 'ok',
+      toolCalls: undefined,
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ApprovalFlowService,
         { provide: MessageClientService, useValue: mockMessageClient },
-        { provide: ReactLoopService, useValue: mockReactLoop },
         { provide: SupervisorService, useValue: mockSupervisor },
         { provide: AgentStreamService, useValue: mockAgentStream },
         { provide: CheckpointService, useValue: mockCheckpoint },
         { provide: McpClientService, useValue: mockMcpClient },
         { provide: QueueService, useValue: mockQueueService },
         { provide: AgentCancellationService, useValue: mockCancellation },
-        { provide: CheckpointPauseService, useValue: mockCheckpointPause },
+        { provide: TurnResolverService, useValue: mockTurnResolver },
       ],
     }).compile();
 
@@ -93,7 +90,7 @@ describe('ApprovalFlowService', () => {
       history: [],
     };
 
-    it('reject: marks the checkpoint rejected, edits the message, does NOT run the tool or ReactLoop', async () => {
+    it('reject: marks the checkpoint rejected, edits the message, does NOT run the tool', async () => {
       mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(checkpoint);
 
       await service.resolveApproval({
@@ -112,7 +109,6 @@ describe('ApprovalFlowService', () => {
         content: '❌ Đã huỷ theo yêu cầu.',
       });
       expect(mockMcpClient.callTool).not.toHaveBeenCalled();
-      expect(mockReactLoop.run).not.toHaveBeenCalled();
       expect(mockAgentStream.emitStep).toHaveBeenCalledWith(
         {
           userId: 'user-1',
@@ -145,7 +141,6 @@ describe('ApprovalFlowService', () => {
         { attempts: 1 },
       );
       expect(mockMcpClient.callTool).not.toHaveBeenCalled();
-      expect(mockReactLoop.run).not.toHaveBeenCalled();
       expect(mockMessageClient.updateMessage).not.toHaveBeenCalled();
     });
 
@@ -189,7 +184,6 @@ describe('ApprovalFlowService', () => {
       ).rejects.toThrow();
       expect(mockQueueService.addJob).not.toHaveBeenCalled();
       expect(mockMcpClient.callTool).not.toHaveBeenCalled();
-      expect(mockReactLoop.run).not.toHaveBeenCalled();
       expect(mockMessageClient.updateMessage).not.toHaveBeenCalled();
     });
   });
@@ -227,7 +221,7 @@ describe('ApprovalFlowService', () => {
       },
     ) => service.processApprovalJob(data);
 
-    it('runs the real tool, resumes ReactLoop with the result folded in, synthesizes with prior rounds, and updates the message', async () => {
+    it('runs the real tool, then re-enters the Supervisor loop with the result folded into rounds — NOT resumed on the same agent', async () => {
       mockCheckpoint.findById.mockResolvedValue(checkpoint);
       mockMcpClient.callTool.mockResolvedValue({
         content: [{ type: 'text', text: 'raw mcp result' }],
@@ -235,15 +229,16 @@ describe('ApprovalFlowService', () => {
       (extractTextFromMcpResult as jest.Mock).mockReturnValue(
         '1 dòng đã được cập nhật.',
       );
-      mockReactLoop.run.mockResolvedValue({
-        answer: 'Đơn OrderId=1 đã Completed.',
+      const agents = [
+        { provider: 'sql_server', label: 'SQL Server', description: 'desc' },
+      ];
+      mockSupervisor.getAvailableAgents.mockResolvedValue(agents);
+      mockTurnResolver.continueRounds.mockResolvedValue({
+        content: 'Đã cập nhật đơn OrderId=1 thành Completed.',
         toolCalls: [
           { tool: 'sql_server.execute_write_query', status: 'success' },
         ],
       });
-      mockSupervisor.synthesize.mockResolvedValue(
-        'Đã cập nhật đơn OrderId=1 thành Completed.',
-      );
 
       await runApprovalJob();
 
@@ -256,24 +251,36 @@ describe('ApprovalFlowService', () => {
         args: { query: "UPDATE Orders SET Status='Completed' WHERE OrderId=1" },
         ownerId: 'user-1',
       });
-
-      const resumeCallArg = mockReactLoop.run.mock.calls[0][0];
-      expect(resumeCallArg.provider).toBe('sql_server');
-      expect(resumeCallArg.prompt).toContain('1 dòng đã được cập nhật.');
-      expect(resumeCallArg.history).toEqual([]);
-
-      expect(mockSupervisor.synthesize).toHaveBeenCalledWith(
+      // Chuyển UI sang "Đang tổng hợp..." TRƯỚC khi gọi lại Supervisor.
+      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+        id: 'approval-msg-1',
+        userId: 'bot-1',
+        content: '🤖 Đang tổng hợp kết quả...',
+      });
+      // Quay lại vòng lặp Supervisor với rounds đã gồm kết quả hành động vừa
+      // duyệt — KHÔNG resume thẳng ReactLoop trên agent vừa dùng (bug cũ).
+      expect(mockTurnResolver.continueRounds).toHaveBeenCalledWith(
+        {
+          userId: 'user-1',
+          channelId: 'channel-1',
+          workspaceId: 'workspace-1',
+          messageId: 'approval-msg-1',
+          botUserId: 'bot-1',
+          channelType: 'direct',
+        },
+        'approval-msg-1',
         checkpoint.originalPrompt,
+        agents,
+        checkpoint.history,
         [
           ...checkpoint.roundsSoFar,
           {
             agent: 'sql_server',
             task: 'cập nhật status đơn OrderId=1',
-            result: 'Đơn OrderId=1 đã Completed.',
+            result: '1 dòng đã được cập nhật.',
           },
         ],
-        expect.any(Function),
-        expect.anything(),
+        [],
       );
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
         id: 'approval-msg-1',
@@ -288,7 +295,23 @@ describe('ApprovalFlowService', () => {
       });
     });
 
-    it('sends toolCalls=undefined (not an empty array) when the resumed ReactLoop needed no further tool calls', async () => {
+    it('caps an oversized tool result before folding it into the rounds passed to the Supervisor loop', async () => {
+      mockCheckpoint.findById.mockResolvedValue(checkpoint);
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'raw mcp result' }],
+      });
+      const hugeResult = 'x'.repeat(7000);
+      (extractTextFromMcpResult as jest.Mock).mockReturnValue(hugeResult);
+
+      await runApprovalJob();
+
+      const roundsArg = mockTurnResolver.continueRounds.mock.calls[0][5];
+      const foldedResult = roundsArg[roundsArg.length - 1].result;
+      expect(foldedResult.length).toBeLessThan(hugeResult.length);
+      expect(foldedResult).toContain('ĐÃ CẮT BỚT');
+    });
+
+    it('forwards whatever the Supervisor loop returns as-is (VD toolCalls: undefined) to the final message update', async () => {
       mockCheckpoint.findById.mockResolvedValue(checkpoint);
       mockMcpClient.callTool.mockResolvedValue({
         content: [{ type: 'text', text: 'raw mcp result' }],
@@ -296,13 +319,10 @@ describe('ApprovalFlowService', () => {
       (extractTextFromMcpResult as jest.Mock).mockReturnValue(
         '1 dòng đã được cập nhật.',
       );
-      mockReactLoop.run.mockResolvedValue({
-        answer: 'Đơn OrderId=1 đã Completed.',
-        toolCalls: [],
+      mockTurnResolver.continueRounds.mockResolvedValue({
+        content: 'Đã cập nhật đơn OrderId=1 thành Completed.',
+        toolCalls: undefined,
       });
-      mockSupervisor.synthesize.mockResolvedValue(
-        'Đã cập nhật đơn OrderId=1 thành Completed.',
-      );
 
       await runApprovalJob();
 
@@ -314,12 +334,13 @@ describe('ApprovalFlowService', () => {
       });
     });
 
-    it('falls back to the raw error message if running the real tool (or resume) fails, but still emits done', async () => {
+    it('falls back to the raw error message if running the real tool fails, but still emits done', async () => {
       mockCheckpoint.findById.mockResolvedValue(checkpoint);
       mockMcpClient.callTool.mockRejectedValue(new Error('connect ECONNREFUSED'));
 
       await runApprovalJob();
 
+      expect(mockTurnResolver.continueRounds).not.toHaveBeenCalled();
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
         id: 'approval-msg-1',
         userId: 'bot-1',
@@ -333,7 +354,7 @@ describe('ApprovalFlowService', () => {
     it('does not throw (and still emits done) when even the error-fallback updateMessage() call itself fails', async () => {
       mockCheckpoint.findById.mockResolvedValue(checkpoint);
       mockMcpClient.callTool.mockRejectedValue(new Error('connect ECONNREFUSED'));
-      mockMessageClient.updateMessage.mockRejectedValue(
+      mockMessageClient.updateMessage.mockRejectedValueOnce(
         new Error('message service unreachable'),
       );
 
@@ -358,8 +379,6 @@ describe('ApprovalFlowService', () => {
       mockMcpClient.callTool.mockResolvedValue({
         content: [{ type: 'text', text: 'raw mcp result' }],
       });
-      mockReactLoop.run.mockResolvedValue({ answer: 'ok', toolCalls: [] });
-      mockSupervisor.synthesize.mockResolvedValue('ok');
 
       await runApprovalJob();
 
@@ -375,7 +394,7 @@ describe('ApprovalFlowService', () => {
       await runApprovalJob();
 
       expect(mockMcpClient.callTool).not.toHaveBeenCalled();
-      expect(mockReactLoop.run).not.toHaveBeenCalled();
+      expect(mockTurnResolver.continueRounds).not.toHaveBeenCalled();
       expect(mockMessageClient.updateMessage).not.toHaveBeenCalled();
     });
 
@@ -384,8 +403,6 @@ describe('ApprovalFlowService', () => {
       mockMcpClient.callTool.mockResolvedValue({
         content: [{ type: 'text', text: 'raw mcp result' }],
       });
-      mockReactLoop.run.mockResolvedValue({ answer: 'ok', toolCalls: [] });
-      mockSupervisor.synthesize.mockResolvedValue('ok');
 
       await runApprovalJob();
 
@@ -395,9 +412,12 @@ describe('ApprovalFlowService', () => {
       );
     });
 
-    it('shows "Đã dừng theo yêu cầu" instead of a generic error when the resumed turn is cancelled mid-flight', async () => {
+    it('shows "Đã dừng theo yêu cầu" instead of a generic error when the Supervisor loop is cancelled mid-flight', async () => {
       mockCheckpoint.findById.mockResolvedValue(checkpoint);
-      mockReactLoop.run.mockRejectedValue(new TurnCancelledError());
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'raw mcp result' }],
+      });
+      mockTurnResolver.continueRounds.mockRejectedValue(new TurnCancelledError());
 
       await runApprovalJob();
 
@@ -412,7 +432,7 @@ describe('ApprovalFlowService', () => {
       );
     });
 
-    it('pauses for a SECOND approval (new checkpoint) instead of crashing when the resumed turn hits another destructive tool', async () => {
+    it('forwards a repeated approval-pause answer from the Supervisor loop the same as any other answer — no special-casing needed anymore', async () => {
       mockCheckpoint.findById.mockResolvedValue(checkpoint);
       mockMcpClient.callTool.mockResolvedValue({
         content: [{ type: 'text', text: 'Đơn OrderId=1 đã Completed.' }],
@@ -420,65 +440,24 @@ describe('ApprovalFlowService', () => {
       (extractTextFromMcpResult as jest.Mock).mockReturnValue(
         'Đơn OrderId=1 đã Completed.',
       );
-
-      const secondPendingTool = {
-        provider: 'sql_server',
-        name: 'execute_write_query',
-        args: { query: "UPDATE Orders SET Status='Shipped' WHERE OrderId=2" },
-      };
-      mockReactLoop.run.mockRejectedValue(
-        new ApprovalRequiredError(secondPendingTool, [
-          { tool: 'sql_server.execute_write_query', status: 'success' },
-        ]),
-      );
-      mockCheckpointPause.pauseForApproval.mockResolvedValue({
-        content: '⏸️ Cần bạn duyệt 1 hành động trước khi tiếp tục — xem tin nhắn bên dưới.',
+      // TurnResolverService tự pause lần 2 (qua CheckpointPauseService) NẾU vòng
+      // tiếp theo lại gặp 1 tool rủi ro khác — ApprovalFlowService không cần
+      // biết chuyện đó xảy ra, chỉ forward đúng AnswerResult nhận được.
+      mockTurnResolver.continueRounds.mockResolvedValue({
+        content:
+          '⏸️ Cần bạn duyệt 1 hành động trước khi tiếp tục — xem tin nhắn bên dưới.',
         toolCalls: undefined,
       });
 
       await runApprovalJob();
 
-      // Checkpoint MỚI được uỷ quyền cho CheckpointPauseService, với roundsSoFar
-      // gồm round cũ + kết quả hành động vừa duyệt/chạy
-      expect(mockCheckpointPause.pauseForApproval).toHaveBeenCalledWith(
-        {
-          userId: 'user-1',
-          channelId: checkpoint.channelId,
-          workspaceId: checkpoint.workspaceId,
-          messageId: checkpoint.replyMessageId,
-          botUserId: checkpoint.botUserId,
-          channelType: checkpoint.channelType,
-        },
-        checkpoint.originalPrompt,
-        [
-          ...checkpoint.roundsSoFar,
-          {
-            agent: checkpoint.pendingTool.provider,
-            task: checkpoint.pendingTask,
-            result: 'Đơn OrderId=1 đã Completed.',
-          },
-        ],
-        [{ tool: 'sql_server.execute_write_query', status: 'success' }],
-        checkpoint.history,
-        {
-          approvalRequired: secondPendingTool,
-          task: checkpoint.pendingTask,
-          toolCalls: [{ tool: 'sql_server.execute_write_query', status: 'success' }],
-        },
-      );
-      // Message cũ ("Đang tổng hợp...") được thay bằng lời nhắc chờ duyệt tiếp
-      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: checkpoint.replyMessageId,
-          content: expect.stringContaining('Cần bạn duyệt'),
-        }),
-      );
-      // KHÔNG rơi vào nhánh lỗi chung — không hiện message lỗi nội bộ ra UI
-      expect(mockMessageClient.updateMessage).not.toHaveBeenCalledWith(
-        expect.objectContaining({
-          content: expect.stringContaining('Approval required for tool'),
-        }),
-      );
+      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+        id: checkpoint.replyMessageId,
+        userId: checkpoint.botUserId,
+        content:
+          '⏸️ Cần bạn duyệt 1 hành động trước khi tiếp tục — xem tin nhắn bên dưới.',
+        toolCalls: undefined,
+      });
     });
   });
 });

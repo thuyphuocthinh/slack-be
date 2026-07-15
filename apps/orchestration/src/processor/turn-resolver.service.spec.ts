@@ -644,4 +644,94 @@ describe('TurnResolverService', () => {
     expect(mockReactLoop.run).toHaveBeenCalledTimes(1);
     expect(mockSupervisor.decide).toHaveBeenCalledTimes(1);
   });
+
+  describe('continueRounds (resume sau khi duyệt 1 hành động — dùng lại bởi ApprovalFlowService)', () => {
+    it('feeds the pre-existing round in as context to decide(), instead of starting from an empty history', async () => {
+      const existingRounds = [
+        {
+          agent: 'dynamic_tmdb',
+          task: 'lấy danh sách diễn viên',
+          result: '[{"name":"A"},{"name":"B"}]',
+        },
+      ];
+      mockSupervisor.decide.mockResolvedValue({
+        action: 'delegate',
+        delegations: [{ agent: 'sql_server', task: 'chèn diễn viên vào bảng users' }],
+      });
+      mockReactLoop.run.mockResolvedValue({
+        answer: 'Đã chèn 2 diễn viên vào bảng users.',
+        toolCalls: [{ tool: 'sql_server.execute_write_query', status: 'success' }],
+      });
+
+      await service.continueRounds(
+        data,
+        replyMessageId,
+        'lấy diễn viên rồi chèn vào bảng users',
+        availableAgents,
+        [],
+        existingRounds,
+        [],
+      );
+
+      expect(mockSupervisor.decide).toHaveBeenCalledWith(
+        'lấy diễn viên rồi chèn vào bảng users',
+        availableAgents,
+        existingRounds,
+        [],
+      );
+      // Vòng MỚI (sau resume) delegate sang ĐÚNG provider cần thiết cho phần
+      // còn lại (sql_server) — KHÔNG bị ép ở lại provider vừa dùng trước đó.
+      expect(mockReactLoop.run).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: 'sql_server' }),
+      );
+    });
+
+    it('pauses for approval again (via CheckpointPauseService) if the continued round also hits the Risk Gate — no special-casing needed by the caller', async () => {
+      const existingRounds = [
+        {
+          agent: 'dynamic_tmdb',
+          task: 'lấy danh sách diễn viên',
+          result: '[{"name":"A"}]',
+        },
+      ];
+      mockSupervisor.decide.mockResolvedValue({
+        action: 'delegate',
+        delegations: [{ agent: 'sql_server', task: 'chèn diễn viên vào bảng users' }],
+      });
+      const pendingTool = {
+        provider: 'sql_server',
+        name: 'execute_write_query',
+        args: { query: "INSERT INTO users ..." },
+      };
+      mockReactLoop.run.mockRejectedValue(new ApprovalRequiredError(pendingTool));
+      mockCheckpointPause.pauseForApproval.mockResolvedValue({
+        content: '⏸️ Cần bạn duyệt 1 hành động trước khi tiếp tục — xem tin nhắn bên dưới.',
+        toolCalls: undefined,
+      });
+
+      const result = await service.continueRounds(
+        data,
+        replyMessageId,
+        'lấy diễn viên rồi chèn vào bảng users',
+        availableAgents,
+        [],
+        existingRounds,
+        [],
+      );
+
+      expect(mockCheckpointPause.pauseForApproval).toHaveBeenCalledWith(
+        data,
+        'lấy diễn viên rồi chèn vào bảng users',
+        existingRounds,
+        [],
+        [],
+        {
+          approvalRequired: pendingTool,
+          task: 'chèn diễn viên vào bảng users',
+          toolCalls: [],
+        },
+      );
+      expect(result.content).toContain('Cần bạn duyệt');
+    });
+  });
 });
