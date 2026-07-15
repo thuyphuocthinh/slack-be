@@ -686,6 +686,61 @@ describe('TurnResolverService', () => {
       );
     });
 
+    it('does NOT grant a fresh MAX_SUPERVISOR_ROUNDS budget on resume — synthesizes and stops immediately once the accumulated rounds already used up the shared budget (regression test for the "pause→resume forever" loop)', async () => {
+      const maxedOutRounds = Array.from(
+        { length: ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS },
+        (_, i) => ({ agent: 'sql_server', task: `bước ${i}`, result: `kết quả ${i}` }),
+      );
+      mockSupervisor.synthesize.mockResolvedValue(
+        'Tổng hợp lại vì đã hết ngân sách vòng.',
+      );
+
+      const result = await service.continueRounds(
+        data,
+        replyMessageId,
+        'lấy diễn viên rồi chèn vào bảng users',
+        availableAgents,
+        [],
+        maxedOutRounds,
+        [],
+      );
+
+      // KHÔNG decide()/delegate thêm — rounds đã chạm MAX_SUPERVISOR_ROUNDS
+      // ngay từ đầu, đi thẳng vào nhánh fallback tổng hợp.
+      expect(mockSupervisor.decide).not.toHaveBeenCalled();
+      expect(mockSupervisor.synthesize).toHaveBeenCalledTimes(1);
+      expect(result.content).toBe('Tổng hợp lại vì đã hết ngân sách vòng.');
+    });
+
+    it('shares ONE MAX_SUPERVISOR_ROUNDS budget across chained approval-resumes instead of resetting it every time', async () => {
+      // Mô phỏng: turn đã tiêu (MAX_SUPERVISOR_ROUNDS - 1) vòng qua các lần
+      // resume TRƯỚC — chỉ còn ĐÚNG 1 vòng ngân sách cho lần continueRounds() này.
+      const almostMaxedRounds = Array.from(
+        { length: ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS - 1 },
+        (_, i) => ({ agent: 'sql_server', task: `bước ${i}`, result: `kết quả ${i}` }),
+      );
+      mockSupervisor.decide.mockResolvedValue({
+        action: 'delegate',
+        delegations: [{ agent: 'sql_server', task: 'thêm 1 bước nữa' }],
+      });
+      mockReactLoop.run.mockResolvedValue({ answer: 'vẫn chưa xong', toolCalls: [] });
+      mockSupervisor.synthesize.mockResolvedValue('Đành tổng hợp, chưa hội tụ.');
+
+      await service.continueRounds(
+        data,
+        replyMessageId,
+        'lấy diễn viên rồi chèn vào bảng users',
+        availableAgents,
+        [],
+        almostMaxedRounds,
+        [],
+      );
+
+      // Chỉ còn ĐÚNG 1 vòng ngân sách -> decide() gọi đúng 1 lần rồi hết ngân
+      // sách chung, KHÔNG được cấp lại nguyên 5 vòng mới.
+      expect(mockSupervisor.decide).toHaveBeenCalledTimes(1);
+    });
+
     it('pauses for approval again (via CheckpointPauseService) if the continued round also hits the Risk Gate — no special-casing needed by the caller', async () => {
       const existingRounds = [
         {

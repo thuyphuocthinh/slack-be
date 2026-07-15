@@ -94,8 +94,18 @@ export class TurnResolverService {
   ): Promise<AnswerResult> {
     const { userId, channelId, channelType } = data;
 
+    // QUAN TRỌNG: KHÔNG bắt đầu lại từ round=0 — `rounds` có thể đã có sẵn kết
+    // quả từ (các) lần resume TRƯỚC (approveCheckpoint gọi lại continueRounds()
+    // sau mỗi lần duyệt). Nếu reset về 0 mỗi lần, mỗi lượt duyệt lại được cấp
+    // NGUYÊN 1 ngân sách MAX_SUPERVISOR_ROUNDS mới — Supervisor cứ delegate sai/
+    // lặp lại là pause-resume vô hạn (không có trần tổng nào cho cả turn), phải
+    // tự bấm Stop mới dừng được. `rounds.length` dùng làm điểm bắt đầu để CẢ
+    // turn (kể cả qua nhiều lần duyệt) chỉ tiêu tốn tối đa MAX_SUPERVISOR_ROUNDS
+    // vòng — không tuyệt đối chính xác nếu 1 round có fan-out >1 delegation
+    // (rounds.length tăng nhanh hơn số vòng lặp thật), nhưng luôn là 1 giới hạn
+    // AN TOÀN (chặt hơn, không bao giờ lỏng hơn dự định).
     for (
-      let round = 0;
+      let round = rounds.length;
       round < ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS;
       round++
     ) {
