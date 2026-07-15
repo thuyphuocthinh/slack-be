@@ -57,9 +57,22 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         break;
       }
       case EJobName.PROCESS_APPROVAL: {
-        await this.approvalFlow.processApprovalJob(
-          job.data as IProcessApprovalJobData,
+        const data = job.data as IProcessApprovalJobData;
+        // Cùng lý do handleAiTrigger() — thiếu cái này thì processApprovalJob()
+        // (và mọi sendMessage/generateStructured/callTool bên trong nó, xuyên
+        // qua continueRounds()) chạy KHÔNG có root trace nào bao quanh, mỗi lời
+        // gọi tự thành 1 trace gốc rời rạc thay vì nest chung 1 cây — bug thật
+        // gặp khi 1 turn phải duyệt (approve) nhiều lần: mỗi lần duyệt tạo ra
+        // hàng loạt trace lẻ (openai.sendMessage, mcp.callTool...) không liên
+        // kết, thay vì đúng "1 lần duyệt = 1 trace".
+        const traced = traceable(
+          (d: IProcessApprovalJobData) => this.approvalFlow.processApprovalJob(d),
+          {
+            name: 'ai-orchestration-approval',
+            metadata: { checkpointId: data.checkpointId, userId: data.userId },
+          },
         );
+        await traced(data);
         break;
       }
       default:
