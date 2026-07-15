@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { McpClientService } from './mcp-client.service';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { DynamicToolRegistryService } from '../registry/dynamic-tool-registry.service';
@@ -104,6 +105,55 @@ describe('McpClientService', () => {
       await service.getTools('sql_server');
 
       expect(mockListTools).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns an empty list WITHOUT reconnecting when the server genuinely does not implement listTools (JSON-RPC MethodNotFound)', async () => {
+      mockListTools.mockRejectedValue(
+        new McpError(ErrorCode.MethodNotFound, 'Method not found'),
+      );
+
+      const tools = await service.getTools('sql_server');
+
+      expect(tools).toEqual([]);
+      // Đúng 1 lần connect (lần đầu) — không reconnect vì đây không phải lỗi
+      // kết nối/session, chỉ là server không hỗ trợ tool này.
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('regression test — reconnects and retries (does NOT silently return an empty list) when listTools fails for a connection/session reason (VD mcp_server vừa restart)', async () => {
+      mockListTools
+        .mockRejectedValueOnce(new Error('Bad Request: Server not initialized'))
+        .mockResolvedValueOnce({
+          tools: [{ name: 'get_database_schema', description: '', inputSchema: {} }],
+        });
+
+      const tools = await service.getTools('sql_server');
+
+      expect(tools).toEqual([
+        { name: 'get_database_schema', description: '', inputSchema: {} },
+      ]);
+      // Reconnect thật — bug cũ sẽ dừng lại ở đây với mảng RỖNG mà không bao
+      // giờ gọi connect() lần 2.
+      expect(mockConnect).toHaveBeenCalledTimes(2);
+    });
+
+    it('does NOT cache the empty fallback after a connection error is retried successfully — caches the REAL (non-empty) result instead', async () => {
+      mockListTools
+        .mockRejectedValueOnce(new Error('Bad Request: Server not initialized'))
+        .mockResolvedValueOnce({
+          tools: [{ name: 'get_database_schema', description: '', inputSchema: {} }],
+        });
+
+      await service.getTools('sql_server');
+      const secondCall = await service.getTools('sql_server');
+
+      expect(secondCall).toEqual([
+        { name: 'get_database_schema', description: '', inputSchema: {} },
+      ]);
+      // Chỉ 2 lần gọi listTools() tổng cộng (1 lỗi + 1 thành công của LẦN GỌI
+      // ĐẦU) — lần gọi thứ 2 tới service.getTools() phải ăn cache, KHÔNG gọi
+      // listTools() thêm lần nào nữa.
+      expect(mockListTools).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -238,6 +288,46 @@ describe('McpClientService', () => {
       await service.getPrompts('sql_server');
       await service.getPrompts('sql_server');
       expect(mockListPrompts).toHaveBeenCalledTimes(1);
+    });
+
+    it('getResources: returns [] without reconnecting on genuine MethodNotFound', async () => {
+      mockListResources.mockRejectedValue(
+        new McpError(ErrorCode.MethodNotFound, 'Method not found'),
+      );
+
+      expect(await service.getResources('sql_server')).toEqual([]);
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('getResources: reconnects and retries on a connection/session error instead of silently returning []', async () => {
+      mockListResources
+        .mockRejectedValueOnce(new Error('Bad Request: Server not initialized'))
+        .mockResolvedValueOnce({ resources: [{ uri: 'file://a', name: 'A' }] });
+
+      const resources = await service.getResources('sql_server');
+
+      expect(resources).toEqual([{ uri: 'file://a', name: 'A' }]);
+      expect(mockConnect).toHaveBeenCalledTimes(2);
+    });
+
+    it('getPrompts: returns [] without reconnecting on genuine MethodNotFound', async () => {
+      mockListPrompts.mockRejectedValue(
+        new McpError(ErrorCode.MethodNotFound, 'Method not found'),
+      );
+
+      expect(await service.getPrompts('sql_server')).toEqual([]);
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('getPrompts: reconnects and retries on a connection/session error instead of silently returning []', async () => {
+      mockListPrompts
+        .mockRejectedValueOnce(new Error('Bad Request: Server not initialized'))
+        .mockResolvedValueOnce({ prompts: [{ name: 'prompt1', description: 'desc' }] });
+
+      const prompts = await service.getPrompts('sql_server');
+
+      expect(prompts).toEqual([{ name: 'prompt1', description: 'desc' }]);
+      expect(mockConnect).toHaveBeenCalledTimes(2);
     });
   });
 

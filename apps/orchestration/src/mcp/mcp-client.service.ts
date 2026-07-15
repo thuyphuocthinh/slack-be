@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { ORCHESTRATION_CONSTANTS, ORCHESTRATION_ERROR } from '@slack/constants';
 import { AGENT_REGISTRY } from '../registry/agents.registry';
 import {
@@ -103,9 +104,8 @@ export class McpClientService {
 
     return this.getCachedList(provider, this.toolsCache, async (client) => {
       const result = await client.listTools().catch((e) => {
-        this.logger.warn(
-          `listTools failed or not supported for ${provider}: ${e.message}`,
-        );
+        if (!this.isMethodNotSupported(e)) throw e;
+        this.logger.warn(`listTools not supported for ${provider}: ${e.message}`);
         return { tools: [] };
       });
       return (result.tools || []) as McpToolDto[];
@@ -117,9 +117,8 @@ export class McpClientService {
 
     return this.getCachedList(provider, this.resourcesCache, async (client) => {
       const result = await client.listResources().catch((e) => {
-        this.logger.warn(
-          `listResources failed or not supported for ${provider}: ${e.message}`,
-        );
+        if (!this.isMethodNotSupported(e)) throw e;
+        this.logger.warn(`listResources not supported for ${provider}: ${e.message}`);
         return { resources: [] };
       });
       return (result.resources || []) as McpResourceDto[];
@@ -131,13 +130,29 @@ export class McpClientService {
 
     return this.getCachedList(provider, this.promptsCache, async (client) => {
       const result = await client.listPrompts().catch((e) => {
-        this.logger.warn(
-          `listPrompts failed or not supported for ${provider}: ${e.message}`,
-        );
+        if (!this.isMethodNotSupported(e)) throw e;
+        this.logger.warn(`listPrompts not supported for ${provider}: ${e.message}`);
         return { prompts: [] };
       });
       return (result.prompts || []) as McpPromptDto[];
     });
+  }
+
+  // Giai đoạn 4 (bug "restart mcp_server làm mất hết tool cho tới khi restart
+  // orchestration") — TRƯỚC ĐÂY mọi lỗi từ listTools/listResources/listPrompts
+  // đều bị nuốt thành "coi như thành công, trả rỗng" — kể cả lỗi kết nối/session
+  // chết (VD mcp_server vừa restart, client vẫn cầm session cũ -> "Bad Request:
+  // Server not initialized"). Vì lỗi không bao giờ bay lên tới
+  // callWithReconnect(), cơ chế "xoá client cũ, reconnect, thử lại" ở đó KHÔNG
+  // BAO GIỜ chạy — cái rỗng đó còn bị cache lại (MCP_TOOLS_CACHE_TTL_MS) làm
+  // mọi request sau đó cũng thấy rỗng, cho tới khi restart orchestration (xoá
+  // sạch cache trong RAM) mới hết.
+  // CHỈ coi là "server không hỗ trợ tool/resource/prompt này" (an toàn để trả
+  // rỗng, không cần reconnect) khi đúng là lỗi JSON-RPC "Method not found" —
+  // MỌI lỗi khác (mất kết nối, session chết, timeout...) phải NÉM LẠI để
+  // callWithReconnect() xử lý đúng vai trò của nó.
+  private isMethodNotSupported(error: unknown): boolean {
+    return error instanceof McpError && error.code === ErrorCode.MethodNotFound;
   }
 
   async callTool(dto: CallToolRequestDto): Promise<CallToolResponseDto> {
