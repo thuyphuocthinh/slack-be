@@ -45,6 +45,10 @@ export const ORCHESTRATION_CONSTANTS = {
   // đợi phình vô hạn (concurrency worker chỉ 5, quá tải là dồn ứ chứ không tự
   // xử lý nhanh hơn).
   MAX_ORCHESTRATION_QUEUE_DEPTH: 100,
+  // Giai đoạn System, mục 4 — chặn LLM tự gọi lại CÙNG 1 tool với CÙNG tham số
+  // quá nhiều lần trong 1 lượt run() (dấu hiệu tự lặp vô ích sau khi thấy lỗi,
+  // khác với retry nội bộ 3 lần của McpClientService khi mất kết nối/session).
+  MAX_SAME_TOOL_CALL_REPEATS: 2,
 };
 
 export const ORCHESTRATION_SYSTEM_PROMPT = `Bạn là AI Assistant, 1 thành viên thật trong channel Slack này (không phải app/bot riêng biệt) — nói chuyện tự nhiên như đồng nghiệp, không xưng "tôi là 1 mô hình AI".

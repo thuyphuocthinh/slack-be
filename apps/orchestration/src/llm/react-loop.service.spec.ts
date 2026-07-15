@@ -231,10 +231,16 @@ describe('ReactLoopService', () => {
   });
 
   it('stops after MAX_REACT_STEPS iterations and returns the fallback message if the model never converges', async () => {
-    mockSession.sendMessage.mockResolvedValue({
-      text: '',
-      toolCalls: [{ name: 'get_database_schema', args: {} }],
-    });
+    // Tham số đổi mỗi lượt (mục 4 — repeat-limiter chặn CÙNG tool + CÙNG tham
+    // số, không liên quan tới guard MAX_REACT_STEPS đang test ở đây) để cô
+    // lập đúng 1 guard đang kiểm tra.
+    let call = 0;
+    mockSession.sendMessage.mockImplementation(() =>
+      Promise.resolve({
+        text: '',
+        toolCalls: [{ name: 'get_database_schema', args: { step: call++ } }],
+      }),
+    );
 
     const result = await service.run(baseDto);
 
@@ -492,6 +498,66 @@ describe('ReactLoopService', () => {
 
       // resultPreview (trace UI) vẫn đầy đủ, không bị cap.
       expect(result.toolCalls[0].resultPreview).toBe(hugeText);
+    });
+  });
+
+  describe('mục 4 — tool-call error handling (react-loop.service.ts)', () => {
+    it('emits exactly one tool_result with status "error" and keeps the loop going, when mcpClient.callTool() itself throws (thay vì bay exception qua, bỏ luôn bước emit — trace bị kẹt "pending")', async () => {
+      mockMcpClient.callTool.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'get_database_schema', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'ok', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'vẫn giữ nguyên', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.toolCalls[0]).toEqual({
+        tool: 'sql_server.get_database_schema',
+        status: 'error',
+        resultPreview: 'ECONNREFUSED',
+      });
+      // Call #1 = resync(''), #2 = tool_call, #3 = tool_result (error) — không
+      // có lần emit "pending" nào bị bỏ dở.
+      expect(mockAgentStream.emitStep).toHaveBeenNthCalledWith(
+        3,
+        expect.anything(),
+        {
+          type: 'tool_result',
+          tool: 'sql_server.get_database_schema',
+          status: 'error',
+          resultPreview: 'ECONNREFUSED',
+        },
+      );
+      // Lỗi được feed NGƯỢC LẠI cho LLM (không throw ra ngoài run()) — turn
+      // tiếp tục bình thường, LLM tự quyết định câu trả lời tiếp theo.
+      const fedBackToLlm = mockSession.sendMessage.mock.calls[1][0];
+      expect(fedBackToLlm[0].content).toBe('ECONNREFUSED');
+      expect(result.answer).toBe('ok');
+    });
+
+    it('blocks further real calls to the same tool with the same args after MAX_SAME_TOOL_CALL_REPEATS attempts in one turn, instead of letting the LLM loop forever on a self-triggered repeat', async () => {
+      mockSession.sendMessage.mockResolvedValue({
+        text: '',
+        toolCalls: [{ name: 'get_database_schema', args: { x: 1 } }],
+      });
+
+      const result = await service.run(baseDto);
+
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(
+        ORCHESTRATION_CONSTANTS.MAX_SAME_TOOL_CALL_REPEATS,
+      );
+      // MAX_REACT_STEPS lượt tool-call tổng cộng đều được ghi trace (đã chặn
+      // hay chạy thật) — số bị chặn phải có status 'error'.
+      expect(result.toolCalls).toHaveLength(
+        ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS,
+      );
+      const blocked = result.toolCalls.slice(
+        ORCHESTRATION_CONSTANTS.MAX_SAME_TOOL_CALL_REPEATS,
+      );
+      expect(blocked.every((t) => t.status === 'error')).toBe(true);
     });
   });
 

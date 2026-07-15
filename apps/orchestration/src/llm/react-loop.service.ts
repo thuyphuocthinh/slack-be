@@ -21,7 +21,7 @@ import { AgentStreamService } from '../socket/agent-stream.service';
 import { withTimeout } from './with-timeout.util';
 import { ApprovalRequiredError } from './approval-required.error';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
-import { McpToolDto } from '../dto/mcp.dto';
+import { CallToolResponseDto, McpToolDto } from '../dto/mcp.dto';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
 import { runCancellable } from '../common/cancellable-run.util';
 import { TurnCancelledError } from './turn-cancelled.error';
@@ -69,10 +69,21 @@ export class ReactLoopService {
       temperature: ORCHESTRATION_CONSTANTS.REACT_LOOP_TEMPERATURE,
     });
 
+    // Đếm theo chữ ký (tool + tham số) trong PHẠM VI 1 lượt run() — chống LLM
+    // tự lặp gọi y hệt vô ích (mục 4, xem handleToolCall()).
+    const callSignatureCounts = new Map<string, number>();
+
     // Wrap ở đây để nest đúng cây trace nếu processor đang có traceable() bao quanh.
     const callTool = traceable(
       (name: string, args: Record<string, unknown>) =>
-        this.handleToolCall(name, args, dto, mcpTools, toolCalls),
+        this.handleToolCall(
+          name,
+          args,
+          dto,
+          mcpTools,
+          toolCalls,
+          callSignatureCounts,
+        ),
       { name: 'mcp.callTool' },
     );
 
@@ -176,6 +187,7 @@ export class ReactLoopService {
     dto: RunReactLoopRequestDto,
     mcpTools: McpToolDto[],
     toolCalls: ToolCallTraceDto[],
+    callSignatureCounts: Map<string, number>,
   ): Promise<string> {
     if (mcpTools.find((t) => t.name === name)?.annotations?.destructiveHint) {
       this.logger.log(
@@ -188,15 +200,60 @@ export class ReactLoopService {
     }
 
     const displayName = `${dto.provider}.${name}`;
+
+    // Mục 4 — LLM tự gọi lại CÙNG tool với CÙNG tham số nhiều lần (thường sau
+    // khi thấy lỗi mà không đổi cách) trông như 1 vòng lặp bị "kẹt" trên UI.
+    // Đây KHÁC với retry nội bộ của McpClientService (mất kết nối/session) —
+    // ở đó lỗi được xử lý và ẩn khỏi LLM; ở đây LLM chủ động quyết định gọi
+    // lại. Vượt ngưỡng thì chặn trước khi gọi tool thật, trả thẳng 1 lời nhắc
+    // để LLM tự đổi hướng thay vì lặp vô ích.
+    const signature = `${name}:${JSON.stringify(args)}`;
+    const attempts = (callSignatureCounts.get(signature) ?? 0) + 1;
+    callSignatureCounts.set(signature, attempts);
+    if (attempts > ORCHESTRATION_CONSTANTS.MAX_SAME_TOOL_CALL_REPEATS) {
+      const resultPreview = `Tool "${displayName}" đã được gọi với ĐÚNG tham số này ${attempts - 1} lần trước đó và không thực thi lại nữa. Hãy thử cách tiếp cận khác hoặc báo cho người dùng biết bạn không thể hoàn thành yêu cầu theo cách này.`;
+      this.logger.warn(
+        `tool_call ${displayName} bị chặn — lặp lại quá ${ORCHESTRATION_CONSTANTS.MAX_SAME_TOOL_CALL_REPEATS} lần với cùng tham số`,
+      );
+      await this.emitStep(dto, {
+        type: 'tool_result',
+        tool: displayName,
+        status: 'error',
+        resultPreview,
+      });
+      toolCalls.push({ tool: displayName, status: 'error', resultPreview });
+      return resultPreview;
+    }
+
     this.logger.log(`tool_call ${displayName} args=${JSON.stringify(args)}`);
     await this.emitStep(dto, { type: 'tool_call', tool: displayName });
 
-    const result = await this.mcpClient.callTool({
-      provider: dto.provider,
-      name,
-      args,
-      ownerId: dto.userId,
-    });
+    let result: CallToolResponseDto;
+    try {
+      result = await this.mcpClient.callTool({
+        provider: dto.provider,
+        name,
+        args,
+        ownerId: dto.userId,
+      });
+    } catch (error) {
+      // Trước đây: exception bay thẳng qua đây, bỏ luôn bước emit tool_result
+      // bên dưới — dòng tool-call trên UI kẹt ở trạng thái "đang chạy" tới hết
+      // turn. Bắt lại ngay tại đây, emit đúng 1 lần tool_result lỗi, và trả
+      // lỗi này về CHO LLM (không throw tiếp) để nó tự quyết định bước kế.
+      const resultPreview = (error as Error).message;
+      this.logger.warn(
+        `tool_result ${displayName} FAILED (exception): ${resultPreview}`,
+      );
+      await this.emitStep(dto, {
+        type: 'tool_result',
+        tool: displayName,
+        status: 'error',
+        resultPreview,
+      });
+      toolCalls.push({ tool: displayName, status: 'error', resultPreview });
+      return capToolResultSize(resultPreview);
+    }
 
     const text = extractTextFromMcpResult(result);
     const status: 'success' | 'error' = result.isError ? 'error' : 'success';
