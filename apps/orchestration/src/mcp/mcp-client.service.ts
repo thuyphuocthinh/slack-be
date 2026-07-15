@@ -12,8 +12,10 @@ import {
   McpResourceDto,
   McpPromptDto,
 } from '../dto/mcp.dto';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { withTimeout } from '../llm/with-timeout.util';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
+import { ProviderConcurrencyLimiterService } from '../common/provider-concurrency-limiter.service';
 import { DynamicToolRegistryService } from '../registry/dynamic-tool-registry.service';
 import { DynamicToolExecutorService } from '../executor/dynamic-tool-executor.service';
 
@@ -22,10 +24,19 @@ interface CacheEntry<T> {
   fetchedAt: number;
 }
 
+interface ClientCacheEntry {
+  // Giai đoạn System, mục 5.1 — cache PROMISE đang connect (không phải Client
+  // đã resolve), để 2 request cùng cacheKey đến gần như đồng thời AWAIT
+  // CHUNG 1 lần connect thay vì mỗi request tự tạo 1 connection riêng (client
+  // connect trước bị mồ côi, không đóng, rò rỉ session).
+  promise: Promise<Client>;
+  lastUsedAt: number;
+}
+
 @Injectable()
 export class McpClientService {
   private readonly logger = new Logger(McpClientService.name);
-  private readonly clients = new Map<string, Client>();
+  private readonly clients = new Map<string, ClientCacheEntry>();
   private readonly toolsCache = new Map<string, CacheEntry<McpToolDto>>();
   private readonly resourcesCache = new Map<
     string,
@@ -35,6 +46,7 @@ export class McpClientService {
 
   constructor(
     private readonly circuitBreaker: CircuitBreakerService,
+    private readonly concurrencyLimiter: ProviderConcurrencyLimiterService,
     private readonly dynamicRegistry: DynamicToolRegistryService,
     private readonly dynamicExecutor: DynamicToolExecutorService,
   ) {}
@@ -45,8 +57,24 @@ export class McpClientService {
   private async getClient(provider: string, ownerId?: string): Promise<Client> {
     const cacheKey = `${provider}:${ownerId ?? '__anon__'}`;
     const cached = this.clients.get(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      cached.lastUsedAt = Date.now();
+      return cached.promise;
+    }
 
+    const connecting = this.connectClient(provider, ownerId);
+    const entry: ClientCacheEntry = { promise: connecting, lastUsedAt: Date.now() };
+    this.clients.set(cacheKey, entry);
+    // Không cache 1 lần connect lỗi vĩnh viễn — xoá để lần gọi sau retry được
+    // (chỉ xoá nếu đây vẫn đúng entry của lần connect vừa lỗi, tránh đè lên 1
+    // entry mới hơn đã thay thế nó).
+    connecting.catch(() => {
+      if (this.clients.get(cacheKey) === entry) this.clients.delete(cacheKey);
+    });
+    return connecting;
+  }
+
+  private async connectClient(provider: string, ownerId?: string): Promise<Client> {
     const entry = AGENT_REGISTRY[provider];
     if (!entry?.endpoint) {
       throw new RpcException(ORCHESTRATION_ERROR.AGENT_NOT_REGISTERED);
@@ -70,11 +98,39 @@ export class McpClientService {
       `MCP connect() timeout sau ${ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS / 1000}s (provider=${provider})`,
     );
 
-    this.clients.set(cacheKey, client);
     this.logger.log(
       `Connected MCP client for provider "${provider}" at ${entry.endpoint}`,
     );
     return client;
+  }
+
+  // Giai đoạn System, mục 5.3 — client không được dùng quá MCP_CLIENT_IDLE_TTL_MS
+  // thì đóng + xoá khỏi cache, tránh giữ socket/session mở vô thời hạn khi có
+  // nhiều user riêng biệt qua suốt vòng đời process (khác toolsCache/
+  // resourcesCache/promptsCache — key theo provider nên số lượng đã bounded).
+  @Cron(CronExpression.EVERY_10_MINUTES, { name: 'evict-idle-mcp-clients' })
+  async evictIdleClients(): Promise<void> {
+    const now = Date.now();
+    const idleEntries = Array.from(this.clients.entries()).filter(
+      ([, entry]) =>
+        now - entry.lastUsedAt > ORCHESTRATION_CONSTANTS.MCP_CLIENT_IDLE_TTL_MS,
+    );
+    if (idleEntries.length === 0) return;
+
+    this.logger.log(`evictIdleClients() closing ${idleEntries.length} idle client(s)`);
+    await Promise.all(
+      idleEntries.map(async ([cacheKey, entry]) => {
+        this.clients.delete(cacheKey);
+        try {
+          const client = await entry.promise;
+          await client.close();
+        } catch (error) {
+          this.logger.warn(
+            `evictIdleClients() failed to close "${cacheKey}": ${(error as Error).message}`,
+          );
+        }
+      }),
+    );
   }
 
   private async getCachedList<T>(
@@ -207,6 +263,11 @@ export class McpClientService {
    * ownerId — 1 MCP server sập là lỗi hạ tầng, không phải lỗi riêng của 1
    * user). Khi mạch OPEN, request mới fail NGAY, không đợi hết
    * MCP_CALL_TIMEOUT_MS/thử reconnect như bình thường.
+   *
+   * Giai đoạn System, mục 5.2 — check circuit TRƯỚC (fail-fast, không tốn
+   * slot) rồi mới qua concurrency limiter (cũng theo TỪNG PROVIDER) — giới
+   * hạn số request THẬT được chạy đồng thời vào 1 provider, độc lập với
+   * concurrency:5 (global) của BullMQ worker.
    */
   private async withReconnect<T>(
     provider: string,
@@ -214,7 +275,11 @@ export class McpClientService {
     fn: (client: Client) => Promise<T>,
   ): Promise<T> {
     return this.circuitBreaker.run(`mcp:${provider}`, () =>
-      this.callWithReconnect(provider, ownerId, fn),
+      this.concurrencyLimiter.run(
+        `mcp:${provider}`,
+        ORCHESTRATION_CONSTANTS.MAX_CONCURRENT_MCP_CALLS_PER_PROVIDER,
+        () => this.callWithReconnect(provider, ownerId, fn),
+      ),
     );
   }
 

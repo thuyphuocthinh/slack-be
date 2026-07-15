@@ -1,7 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+import { ORCHESTRATION_CONSTANTS } from '@slack/constants';
 import { McpClientService } from './mcp-client.service';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
+import { ProviderConcurrencyLimiterService } from '../common/provider-concurrency-limiter.service';
 import { DynamicToolRegistryService } from '../registry/dynamic-tool-registry.service';
 import { DynamicToolExecutorService } from '../executor/dynamic-tool-executor.service';
 
@@ -12,6 +14,7 @@ const mockListResources = jest.fn();
 const mockListPrompts = jest.fn();
 const mockReadResource = jest.fn();
 const mockGetPrompt = jest.fn();
+const mockClose = jest.fn();
 
 jest.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
   Client: jest.fn().mockImplementation(() => ({
@@ -22,6 +25,7 @@ jest.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
     listPrompts: mockListPrompts,
     readResource: mockReadResource,
     getPrompt: mockGetPrompt,
+    close: mockClose,
   })),
 }));
 
@@ -49,6 +53,7 @@ describe('McpClientService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     mockConnect.mockResolvedValue(undefined);
+    mockClose.mockResolvedValue(undefined);
     mockCircuitBreaker.run.mockImplementation(
       (_key: string, action: () => Promise<unknown>) => action(),
     );
@@ -57,6 +62,7 @@ describe('McpClientService', () => {
       providers: [
         McpClientService,
         { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
+        ProviderConcurrencyLimiterService,
         {
           provide: DynamicToolRegistryService,
           useValue: { isDynamicProvider: jest.fn().mockReturnValue(false) },
@@ -167,6 +173,7 @@ describe('McpClientService', () => {
         providers: [
           McpClientService,
           { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
+          ProviderConcurrencyLimiterService,
           {
             provide: DynamicToolRegistryService,
             useValue: mockDynamicRegistry,
@@ -363,6 +370,145 @@ describe('McpClientService', () => {
         name: 'greet',
         arguments: { name: 'Alice' },
       });
+    });
+  });
+
+  describe('getClient() connection race (Giai đoạn System, mục 5.1)', () => {
+    it('shares a single in-flight connect() across 2 concurrent calls for the same provider+ownerId, instead of each creating its own (orphaned) connection', async () => {
+      let resolveConnect!: () => void;
+      mockConnect.mockImplementation(
+        () => new Promise<void>((resolve) => (resolveConnect = resolve)),
+      );
+      mockCallTool.mockResolvedValue({ content: [] });
+
+      const call = () =>
+        service.callTool({
+          provider: 'sql_server',
+          name: 'x',
+          args: {},
+          ownerId: 'user-1',
+        });
+
+      const p1 = call();
+      const p2 = call();
+      // Nhường đủ tick cho cả 2 lệnh gọi cùng chạy tới bước connect() đang treo.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // Trước fix: cache lưu Client đã resolve — cả 2 sẽ thấy cache trống và
+      // TỰ connect() riêng (2 lần). Sau fix: cache lưu Promise đang connect —
+      // request thứ 2 await CHUNG promise của request thứ 1.
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+
+      resolveConnect();
+      await Promise.all([p1, p2]);
+
+      expect(mockCallTool).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not cache a failed connect() forever — the next call retries instead of reusing a rejected promise', async () => {
+      mockConnect
+        .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+        .mockResolvedValueOnce(undefined);
+      mockCallTool.mockResolvedValue({ content: [] });
+
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+      });
+
+      // callWithReconnect() tự retry nội bộ khi connect lỗi — 2 lần connect
+      // TRONG CÙNG 1 lời gọi callTool() (lỗi rồi thử lại), không phải do cache.
+      expect(mockConnect).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('evictIdleClients (Giai đoạn System, mục 5.3)', () => {
+    afterEach(() => jest.useRealTimers());
+
+    it('closes and evicts a client that has been idle past MCP_CLIENT_IDLE_TTL_MS', async () => {
+      jest.useFakeTimers();
+      mockCallTool.mockResolvedValue({ content: [] });
+
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+      });
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+
+      jest.advanceTimersByTime(
+        ORCHESTRATION_CONSTANTS.MCP_CLIENT_IDLE_TTL_MS + 1000,
+      );
+      await service.evictIdleClients();
+
+      expect(mockClose).toHaveBeenCalledTimes(1);
+
+      // Cache đã bị xoá — lần gọi kế tiếp phải reconnect thật, không dùng lại
+      // client cũ đã đóng.
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+      });
+      expect(mockConnect).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not evict a client that was used recently (within TTL)', async () => {
+      jest.useFakeTimers();
+      mockCallTool.mockResolvedValue({ content: [] });
+
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+      });
+
+      jest.advanceTimersByTime(1000); // rất ngắn so với TTL 30 phút
+      await service.evictIdleClients();
+
+      expect(mockClose).not.toHaveBeenCalled();
+
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+      });
+      // Vẫn dùng lại đúng client cũ — không reconnect.
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('refreshes lastUsedAt on every use — a client kept busy is never evicted, even past TTL since its FIRST use', async () => {
+      jest.useFakeTimers();
+      mockCallTool.mockResolvedValue({ content: [] });
+
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+      });
+      // "Dùng lại" gần hết TTL — phải cập nhật lastUsedAt, không tính idle từ mốc connect() ban đầu.
+      jest.advanceTimersByTime(
+        ORCHESTRATION_CONSTANTS.MCP_CLIENT_IDLE_TTL_MS - 1000,
+      );
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+      });
+
+      jest.advanceTimersByTime(2000); // vượt TTL kể từ mốc connect() gốc, nhưng chưa vượt kể từ lần dùng gần nhất
+      await service.evictIdleClients();
+
+      expect(mockClose).not.toHaveBeenCalled();
+      expect(mockConnect).toHaveBeenCalledTimes(1);
     });
   });
 });

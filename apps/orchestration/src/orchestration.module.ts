@@ -28,6 +28,7 @@ import { CheckpointService } from './checkpoint/checkpoint.service';
 import { CheckpointCleanupService } from './checkpoint/checkpoint-cleanup.service';
 import { TriggerClaimService } from './trigger-claim/trigger-claim.service';
 import { CircuitBreakerService } from './common/circuit-breaker.service';
+import { ProviderConcurrencyLimiterService } from './common/provider-concurrency-limiter.service';
 import { OpenApiParserService } from './parser/openapi-parser.service';
 import { DynamicToolRegistryService } from './registry/dynamic-tool-registry.service';
 import { DynamicProviderDbService } from './registry/dynamic-provider-db.service';
@@ -89,6 +90,7 @@ import { HealthCheckService } from './common/health-check.service';
     CheckpointCleanupService,
     TriggerClaimService,
     CircuitBreakerService,
+    ProviderConcurrencyLimiterService,
     AgentCancellationService,
     TurnResolverService,
     CheckpointPauseService,
