@@ -9,8 +9,8 @@ export class RunReactLoopRequestDto {
   // messageId của message BOT (reply) — dùng để stream step lên đúng bubble
   messageId: string;
   channelType: string; // 'direct' | 'group'
-  // Lịch sử hội thoại — AiOrchestrationProcessor fetch 1 LẦN/turn rồi truyền
-  // xuống cho cả SupervisorService.decide() lẫn đây, đảm bảo cả 2 nhìn thấy
+  // Lịch sử hội thoại — TurnResolverService fetch 1 LẦN/turn rồi truyền
+  // xuống cho cả SupervisorService.plan() lẫn đây, đảm bảo cả 2 nhìn thấy
   // đúng CÙNG 1 snapshot lịch sử (không tự fetch riêng, tránh lệch nhau).
   history: ChatHistoryTurnDto[];
   // Model id trong LLM_MODEL_REGISTRY (VD 'gemini-2.0-flash', 'gpt-4o-mini',

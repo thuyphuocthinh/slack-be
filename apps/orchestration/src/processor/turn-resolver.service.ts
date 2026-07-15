@@ -42,9 +42,8 @@ export class TurnResolverService {
     private readonly checkpointPause: CheckpointPauseService,
   ) {}
 
-  // Supervisor có thể delegate nhiều vòng, mỗi vòng nhiều agent song song
-  // (fan-out). MAX_SUPERVISOR_ROUNDS chặn ping-pong vô hạn — hết vòng thì bắt
-  // buộc tổng hợp lại thay vì trả thẳng kết quả thô của vòng cuối.
+  // Entry point cho turn MỚI — chuẩn bị prompt/agents/history rồi giao hết
+  // cho continueRounds() (Plan-and-Execute, xem bên dưới).
   async resolveAnswer(
     data: IProcessAiTriggerJobData,
     replyMessageId: string,
@@ -83,6 +82,16 @@ export class TurnResolverService {
   // tự động hoạt động (delegateRound() gặp ApprovalRequiredError ở BẤT KỲ vòng
   // nào, kể cả vòng vừa resume, đều pause bình thường qua
   // CheckpointPauseService — không cần logic đặc biệt nào khác ở tầng gọi).
+  //
+  // Plan-and-Execute (xem accuracy.md) — KHÔNG còn hỏi lại Supervisor "làm gì
+  // tiếp" mỗi bước (decide() cũ). Thay vào đó: (1) supervisor.plan() gọi 1 LẦN,
+  // trả về TOÀN BỘ các bước còn lại (`steps`); (2) thực thi TỪNG bước tuần tự
+  // qua delegateRound() (v1: KHÔNG fan-out song song trong 1 lần plan nữa — đổi
+  // lấy sự đúng đắn của thứ tự/agent, đánh đổi hiệu năng cho case nhiều agent
+  // ĐỘC LẬP thật sự — để research tối ưu sau); (3) sau MỖI bước, gọi
+  // supervisor.evaluate() (câu hỏi hẹp, rẻ hơn plan()) để quyết định
+  // 'continue' (bám kế hoạch cũ), 're-plan' (gọi lại plan() với rounds mới),
+  // hay 'done' (đủ dữ liệu, dừng sớm không cần chạy hết steps còn lại).
   async continueRounds(
     data: IProcessAiTriggerJobData,
     replyMessageId: string,
@@ -101,145 +110,128 @@ export class TurnResolverService {
     // lặp lại là pause-resume vô hạn (không có trần tổng nào cho cả turn), phải
     // tự bấm Stop mới dừng được. `rounds.length` dùng làm điểm bắt đầu để CẢ
     // turn (kể cả qua nhiều lần duyệt) chỉ tiêu tốn tối đa MAX_SUPERVISOR_ROUNDS
-    // vòng — không tuyệt đối chính xác nếu 1 round có fan-out >1 delegation
-    // (rounds.length tăng nhanh hơn số vòng lặp thật), nhưng luôn là 1 giới hạn
-    // AN TOÀN (chặt hơn, không bao giờ lỏng hơn dự định).
-    for (
-      let round = rounds.length;
-      round < ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS;
-      round++
-    ) {
-      // decide() dùng generateStructured() (không stream) nên không bọc được
-      // AbortSignal như ReactLoop/synthesize() — kiểm tra cờ huỷ GIỮA các vòng
-      // là đủ, vì decide() vốn đã là 1 lệnh gọi ngắn (JSON quyết định, không
-      // phải câu trả lời dài).
+    // bước thực thi, dù có re-plan bao nhiêu lần đi nữa.
+    let round = rounds.length;
+    let steps: DelegationDto[] = [];
+    let needsPlan = true;
+
+    while (round < ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS) {
+      // plan()/evaluate() dùng generateStructured() (không stream) nên không
+      // bọc được AbortSignal như ReactLoop/synthesize() — kiểm tra cờ huỷ GIỮA
+      // các bước là đủ, vì đây vốn đã là các lệnh gọi ngắn (JSON, không phải
+      // câu trả lời dài).
       if (await this.cancellation.isCancelled(replyMessageId)) {
-        // Chưa có gì đang stream ở đúng thời điểm này (đang giữa 2 vòng) —
-        // giữ lại kết quả delegate GẦN NHẤT đã có (nếu có) làm nội dung lưu,
-        // thay vì xoá sạch về 1 câu thông báo chung chung.
+        // Chưa có gì đang stream ở đúng thời điểm này (đang giữa 2 bước) —
+        // giữ lại kết quả GẦN NHẤT đã có (nếu có) làm nội dung lưu, thay vì
+        // xoá sạch về 1 câu thông báo chung chung.
         throw new TurnCancelledError(
           rounds.length > 0 ? rounds[rounds.length - 1].result : undefined,
         );
       }
-      const decision = await this.supervisor.decide(
-        prompt,
-        agents,
-        rounds,
-        history,
-      );
 
-      if (decision.action === 'respond') {
-        // Nguyên tắc "stream = save":
-        // - rounds.length === 1: đúng 1 delegate đã trả lời — dùng thẳng kết
-        //   quả ĐÃ STREAM của nó (rounds[0].result), bỏ qua decision.answer
-        //   (decide() không stream, paraphrase sẽ khác nội dung đã hiện ra).
-        // - rounds.length > 1: cần tổng hợp thật nhiều agent — gọi lại
-        //   synthesize() (CÓ stream, khác decide()) để nội dung stream ra và
-        //   nội dung lưu luôn khớp nhau, thay vì dùng decision.answer chưa
-        //   từng stream.
-        // - rounds.length === 0: Supervisor tự trả lời ngay, chưa từng
-        //   delegate — không có gì để stream lại (decide() không stream),
-        //   biết là ngoại lệ chưa xử lý, chấp nhận không stream cho case này
-        //   (thường là câu ngắn/không cần dữ liệu, đổi 1 lượt LLM để có
-        //   stream không đáng).
-        if (rounds.length === 1) {
-          return buildAnswer(rounds[0].result, toolCalls);
-        }
-        if (rounds.length > 1) {
-          const accumulator = { text: '' };
-          const finalAnswer = await runCancellable(
-            replyMessageId,
-            this.cancellation,
-            (signal) =>
-              this.supervisor.synthesize(
-                prompt,
-                rounds,
-                buildOnToken(
-                  this.agentStream,
-                  userId,
-                  channelId,
-                  replyMessageId,
-                  channelType,
-                  accumulator,
-                ),
-                signal,
-              ),
-            () => new TurnCancelledError(accumulator.text || undefined),
-          );
-          return buildAnswer(finalAnswer, toolCalls);
-        }
-        return buildAnswer(
-          decision.answer || 'Xin lỗi, mình chưa có câu trả lời phù hợp.',
-          toolCalls,
-        );
-      }
+      if (needsPlan) {
+        const plan = await this.supervisor.plan(prompt, agents, rounds, history);
 
-      const delegations = this.dedupeByAgent(decision.delegations ?? []);
-
-      // Khắc phục lỗi LLM trả về label (tên agent) thay vì provider ID (đặc biệt với Dynamic Agent có ID là UUID)
-      delegations.forEach((d) => {
-        const safeAgent = d.agent || '';
-        const matchedAgent = agents.find(
-          (a) =>
-            a.provider === safeAgent ||
-            a.label.toLowerCase() === safeAgent.toLowerCase() ||
-            a.label.toLowerCase().replace(/[^a-z0-9]/g, '') ===
-              safeAgent.toLowerCase().replace(/[^a-z0-9]/g, ''),
-        );
-        if (matchedAgent && matchedAgent.provider !== d.agent) {
-          d.agent = matchedAgent.provider;
-        }
-      });
-
-      if (
-        delegations.every((d) => !agents.some((a) => a.provider === d.agent))
-      ) {
-        const attemptedAgents = delegations
-          .map((d) => d.agent || 'unknown')
-          .join(', ');
-        return buildAnswer(
-          decision.answer ||
-            `Mình chưa thể xử lý yêu cầu này với các kết nối hiện có (Tên hệ thống mà AI đang cố gọi: "${attemptedAgents}" - Vui lòng đổi tên hoặc viết đúng tên). Vào Settings để kết nối agent phù hợp nhé.`,
-          toolCalls,
-        );
-      }
-
-      // delegateRound() không bao giờ throw — 1 delegation lỗi không làm mất
-      // kết quả của delegation anh em đã chạy song song thành công.
-      const results = await Promise.all(
-        delegations.map((d) =>
-          this.delegateRound(
-            d,
-            agents,
+        if (plan.action === 'respond') {
+          return this.finalizeAnswer(
             data,
-            prompt,
             replyMessageId,
-            history,
-            round,
-          ),
-        ),
-      );
+            prompt,
+            rounds,
+            toolCalls,
+            plan.answer,
+          );
+        }
 
-      const approvalNeeded = this.foldRoundResults(
-        results,
-        delegations,
-        rounds,
-        toolCalls,
+        steps = plan.steps ?? [];
+
+        // Khắc phục lỗi LLM trả về label (tên agent) thay vì provider ID (đặc biệt với Dynamic Agent có ID là UUID)
+        steps.forEach((s) => {
+          const safeAgent = s.agent || '';
+          const matchedAgent = agents.find(
+            (a) =>
+              a.provider === safeAgent ||
+              a.label.toLowerCase() === safeAgent.toLowerCase() ||
+              a.label.toLowerCase().replace(/[^a-z0-9]/g, '') ===
+                safeAgent.toLowerCase().replace(/[^a-z0-9]/g, ''),
+          );
+          if (matchedAgent && matchedAgent.provider !== s.agent) {
+            s.agent = matchedAgent.provider;
+          }
+        });
+
+        if (steps.every((s) => !agents.some((a) => a.provider === s.agent))) {
+          const attemptedAgents = steps
+            .map((s) => s.agent || 'unknown')
+            .join(', ');
+          return buildAnswer(
+            plan.answer ||
+              `Mình chưa thể xử lý yêu cầu này với các kết nối hiện có (Tên hệ thống mà AI đang cố gọi: "${attemptedAgents}" - Vui lòng đổi tên hoặc viết đúng tên). Vào Settings để kết nối agent phù hợp nhé.`,
+            toolCalls,
+          );
+        }
+        needsPlan = false;
+      }
+
+      if (steps.length === 0) {
+        // plan() trả "plan" nhưng steps rỗng/toàn agent không hợp lệ sau khi
+        // lọc — coi như xong với những gì đã có (giống hệt nhánh "done"),
+        // KHÔNG rơi xuống fallback "chưa hội tụ" (đó là dành riêng cho việc
+        // hết NGÂN SÁCH vòng, không phải hết việc trong kế hoạch).
+        return this.finalizeAnswer(data, replyMessageId, prompt, rounds, toolCalls);
+      }
+
+      const step = steps.shift()!;
+      // delegateRound() không bao giờ throw (trừ approvalRequired) — 1 bước lỗi
+      // ghi lại thành round lỗi, không làm sập cả turn.
+      const result = await this.delegateRound(
+        step,
+        agents,
+        data,
+        prompt,
+        replyMessageId,
+        history,
+        round,
       );
-      if (approvalNeeded) {
+      round++;
+
+      if (result && 'approvalRequired' in result) {
+        toolCalls.push(...result.toolCalls);
         return this.checkpointPause.pauseForApproval(
           data,
           prompt,
           rounds,
           toolCalls,
           history,
-          approvalNeeded,
+          result,
         );
       }
+
+      const completedRound: SupervisorRoundDto = result
+        ? result.round
+        : {
+            agent: step.agent,
+            task: step.task,
+            result:
+              'Agent này chưa khả dụng (chưa kết nối hoặc chưa có hạ tầng) — bỏ qua, không thực hiện được phần việc này.',
+          };
+      rounds.push(completedRound);
+      if (result) toolCalls.push(...result.toolCalls);
+
+      const verdict = await this.supervisor.evaluate(prompt, completedRound, steps);
+      if (verdict.verdict === 'done') {
+        return this.finalizeAnswer(data, replyMessageId, prompt, rounds, toolCalls);
+      }
+      if (verdict.verdict === 're-plan') {
+        needsPlan = true;
+        steps = [];
+      }
+      // 'continue' — vòng while lặp lại, needsPlan vẫn false, tiếp tục lấy
+      // bước kế trong `steps` mà KHÔNG gọi lại plan().
     }
 
     this.logger.warn(
-      `Supervisor chưa hội tụ sau ${ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS} vòng cho user ${userId}, tổng hợp lại kết quả đã có`,
+      `Supervisor chưa hội tụ sau ${ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS} bước cho user ${userId}, tổng hợp lại kết quả đã có`,
     );
     const fallbackAccumulator = { text: '' };
     const finalAnswer = await runCancellable(
@@ -264,45 +256,58 @@ export class TurnResolverService {
     return buildAnswer(finalAnswer, toolCalls);
   }
 
-  /** Supervisor trả trùng agent trong cùng 1 vòng — giữ phần tử đầu tiên. */
-  private dedupeByAgent(delegations: DelegationDto[]): DelegationDto[] {
-    const seen = new Set<string>();
-    return delegations.filter((d) => {
-      if (seen.has(d.agent)) return false;
-      seen.add(d.agent);
-      return true;
-    });
-  }
-
-  // Gộp kết quả 1 vòng delegate vào rounds/toolCalls (mutate tại chỗ). Trả về
-  // delegation ĐẦU TIÊN cần duyệt (nếu có) — vẫn giữ lại toolCalls/rounds của
-  // các delegation anh em đã xong trong CÙNG vòng, không để mất.
-  private foldRoundResults(
-    results: (DelegateRoundResult | ApprovalRequiredDelegateResult | null)[],
-    delegations: DelegationDto[],
+  // Dùng chung cho 3 nơi kết thúc "sạch" (không phải hết ngân sách vòng):
+  // plan().action==='respond', evaluate().verdict==='done', và plan() trả về
+  // rỗng/toàn agent không hợp lệ. Nguyên tắc "stream = save":
+  // - rounds.length === 1: đúng 1 bước đã có kết quả — dùng thẳng kết quả ĐÃ
+  //   STREAM của nó (rounds[0].result), bỏ qua answerHint (plan()/evaluate()
+  //   không stream, paraphrase sẽ khác nội dung đã hiện ra).
+  // - rounds.length > 1: cần tổng hợp thật nhiều bước — gọi lại synthesize()
+  //   (CÓ stream) để nội dung stream ra và nội dung lưu luôn khớp nhau, thay
+  //   vì dùng answerHint chưa từng stream.
+  // - rounds.length === 0: chỉ xảy ra ở nhánh "respond" ngay từ đầu (chưa từng
+  //   lập kế hoạch) — không có gì để stream lại, chấp nhận không stream cho
+  //   case này (ngoại lệ đã biết, không phải sót).
+  private async finalizeAnswer(
+    data: IProcessAiTriggerJobData,
+    replyMessageId: string,
+    prompt: string,
     rounds: SupervisorRoundDto[],
     toolCalls: ToolCallTraceDto[],
-  ): ApprovalRequiredDelegateResult | null {
-    let approvalNeeded: ApprovalRequiredDelegateResult | null = null;
-    results.forEach((result, i) => {
-      if (result && 'approvalRequired' in result) {
-        toolCalls.push(...result.toolCalls);
-        if (!approvalNeeded) approvalNeeded = result;
-        return;
-      }
-      if (result) {
-        rounds.push(result.round);
-        toolCalls.push(...result.toolCalls);
-      } else {
-        rounds.push({
-          agent: delegations[i].agent,
-          task: delegations[i].task,
-          result:
-            'Agent này chưa khả dụng (chưa kết nối hoặc chưa có hạ tầng) — bỏ qua, không thực hiện được phần việc này.',
-        });
-      }
-    });
-    return approvalNeeded;
+    answerHint?: string,
+  ): Promise<AnswerResult> {
+    const { userId, channelId, channelType } = data;
+
+    if (rounds.length === 1) {
+      return buildAnswer(rounds[0].result, toolCalls);
+    }
+    if (rounds.length > 1) {
+      const accumulator = { text: '' };
+      const finalAnswer = await runCancellable(
+        replyMessageId,
+        this.cancellation,
+        (signal) =>
+          this.supervisor.synthesize(
+            prompt,
+            rounds,
+            buildOnToken(
+              this.agentStream,
+              userId,
+              channelId,
+              replyMessageId,
+              channelType,
+              accumulator,
+            ),
+            signal,
+          ),
+        () => new TurnCancelledError(accumulator.text || undefined),
+      );
+      return buildAnswer(finalAnswer, toolCalls);
+    }
+    return buildAnswer(
+      answerHint || 'Xin lỗi, mình chưa có câu trả lời phù hợp.',
+      toolCalls,
+    );
   }
 
   // Không bao giờ throw (trừ ApprovalRequiredError) — 1 ReactLoop lỗi (VD MCP
@@ -338,11 +343,10 @@ export class TurnResolverService {
         messageId: replyMessageId,
         channelType,
         history,
-        // Nhiều delegation có thể chạy SONG SONG trong CÙNG round (fan-out) —
-        // khoá riêng theo (round, provider) để FE không gộp chung 1 chuỗi
-        // (agent này resync() sẽ xoá mất phần agent kia đang stream nếu dùng
-        // chung khoá). dedupeByAgent() đã đảm bảo không 2 delegation nào cùng
-        // round trùng provider, nên khoá này luôn duy nhất trong cả turn.
+        // Mỗi bước trong plan chạy TUẦN TỰ (không còn fan-out song song, xem
+        // continueRounds()) nhưng vẫn khoá riêng theo (round, provider) — round
+        // tăng dần đều mỗi bước nên khoá này luôn duy nhất trong cả turn, kể cả
+        // khi cùng 1 provider xuất hiện lại ở bước sau (VD đọc rồi ghi).
         streamKey: `r${round}-${targetAgent.provider}`,
       });
       return {
