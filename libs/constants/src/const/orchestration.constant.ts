@@ -45,6 +45,21 @@ export const ORCHESTRATION_CONSTANTS = {
   // đợi phình vô hạn (concurrency worker chỉ 5, quá tải là dồn ứ chứ không tự
   // xử lý nhanh hơn).
   MAX_ORCHESTRATION_QUEUE_DEPTH: 100,
+  // Giai đoạn System, mục 4 — chặn LLM tự gọi lại CÙNG 1 tool với CÙNG tham số
+  // quá nhiều lần trong 1 lượt run() (dấu hiệu tự lặp vô ích sau khi thấy lỗi,
+  // khác với retry nội bộ 3 lần của McpClientService khi mất kết nối/session).
+  MAX_SAME_TOOL_CALL_REPEATS: 2,
+  // Giai đoạn System, mục 5.2 — giới hạn số request đồng thời được phép dồn
+  // vào CÙNG 1 MCP provider, độc lập với concurrency:5 (global) của BullMQ
+  // worker. Circuit breaker chỉ phản ứng SAU khi đã đủ lỗi (reactive) — giới
+  // hạn này ngăn TRƯỚC việc nhiều user tình cờ dồn tải vào 1 downstream service
+  // yếu cùng lúc.
+  MAX_CONCURRENT_MCP_CALLS_PER_PROVIDER: 3,
+  // Giai đoạn System, mục 5.3 — client MCP không được dùng quá khoảng thời
+  // gian này thì bị đóng + xoá khỏi cache (xem McpClientService.evictIdleClients),
+  // tránh giữ socket/session mở vô thời hạn khi có nhiều user riêng biệt qua
+  // suốt vòng đời process.
+  MCP_CLIENT_IDLE_TTL_MS: 30 * 60 * 1000,
 };
 
 export const ORCHESTRATION_SYSTEM_PROMPT = `Bạn là AI Assistant, 1 thành viên thật trong channel Slack này (không phải app/bot riêng biệt) — nói chuyện tự nhiên như đồng nghiệp, không xưng "tôi là 1 mô hình AI".

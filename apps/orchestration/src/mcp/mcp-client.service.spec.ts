@@ -1,6 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+import { ORCHESTRATION_CONSTANTS } from '@slack/constants';
 import { McpClientService } from './mcp-client.service';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
+import { ProviderConcurrencyLimiterService } from '../common/provider-concurrency-limiter.service';
 import { DynamicToolRegistryService } from '../registry/dynamic-tool-registry.service';
 import { DynamicToolExecutorService } from '../executor/dynamic-tool-executor.service';
 
@@ -11,6 +14,7 @@ const mockListResources = jest.fn();
 const mockListPrompts = jest.fn();
 const mockReadResource = jest.fn();
 const mockGetPrompt = jest.fn();
+const mockClose = jest.fn();
 
 jest.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
   Client: jest.fn().mockImplementation(() => ({
@@ -21,6 +25,7 @@ jest.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
     listPrompts: mockListPrompts,
     readResource: mockReadResource,
     getPrompt: mockGetPrompt,
+    close: mockClose,
   })),
 }));
 
@@ -48,6 +53,7 @@ describe('McpClientService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     mockConnect.mockResolvedValue(undefined);
+    mockClose.mockResolvedValue(undefined);
     mockCircuitBreaker.run.mockImplementation(
       (_key: string, action: () => Promise<unknown>) => action(),
     );
@@ -56,6 +62,7 @@ describe('McpClientService', () => {
       providers: [
         McpClientService,
         { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
+        ProviderConcurrencyLimiterService,
         {
           provide: DynamicToolRegistryService,
           useValue: { isDynamicProvider: jest.fn().mockReturnValue(false) },
@@ -105,6 +112,55 @@ describe('McpClientService', () => {
 
       expect(mockListTools).toHaveBeenCalledTimes(1);
     });
+
+    it('returns an empty list WITHOUT reconnecting when the server genuinely does not implement listTools (JSON-RPC MethodNotFound)', async () => {
+      mockListTools.mockRejectedValue(
+        new McpError(ErrorCode.MethodNotFound, 'Method not found'),
+      );
+
+      const tools = await service.getTools('sql_server');
+
+      expect(tools).toEqual([]);
+      // Đúng 1 lần connect (lần đầu) — không reconnect vì đây không phải lỗi
+      // kết nối/session, chỉ là server không hỗ trợ tool này.
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('regression test — reconnects and retries (does NOT silently return an empty list) when listTools fails for a connection/session reason (VD mcp_server vừa restart)', async () => {
+      mockListTools
+        .mockRejectedValueOnce(new Error('Bad Request: Server not initialized'))
+        .mockResolvedValueOnce({
+          tools: [{ name: 'get_database_schema', description: '', inputSchema: {} }],
+        });
+
+      const tools = await service.getTools('sql_server');
+
+      expect(tools).toEqual([
+        { name: 'get_database_schema', description: '', inputSchema: {} },
+      ]);
+      // Reconnect thật — bug cũ sẽ dừng lại ở đây với mảng RỖNG mà không bao
+      // giờ gọi connect() lần 2.
+      expect(mockConnect).toHaveBeenCalledTimes(2);
+    });
+
+    it('does NOT cache the empty fallback after a connection error is retried successfully — caches the REAL (non-empty) result instead', async () => {
+      mockListTools
+        .mockRejectedValueOnce(new Error('Bad Request: Server not initialized'))
+        .mockResolvedValueOnce({
+          tools: [{ name: 'get_database_schema', description: '', inputSchema: {} }],
+        });
+
+      await service.getTools('sql_server');
+      const secondCall = await service.getTools('sql_server');
+
+      expect(secondCall).toEqual([
+        { name: 'get_database_schema', description: '', inputSchema: {} },
+      ]);
+      // Chỉ 2 lần gọi listTools() tổng cộng (1 lỗi + 1 thành công của LẦN GỌI
+      // ĐẦU) — lần gọi thứ 2 tới service.getTools() phải ăn cache, KHÔNG gọi
+      // listTools() thêm lần nào nữa.
+      expect(mockListTools).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('getTools — query passthrough for dynamic (Swagger) providers', () => {
@@ -117,6 +173,7 @@ describe('McpClientService', () => {
         providers: [
           McpClientService,
           { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
+          ProviderConcurrencyLimiterService,
           {
             provide: DynamicToolRegistryService,
             useValue: mockDynamicRegistry,
@@ -239,6 +296,46 @@ describe('McpClientService', () => {
       await service.getPrompts('sql_server');
       expect(mockListPrompts).toHaveBeenCalledTimes(1);
     });
+
+    it('getResources: returns [] without reconnecting on genuine MethodNotFound', async () => {
+      mockListResources.mockRejectedValue(
+        new McpError(ErrorCode.MethodNotFound, 'Method not found'),
+      );
+
+      expect(await service.getResources('sql_server')).toEqual([]);
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('getResources: reconnects and retries on a connection/session error instead of silently returning []', async () => {
+      mockListResources
+        .mockRejectedValueOnce(new Error('Bad Request: Server not initialized'))
+        .mockResolvedValueOnce({ resources: [{ uri: 'file://a', name: 'A' }] });
+
+      const resources = await service.getResources('sql_server');
+
+      expect(resources).toEqual([{ uri: 'file://a', name: 'A' }]);
+      expect(mockConnect).toHaveBeenCalledTimes(2);
+    });
+
+    it('getPrompts: returns [] without reconnecting on genuine MethodNotFound', async () => {
+      mockListPrompts.mockRejectedValue(
+        new McpError(ErrorCode.MethodNotFound, 'Method not found'),
+      );
+
+      expect(await service.getPrompts('sql_server')).toEqual([]);
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('getPrompts: reconnects and retries on a connection/session error instead of silently returning []', async () => {
+      mockListPrompts
+        .mockRejectedValueOnce(new Error('Bad Request: Server not initialized'))
+        .mockResolvedValueOnce({ prompts: [{ name: 'prompt1', description: 'desc' }] });
+
+      const prompts = await service.getPrompts('sql_server');
+
+      expect(prompts).toEqual([{ name: 'prompt1', description: 'desc' }]);
+      expect(mockConnect).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('readResource and getPrompt', () => {
@@ -273,6 +370,145 @@ describe('McpClientService', () => {
         name: 'greet',
         arguments: { name: 'Alice' },
       });
+    });
+  });
+
+  describe('getClient() connection race (Giai đoạn System, mục 5.1)', () => {
+    it('shares a single in-flight connect() across 2 concurrent calls for the same provider+ownerId, instead of each creating its own (orphaned) connection', async () => {
+      let resolveConnect!: () => void;
+      mockConnect.mockImplementation(
+        () => new Promise<void>((resolve) => (resolveConnect = resolve)),
+      );
+      mockCallTool.mockResolvedValue({ content: [] });
+
+      const call = () =>
+        service.callTool({
+          provider: 'sql_server',
+          name: 'x',
+          args: {},
+          ownerId: 'user-1',
+        });
+
+      const p1 = call();
+      const p2 = call();
+      // Nhường đủ tick cho cả 2 lệnh gọi cùng chạy tới bước connect() đang treo.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // Trước fix: cache lưu Client đã resolve — cả 2 sẽ thấy cache trống và
+      // TỰ connect() riêng (2 lần). Sau fix: cache lưu Promise đang connect —
+      // request thứ 2 await CHUNG promise của request thứ 1.
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+
+      resolveConnect();
+      await Promise.all([p1, p2]);
+
+      expect(mockCallTool).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not cache a failed connect() forever — the next call retries instead of reusing a rejected promise', async () => {
+      mockConnect
+        .mockRejectedValueOnce(new Error('ECONNREFUSED'))
+        .mockResolvedValueOnce(undefined);
+      mockCallTool.mockResolvedValue({ content: [] });
+
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+      });
+
+      // callWithReconnect() tự retry nội bộ khi connect lỗi — 2 lần connect
+      // TRONG CÙNG 1 lời gọi callTool() (lỗi rồi thử lại), không phải do cache.
+      expect(mockConnect).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('evictIdleClients (Giai đoạn System, mục 5.3)', () => {
+    afterEach(() => jest.useRealTimers());
+
+    it('closes and evicts a client that has been idle past MCP_CLIENT_IDLE_TTL_MS', async () => {
+      jest.useFakeTimers();
+      mockCallTool.mockResolvedValue({ content: [] });
+
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+      });
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+
+      jest.advanceTimersByTime(
+        ORCHESTRATION_CONSTANTS.MCP_CLIENT_IDLE_TTL_MS + 1000,
+      );
+      await service.evictIdleClients();
+
+      expect(mockClose).toHaveBeenCalledTimes(1);
+
+      // Cache đã bị xoá — lần gọi kế tiếp phải reconnect thật, không dùng lại
+      // client cũ đã đóng.
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+      });
+      expect(mockConnect).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not evict a client that was used recently (within TTL)', async () => {
+      jest.useFakeTimers();
+      mockCallTool.mockResolvedValue({ content: [] });
+
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+      });
+
+      jest.advanceTimersByTime(1000); // rất ngắn so với TTL 30 phút
+      await service.evictIdleClients();
+
+      expect(mockClose).not.toHaveBeenCalled();
+
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+      });
+      // Vẫn dùng lại đúng client cũ — không reconnect.
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('refreshes lastUsedAt on every use — a client kept busy is never evicted, even past TTL since its FIRST use', async () => {
+      jest.useFakeTimers();
+      mockCallTool.mockResolvedValue({ content: [] });
+
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+      });
+      // "Dùng lại" gần hết TTL — phải cập nhật lastUsedAt, không tính idle từ mốc connect() ban đầu.
+      jest.advanceTimersByTime(
+        ORCHESTRATION_CONSTANTS.MCP_CLIENT_IDLE_TTL_MS - 1000,
+      );
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+      });
+
+      jest.advanceTimersByTime(2000); // vượt TTL kể từ mốc connect() gốc, nhưng chưa vượt kể từ lần dùng gần nhất
+      await service.evictIdleClients();
+
+      expect(mockClose).not.toHaveBeenCalled();
+      expect(mockConnect).toHaveBeenCalledTimes(1);
     });
   });
 });
