@@ -166,10 +166,28 @@ export class ApprovalFlowService {
     // trong suốt thời gian resume/chạy thật (thường vài giây tới vài chục giây).
     await this.cancellation.startTurn(replyMessageId, userId);
     try {
-      const toolResultText = await this.executeApprovedToolForReal(
-        checkpoint,
-        userId,
-      );
+      const { text: toolResultText, isError } =
+        await this.executeApprovedToolForReal(checkpoint, userId);
+
+      // Giai đoạn System, mục 6 — hành động ĐÃ được duyệt (destructiveHint) mà
+      // tool THẬT trả lỗi (không phải mất kết nối MCP — cái đó đã throw và rơi
+      // vào catch() bên dưới, có reconnect riêng ở McpClientService) là lỗi
+      // logic/quyền của chính hành động đó (VD thiếu quyền Google API) — DỪNG
+      // NGAY, không quay lại continueRounds() để Supervisor tự ý re-plan/thử
+      // lại đúng hành động này. Bug thật đã gặp: lỗi này bị coi như 1 round
+      // bình thường, Supervisor cứ thử lại → destructiveHint lại yêu cầu duyệt
+      // → lặp duyệt/lỗi 5 lần tới khi hết MAX_SUPERVISOR_ROUNDS.
+      if (isError) {
+        this.logger.warn(
+          `approveCheckpoint() checkpoint=${id} — tool "${pendingTool.provider}.${pendingTool.name}" thất bại sau khi duyệt, dừng không retry: ${toolResultText}`,
+        );
+        await this.messageClient.updateMessage({
+          id: replyMessageId,
+          userId: botUserId,
+          content: `⚠️ Hành động "${pendingTool.name}" đã được duyệt nhưng thực thi thất bại:\n${toolResultText}`,
+        });
+        return;
+      }
 
       // Chuyển Message UI từ ApprovalRequestCard về text để hiện Markdown
       await this.messageClient.updateMessage({
@@ -249,7 +267,7 @@ export class ApprovalFlowService {
   private async executeApprovedToolForReal(
     checkpoint: CheckpointResponseDto,
     userId: string,
-  ): Promise<string> {
+  ): Promise<{ text: string; isError: boolean }> {
     const { pendingTool } = checkpoint;
     const toolResult = await this.mcpClient.callTool({
       provider: pendingTool.provider,
@@ -257,7 +275,10 @@ export class ApprovalFlowService {
       args: pendingTool.args,
       ownerId: userId,
     });
-    return capToolResultSize(extractTextFromMcpResult(toolResult));
+    return {
+      text: capToolResultSize(extractTextFromMcpResult(toolResult)),
+      isError: Boolean(toolResult.isError),
+    };
   }
 
   // Checkpoint đã claim() xong (không rollback) — nếu NGAY CẢ update báo lỗi

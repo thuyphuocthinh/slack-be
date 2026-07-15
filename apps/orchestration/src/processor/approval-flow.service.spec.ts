@@ -351,6 +351,33 @@ describe('ApprovalFlowService', () => {
       });
     });
 
+    it('mục 6 — stops immediately and shows the tool error, WITHOUT re-entering the Supervisor loop, when the approved tool call itself resolves with isError (not a connect failure — that already throws and is handled separately)', async () => {
+      mockCheckpoint.findById.mockResolvedValue(checkpoint);
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'Error [TOOL_EXECUTION_ERROR:append_document_text]: insufficient permission' }],
+        isError: true,
+      });
+      (extractTextFromMcpResult as jest.Mock).mockReturnValue(
+        'Error [TOOL_EXECUTION_ERROR:append_document_text]: insufficient permission',
+      );
+
+      await runApprovalJob();
+
+      // KHÔNG quay lại Supervisor — đây chính là bug thật đã gặp: Supervisor cứ
+      // re-plan/thử lại đúng hành động này, destructiveHint lại yêu cầu duyệt,
+      // lặp duyệt/lỗi nhiều lần.
+      expect(mockTurnResolver.continueRounds).not.toHaveBeenCalled();
+      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+        id: 'approval-msg-1',
+        userId: 'bot-1',
+        content:
+          '⚠️ Hành động "execute_write_query" đã được duyệt nhưng thực thi thất bại:\nError [TOOL_EXECUTION_ERROR:append_document_text]: insufficient permission',
+      });
+      expect(mockAgentStream.emitStep).toHaveBeenCalledWith(expect.anything(), {
+        type: 'done',
+      });
+    });
+
     it('does not throw (and still emits done) when even the error-fallback updateMessage() call itself fails', async () => {
       mockCheckpoint.findById.mockResolvedValue(checkpoint);
       mockMcpClient.callTool.mockRejectedValue(new Error('connect ECONNREFUSED'));
