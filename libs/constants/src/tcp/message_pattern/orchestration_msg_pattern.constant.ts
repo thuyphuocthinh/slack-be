@@ -9,4 +9,6 @@ export const ORCHESTRATION_MESSAGE_PATTERNS = {
   REGISTER_DYNAMIC_PROVIDER: 'orchestration.register_dynamic_provider',
   UPDATE_DYNAMIC_PROVIDER: 'orchestration.update_dynamic_provider',
   DELETE_DYNAMIC_PROVIDER: 'orchestration.delete_dynamic_provider',
+  HEALTH_CHECK: 'orchestration.health_check',
+  GET_METRICS: 'orchestration.get_metrics',
 } as const;

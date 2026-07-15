@@ -99,4 +99,39 @@ describe('AiProvidersService', () => {
       );
     });
   });
+
+  describe('getHealth (Backpressure/Admission control, mục 2)', () => {
+    it('calls HEALTH_CHECK with no payload and returns the raw result', async () => {
+      const health = {
+        status: 'ok',
+        redis: true,
+        database: true,
+        circuitBreakers: {},
+        queueDepth: { waiting: 0, active: 0 },
+      };
+      mockClientProxy.send.mockReturnValue(of(health));
+
+      const result = await service.getHealth();
+
+      expect(mockClientProxy.send).toHaveBeenCalledWith(
+        ORCHESTRATION_MESSAGE_PATTERNS.HEALTH_CHECK,
+        {},
+      );
+      expect(result).toEqual(health);
+    });
+  });
+
+  describe('getMetricsText (mục 3)', () => {
+    it('calls GET_METRICS and unwraps { metricsText } into a plain string', async () => {
+      mockClientProxy.send.mockReturnValue(of({ metricsText: '# HELP ...' }));
+
+      const result = await service.getMetricsText();
+
+      expect(mockClientProxy.send).toHaveBeenCalledWith(
+        ORCHESTRATION_MESSAGE_PATTERNS.GET_METRICS,
+        {},
+      );
+      expect(result).toBe('# HELP ...');
+    });
+  });
 });

@@ -11,25 +11,35 @@ export class DatabaseHealthService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    try {
-      console.log('🔌 Testing database connection...');
-      console.log('Database config:', {
-        host: process.env.DB_HOST,
-        port: process.env.DB_PORT,
-        database: process.env.DB_NAME,
-        user: process.env.DB_USER,
-      });
+    console.log('🔌 Testing database connection...');
+    console.log('Database config:', {
+      host: process.env.DB_HOST,
+      port: process.env.DB_PORT,
+      database: process.env.DB_NAME,
+      user: process.env.DB_USER,
+    });
 
-      // Test connection
-      await this.dataSource.query('SELECT 1 as test');
+    const alive = await this.isAlive();
+    if (alive) {
       console.log('✅ Database connection successful!');
+    } else {
+      console.error('❌ Database connection failed.');
+    }
+  }
+
+  // Health-check liveness — dùng lại ở đây (boot log) LẪN từ bên ngoài (VD
+  // HealthCheckService của orchestration) thay vì mỗi nơi tự viết 1 câu SELECT 1 riêng.
+  async isAlive(): Promise<boolean> {
+    try {
+      await this.dataSource.query('SELECT 1 as test');
+      return true;
     } catch (error: unknown) {
       if (isError(error)) {
-        console.error('❌ Database connection failed:', error.message);
-        console.error('Full error:', error);
+        console.error('Database health check failed:', error.message);
       } else {
-        console.error('❌ Database connection failed:', error);
+        console.error('Database health check failed:', error);
       }
+      return false;
     }
   }
 }

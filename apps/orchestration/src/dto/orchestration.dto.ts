@@ -167,3 +167,22 @@ export class DeleteDynamicProviderRequestDto {
 export class DeleteDynamicProviderResponseDto {
   success: boolean;
 }
+
+// Backpressure/Admission control, mục 3 — gọi qua TCP vì orchestration không
+// có HTTP surface riêng (thuần microservice). "degraded" khi redis HOẶC
+// database không phản hồi — vẫn trả về (không throw) để caller tự quyết định
+// alert/thử lại, không phải 1 lỗi request.
+export class HealthCheckResponseDto {
+  status: 'ok' | 'degraded';
+  redis: boolean;
+  database: boolean;
+  circuitBreakers: Record<string, 'open' | 'halfOpen' | 'closed'>;
+  queueDepth: Record<string, number>;
+}
+
+// Prometheus exposition format (text/plain) của registry RIÊNG của
+// orchestration — api-gateway ghép thẳng vào response GET /metrics của nó,
+// vì 2 tiến trình không chia sẻ chung 1 prom-client registry global.
+export class GetMetricsResponseDto {
+  metricsText: string;
+}

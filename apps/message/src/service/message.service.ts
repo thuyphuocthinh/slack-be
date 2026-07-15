@@ -18,6 +18,7 @@ import {
   ChannelTypeEnum,
   MESSAGE_ERROR,
   NAME_SERVICE_TCP,
+  ORCHESTRATION_CONSTANTS,
   USER_MESSAGE_PATTERNS,
   ESocketEvent,
 } from '@slack/constants';
@@ -449,6 +450,25 @@ export class MessageService {
         channelId: channel.id,
         senderId: botEntry.id,
         content: 'Bạn đang hỏi hơi nhanh, đợi 1 chút nhé.',
+      });
+      return;
+    }
+
+    // Backpressure/Admission control — waiting+active vượt ngưỡng thì từ chối
+    // enqueue NGAY tại lúc trigger thay vì để hàng đợi phình vô hạn (worker
+    // concurrency chỉ 5, quá tải là dồn ứ chứ không tự xử lý nhanh hơn).
+    const overloaded = await this.queueService.isOverloaded(
+      EQueueName.AI_ORCHESTRATION_QUEUE,
+      ORCHESTRATION_CONSTANTS.MAX_ORCHESTRATION_QUEUE_DEPTH,
+    );
+    if (overloaded) {
+      this.logger.warn(
+        `maybeTriggerAiOrchestration() AI_ORCHESTRATION_QUEUE quá tải (> ${ORCHESTRATION_CONSTANTS.MAX_ORCHESTRATION_QUEUE_DEPTH} job waiting+active) — từ chối enqueue cho userId=${savedMessage.userId}`,
+      );
+      await this.createMessage({
+        channelId: channel.id,
+        senderId: botEntry.id,
+        content: 'Hệ thống đang bận, vui lòng thử lại sau ít phút.',
       });
       return;
     }

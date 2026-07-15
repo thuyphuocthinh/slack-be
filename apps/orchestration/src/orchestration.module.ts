@@ -35,6 +35,11 @@ import { ProviderSummaryService } from './registry/provider-summary.service';
 import { OpenAiEmbeddingProvider } from './registry/openai-embedding.provider';
 import { DynamicToolExecutorService } from './executor/dynamic-tool-executor.service';
 import { AgentCancellationService } from './cancellation/agent-cancellation.service';
+import { TurnResolverService } from './processor/turn-resolver.service';
+import { CheckpointPauseService } from './processor/checkpoint-pause.service';
+import { ApprovalFlowService } from './processor/approval-flow.service';
+import { MetricsRegistryService } from './common/metrics-registry.service';
+import { HealthCheckService } from './common/health-check.service';
 
 @Module({
   imports: [
@@ -85,6 +90,11 @@ import { AgentCancellationService } from './cancellation/agent-cancellation.serv
     TriggerClaimService,
     CircuitBreakerService,
     AgentCancellationService,
+    TurnResolverService,
+    CheckpointPauseService,
+    ApprovalFlowService,
+    MetricsRegistryService,
+    HealthCheckService,
   ],
 })
 export class OrchestrationModule {}

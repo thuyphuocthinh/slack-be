@@ -468,6 +468,31 @@ describe('ReactLoopService', () => {
       expect(result.toolCalls[0].resultPreview).toBe(`long result ${longText}`);
       expect(result.toolCalls[0].resultPreview!.length).toBeGreaterThan(200);
     });
+
+    it('caps the tool result text fed BACK to the LLM once it exceeds the context-safety limit, without touching resultPreview', async () => {
+      const hugeText = 'y'.repeat(7000);
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [{ type: 'text', text: hugeText }],
+        isError: false,
+      });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'get_database_schema', args: {} }],
+        })
+        .mockImplementationOnce((input) => {
+          // input ở đây là mảng LlmToolResult[] — content chính là text bị cap.
+          const fedBackText = (input as { content: string }[])[0].content;
+          expect(fedBackText.length).toBeLessThan(hugeText.length);
+          expect(fedBackText).toContain('ĐÃ CẮT BỚT');
+          return Promise.resolve({ text: 'ok', toolCalls: [] });
+        });
+
+      const result = await service.run(baseDto);
+
+      // resultPreview (trace UI) vẫn đầy đủ, không bị cap.
+      expect(result.toolCalls[0].resultPreview).toBe(hugeText);
+    });
   });
 
   describe('Risk Gate (Giai đoạn 3 — HITL, Step 3)', () => {

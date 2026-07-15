@@ -3,8 +3,10 @@ import { OrchestrationController } from './orchestration.controller';
 import { McpAuthClientService } from './mcp-auth/mcp-auth-client.service';
 import { McpClientService } from './mcp/mcp-client.service';
 import { AiOrchestrationProcessor } from './processor/ai-orchestration.processor';
+import { ApprovalFlowService } from './processor/approval-flow.service';
 import { DynamicProviderDbService } from './registry/dynamic-provider-db.service';
 import { ProviderSummaryService } from './registry/provider-summary.service';
+import { HealthCheckService } from './common/health-check.service';
 import { EDynamicProviderAuthType } from './entity/dynamic-provider.entity';
 
 describe('OrchestrationController', () => {
@@ -15,6 +17,9 @@ describe('OrchestrationController', () => {
   let providerSummary: jest.Mocked<
     Pick<ProviderSummaryService, 'getProviders'>
   >;
+  let healthCheckService: jest.Mocked<
+    Pick<HealthCheckService, 'check' | 'getMetricsText'>
+  >;
 
   beforeEach(async () => {
     dynamicProviderDb = {
@@ -24,6 +29,10 @@ describe('OrchestrationController', () => {
     providerSummary = {
       getProviders: jest.fn().mockResolvedValue([]),
     };
+    healthCheckService = {
+      check: jest.fn(),
+      getMetricsText: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [OrchestrationController],
@@ -31,8 +40,10 @@ describe('OrchestrationController', () => {
         { provide: McpAuthClientService, useValue: {} },
         { provide: McpClientService, useValue: {} },
         { provide: AiOrchestrationProcessor, useValue: {} },
+        { provide: ApprovalFlowService, useValue: {} },
         { provide: DynamicProviderDbService, useValue: dynamicProviderDb },
         { provide: ProviderSummaryService, useValue: providerSummary },
+        { provide: HealthCheckService, useValue: healthCheckService },
       ],
     }).compile();
 
@@ -83,6 +94,33 @@ describe('OrchestrationController', () => {
 
       expect(dynamicProviderDb.updateProvider).toHaveBeenCalledWith(dto);
       expect(result).toEqual({ id: 'dynamic_abc123', success: true });
+    });
+  });
+
+  describe('healthCheck (Backpressure/Admission control, mục 2)', () => {
+    it('delegates to HealthCheckService.check', async () => {
+      const health = {
+        status: 'ok' as const,
+        redis: true,
+        database: true,
+        circuitBreakers: {},
+        queueDepth: { waiting: 0, active: 0 },
+      };
+      healthCheckService.check.mockResolvedValue(health);
+
+      const result = await controller.healthCheck();
+
+      expect(result).toBe(health);
+    });
+  });
+
+  describe('getMetrics (Backpressure/Admission control, mục 3)', () => {
+    it('wraps HealthCheckService.getMetricsText into { metricsText }', async () => {
+      healthCheckService.getMetricsText.mockResolvedValue('# HELP ...');
+
+      const result = await controller.getMetrics();
+
+      expect(result).toEqual({ metricsText: '# HELP ...' });
     });
   });
 });

@@ -22,6 +22,16 @@ export class CachedService {
     }
   }
 
+  // Health-check liveness — không cần key nào, chỉ cần Redis phản hồi được.
+  async ping(): Promise<boolean> {
+    try {
+      return (await this.redis.ping()) === 'PONG';
+    } catch (error) {
+      this.logger.error(`Redis ping error: ${error.message}`);
+      return false;
+    }
+  }
+
   // Utils
 
   private withJitter(ttl: number, percent = 0.1): number {

@@ -16,5 +16,6 @@ import { AiProvidersService } from './ai-providers.service';
   ],
   controllers: [AiProvidersController],
   providers: [AiProvidersService],
+  exports: [AiProvidersService],
 })
 export class AiProvidersModule {}

@@ -40,6 +40,11 @@ export const ORCHESTRATION_CONSTANTS = {
   CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENTAGE: 50,
   CIRCUIT_BREAKER_VOLUME_THRESHOLD: 3,
   CIRCUIT_BREAKER_RESET_TIMEOUT_MS: 30_000,
+  // Backpressure/Admission control — waiting+active job của AI_ORCHESTRATION_QUEUE
+  // vượt ngưỡng này thì từ chối enqueue thêm (báo "đang bận") thay vì để hàng
+  // đợi phình vô hạn (concurrency worker chỉ 5, quá tải là dồn ứ chứ không tự
+  // xử lý nhanh hơn).
+  MAX_ORCHESTRATION_QUEUE_DEPTH: 100,
 };
 
 export const ORCHESTRATION_SYSTEM_PROMPT = `Bạn là AI Assistant, 1 thành viên thật trong channel Slack này (không phải app/bot riêng biệt) — nói chuyện tự nhiên như đồng nghiệp, không xưng "tôi là 1 mô hình AI".
@@ -73,6 +78,7 @@ export const SUPERVISOR_SYSTEM_PROMPT = `Bạn là bộ điều phối (Supervis
 - "respond": chọn khi câu hỏi KHÔNG cần dữ liệu/thao tác thật từ bất kỳ hệ thống nào liệt kê bên dưới (VD chào hỏi, hỏi chung chung, câu hỏi trả lời được bằng kiến thức thông thường, hoặc user cần dữ liệu nhưng KHÔNG có agent nào phù hợp trong danh sách — lúc này giải thích rõ giới hạn, đừng bịa), HOẶC khi các bước delegate trước đó (nếu có, xem bên dưới) đã đủ dữ liệu để trả lời trọn vẹn. Điền field "answer" bằng câu trả lời cuối cùng, tiếng Việt — nếu có các bước delegate trước đó, PHẢI tổng hợp ĐẦY ĐỦ tất cả kết quả đã thu thập được (trình bày TRỰC TIẾP dữ liệu thật — danh sách, số liệu cụ thể — TUYỆT ĐỐI không chỉ nói "đã lấy được dữ liệu thành công" mà không đưa nội dung ra), không chỉ nhắc lại bước gần nhất.
 - "delegate": chọn khi câu hỏi cần dữ liệu/thao tác thật từ 1 hoặc nhiều hệ thống trong danh sách bên dưới mà CHƯA thu thập đủ. Điền field "delegations" là 1 mảng, mỗi phần tử gồm "agent" (đúng provider id trong danh sách, không tự bịa provider không có) và "task" (1 câu mô tả ngắn gọn, CHỈ chứa đúng phần việc agent đó cần làm).
   QUY TẮC chọn song song hay tuần tự: nếu nhiều phần việc ĐỘC LẬP nhau (không phần nào cần dùng kết quả của phần kia), đưa TẤT CẢ vào CÙNG 1 mảng "delegations" để chạy song song ngay trong vòng này. Nếu 1 phần việc PHỤ THUỘC kết quả của phần khác (VD cần số liệu từ agent A rồi mới biết nội dung giao cho agent B), CHỈ đưa phần làm trước vào "delegations" vòng này — đợi có kết quả rồi vòng sau mới delegate phần phụ thuộc, TUYỆT ĐỐI không đưa 2 phần phụ thuộc nhau vào chung 1 vòng.
+  QUAN TRỌNG — mỗi agent CHỈ thấy được tool của ĐÚNG hệ thống nó phụ trách, KHÔNG thấy được tool của agent khác. Nếu yêu cầu có bước GHI/TẠO/CẬP NHẬT dữ liệu vào 1 hệ thống lưu trữ CỤ THỂ (VD 1 bảng CSDL, 1 CRM...), PHẢI delegate đúng bước đó sang agent quản lý hệ thống đó — TUYỆT ĐỐI không giao cho agent lấy dữ liệu nguồn (VD 1 API bên thứ 3) tự tìm tool gần giống để "giả lập" việc ghi dữ liệu, vì agent đó không có quyền/tool để làm việc này.
 
 Nếu prompt có kèm "Các bước đã thực hiện trong turn này" — đó là kết quả delegate ở (các) vòng trước trong CÙNG 1 turn, không phải lịch sử chat cũ. Đọc kỹ để quyết định đã đủ chưa, tránh delegate lặp lại việc đã làm.
 
