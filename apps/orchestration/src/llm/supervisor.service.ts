@@ -1,10 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   ORCHESTRATION_CONSTANTS,
-  SUPERVISOR_SYSTEM_PROMPT,
+  SUPERVISOR_PLANNING_PROMPT,
+  SUPERVISOR_EVALUATE_PROMPT,
+  SUPERVISOR_EVALUATE_SCHEMA,
   SUPERVISOR_SYNTHESIS_PROMPT,
-  SUPERVISOR_DECISION_SCHEMA,
-  SUPERVISOR_DECISION_SCHEMA_NO_ANSWER,
+  SUPERVISOR_PLAN_SCHEMA,
+  SUPERVISOR_PLAN_SCHEMA_NO_ANSWER,
   SUPERVISOR_SYNTHESIS_SCHEMA,
   PROVIDER_DESCRIPTIONS,
 } from '@slack/constants';
@@ -13,7 +15,9 @@ import { AGENT_REGISTRY } from '../registry/agents.registry';
 import { DynamicProviderDbService } from '../registry/dynamic-provider-db.service';
 import {
   AvailableAgentDto,
-  SupervisorDecisionDto,
+  DelegationDto,
+  SupervisorEvaluateDto,
+  SupervisorPlanDto,
   SupervisorRoundDto,
 } from '../dto/supervisor.dto';
 import { ChatHistoryTurnDto } from '../dto/message-client.dto';
@@ -62,17 +66,22 @@ export class SupervisorService {
   }
 
   /**
-   * `previousRounds`: các vòng delegate ĐÃ chạy xong trong CÙNG 1 turn (Giai
-   * đoạn 2, Step 3) — không phải lịch sử chat cũ. `history`: lịch sử hội
-   * thoại gần đây trong channel (Step 7 — trước đây chỉ SubAgent nhìn thấy,
-   * Supervisor mù hoàn toàn nên dễ route sai với câu hỏi nối ngữ cảnh cũ).
+   * Plan-and-Execute (xem accuracy.md) — thay cho decide() cũ (hỏi lại "làm
+   * gì tiếp" mỗi round). Gọi ĐÚNG 1 LẦN mỗi khi TurnResolverService.continueRounds()
+   * cần 1 kế hoạch mới (turn mới HOẶC re-plan giữa chừng) — trả về TOÀN BỘ các
+   * bước còn lại, không chỉ bước tiếp theo.
+   *
+   * `rounds`: các bước ĐÃ chạy xong trong CÙNG 1 turn (có thể qua nhiều lần
+   * duyệt HITL) — không phải lịch sử chat cũ. `history`: lịch sử hội thoại gần
+   * đây trong channel (Step 7 — trước đây chỉ SubAgent nhìn thấy, Supervisor mù
+   * hoàn toàn nên dễ route sai với câu hỏi nối ngữ cảnh cũ).
    */
-  async decide(
+  async plan(
     prompt: string,
     agents: AvailableAgentDto[],
-    previousRounds: SupervisorRoundDto[] = [],
+    rounds: SupervisorRoundDto[] = [],
     history: ChatHistoryTurnDto[] = [],
-  ): Promise<SupervisorDecisionDto> {
+  ): Promise<SupervisorPlanDto> {
     const agentListText =
       agents.length > 0
         ? agents
@@ -80,15 +89,13 @@ export class SupervisorService {
           .join('\n')
         : '(Người dùng chưa kết nối agent nào — nếu câu hỏi cần dữ liệu, trả lời "respond" và nhắc user vào Settings để kết nối.)';
 
-    const fullPrompt = this.buildPrompt(prompt, previousRounds, history);
-    // resolveAnswer() CHỈ dùng decision.answer khi previousRounds rỗng (chưa
-    // từng delegate) — mọi vòng sau đều tự tổng hợp lại (rounds[0].result hoặc
+    const fullPrompt = this.buildPrompt(prompt, rounds, history);
+    // continueRounds() CHỈ dùng plan.answer khi rounds rỗng (chưa chạy bước
+    // nào) — mọi lần plan() sau đều tự tổng hợp lại (rounds[0].result hoặc
     // synthesize(), xem "stream = save"). Bỏ field "answer" khỏi schema ở các
-    // vòng đó để khỏi trả tiền completion token cho 1 câu trả lời chắc chắn bị vứt.
-    const decisionSchema =
-      previousRounds.length > 0
-        ? SUPERVISOR_DECISION_SCHEMA_NO_ANSWER
-        : SUPERVISOR_DECISION_SCHEMA;
+    // lần đó để khỏi trả tiền completion token cho 1 câu trả lời chắc chắn bị vứt.
+    const planSchema =
+      rounds.length > 0 ? SUPERVISOR_PLAN_SCHEMA_NO_ANSWER : SUPERVISOR_PLAN_SCHEMA;
 
     try {
       const { strategy, model } = this.llmFactory.resolve(
@@ -96,30 +103,81 @@ export class SupervisorService {
         ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
       );
       this.logger.log(
-        `decide() model=${model} agents=${agents.length} historyTurns=${history.length} prompt=${fullPrompt}`,
+        `plan() model=${model} agents=${agents.length} historyTurns=${history.length} prompt=${fullPrompt}`,
       );
       // Giai đoạn 4, Step 6 — circuit breaker theo `strategy.id`, DÙNG CHUNG
       // key với ReactLoopService (cùng provider LLM chết thì cùng 1 mạch).
-      const decision = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
+      const plan = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
         withTimeout(
-          strategy.generateStructured<SupervisorDecisionDto>({
+          strategy.generateStructured<SupervisorPlanDto>({
             model,
-            systemInstruction: `${SUPERVISOR_SYSTEM_PROMPT}\n${agentListText}`,
+            systemInstruction: `${SUPERVISOR_PLANNING_PROMPT}\n${agentListText}`,
             prompt: fullPrompt,
-            schema: decisionSchema,
+            schema: planSchema,
           }),
           ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
-          `Supervisor decide() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
+          `Supervisor plan() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
         ),
       );
-      this.logger.log(`decide() result=${JSON.stringify(decision)}`);
-      return decision;
+      this.logger.log(`plan() result=${JSON.stringify(plan)}`);
+      return plan;
     } catch (error) {
       this.logger.error(
-        `Supervisor decide() failed: ${(error as Error).message}`,
+        `Supervisor plan() failed: ${(error as Error).message}`,
         (error as Error).stack,
       );
       return { action: 'respond', answer: describeExternalServiceError(error) };
+    }
+  }
+
+  /**
+   * Plan-and-Execute — gọi SAU MỖI bước trong kế hoạch, TRƯỚC khi qua bước kế
+   * tiếp. Câu hỏi HẸP, rẻ hơn plan() (không suy luận lại cả nhiệm vụ). Không
+   * còn bước nào trong kế hoạch (`remainingSteps` rỗng) thì khỏi cần hỏi LLM
+   * — chắc chắn "done" (không có gì để "tiếp tục" hay "re-plan" nữa).
+   */
+  async evaluate(
+    originalPrompt: string,
+    completedStep: SupervisorRoundDto,
+    remainingSteps: DelegationDto[],
+  ): Promise<SupervisorEvaluateDto> {
+    if (remainingSteps.length === 0) {
+      return { verdict: 'done' };
+    }
+
+    const remainingText = remainingSteps
+      .map((s, i) => `${i + 1}. Agent "${s.agent}": ${s.task}`)
+      .join('\n');
+    const prompt = `Câu hỏi gốc: ${originalPrompt}\n\nBước vừa thực hiện xong — Agent "${completedStep.agent}" (yêu cầu: "${completedStep.task}") → kết quả: ${completedStep.result}\n\nCác bước CÒN LẠI trong kế hoạch (chưa chạy):\n${remainingText}\n\nBước vừa xong có đạt kỳ vọng không, các bước còn lại có còn hợp lý để tiếp tục không?`;
+
+    try {
+      const { strategy, model } = this.llmFactory.resolve(
+        process.env.SUPERVISOR_MODEL ??
+        ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
+      );
+      const verdict = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
+        withTimeout(
+          strategy.generateStructured<SupervisorEvaluateDto>({
+            model,
+            systemInstruction: SUPERVISOR_EVALUATE_PROMPT,
+            prompt,
+            schema: SUPERVISOR_EVALUATE_SCHEMA,
+          }),
+          ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
+          `Supervisor evaluate() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
+        ),
+      );
+      this.logger.log(`evaluate() result=${JSON.stringify(verdict)}`);
+      return verdict;
+    } catch (error) {
+      this.logger.error(
+        `Supervisor evaluate() failed: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+      // Lỗi gọi LLM không nên chặn cả turn — mặc định bám theo kế hoạch cũ,
+      // an toàn hơn vì MAX_SUPERVISOR_ROUNDS vẫn là lưới chặn cuối nếu kế
+      // hoạch thật sự sai.
+      return { verdict: 'continue' };
     }
   }
 

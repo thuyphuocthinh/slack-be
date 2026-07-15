@@ -9,12 +9,21 @@ export class DelegationDto {
   task: string;
 }
 
-export class SupervisorDecisionDto {
-  action: 'respond' | 'delegate';
+// Plan-and-Execute (xem accuracy.md) — thay cho SupervisorDecisionDto cũ.
+// "steps" là TOÀN BỘ các bước CÒN LẠI, đúng thứ tự — không chỉ 1 round/lần.
+export class SupervisorPlanDto {
+  action: 'respond' | 'plan';
   answer?: string;
-  // Nhiều phần tử = các agent ĐỘC LẬP nhau, chạy song song trong CÙNG 1 vòng
-  // (Step 8 — fan-out). Phần việc phụ thuộc kết quả phần khác phải để vòng sau.
-  delegations?: DelegationDto[];
+  steps?: DelegationDto[];
+}
+
+export type SupervisorEvaluateVerdict = 'continue' | 're-plan' | 'done';
+
+// Trả về SAU MỖI bước trong kế hoạch — quyết định có bám theo kế hoạch cũ
+// (continue), lập lại kế hoạch (re-plan), hay dừng vì đã đủ dữ liệu (done).
+export class SupervisorEvaluateDto {
+  verdict: SupervisorEvaluateVerdict;
+  reason?: string;
 }
 
 /** 1 vòng delegate đã chạy xong trong turn hiện tại — đưa lại cho Supervisor

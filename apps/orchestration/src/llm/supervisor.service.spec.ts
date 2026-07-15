@@ -1,8 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   ORCHESTRATION_CONSTANTS,
-  SUPERVISOR_DECISION_SCHEMA,
-  SUPERVISOR_DECISION_SCHEMA_NO_ANSWER,
+  SUPERVISOR_PLAN_SCHEMA,
+  SUPERVISOR_PLAN_SCHEMA_NO_ANSWER,
 } from '@slack/constants';
 import { SupervisorService } from './supervisor.service';
 import { McpAuthClientService } from '../mcp-auth/mcp-auth-client.service';
@@ -112,7 +112,7 @@ describe('SupervisorService', () => {
     });
   });
 
-  describe('decide', () => {
+  describe('plan (Plan-and-Execute, xem accuracy.md — thay cho decide() cũ)', () => {
     const agents = [
       {
         provider: 'sql_server',
@@ -121,17 +121,17 @@ describe('SupervisorService', () => {
       },
     ];
 
-    it('returns the structured decision from the resolved LLM strategy', async () => {
+    it('returns the structured plan from the resolved LLM strategy', async () => {
       mockStrategy.generateStructured.mockResolvedValue({
-        action: 'delegate',
-        delegations: [{ agent: 'sql_server', task: 'liệt kê bảng' }],
+        action: 'plan',
+        steps: [{ agent: 'sql_server', task: 'liệt kê bảng' }],
       });
 
-      const decision = await service.decide('có bao nhiêu bảng?', agents);
+      const plan = await service.plan('có bao nhiêu bảng?', agents);
 
-      expect(decision).toEqual({
-        action: 'delegate',
-        delegations: [{ agent: 'sql_server', task: 'liệt kê bảng' }],
+      expect(plan).toEqual({
+        action: 'plan',
+        steps: [{ agent: 'sql_server', task: 'liệt kê bảng' }],
       });
       expect(mockLlmFactory.resolve).toHaveBeenCalledWith(
         ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
@@ -147,28 +147,28 @@ describe('SupervisorService', () => {
       );
     });
 
-    it('requests the "answer" field in the schema on the FIRST round (no previousRounds yet)', async () => {
+    it('requests the "answer" field in the schema when rounds is empty (turn mới HOẶC chưa có bước nào chạy)', async () => {
       mockStrategy.generateStructured.mockResolvedValue({
         action: 'respond',
         answer: 'Chào bạn!',
       });
 
-      await service.decide('chào bạn', agents);
+      await service.plan('chào bạn', agents);
 
       expect(mockStrategy.generateStructured).toHaveBeenCalledWith(
-        expect.objectContaining({ schema: SUPERVISOR_DECISION_SCHEMA }),
+        expect.objectContaining({ schema: SUPERVISOR_PLAN_SCHEMA }),
       );
     });
 
-    it('drops the "answer" field from the schema once previousRounds is non-empty — resolveAnswer() never uses decide().answer past the first round, so asking the model to write one just burns tokens for nothing', async () => {
+    it('drops the "answer" field from the schema once rounds is non-empty — continueRounds() never uses plan().answer once a step has run, so asking the model to write one just burns tokens for nothing', async () => {
       mockStrategy.generateStructured.mockResolvedValue({ action: 'respond' });
 
-      await service.decide('có bao nhiêu bảng?', agents, [
+      await service.plan('có bao nhiêu bảng?', agents, [
         { agent: 'sql_server', task: 'liệt kê bảng', result: 'Có 2 bảng' },
       ]);
 
       expect(mockStrategy.generateStructured).toHaveBeenCalledWith(
-        expect.objectContaining({ schema: SUPERVISOR_DECISION_SCHEMA_NO_ANSWER }),
+        expect.objectContaining({ schema: SUPERVISOR_PLAN_SCHEMA_NO_ANSWER }),
       );
     });
 
@@ -178,7 +178,7 @@ describe('SupervisorService', () => {
         answer: 'Chào bạn!',
       });
 
-      await service.decide('chào bạn', []);
+      await service.plan('chào bạn', []);
 
       expect(mockStrategy.generateStructured).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -187,15 +187,15 @@ describe('SupervisorService', () => {
       );
     });
 
-    it('falls back to a safe "respond" decision when the LLM call fails', async () => {
+    it('falls back to a safe "respond" plan when the LLM call fails', async () => {
       mockStrategy.generateStructured.mockRejectedValue(
         new Error('provider quota exceeded'),
       );
 
-      const decision = await service.decide('hỏi gì đó', agents);
+      const plan = await service.plan('hỏi gì đó', agents);
 
-      expect(decision.action).toBe('respond');
-      expect(decision.answer).toEqual(expect.any(String));
+      expect(plan.action).toBe('respond');
+      expect(plan.answer).toEqual(expect.any(String));
     });
 
     it('sends just the labeled original prompt when there is no history and no previous rounds', async () => {
@@ -204,7 +204,7 @@ describe('SupervisorService', () => {
         answer: 'ok',
       });
 
-      await service.decide('tìm bảng có cột Email', agents, []);
+      await service.plan('tìm bảng có cột Email', agents, []);
 
       expect(mockStrategy.generateStructured).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -213,13 +213,13 @@ describe('SupervisorService', () => {
       );
     });
 
-    it('folds previous delegate rounds into the prompt from round 2 onward (Step 3)', async () => {
+    it('folds previously completed steps into the prompt when re-planning mid-turn', async () => {
       mockStrategy.generateStructured.mockResolvedValue({
         action: 'respond',
         answer: 'ok',
       });
 
-      await service.decide(
+      await service.plan(
         'tìm bảng có cột Email, đếm số dòng bảng đó',
         agents,
         [
@@ -247,7 +247,7 @@ describe('SupervisorService', () => {
         answer: 'ok',
       });
 
-      await service.decide(
+      await service.plan(
         'còn tháng trước thì sao?',
         agents,
         [],
@@ -278,7 +278,7 @@ describe('SupervisorService', () => {
         answer: 'ok',
       });
 
-      await service.decide(
+      await service.plan(
         'Bảng Orders có bao nhiêu dòng?',
         agents,
         [],
@@ -307,7 +307,7 @@ describe('SupervisorService', () => {
         answer: 'ok',
       });
 
-      await service.decide('câu hỏi', agents);
+      await service.plan('câu hỏi', agents);
 
       expect(mockCircuitBreaker.run).toHaveBeenCalledWith(
         'llm:gemini',
@@ -315,17 +315,76 @@ describe('SupervisorService', () => {
       );
     });
 
-    it('Giai đoạn 4, Step 6 — falls back to a safe "respond" decision when the circuit is open (same handling as any other LLM failure)', async () => {
+    it('Giai đoạn 4, Step 6 — falls back to a safe "respond" plan when the circuit is open (same handling as any other LLM failure)', async () => {
       mockCircuitBreaker.run.mockRejectedValue(
         new Error(
           'THIS PROVIDER IS TEMPORARILY UNAVAILABLE (CIRCUIT BREAKER OPEN) (key=llm:gemini)',
         ),
       );
 
-      const decision = await service.decide('câu hỏi', agents);
+      const plan = await service.plan('câu hỏi', agents);
 
-      expect(decision.action).toBe('respond');
+      expect(plan.action).toBe('respond');
       expect(mockStrategy.generateStructured).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('evaluate (Plan-and-Execute — gọi SAU MỖI bước, trước khi qua bước kế)', () => {
+    const completedStep = {
+      agent: 'sql_server',
+      task: 'lấy danh sách diễn viên',
+      result: '[{"name":"A"},{"name":"B"}]',
+    };
+
+    it('returns "done" immediately WITHOUT calling the LLM when there are no remaining steps', async () => {
+      const verdict = await service.evaluate('câu hỏi gốc', completedStep, []);
+
+      expect(verdict).toEqual({ verdict: 'done' });
+      expect(mockStrategy.generateStructured).not.toHaveBeenCalled();
+    });
+
+    it('returns the structured verdict from the LLM when there ARE remaining steps', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        verdict: 'continue',
+      });
+
+      const verdict = await service.evaluate('câu hỏi gốc', completedStep, [
+        { agent: 'sql_server', task: 'chèn vào bảng users' },
+      ]);
+
+      expect(verdict).toEqual({ verdict: 'continue' });
+      expect(mockStrategy.generateStructured).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('lấy danh sách diễn viên'),
+        }),
+      );
+    });
+
+    it('falls back to "continue" (bám kế hoạch cũ) when the LLM call fails — MAX_SUPERVISOR_ROUNDS is still the safety net if the plan is really wrong', async () => {
+      mockStrategy.generateStructured.mockRejectedValue(
+        new Error('provider is down'),
+      );
+
+      const verdict = await service.evaluate('câu hỏi gốc', completedStep, [
+        { agent: 'sql_server', task: 'chèn vào bảng users' },
+      ]);
+
+      expect(verdict).toEqual({ verdict: 'continue' });
+    });
+
+    it('Giai đoạn 4, Step 6 — routes the LLM call through the breaker keyed by "llm:<strategy.id>"', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        verdict: 'continue',
+      });
+
+      await service.evaluate('câu hỏi gốc', completedStep, [
+        { agent: 'sql_server', task: 'chèn vào bảng users' },
+      ]);
+
+      expect(mockCircuitBreaker.run).toHaveBeenCalledWith(
+        'llm:gemini',
+        expect.any(Function),
+      );
     });
   });
 
