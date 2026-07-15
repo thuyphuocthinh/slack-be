@@ -19,6 +19,18 @@ jest.mock('@slack/common', () => ({ extractTextFromMcpResult: jest.fn() }));
 // Fix Jest ESM import issue with uuid package
 jest.mock('uuid', () => ({ v4: jest.fn(() => 'test-uuid') }));
 
+// Giữ hành vi transparent (gọi thẳng qua fn gốc, không cần LangSmith thật) —
+// nhưng cho phép assert TÊN/metadata trace đã truyền vào, để test được đúng
+// bug đã fix: PROCESS_APPROVAL phải có root trace riêng (mục 7).
+jest.mock('langsmith/traceable', () => ({
+  traceable: jest.fn(
+    (fn: (...args: unknown[]) => unknown) =>
+      (...args: unknown[]) =>
+        fn(...args),
+  ),
+}));
+import { traceable } from 'langsmith/traceable';
+
 describe('AiOrchestrationProcessor', () => {
   let processor: AiOrchestrationProcessor;
 
@@ -183,6 +195,26 @@ describe('AiOrchestrationProcessor', () => {
 
     expect(mockApprovalFlow.processApprovalJob).toHaveBeenCalledWith(
       approvalJobData,
+    );
+  });
+
+  it('mục 7 — wraps PROCESS_APPROVAL in its own root trace (AsyncLocalStorage), so 1 approval-resume episode nests as ONE trace instead of every sendMessage/generateStructured/callTool inside it becoming a separate untethered root trace', async () => {
+    const approvalJobData: IProcessApprovalJobData = {
+      checkpointId: 'checkpoint-1',
+      userId: 'user-1',
+    };
+
+    await processor.process({
+      name: EJobName.PROCESS_APPROVAL,
+      data: approvalJobData,
+    } as Job<IProcessApprovalJobData, void, EJobName>);
+
+    expect(traceable).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({
+        name: 'ai-orchestration-approval',
+        metadata: { checkpointId: 'checkpoint-1', userId: 'user-1' },
+      }),
     );
   });
 
