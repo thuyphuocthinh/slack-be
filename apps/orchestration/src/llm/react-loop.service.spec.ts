@@ -490,7 +490,7 @@ describe('ReactLoopService', () => {
           // input ở đây là mảng LlmToolResult[] — content chính là text bị cap.
           const fedBackText = (input as { content: string }[])[0].content;
           expect(fedBackText.length).toBeLessThan(hugeText.length);
-          expect(fedBackText).toContain('ĐÃ CẮT BỚT');
+          expect(fedBackText).toContain('[truncated');
           return Promise.resolve({ text: 'ok', toolCalls: [] });
         });
 

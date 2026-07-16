@@ -171,7 +171,7 @@ describe('OpenAiStrategy', () => {
       mockCreate.mockResolvedValue(mockStream([
         {
           choices: [
-            { delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'x', arguments: '{not-json' } }] } },
+            { delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'x', arguments: ']' } }] } },
           ],
         },
       ]));

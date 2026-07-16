@@ -163,7 +163,7 @@ export class ReactLoopService {
             r.uri,
             userId,
           );
-          return `\n--- Resource: ${r.name} ---\n${content}`;
+          return `\n--- Resource: ${r.name} ---\n${capToolResultSize(content)}`;
         } catch (error) {
           this.logger.warn(
             `Failed to read resource ${r.uri}: ${(error as Error).message}`,

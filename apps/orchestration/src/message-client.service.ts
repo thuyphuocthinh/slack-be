@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
+import { JsonRepair } from 'agentic-io-parser';
 import { firstValueFrom } from 'rxjs';
 import {
   MESSAGE_MESSAGE_PATTERNS,
@@ -51,10 +52,11 @@ function extractContentText(content: unknown): string {
   if (typeof content !== 'string') return '';
 
   try {
-    const parsed = JSON.parse(content);
+    const repair = new JsonRepair();
+    const parsed = JSON.parse(repair.repair(content as string));
     return typeof parsed === 'string' ? parsed : traverseTiptapNodes(parsed);
   } catch {
-    return content; // không phải JSON — plain text thật (VD message bot tự tạo)
+    return content as string; // không phải JSON — plain text thật (VD message bot tự tạo)
   }
 }
 
