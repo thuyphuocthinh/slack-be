@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
+import { JsonExtractor, JsonRepair } from 'agentic-io-parser';
 import OpenAI from 'openai';
 import type {
   ChatCompletionAssistantMessageParam,
@@ -104,15 +105,13 @@ export class OpenAiStrategy implements LlmStrategy {
         })) as any;
 
         if (typeof completion === 'string' || completion instanceof String) {
-          const rawStr = completion.toString();
-          const match = rawStr.match(/\{[\s\S]*\}/);
-          if (match) {
-            try {
-              completion = JSON.parse(match[0]);
-            } catch (e) {
-              // ignore, let it fail below
-              this.logger.error('OpenAI Error: Failed to parse completion', e);
-            }
+          try {
+            const extractor = new JsonExtractor();
+            const cleanRaw = extractor.extract(completion.toString());
+            completion = JSON.parse(cleanRaw);
+          } catch (e) {
+            // ignore, let it fail below
+            this.logger.error('OpenAI Error: Failed to parse completion', e);
           }
         }
 
@@ -136,14 +135,8 @@ export class OpenAiStrategy implements LlmStrategy {
     }
 
     const text = completion.choices[0]?.message?.content ?? '{}';
-    let cleanJson = text.trim();
-
-    // Dọn rác Markdown nếu LLM hallucinate (trả về ```json thay vì JSON thuần)
-    if (cleanJson.startsWith('```json')) {
-      cleanJson = cleanJson.replace(/^```json\n?/, '').replace(/```$/, '').trim();
-    } else if (cleanJson.startsWith('```')) {
-      cleanJson = cleanJson.replace(/^```\n?/, '').replace(/```$/, '').trim();
-    }
+    const extractor = new JsonExtractor();
+    const cleanJson = extractor.extract(text);
 
     return JSON.parse(cleanJson) as T;
   }
@@ -293,7 +286,13 @@ class OpenAiChatSession implements LlmChatSession {
 
   private safeParseArgs(raw: string): Record<string, unknown> {
     try {
-      return JSON.parse(raw || '{}');
+      const repair = new JsonRepair();
+      const repaired = repair.repair(raw || '{}');
+      const parsed = JSON.parse(repaired);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed;
+      }
+      return {};
     } catch {
       // Model đôi khi trả JSON args không hợp lệ — đã ghi rõ rủi ro này
       // trong doc SDK OpenAI, không phải bug ở phía mình.

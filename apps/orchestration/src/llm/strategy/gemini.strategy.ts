@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
+import { JsonExtractor } from 'agentic-io-parser';
 import {
   GoogleGenerativeAI,
   type ChatSession,
@@ -166,12 +167,8 @@ export class GeminiStrategy implements LlmStrategy {
     );
     const result = await generate(opts.prompt);
     const text = result.response.text();
-    let cleanJson = text.trim();
-    if (cleanJson.startsWith('```json')) {
-      cleanJson = cleanJson.replace(/^```json\n?/, '').replace(/```$/, '').trim();
-    } else if (cleanJson.startsWith('```')) {
-      cleanJson = cleanJson.replace(/^```\n?/, '').replace(/```$/, '').trim();
-    }
+    const extractor = new JsonExtractor();
+    const cleanJson = extractor.extract(text);
     
     return JSON.parse(cleanJson) as T;
   }

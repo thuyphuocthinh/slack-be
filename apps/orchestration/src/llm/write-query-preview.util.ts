@@ -1,3 +1,5 @@
+import { JsonRepair } from 'agentic-io-parser';
+
 export interface WriteQueryPreviewTarget {
   table: string;
   // null nghĩa là câu lệnh KHÔNG có mệnh đề WHERE — sẽ ảnh hưởng TOÀN BỘ bảng.
@@ -36,7 +38,8 @@ export function extractWriteQueryPreviewTarget(
 // executeMcpQuery trong mcp_server) — SELECT COUNT(*) luôn trả đúng 1 dòng 1 cột.
 export function parseSingleCountResult(mcpResultText: string): number | null {
   try {
-    const rows = JSON.parse(mcpResultText);
+    const repair = new JsonRepair();
+    const rows = JSON.parse(repair.repair(mcpResultText));
     if (!Array.isArray(rows) || rows.length === 0) return null;
     const value = Object.values(rows[0] as Record<string, unknown>)[0];
     return typeof value === 'number' ? value : null;
