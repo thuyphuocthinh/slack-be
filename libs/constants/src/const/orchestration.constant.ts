@@ -82,7 +82,9 @@ Nguyên tắc:
 // cấu trúc. Nhắc trong cùng 1 lượt sinh câu trả lời không đáng tin bằng việc
 // bắt model dừng lại, suy nghĩ lại ở 1 lượt gọi model RIÊNG — đây là cơ chế
 // (không chỉ prompt) ép model tự phản biện trước khi chốt câu trả lời.
-export const ORCHESTRATION_SELF_CHECK_PROMPT = `Trước khi chốt câu trả lời, tự kiểm tra lại: câu trả lời trên đã dựa vào DỮ LIỆU THỰC TẾ (kết quả tool trả về giá trị/nội dung cụ thể), hay chỉ mới dừng ở thông tin cấu trúc/metadata (VD: danh sách tên bảng, tên cột, tên trường, danh sách thư mục...)? Nếu câu hỏi gốc cần dữ liệu/giá trị cụ thể mà câu trả lời trên CHƯA có, hãy gọi tiếp tool phù hợp để lấy dữ liệu thật rồi trả lời lại đầy đủ. Nếu câu trả lời trên đã đủ dữ liệu cần thiết (hoặc câu hỏi gốc vốn không cần dữ liệu cụ thể), xác nhận lại và giữ nguyên câu trả lời đó.`;
+export const ORCHESTRATION_SELF_CHECK_PROMPT = `Trước khi chốt câu trả lời, tự kiểm tra lại: câu trả lời trên đã dựa vào DỮ LIỆU THỰC TẾ (kết quả tool trả về giá trị/nội dung cụ thể), hay chỉ mới dừng ở thông tin cấu trúc/metadata (VD: danh sách tên bảng, tên cột, tên trường, danh sách thư mục...)? Nếu câu hỏi gốc cần dữ liệu/giá trị cụ thể mà câu trả lời trên CHƯA có, hãy gọi tiếp tool phù hợp để lấy dữ liệu thật rồi trả lời lại đầy đủ. Nếu câu trả lời trên đã đủ dữ liệu cần thiết (hoặc câu hỏi gốc vốn không cần dữ liệu cụ thể), xác nhận lại và giữ nguyên câu trả lời đó.
+
+QUAN TRỌNG — đừng nhầm "chưa chắc" với "chưa có dữ liệu": nếu 1 tool đã CHẠY THÀNH CÔNG trước đó trong lượt này và trả về đúng dữ liệu thật cần cho câu hỏi, đó ĐÃ LÀ đủ — dùng NGUYÊN kết quả đó để trả lời, TUYỆT ĐỐI không gọi lại ĐÚNG tool đó (cùng tham số hoặc tham số tương đương) thêm lần nữa chỉ để "kiểm tra cho chắc". Chỉ gọi lại khi có lý do CỤ THỂ và MỚI (VD kết quả trước ghi rõ còn thiếu dữ liệu/bị cắt bớt, hoặc câu hỏi cần lọc theo điều kiện khác hẳn chưa từng truy vấn).`;
 
 // Giai đoạn 2 — Supervisor đọc tin nhắn user, quyết định tự trả lời (không
 // cần dữ liệu ngoài) hay LẬP KẾ HOẠCH (Plan-and-Execute, xem accuracy.md —

@@ -356,12 +356,19 @@ export class ReactLoopService {
       // Resync để FE xoá phần này đi, tránh hiện dính vào câu trả lời thật.
       resync('');
 
-      const results: LlmToolResult[] = await Promise.all(
-        turn.toolCalls.map(async (call) => {
-          const content = await callTool(call.name, call.args);
-          return { id: call.id, name: call.name, content };
-        }),
-      );
+      // Chạy TUẦN TỰ, không Promise.all — chạy song song từng gây 2 vấn đề
+      // thật: (1) event tool_call/tool_result gửi cho FE chỉ mang tên tool,
+      // không có id riêng biệt, nên FE không khớp đúng được result với call
+      // khi có >1 lời gọi CÙNG tên chạy chồng lấn; (2) tool bị Risk Gate chặn
+      // (destructiveHint) throw gần như ngay lập tức trong khi tool an toàn
+      // đi cùng batch vẫn đang chạy dở — promise đó thành "mồ côi", kết quả
+      // của nó trồi lên sau khi turn đã bị cắt để chờ duyệt. Chạy tuần tự loại
+      // bỏ cả 2 vì không bao giờ có quá 1 tool đang "in-flight" cùng lúc.
+      const results: LlmToolResult[] = [];
+      for (const call of turn.toolCalls) {
+        const content = await callTool(call.name, call.args);
+        results.push({ id: call.id, name: call.name, content });
+      }
 
       turn = await sendMessage(results, onToken);
     }
