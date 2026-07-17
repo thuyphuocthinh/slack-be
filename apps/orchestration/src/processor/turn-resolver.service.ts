@@ -19,6 +19,7 @@ import { TurnCancelledError } from '../llm/turn-cancelled.error';
 import { describeExternalServiceError } from '../llm/external-service-error.util';
 import { CheckpointPauseService } from './checkpoint-pause.service';
 import { buildOnToken } from './agent-stream-token.util';
+import { capToolResultSize } from '../executor/tool-result-size-cap.util';
 import {
   AnswerResult,
   ApprovalRequiredDelegateResult,
@@ -130,7 +131,12 @@ export class TurnResolverService {
       }
 
       if (needsPlan) {
-        const plan = await this.supervisor.plan(prompt, agents, rounds, history);
+        const plan = await this.supervisor.plan(
+          prompt,
+          agents,
+          rounds,
+          history,
+        );
 
         if (plan.action === 'respond') {
           return this.finalizeAnswer(
@@ -178,7 +184,13 @@ export class TurnResolverService {
         // lọc — coi như xong với những gì đã có (giống hệt nhánh "done"),
         // KHÔNG rơi xuống fallback "chưa hội tụ" (đó là dành riêng cho việc
         // hết NGÂN SÁCH vòng, không phải hết việc trong kế hoạch).
-        return this.finalizeAnswer(data, replyMessageId, prompt, rounds, toolCalls);
+        return this.finalizeAnswer(
+          data,
+          replyMessageId,
+          prompt,
+          rounds,
+          toolCalls,
+        );
       }
 
       const step = steps.shift()!;
@@ -192,6 +204,7 @@ export class TurnResolverService {
         replyMessageId,
         history,
         round,
+        rounds,
       );
       round++;
 
@@ -218,9 +231,19 @@ export class TurnResolverService {
       rounds.push(completedRound);
       if (result) toolCalls.push(...result.toolCalls);
 
-      const verdict = await this.supervisor.evaluate(prompt, completedRound, steps);
+      const verdict = await this.supervisor.evaluate(
+        prompt,
+        completedRound,
+        steps,
+      );
       if (verdict.verdict === 'done') {
-        return this.finalizeAnswer(data, replyMessageId, prompt, rounds, toolCalls);
+        return this.finalizeAnswer(
+          data,
+          replyMessageId,
+          prompt,
+          rounds,
+          toolCalls,
+        );
       }
       if (verdict.verdict === 're-plan') {
         needsPlan = true;
@@ -321,6 +344,7 @@ export class TurnResolverService {
     replyMessageId: string,
     history: ChatHistoryTurnDto[],
     round: number,
+    roundsSoFar: SupervisorRoundDto[],
   ): Promise<DelegateRoundResult | ApprovalRequiredDelegateResult | null> {
     const { userId, channelId, workspaceId, channelType } = data;
     const targetAgent = agents.find((a) => a.provider === delegation.agent);
@@ -333,9 +357,27 @@ export class TurnResolverService {
     }
 
     const task = delegation.task || originalPrompt;
+    // Agent thực thi bước này CHỈ thấy đúng `task` (câu Supervisor viết TRƯỚC
+    // KHI bước nào chạy) — không tự nhiên biết dữ liệu THẬT các bước trước đã
+    // thu thập được (VD số liệu SQL cần ghi vào Google Docs ở bước sau). Ghép
+    // thêm dữ liệu thật đó vào đây — nguyên tắc giống hệt buildPrompt() của
+    // Supervisor, chỉ khác là dành cho sub-agent thực thi, không phải Supervisor.
+    // Cap bằng capToolResultSize để không lặp lại sự cố "context quá to → LLM
+    // timeout" (xem accuracy.md, mục B).
+    const promptWithContext =
+      roundsSoFar.length > 0
+        ? `${task}\n\nDữ liệu THẬT đã thu thập được từ (các) bước trước trong CÙNG yêu cầu này (PHẢI dùng ĐÚNG NGUYÊN VĂN, không tự bịa/diễn giải lại số liệu):\n${capToolResultSize(
+            roundsSoFar
+              .map(
+                (r, i) =>
+                  `${i + 1}. Agent "${r.agent}" (yêu cầu: "${r.task}") → kết quả: ${r.result}`,
+              )
+              .join('\n'),
+          )}`
+        : task;
     try {
       const { answer, toolCalls } = await this.reactLoop.run({
-        prompt: task,
+        prompt: promptWithContext,
         provider: targetAgent.provider,
         userId,
         channelId,

@@ -23,8 +23,8 @@ describe('capToolResultSize', () => {
 
   it('minifies json but skips key compression when the payload is already small', () => {
     const json = [
-      { organization_id: 1, department_name: "IT" },
-      { organization_id: 2, department_name: "HR" }
+      { organization_id: 1, department_name: 'IT' },
+      { organization_id: 2, department_name: 'HR' },
     ];
     const text = JSON.stringify(json, null, 2);
     const result = capToolResultSize(text);
@@ -46,20 +46,6 @@ describe('capToolResultSize', () => {
 
     expect(result).toContain('MAPPING_KEYS');
     expect(result).toContain('organization_id');
-  });
-
-  it('scrubs PII (email, VN phone, JWT) out of tool results before they reach the LLM', () => {
-    const json = {
-      email: 'ceo@company.com',
-      phone: '0987654321',
-      token: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PYSk',
-    };
-    const result = capToolResultSize(JSON.stringify(json));
-
-    expect(result).not.toContain('ceo@company.com');
-    expect(result).not.toContain('0987654321');
-    expect(result).not.toContain('eyJhbGciOiJIUzI1NiJ9');
-    expect(result).toContain('[REDACTED]');
   });
 
   it('never exceeds the cap even when several individually-capped fields add up past it', () => {

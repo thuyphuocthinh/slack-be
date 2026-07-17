@@ -228,7 +228,10 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
     // không phải cùng round như cơ chế fan-out cũ đã bỏ.
     expect(mockReactLoop.run).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ provider: 'sql_server', streamKey: 'r0-sql_server' }),
+      expect.objectContaining({
+        provider: 'sql_server',
+        streamKey: 'r0-sql_server',
+      }),
     );
     expect(mockReactLoop.run).toHaveBeenNthCalledWith(
       2,
@@ -336,9 +339,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
     expect(synthesizeRounds).toHaveLength(
       ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS,
     );
-    expect(result.content).toBe(
-      'Tổng hợp toàn bộ các bước đã thu thập được.',
-    );
+    expect(result.content).toBe('Tổng hợp toàn bộ các bước đã thu thập được.');
   });
 
   it('rejects with TurnCancelledError, carrying the last completed step result, when Stop is requested between steps', async () => {
@@ -358,9 +359,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
   it('pauses for approval (via CheckpointPauseService) when a planned step hits the Risk Gate', async () => {
     mockSupervisor.plan.mockResolvedValue({
       action: 'plan',
-      steps: [
-        { agent: 'sql_server', task: 'cập nhật status đơn OrderId=1' },
-      ],
+      steps: [{ agent: 'sql_server', task: 'cập nhật status đơn OrderId=1' }],
     });
     const pendingTool = {
       provider: 'sql_server',
@@ -369,7 +368,8 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
     };
     mockReactLoop.run.mockRejectedValue(new ApprovalRequiredError(pendingTool));
     mockCheckpointPause.pauseForApproval.mockResolvedValue({
-      content: '⏸️ Cần bạn duyệt 1 hành động trước khi tiếp tục — xem tin nhắn bên dưới.',
+      content:
+        '⏸️ Cần bạn duyệt 1 hành động trước khi tiếp tục — xem tin nhắn bên dưới.',
       toolCalls: undefined,
     });
 
@@ -472,7 +472,9 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
       });
       mockReactLoop.run.mockResolvedValue({
         answer: 'Đã chèn 2 diễn viên vào bảng users.',
-        toolCalls: [{ tool: 'sql_server.execute_write_query', status: 'success' }],
+        toolCalls: [
+          { tool: 'sql_server.execute_write_query', status: 'success' },
+        ],
       });
 
       await service.continueRounds(
@@ -496,6 +498,78 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
       expect(mockReactLoop.run).toHaveBeenCalledWith(
         expect.objectContaining({ provider: 'sql_server' }),
       );
+      // Bug thật (xem accuracy.md bổ sung): agent thực thi bước ghi chỉ thấy
+      // đúng câu "task" ngắn gọn, KHÔNG tự nhiên biết dữ liệu THẬT bước trước
+      // đã lấy được (VD danh sách diễn viên) — phải ghép NGUYÊN VĂN kết quả đó
+      // vào prompt gửi cho ReactLoop, không thì agent chỉ có thể bịa nội dung.
+      const sentPrompt = mockReactLoop.run.mock.calls[0][0].prompt;
+      expect(sentPrompt).toContain('chèn diễn viên vào bảng users');
+      expect(sentPrompt).toContain('lấy danh sách diễn viên');
+      expect(sentPrompt).toContain('[{"name":"A"},{"name":"B"}]');
+    });
+
+    it('does NOT inject any round context into the prompt when this is the very first step (no rounds yet) — unchanged from before', async () => {
+      mockSupervisor.plan.mockResolvedValue({
+        action: 'plan',
+        steps: [{ agent: 'sql_server', task: 'liệt kê bảng' }],
+      });
+      mockReactLoop.run.mockResolvedValue({
+        answer: 'Có 2 bảng.',
+        toolCalls: [],
+      });
+
+      await service.continueRounds(
+        data,
+        replyMessageId,
+        'có bao nhiêu bảng?',
+        availableAgents,
+        [],
+        [],
+        [],
+      );
+
+      expect(mockReactLoop.run).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: 'liệt kê bảng' }),
+      );
+    });
+
+    it("stores the SHORT original task (not the context-enriched prompt) in the round pushed forward — otherwise each later step would duplicate all prior rounds' data again", async () => {
+      const existingRounds = [
+        {
+          agent: 'dynamic_tmdb',
+          task: 'lấy danh sách diễn viên',
+          result: '[{"name":"A"},{"name":"B"}]',
+        },
+      ];
+      mockSupervisor.plan.mockResolvedValue({
+        action: 'plan',
+        steps: [{ agent: 'sql_server', task: 'chèn diễn viên vào bảng users' }],
+      });
+      mockReactLoop.run.mockResolvedValue({
+        answer: 'Đã chèn 2 diễn viên vào bảng users.',
+        toolCalls: [],
+      });
+      mockSupervisor.evaluate.mockResolvedValue({ verdict: 'done' });
+
+      await service.continueRounds(
+        data,
+        replyMessageId,
+        'lấy diễn viên rồi chèn vào bảng users',
+        availableAgents,
+        [],
+        existingRounds,
+        [],
+      );
+
+      expect(mockSupervisor.evaluate).toHaveBeenCalledWith(
+        'lấy diễn viên rồi chèn vào bảng users',
+        {
+          agent: 'sql_server',
+          task: 'chèn diễn viên vào bảng users',
+          result: 'Đã chèn 2 diễn viên vào bảng users.',
+        },
+        [],
+      );
     });
 
     it('pauses for approval again (via CheckpointPauseService) if the continued step also hits the Risk Gate — no special-casing needed by the caller', async () => {
@@ -515,9 +589,12 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         name: 'execute_write_query',
         args: { query: 'INSERT INTO users ...' },
       };
-      mockReactLoop.run.mockRejectedValue(new ApprovalRequiredError(pendingTool));
+      mockReactLoop.run.mockRejectedValue(
+        new ApprovalRequiredError(pendingTool),
+      );
       mockCheckpointPause.pauseForApproval.mockResolvedValue({
-        content: '⏸️ Cần bạn duyệt 1 hành động trước khi tiếp tục — xem tin nhắn bên dưới.',
+        content:
+          '⏸️ Cần bạn duyệt 1 hành động trước khi tiếp tục — xem tin nhắn bên dưới.',
         toolCalls: undefined,
       });
 
@@ -549,7 +626,11 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
     it('does NOT grant a fresh MAX_SUPERVISOR_ROUNDS budget on resume — synthesizes and stops immediately once the accumulated rounds already used up the shared budget (regression test for the "pause→resume forever" loop)', async () => {
       const maxedOutRounds = Array.from(
         { length: ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS },
-        (_, i) => ({ agent: 'sql_server', task: `bước ${i}`, result: `kết quả ${i}` }),
+        (_, i) => ({
+          agent: 'sql_server',
+          task: `bước ${i}`,
+          result: `kết quả ${i}`,
+        }),
       );
       mockSupervisor.synthesize.mockResolvedValue(
         'Tổng hợp lại vì đã hết ngân sách vòng.',
@@ -577,15 +658,24 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
       // resume TRƯỚC — chỉ còn ĐÚNG 1 vòng ngân sách cho lần continueRounds() này.
       const almostMaxedRounds = Array.from(
         { length: ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS - 1 },
-        (_, i) => ({ agent: 'sql_server', task: `bước ${i}`, result: `kết quả ${i}` }),
+        (_, i) => ({
+          agent: 'sql_server',
+          task: `bước ${i}`,
+          result: `kết quả ${i}`,
+        }),
       );
       mockSupervisor.plan.mockResolvedValue({
         action: 'plan',
         steps: [{ agent: 'sql_server', task: 'thêm 1 bước nữa' }],
       });
-      mockReactLoop.run.mockResolvedValue({ answer: 'vẫn chưa xong', toolCalls: [] });
+      mockReactLoop.run.mockResolvedValue({
+        answer: 'vẫn chưa xong',
+        toolCalls: [],
+      });
       mockSupervisor.evaluate.mockResolvedValue({ verdict: 're-plan' });
-      mockSupervisor.synthesize.mockResolvedValue('Đành tổng hợp, chưa hội tụ.');
+      mockSupervisor.synthesize.mockResolvedValue(
+        'Đành tổng hợp, chưa hội tụ.',
+      );
 
       await service.continueRounds(
         data,

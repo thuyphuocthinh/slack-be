@@ -26,7 +26,11 @@ describe('SupervisorService', () => {
 
   const mockMcpAuthClient = { getConnectionStatus: jest.fn() };
   const mockSession = { sendMessage: jest.fn() };
-  const mockStrategy = { id: 'gemini', generateStructured: jest.fn(), startChat: jest.fn() };
+  const mockStrategy = {
+    id: 'gemini',
+    generateStructured: jest.fn(),
+    startChat: jest.fn(),
+  };
   const mockLlmFactory = { resolve: jest.fn() };
   // Pass-through mặc định — giữ nguyên hành vi mọi test đã có từ trước Step 6.
   const mockCircuitBreaker = {
@@ -34,7 +38,9 @@ describe('SupervisorService', () => {
   };
   // Default: no dynamic (custom Swagger) providers — keeps every pre-existing static-agent test
   // unaffected. Tests that care about dynamic agents override this per-test.
-  const mockDynamicProviderDb = { getProvidersByUser: jest.fn().mockResolvedValue([]) };
+  const mockDynamicProviderDb = {
+    getProvidersByUser: jest.fn().mockResolvedValue([]),
+  };
 
   beforeEach(async () => {
     mockLlmFactory.resolve.mockReturnValue({
@@ -219,17 +225,13 @@ describe('SupervisorService', () => {
         answer: 'ok',
       });
 
-      await service.plan(
-        'tìm bảng có cột Email, đếm số dòng bảng đó',
-        agents,
-        [
-          {
-            agent: 'sql_server',
-            task: 'tìm bảng có cột Email',
-            result: 'Bảng Users có cột Email',
-          },
-        ],
-      );
+      await service.plan('tìm bảng có cột Email, đếm số dòng bảng đó', agents, [
+        {
+          agent: 'sql_server',
+          task: 'tìm bảng có cột Email',
+          result: 'Bảng Users có cột Email',
+        },
+      ]);
 
       const sentPrompt =
         mockStrategy.generateStructured.mock.calls[0][0].prompt;
@@ -330,10 +332,13 @@ describe('SupervisorService', () => {
   });
 
   describe('evaluate (Plan-and-Execute — gọi SAU MỖI bước, trước khi qua bước kế)', () => {
+    // Kết quả trông "đáng ngờ" (khớp dấu hiệu lỗi đã biết) — CHƯA đủ để rule
+    // đơn giản tự quyết, phải hỏi LLM. Test riêng bên dưới ("skips the LLM
+    // call...") mới dùng kết quả THÀNH CÔNG rõ ràng.
     const completedStep = {
       agent: 'sql_server',
       task: 'lấy danh sách diễn viên',
-      result: '[{"name":"A"},{"name":"B"}]',
+      result: '⚠️ Lỗi: timeout khi query',
     };
 
     it('returns "done" immediately WITHOUT calling the LLM when there are no remaining steps', async () => {
@@ -341,6 +346,56 @@ describe('SupervisorService', () => {
 
       expect(verdict).toEqual({ verdict: 'done' });
       expect(mockStrategy.generateStructured).not.toHaveBeenCalled();
+    });
+
+    it('skips the LLM call and returns "continue" directly (rule-based, xem accuracy.md) when the completed step clearly succeeded with real data', async () => {
+      const clearlySuccessfulStep = {
+        agent: 'sql_server',
+        task: 'lấy danh sách diễn viên',
+        result: '[{"name":"A"},{"name":"B"}]',
+      };
+
+      const verdict = await service.evaluate(
+        'câu hỏi gốc',
+        clearlySuccessfulStep,
+        [{ agent: 'sql_server', task: 'chèn vào bảng users' }],
+      );
+
+      expect(verdict).toEqual({ verdict: 'continue' });
+      expect(mockStrategy.generateStructured).not.toHaveBeenCalled();
+    });
+
+    it('does NOT skip the LLM call when the result is empty — cannot rule-based decide, must ask', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        verdict: 'continue',
+      });
+      const emptyResultStep = {
+        agent: 'sql_server',
+        task: 'lấy danh sách diễn viên',
+        result: '   ',
+      };
+
+      await service.evaluate('câu hỏi gốc', emptyResultStep, [
+        { agent: 'sql_server', task: 'chèn vào bảng users' },
+      ]);
+
+      expect(mockStrategy.generateStructured).toHaveBeenCalled();
+    });
+
+    it('does NOT skip the LLM call when the result says the agent was unavailable', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({ verdict: 're-plan' });
+      const unavailableStep = {
+        agent: 'sql_server',
+        task: 'lấy danh sách diễn viên',
+        result:
+          'Agent này chưa khả dụng (chưa kết nối hoặc chưa có hạ tầng) — bỏ qua, không thực hiện được phần việc này.',
+      };
+
+      await service.evaluate('câu hỏi gốc', unavailableStep, [
+        { agent: 'sql_server', task: 'chèn vào bảng users' },
+      ]);
+
+      expect(mockStrategy.generateStructured).toHaveBeenCalled();
     });
 
     it('returns the structured verdict from the LLM when there ARE remaining steps', async () => {
@@ -406,9 +461,7 @@ describe('SupervisorService', () => {
     });
 
     it('falls back to the raw error message when the LLM call fails', async () => {
-      mockSession.sendMessage.mockRejectedValue(
-        new Error('provider is down'),
-      );
+      mockSession.sendMessage.mockRejectedValue(new Error('provider is down'));
 
       const answer = await service.synthesize('câu hỏi gốc', [
         { agent: 'sql_server', task: 'đếm bảng', result: 'A có 5 bảng' },

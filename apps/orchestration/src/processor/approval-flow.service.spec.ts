@@ -1,5 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { EJobName, EQueueName, IProcessApprovalJobData, QueueService } from '@slack/queue';
+import {
+  EJobName,
+  EQueueName,
+  IProcessApprovalJobData,
+  QueueService,
+} from '@slack/queue';
 import { ApprovalFlowService } from './approval-flow.service';
 import { MessageClientService } from '../message-client.service';
 import { SupervisorService } from '../llm/supervisor.service';
@@ -308,7 +313,7 @@ describe('ApprovalFlowService', () => {
       const roundsArg = mockTurnResolver.continueRounds.mock.calls[0][5];
       const foldedResult = roundsArg[roundsArg.length - 1].result;
       expect(foldedResult.length).toBeLessThan(hugeResult.length);
-      expect(foldedResult).toContain('ĐÃ CẮT BỚT');
+      expect(foldedResult).toContain('[truncated');
     });
 
     it('forwards whatever the Supervisor loop returns as-is (VD toolCalls: undefined) to the final message update', async () => {
@@ -336,7 +341,9 @@ describe('ApprovalFlowService', () => {
 
     it('falls back to the raw error message if running the real tool fails, but still emits done', async () => {
       mockCheckpoint.findById.mockResolvedValue(checkpoint);
-      mockMcpClient.callTool.mockRejectedValue(new Error('connect ECONNREFUSED'));
+      mockMcpClient.callTool.mockRejectedValue(
+        new Error('connect ECONNREFUSED'),
+      );
 
       await runApprovalJob();
 
@@ -354,7 +361,12 @@ describe('ApprovalFlowService', () => {
     it('mục 6 — stops immediately and shows the tool error, WITHOUT re-entering the Supervisor loop, when the approved tool call itself resolves with isError (not a connect failure — that already throws and is handled separately)', async () => {
       mockCheckpoint.findById.mockResolvedValue(checkpoint);
       mockMcpClient.callTool.mockResolvedValue({
-        content: [{ type: 'text', text: 'Error [TOOL_EXECUTION_ERROR:append_document_text]: insufficient permission' }],
+        content: [
+          {
+            type: 'text',
+            text: 'Error [TOOL_EXECUTION_ERROR:append_document_text]: insufficient permission',
+          },
+        ],
         isError: true,
       });
       (extractTextFromMcpResult as jest.Mock).mockReturnValue(
@@ -380,7 +392,9 @@ describe('ApprovalFlowService', () => {
 
     it('does not throw (and still emits done) when even the error-fallback updateMessage() call itself fails', async () => {
       mockCheckpoint.findById.mockResolvedValue(checkpoint);
-      mockMcpClient.callTool.mockRejectedValue(new Error('connect ECONNREFUSED'));
+      mockMcpClient.callTool.mockRejectedValue(
+        new Error('connect ECONNREFUSED'),
+      );
       mockMessageClient.updateMessage.mockRejectedValueOnce(
         new Error('message service unreachable'),
       );
@@ -444,7 +458,9 @@ describe('ApprovalFlowService', () => {
       mockMcpClient.callTool.mockResolvedValue({
         content: [{ type: 'text', text: 'raw mcp result' }],
       });
-      mockTurnResolver.continueRounds.mockRejectedValue(new TurnCancelledError());
+      mockTurnResolver.continueRounds.mockRejectedValue(
+        new TurnCancelledError(),
+      );
 
       await runApprovalJob();
 
