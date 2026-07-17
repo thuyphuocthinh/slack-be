@@ -211,7 +211,19 @@ export class ReactLoopService {
     const attempts = (callSignatureCounts.get(signature) ?? 0) + 1;
     callSignatureCounts.set(signature, attempts);
     if (attempts > ORCHESTRATION_CONSTANTS.MAX_SAME_TOOL_CALL_REPEATS) {
-      const resultPreview = `Tool "${displayName}" đã được gọi với ĐÚNG tham số này ${attempts - 1} lần trước đó và không thực thi lại nữa. Hãy thử cách tiếp cận khác hoặc báo cho người dùng biết bạn không thể hoàn thành yêu cầu theo cách này.`;
+      // Không chỉ nói chung chung "thử cách khác" — model hay đọc xong rồi
+      // vẫn gọi lại đúng tool đọc đó thay vì chuyển sang tool HÀNH ĐỘNG. Liệt
+      // kê thẳng tên các tool KHÁC còn dùng được (nhất là tool ghi/hành động)
+      // ngay tại điểm chặn, để model có 1 bước tiếp theo cụ thể thay vì phải
+      // tự nhớ lại nguyên tắc chung trong system prompt.
+      const otherToolNames = mcpTools
+        .map((t) => t.name)
+        .filter((n) => n !== name);
+      const suggestion =
+        otherToolNames.length > 0
+          ? `KHÔNG được gọi lại tool này. Nếu nhiệm vụ cần 1 HÀNH ĐỘNG (ghi/thêm/tạo/sửa dữ liệu...), hãy gọi tool phù hợp trong số các tool còn lại: ${otherToolNames.join(', ')}.`
+          : 'Không còn tool nào khác của hệ thống này để thử.';
+      const resultPreview = `Tool "${displayName}" đã được gọi với ĐÚNG tham số này ${attempts - 1} lần trước đó và không thực thi lại nữa. ${suggestion} Nếu không có tool nào phù hợp để hoàn thành yêu cầu, báo thẳng cho người dùng biết giới hạn đó thay vì im lặng bỏ cuộc.`;
       this.logger.warn(
         `tool_call ${displayName} bị chặn — lặp lại quá ${ORCHESTRATION_CONSTANTS.MAX_SAME_TOOL_CALL_REPEATS} lần với cùng tham số`,
       );

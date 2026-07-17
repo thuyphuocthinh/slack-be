@@ -11,7 +11,6 @@ import { RunReactLoopRequestDto } from '../dto/react-loop.dto';
 import { ApprovalRequiredError } from './approval-required.error';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
-import { TurnCancelledError } from './turn-cancelled.error';
 
 // @slack/common barrel transitively kéo theo "nanoid" (ESM-only) qua
 // string.util.ts — jest không transform được, mock thẳng theo đúng convention
@@ -559,6 +558,32 @@ describe('ReactLoopService', () => {
       );
       expect(blocked.every((t) => t.status === 'error')).toBe(true);
     });
+
+    it('names the other available tools in the block message so the LLM has a concrete next step instead of re-reading forever (bug: model kept re-calling get_document_content instead of ever trying append_document_text)', async () => {
+      mockMcpClient.getTools.mockResolvedValue([
+        { name: 'get_document_content', description: 'desc', inputSchema: {} },
+        {
+          name: 'append_document_text',
+          description: 'desc',
+          inputSchema: {},
+          annotations: { readOnlyHint: false, destructiveHint: false },
+        },
+      ]);
+      mockSession.sendMessage.mockResolvedValue({
+        text: '',
+        toolCalls: [
+          { name: 'get_document_content', args: { documentId: 'doc-1' } },
+        ],
+      });
+
+      const result = await service.run(baseDto);
+
+      const blocked = result.toolCalls.find((t) => t.status === 'error');
+      expect(blocked?.resultPreview).toContain('KHÔNG được gọi lại tool này');
+      // Gợi ý phải liệt kê CHÍNH XÁC tool còn lại (append_document_text),
+      // không lặp lại chính tool vừa bị chặn (get_document_content) trong gợi ý.
+      expect(blocked?.resultPreview).toMatch(/còn lại: append_document_text\./);
+    });
   });
 
   describe('Risk Gate (Giai đoạn 3 — HITL, Step 3)', () => {
@@ -713,7 +738,11 @@ describe('ReactLoopService', () => {
     it('falls back to no partialText when cancelled before any token ever streamed', async () => {
       jest.useFakeTimers();
       mockSession.sendMessage.mockImplementation(
-        (_input: unknown, _onToken?: (chunk: string) => void, signal?: AbortSignal) =>
+        (
+          _input: unknown,
+          _onToken?: (chunk: string) => void,
+          signal?: AbortSignal,
+        ) =>
           new Promise((_, reject) => {
             signal?.addEventListener('abort', () =>
               reject(new Error('aborted by signal')),
