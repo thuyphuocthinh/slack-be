@@ -72,6 +72,17 @@ export class ReactLoopService {
     // Đếm theo chữ ký (tool + tham số) trong PHẠM VI 1 lượt run() — chống LLM
     // tự lặp gọi y hệt vô ích (mục 4, xem handleToolCall()).
     const callSignatureCounts = new Map<string, number>();
+    // Cache kết quả THÀNH CÔNG theo chữ ký, cùng phạm vi 1 lượt run() — model
+    // đôi khi tự gọi lại ĐÚNG 1 tool đã thành công (do self-check nudge nghi
+    // ngờ thừa, hoặc chính 1 response chứa 2 tool_call y hệt cùng lúc). Prompt
+    // dặn "đừng gọi lại" chỉ giảm xác suất chứ không chặn được — chặn thật ở
+    // đây: gặp lại đúng chữ ký đã thành công thì trả thẳng kết quả cũ, không
+    // đánh tool thật thêm lần nào nữa. Chỉ cache khi THÀNH CÔNG — lỗi vẫn phải
+    // đi qua callSignatureCounts bên dưới (retry sau lỗi thoáng qua vẫn hợp lý).
+    const successfulCallCache = new Map<
+      string,
+      { resultPreview: string; feedText: string }
+    >();
 
     // Wrap ở đây để nest đúng cây trace nếu processor đang có traceable() bao quanh.
     const callTool = traceable(
@@ -83,6 +94,7 @@ export class ReactLoopService {
           mcpTools,
           toolCalls,
           callSignatureCounts,
+          successfulCallCache,
         ),
       { name: 'mcp.callTool' },
     );
@@ -188,6 +200,10 @@ export class ReactLoopService {
     mcpTools: McpToolDto[],
     toolCalls: ToolCallTraceDto[],
     callSignatureCounts: Map<string, number>,
+    successfulCallCache: Map<
+      string,
+      { resultPreview: string; feedText: string }
+    >,
   ): Promise<string> {
     if (mcpTools.find((t) => t.name === name)?.annotations?.destructiveHint) {
       this.logger.log(
@@ -200,6 +216,7 @@ export class ReactLoopService {
     }
 
     const displayName = `${dto.provider}.${name}`;
+    const signature = `${name}:${JSON.stringify(args)}`;
 
     // Mục 4 — LLM tự gọi lại CÙNG tool với CÙNG tham số nhiều lần (thường sau
     // khi thấy lỗi mà không đổi cách) trông như 1 vòng lặp bị "kẹt" trên UI.
@@ -207,7 +224,6 @@ export class ReactLoopService {
     // ở đó lỗi được xử lý và ẩn khỏi LLM; ở đây LLM chủ động quyết định gọi
     // lại. Vượt ngưỡng thì chặn trước khi gọi tool thật, trả thẳng 1 lời nhắc
     // để LLM tự đổi hướng thay vì lặp vô ích.
-    const signature = `${name}:${JSON.stringify(args)}`;
     const attempts = (callSignatureCounts.get(signature) ?? 0) + 1;
     callSignatureCounts.set(signature, attempts);
     if (attempts > ORCHESTRATION_CONSTANTS.MAX_SAME_TOOL_CALL_REPEATS) {
@@ -235,6 +251,34 @@ export class ReactLoopService {
       });
       toolCalls.push({ tool: displayName, status: 'error', resultPreview });
       return resultPreview;
+    }
+
+    // Đây là lần gọi LẶP LẠI (attempts > 1) nhưng CHƯA vượt ngưỡng chặn ở
+    // trên — model tự gọi lại ĐÚNG tool đã thành công (self-check nudge nghi
+    // ngờ thừa, hoặc 1 response chứa 2 tool_call y hệt cùng lúc). Dùng lại kết
+    // quả cũ thay vì tốn 1 lượt tool thật vô ích — model vẫn nhận được y hệt
+    // nội dung nó sẽ nhận nếu gọi thật. Không cache lỗi, nên lần lặp sau 1 lỗi
+    // thoáng qua vẫn đi tiếp xuống gọi tool thật như cũ (có thể lỗi đã hết).
+    if (attempts > 1) {
+      const cached = successfulCallCache.get(signature);
+      if (cached) {
+        this.logger.log(
+          `tool_call ${displayName} lặp lại lần ${attempts}, ĐÚNG tham số đã thành công trước đó — dùng lại kết quả cũ, không gọi tool thật lần nữa`,
+        );
+        await this.emitStep(dto, { type: 'tool_call', tool: displayName });
+        await this.emitStep(dto, {
+          type: 'tool_result',
+          tool: displayName,
+          status: 'success',
+          resultPreview: cached.resultPreview,
+        });
+        toolCalls.push({
+          tool: displayName,
+          status: 'success',
+          resultPreview: cached.resultPreview,
+        });
+        return cached.feedText;
+      }
     }
 
     this.logger.log(`tool_call ${displayName} args=${JSON.stringify(args)}`);
@@ -287,7 +331,11 @@ export class ReactLoopService {
     // resultPreview (trace UI) giữ NGUYÊN VĂN đầy đủ — chỉ cap phần feed
     // NGƯỢC LẠI cho LLM, tránh 1 kết quả tool quá lớn (VD JSON lồng nhau từ
     // dynamic provider) làm sendMessage() kế tiếp timeout vì context quá to.
-    return capToolResultSize(text);
+    const feedText = capToolResultSize(text);
+    if (status === 'success') {
+      successfulCallCache.set(signature, { resultPreview, feedText });
+    }
+    return feedText;
   }
 
   private async executeReactLoop(

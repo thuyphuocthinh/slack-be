@@ -548,11 +548,12 @@ describe('ReactLoopService', () => {
 
       const result = await service.run(baseDto);
 
-      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(
-        ORCHESTRATION_CONSTANTS.MAX_SAME_TOOL_CALL_REPEATS,
-      );
-      // MAX_REACT_STEPS lượt tool-call tổng cộng đều được ghi trace (đã chặn
-      // hay chạy thật) — số bị chặn phải có status 'error'.
+      // Chỉ ĐÚNG 1 lần gọi tool THẬT — lần lặp thứ 2 (chưa vượt ngưỡng) được
+      // phục vụ từ cache kết quả thành công, không tốn thêm lời gọi backend
+      // thật nào; chỉ từ lần thứ 3 trở đi (vượt ngưỡng) mới bị chặn hẳn.
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
+      // MAX_REACT_STEPS lượt tool-call tổng cộng đều được ghi trace (thật,
+      // cache, hay bị chặn) — số bị chặn (từ sau ngưỡng) phải có status 'error'.
       expect(result.toolCalls).toHaveLength(
         ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS,
       );
@@ -560,6 +561,38 @@ describe('ReactLoopService', () => {
         ORCHESTRATION_CONSTANTS.MAX_SAME_TOOL_CALL_REPEATS,
       );
       expect(blocked.every((t) => t.status === 'error')).toBe(true);
+    });
+
+    it('serves a repeated identical call from cache instead of hitting the real tool again (bug: model re-called google_docs.get_document_content twice in a row even though the first call already succeeded)', async () => {
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [
+            { name: 'get_database_schema', args: { x: 1 } },
+            { name: 'get_database_schema', args: { x: 1 } },
+          ],
+        })
+        .mockResolvedValueOnce({ text: 'đã xong', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'xác nhận đã xong', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      // 2 tool_call trong CÙNG 1 response, cùng tham số — chỉ tool THẬT chạy
+      // đúng 1 lần, lần thứ 2 lấy từ cache nhưng vẫn hiện đúng như 1 lần gọi
+      // thành công trên trace (để UI không đổi hành vi hiển thị).
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
+      expect(result.toolCalls.slice(0, 2)).toEqual([
+        {
+          tool: 'sql_server.get_database_schema',
+          status: 'success',
+          resultPreview: 'result data',
+        },
+        {
+          tool: 'sql_server.get_database_schema',
+          status: 'success',
+          resultPreview: 'result data',
+        },
+      ]);
     });
 
     it('names the other available tools in the block message so the LLM has a concrete next step instead of re-reading forever (bug: model kept re-calling get_document_content instead of ever trying append_document_text)', async () => {
