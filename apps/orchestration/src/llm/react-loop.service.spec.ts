@@ -199,7 +199,7 @@ describe('ReactLoopService', () => {
     expect(mockSession.sendMessage).toHaveBeenCalledTimes(4);
   });
 
-  it('executes multiple tool calls in a single turn in parallel (Giai đoạn 4, Step 2.1)', async () => {
+  it('executes multiple tool calls in a single turn SEQUENTIALLY, never overlapping (bug fix: parallel execution raced the repeat-guard/Risk Gate and desynced tool_call/tool_result FE events for same-name calls)', async () => {
     mockSession.sendMessage
       .mockResolvedValueOnce({
         text: '',
@@ -211,12 +211,14 @@ describe('ReactLoopService', () => {
       .mockResolvedValueOnce({ text: 'đã tổng hợp xong 2 bảng', toolCalls: [] })
       .mockResolvedValueOnce({ text: 'xác nhận đã xong', toolCalls: [] });
 
-    // Cố tình delay callTool để kiểm tra tính song song (cả 2 sẽ chạy cùng lúc)
+    // Cố tình delay callTool để kiểm tra KHÔNG có lúc nào 2 call cùng "in-flight".
     let activeCalls = 0;
     let maxConcurrent = 0;
-    mockMcpClient.callTool.mockImplementation(async () => {
+    const callOrder: string[] = [];
+    mockMcpClient.callTool.mockImplementation(async (dto: { name: string }) => {
       activeCalls++;
       maxConcurrent = Math.max(maxConcurrent, activeCalls);
+      callOrder.push(dto.name);
       await new Promise((resolve) => setTimeout(resolve, 50));
       activeCalls--;
       return { content: [{ type: 'text', text: 'data' }], isError: false };
@@ -226,7 +228,8 @@ describe('ReactLoopService', () => {
 
     expect(result.answer).toBe('đã tổng hợp xong 2 bảng');
     expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
-    expect(maxConcurrent).toBe(2); // Cả 2 tool đều chạy đồng thời
+    expect(maxConcurrent).toBe(1); // Không bao giờ có 2 tool cùng chạy 1 lúc
+    expect(callOrder).toEqual(['get_table1', 'get_table2']); // đúng thứ tự model yêu cầu
   });
 
   it('stops after MAX_REACT_STEPS iterations and returns the fallback message if the model never converges', async () => {
@@ -640,6 +643,48 @@ describe('ReactLoopService', () => {
         name: 'execute_write_query',
         args,
       });
+    });
+
+    it('runs the safe tool in a mixed batch to full completion BEFORE checking the destructive one — no orphaned in-flight call left running after the approval error (bug fix: Promise.all let the destructive check reject while the safe call was still in-flight)', async () => {
+      mockMcpClient.getTools.mockResolvedValue([
+        {
+          name: 'get_database_schema',
+          description: 'desc',
+          inputSchema: {},
+          annotations: { readOnlyHint: true },
+        },
+        {
+          name: 'execute_write_query',
+          description: 'desc',
+          inputSchema: {},
+          annotations: { readOnlyHint: false, destructiveHint: true },
+        },
+      ]);
+      mockSession.sendMessage.mockResolvedValueOnce({
+        text: '',
+        toolCalls: [
+          { name: 'get_database_schema', args: {} },
+          {
+            name: 'execute_write_query',
+            args: { query: 'DELETE FROM Orders' },
+          },
+        ],
+      });
+
+      const error = await service.run(baseDto).catch((e) => e);
+
+      expect(error).toBeInstanceOf(ApprovalRequiredError);
+      // Tool an toàn đứng trước phải chạy XONG HẲN (kết quả nằm trong
+      // toolCalls của error) trước khi tool nguy hiểm đứng sau bị chặn —
+      // không phải "đang chạy dở, mồ côi" như khi dùng Promise.all.
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
+      expect(error.toolCalls).toEqual([
+        {
+          tool: 'sql_server.get_database_schema',
+          status: 'success',
+          resultPreview: 'result data',
+        },
+      ]);
     });
 
     it('still auto-runs tools without destructiveHint (safe tools unaffected)', async () => {
