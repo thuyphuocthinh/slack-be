@@ -54,6 +54,10 @@ describe('McpClientService', () => {
     jest.clearAllMocks();
     mockConnect.mockResolvedValue(undefined);
     mockClose.mockResolvedValue(undefined);
+    // Mặc định: danh sách tool rỗng — callTool() giờ tự tra getTools() để biết
+    // destructiveHint TRƯỚC khi quyết định số lần retry (xem callTool()); test
+    // nào cần khai báo tool cụ thể (VD destructiveHint: true) sẽ tự override.
+    mockListTools.mockResolvedValue({ tools: [] });
     mockCircuitBreaker.run.mockImplementation(
       (_key: string, action: () => Promise<unknown>) => action(),
     );
@@ -130,7 +134,9 @@ describe('McpClientService', () => {
       mockListTools
         .mockRejectedValueOnce(new Error('Bad Request: Server not initialized'))
         .mockResolvedValueOnce({
-          tools: [{ name: 'get_database_schema', description: '', inputSchema: {} }],
+          tools: [
+            { name: 'get_database_schema', description: '', inputSchema: {} },
+          ],
         });
 
       const tools = await service.getTools('sql_server');
@@ -147,7 +153,9 @@ describe('McpClientService', () => {
       mockListTools
         .mockRejectedValueOnce(new Error('Bad Request: Server not initialized'))
         .mockResolvedValueOnce({
-          tools: [{ name: 'get_database_schema', description: '', inputSchema: {} }],
+          tools: [
+            { name: 'get_database_schema', description: '', inputSchema: {} },
+          ],
         });
 
       await service.getTools('sql_server');
@@ -215,6 +223,13 @@ describe('McpClientService', () => {
     });
 
     it('reconnects and retries exactly once when the first call fails', async () => {
+      // Mồi thẳng cache tool (không qua getTools() thật — tránh tốn thêm 1
+      // connect() không liên quan tới test này) để callTool() biết đây KHÔNG
+      // phải tool nguy hiểm, giữ nguyên hành vi retry như cũ.
+      (service as any).toolsCache.set('sql_server', {
+        data: [],
+        fetchedAt: Date.now(),
+      });
       mockCallTool
         .mockRejectedValueOnce(new Error('Server not initialized'))
         .mockResolvedValueOnce({ content: [] });
@@ -228,6 +243,79 @@ describe('McpClientService', () => {
 
       expect(result).toEqual({ content: [] });
       expect(mockConnect).toHaveBeenCalledTimes(2);
+    });
+
+    it('does NOT retry a destructive (non-idempotent) tool — a timeout/error might mean it already ran server-side, so blind retry risks duplicating the write', async () => {
+      mockListTools.mockResolvedValue({
+        tools: [
+          {
+            name: 'execute_write_query',
+            description: 'desc',
+            inputSchema: {},
+            annotations: { readOnlyHint: false, destructiveHint: true },
+          },
+        ],
+      });
+      mockCallTool.mockRejectedValue(new Error('ETIMEDOUT'));
+
+      await expect(
+        service.callTool({
+          provider: 'sql_server',
+          name: 'execute_write_query',
+          args: { query: "UPDATE Orders SET Status='Completed'" },
+          ownerId: 'user-1',
+        }),
+      ).rejects.toThrow('ETIMEDOUT');
+
+      // Đúng 1 lần gọi tool thật — KHÔNG retry, tránh nguy cơ ghi trùng.
+      expect(mockCallTool).toHaveBeenCalledTimes(1);
+    });
+
+    it('still retries a safe (read-only) tool as before — no side effect risk', async () => {
+      // Mồi thẳng cache (không qua getTools() thật — tránh tốn thêm 1 connect()
+      // không liên quan tới test này), đúng như ReactLoop đã getTools() trước
+      // khi callTool() trong luồng thật.
+      (service as any).toolsCache.set('sql_server', {
+        data: [
+          {
+            name: 'execute_read_only_query',
+            description: 'desc',
+            inputSchema: {},
+            annotations: { readOnlyHint: true },
+          },
+        ],
+        fetchedAt: Date.now(),
+      });
+      mockCallTool
+        .mockRejectedValueOnce(new Error('ETIMEDOUT'))
+        .mockResolvedValueOnce({ content: [] });
+
+      const result = await service.callTool({
+        provider: 'sql_server',
+        name: 'execute_read_only_query',
+        args: { query: 'SELECT 1' },
+        ownerId: 'user-1',
+      });
+
+      expect(result).toEqual({ content: [] });
+      expect(mockCallTool).toHaveBeenCalledTimes(2);
+    });
+
+    it('defaults to NOT retrying (safe choice) when the tool list was never cached for this provider, instead of forcing an extra fetch/connection just to check', async () => {
+      // KHÔNG mồi cache (khác test trên) — mô phỏng gọi callTool() mà chưa
+      // từng getTools() cho provider này trước đó.
+      mockCallTool.mockRejectedValue(new Error('ETIMEDOUT'));
+
+      await expect(
+        service.callTool({
+          provider: 'sql_server',
+          name: 'execute_write_query',
+          args: {},
+          ownerId: 'user-1',
+        }),
+      ).rejects.toThrow('ETIMEDOUT');
+
+      expect(mockCallTool).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -329,7 +417,9 @@ describe('McpClientService', () => {
     it('getPrompts: reconnects and retries on a connection/session error instead of silently returning []', async () => {
       mockListPrompts
         .mockRejectedValueOnce(new Error('Bad Request: Server not initialized'))
-        .mockResolvedValueOnce({ prompts: [{ name: 'prompt1', description: 'desc' }] });
+        .mockResolvedValueOnce({
+          prompts: [{ name: 'prompt1', description: 'desc' }],
+        });
 
       const prompts = await service.getPrompts('sql_server');
 
@@ -406,6 +496,10 @@ describe('McpClientService', () => {
     });
 
     it('does not cache a failed connect() forever — the next call retries instead of reusing a rejected promise', async () => {
+      (service as any).toolsCache.set('sql_server', {
+        data: [],
+        fetchedAt: Date.now(),
+      });
       mockConnect
         .mockRejectedValueOnce(new Error('ECONNREFUSED'))
         .mockResolvedValueOnce(undefined);

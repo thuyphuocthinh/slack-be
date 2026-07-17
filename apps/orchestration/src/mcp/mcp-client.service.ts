@@ -63,7 +63,10 @@ export class McpClientService {
     }
 
     const connecting = this.connectClient(provider, ownerId);
-    const entry: ClientCacheEntry = { promise: connecting, lastUsedAt: Date.now() };
+    const entry: ClientCacheEntry = {
+      promise: connecting,
+      lastUsedAt: Date.now(),
+    };
     this.clients.set(cacheKey, entry);
     // Không cache 1 lần connect lỗi vĩnh viễn — xoá để lần gọi sau retry được
     // (chỉ xoá nếu đây vẫn đúng entry của lần connect vừa lỗi, tránh đè lên 1
@@ -74,7 +77,10 @@ export class McpClientService {
     return connecting;
   }
 
-  private async connectClient(provider: string, ownerId?: string): Promise<Client> {
+  private async connectClient(
+    provider: string,
+    ownerId?: string,
+  ): Promise<Client> {
     const entry = AGENT_REGISTRY[provider];
     if (!entry?.endpoint) {
       throw new RpcException(ORCHESTRATION_ERROR.AGENT_NOT_REGISTERED);
@@ -117,7 +123,9 @@ export class McpClientService {
     );
     if (idleEntries.length === 0) return;
 
-    this.logger.log(`evictIdleClients() closing ${idleEntries.length} idle client(s)`);
+    this.logger.log(
+      `evictIdleClients() closing ${idleEntries.length} idle client(s)`,
+    );
     await Promise.all(
       idleEntries.map(async ([cacheKey, entry]) => {
         this.clients.delete(cacheKey);
@@ -161,7 +169,9 @@ export class McpClientService {
     return this.getCachedList(provider, this.toolsCache, async (client) => {
       const result = await client.listTools().catch((e) => {
         if (!this.isMethodNotSupported(e)) throw e;
-        this.logger.warn(`listTools not supported for ${provider}: ${e.message}`);
+        this.logger.warn(
+          `listTools not supported for ${provider}: ${e.message}`,
+        );
         return { tools: [] };
       });
       return (result.tools || []) as McpToolDto[];
@@ -174,7 +184,9 @@ export class McpClientService {
     return this.getCachedList(provider, this.resourcesCache, async (client) => {
       const result = await client.listResources().catch((e) => {
         if (!this.isMethodNotSupported(e)) throw e;
-        this.logger.warn(`listResources not supported for ${provider}: ${e.message}`);
+        this.logger.warn(
+          `listResources not supported for ${provider}: ${e.message}`,
+        );
         return { resources: [] };
       });
       return (result.resources || []) as McpResourceDto[];
@@ -187,7 +199,9 @@ export class McpClientService {
     return this.getCachedList(provider, this.promptsCache, async (client) => {
       const result = await client.listPrompts().catch((e) => {
         if (!this.isMethodNotSupported(e)) throw e;
-        this.logger.warn(`listPrompts not supported for ${provider}: ${e.message}`);
+        this.logger.warn(
+          `listPrompts not supported for ${provider}: ${e.message}`,
+        );
         return { prompts: [] };
       });
       return (result.prompts || []) as McpPromptDto[];
@@ -221,6 +235,26 @@ export class McpClientService {
       );
     }
 
+    // Tool KHÔNG idempotent (destructiveHint) không được tự động retry —
+    // timeout/lỗi mạng SAU KHI tool đã thực thi thật ở server (chỉ là response
+    // bị mất/chậm) không đồng nghĩa với "chưa chạy". Retry mù ở đây có thể ghi
+    // trùng (INSERT trùng dòng, gửi email trùng, append trùng nội dung) — đặc
+    // biệt nguy hiểm với hành động ĐÃ qua HITL approval (executeApprovedToolForReal),
+    // nơi user chỉ duyệt cho ĐÚNG 1 lần thực thi. Tool đọc (an toàn, không
+    // side-effect) vẫn giữ retry để chịu được mất kết nối/session thoáng qua.
+    // Đọc THẲNG cache nội bộ (không gọi getTools() công khai) — tránh ép fetch
+    // mới/tạo thêm 1 connection riêng chỉ để tra cứu; nếu chưa có cache sẵn
+    // (VD ReactLoop luôn getTools() trước khi callTool() nên thường đã có),
+    // mặc định coi như KHÔNG chắc chắn an toàn, không retry.
+    const cachedTools = this.toolsCache.get(dto.provider)?.data;
+    const isDestructive = cachedTools
+      ? Boolean(
+          cachedTools.find((t) => t.name === dto.name)?.annotations
+            ?.destructiveHint,
+        )
+      : true;
+    const maxRetries = isDestructive ? 1 : 3;
+
     return this.withReconnect(
       dto.provider,
       dto.ownerId,
@@ -229,6 +263,7 @@ export class McpClientService {
           name: dto.name,
           arguments: dto.args,
         }) as Promise<CallToolResponseDto>,
+      maxRetries,
     );
   }
 
@@ -273,12 +308,13 @@ export class McpClientService {
     provider: string,
     ownerId: string | undefined,
     fn: (client: Client) => Promise<T>,
+    maxRetries = 3,
   ): Promise<T> {
     return this.circuitBreaker.run(`mcp:${provider}`, () =>
       this.concurrencyLimiter.run(
         `mcp:${provider}`,
         ORCHESTRATION_CONSTANTS.MAX_CONCURRENT_MCP_CALLS_PER_PROVIDER,
-        () => this.callWithReconnect(provider, ownerId, fn),
+        () => this.callWithReconnect(provider, ownerId, fn, maxRetries),
       ),
     );
   }
@@ -287,17 +323,18 @@ export class McpClientService {
    * Client cache sống lâu hơn 1 lần deploy của mcp_server — nếu mcp_server
    * restart (session trong RAM mất sạch) mà client vẫn cầm session cũ, request
    * sẽ lỗi ("Server not initialized"/"Server already initialized"...). Gặp lỗi
-   * là bỏ luôn client cũ, tạo kết nối mới rồi thử lại đúng 1 lần.
+   * là bỏ luôn client cũ, tạo kết nối mới rồi thử lại (mặc định tối đa 3 lần —
+   * `maxRetries=1` cho tool không idempotent, xem callTool()).
    */
   private async callWithReconnect<T>(
     provider: string,
     ownerId: string | undefined,
     fn: (client: Client) => Promise<T>,
+    maxRetries: number,
   ): Promise<T> {
     const cacheKey = `${provider}:${ownerId ?? '__anon__'}`;
     const timeoutMsg = `MCP call timeout sau ${ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS / 1000}s (${cacheKey})`;
 
-    const maxRetries = 3;
     let attempt = 0;
 
     while (attempt < maxRetries) {
