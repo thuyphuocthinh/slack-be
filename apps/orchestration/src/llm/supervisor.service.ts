@@ -7,7 +7,6 @@ import {
   SUPERVISOR_SYNTHESIS_PROMPT,
   SUPERVISOR_PLAN_SCHEMA,
   SUPERVISOR_PLAN_SCHEMA_NO_ANSWER,
-  SUPERVISOR_SYNTHESIS_SCHEMA,
   PROVIDER_DESCRIPTIONS,
 } from '@slack/constants';
 import { McpAuthClientService } from '../mcp-auth/mcp-auth-client.service';
@@ -35,7 +34,7 @@ export class SupervisorService {
     private readonly llmFactory: LlmStrategyFactory,
     private readonly circuitBreaker: CircuitBreakerService,
     private readonly dynamicProviderDb: DynamicProviderDbService,
-  ) { }
+  ) {}
 
   /**
    * Agent "khả dụng" cho Supervisor = vừa đã connect (mcp-auth) VỪA có hạ
@@ -55,11 +54,14 @@ export class SupervisorService {
         description: PROVIDER_DESCRIPTIONS[status.provider_id] ?? '',
       }));
 
-    const dynamicEntities = await this.dynamicProviderDb.getProvidersByUser(userId);
-    const dynamicAgents = dynamicEntities.map(entity => ({
+    const dynamicEntities =
+      await this.dynamicProviderDb.getProvidersByUser(userId);
+    const dynamicAgents = dynamicEntities.map((entity) => ({
       provider: entity.id,
       label: entity.name,
-      description: entity.description || `Hệ thống/API mở rộng (Custom Swagger). TRỌNG TÂM: Hãy ưu tiên chọn agent này nếu yêu cầu liên quan đến các từ khóa hoặc dữ liệu thuộc về hệ thống "${entity.name}" (URL tham khảo: ${entity.specUrl}).`,
+      description:
+        entity.description ||
+        `Hệ thống/API mở rộng (Custom Swagger). TRỌNG TÂM: Hãy ưu tiên chọn agent này nếu yêu cầu liên quan đến các từ khóa hoặc dữ liệu thuộc về hệ thống "${entity.name}" (URL tham khảo: ${entity.specUrl}).`,
     }));
 
     return [...staticAgents, ...dynamicAgents];
@@ -85,8 +87,8 @@ export class SupervisorService {
     const agentListText =
       agents.length > 0
         ? agents
-          .map((a) => `- ${a.provider} (${a.label}): ${a.description}`)
-          .join('\n')
+            .map((a) => `- ${a.provider} (${a.label}): ${a.description}`)
+            .join('\n')
         : '(Người dùng chưa kết nối agent nào — nếu câu hỏi cần dữ liệu, trả lời "respond" và nhắc user vào Settings để kết nối.)';
 
     const fullPrompt = this.buildPrompt(prompt, rounds, history);
@@ -95,12 +97,14 @@ export class SupervisorService {
     // synthesize(), xem "stream = save"). Bỏ field "answer" khỏi schema ở các
     // lần đó để khỏi trả tiền completion token cho 1 câu trả lời chắc chắn bị vứt.
     const planSchema =
-      rounds.length > 0 ? SUPERVISOR_PLAN_SCHEMA_NO_ANSWER : SUPERVISOR_PLAN_SCHEMA;
+      rounds.length > 0
+        ? SUPERVISOR_PLAN_SCHEMA_NO_ANSWER
+        : SUPERVISOR_PLAN_SCHEMA;
 
     try {
       const { strategy, model } = this.llmFactory.resolve(
         process.env.SUPERVISOR_MODEL ??
-        ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
+          ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
       );
       this.logger.log(
         `plan() model=${model} agents=${agents.length} historyTurns=${history.length} prompt=${fullPrompt}`,
@@ -145,6 +149,15 @@ export class SupervisorService {
       return { verdict: 'done' };
     }
 
+    // Tối ưu chi phí (xem accuracy.md, mục "chưa triển khai") — bước vừa xong
+    // rõ ràng thành công (có dữ liệu thật, không phải lỗi/agent chưa khả dụng)
+    // thì mặc định 'continue' bằng rule đơn giản, KHÔNG tốn 1 lượt gọi LLM.
+    // Chỉ gọi LLM khi có tín hiệu đáng ngờ — nhất quán với nhánh lỗi bên dưới
+    // (LLM lỗi cũng mặc định 'continue', MAX_SUPERVISOR_ROUNDS là lưới chặn cuối).
+    if (this.looksClearlySuccessful(completedStep)) {
+      return { verdict: 'continue' };
+    }
+
     const remainingText = remainingSteps
       .map((s, i) => `${i + 1}. Agent "${s.agent}": ${s.task}`)
       .join('\n');
@@ -153,7 +166,7 @@ export class SupervisorService {
     try {
       const { strategy, model } = this.llmFactory.resolve(
         process.env.SUPERVISOR_MODEL ??
-        ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
+          ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
       );
       const verdict = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
         withTimeout(
@@ -181,6 +194,22 @@ export class SupervisorService {
     }
   }
 
+  // Rule đơn giản, KHÔNG gọi LLM — chỉ coi là "rõ ràng thành công" khi có nội
+  // dung THẬT (không rỗng) và không khớp 2 dấu hiệu lỗi/không khả dụng đã biết:
+  // (1) describeExternalServiceError() luôn bắt đầu bằng "⚠️ Lỗi" (xem
+  // external-service-error.util.ts), (2) TurnResolverService.continueRounds()
+  // dùng đúng cụm "chưa khả dụng" khi agent không tồn tại/chưa kết nối. Bất kỳ
+  // nội dung nào KHÁC 2 dấu hiệu này đều coi là thành công thật — nhất quán với
+  // triết lý toàn hàm: khi không chắc thì cứ "continue", MAX_SUPERVISOR_ROUNDS
+  // là lưới chặn cuối nếu có sai thì cũng không loop vô hạn.
+  private looksClearlySuccessful(round: SupervisorRoundDto): boolean {
+    const result = round.result?.trim();
+    if (!result) return false;
+    if (result.startsWith('⚠️ Lỗi')) return false;
+    if (result.includes('chưa khả dụng')) return false;
+    return true;
+  }
+
   /**
    * Gọi khi đã hết MAX_SUPERVISOR_ROUNDS mà vẫn chưa "respond" — bắt buộc
    * tổng hợp NGAY những gì đã thu thập được (Step 9), thay vì trả thẳng kết
@@ -202,7 +231,7 @@ export class SupervisorService {
     try {
       const { strategy, model } = this.llmFactory.resolve(
         process.env.SUPERVISOR_MODEL ??
-        ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
+          ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
       );
 
       const session = strategy.startChat({
