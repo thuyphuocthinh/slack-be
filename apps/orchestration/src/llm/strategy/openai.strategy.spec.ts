@@ -264,5 +264,24 @@ describe('OpenAiStrategy', () => {
         }),
       );
     });
+
+    it('recovers when 9Router returns the completion as a raw string with a trailing SSE "data: [DONE]" marker', async () => {
+      // Bug thật gặp ở production: 9Router gắn nhầm content-type SSE cho 1 request
+      // non-stream, JSON body hợp lệ bị dính thêm "data: [DONE]" ở cuối. Chuỗi
+      // "[DONE]" tự chứa dấu ngoặc nên JsonExtractor từng bị đánh lừa nếu không
+      // dọn rác này trước.
+      const rawBody =
+        '{"choices":[{"message":{"content":"{\\"action\\":\\"respond\\",\\"answer\\":\\"chào\\"}"}}]}\ndata: [DONE]\n\n';
+      mockCreate.mockResolvedValue(rawBody);
+
+      const result = await strategy.generateStructured({
+        model: 'gpt-4o-mini',
+        systemInstruction: '',
+        prompt: '',
+        schema: {},
+      });
+
+      expect(result).toEqual({ action: 'respond', answer: 'chào' });
+    });
   });
 });

@@ -19,6 +19,25 @@ import {
 } from './llm-strategy.interface';
 import { attachLlmCostMetadata } from '../llm-cost.util';
 
+// 9Router đôi khi gắn nhầm terminator SSE "data: [DONE]" vào cuối 1 response
+// JSON bình thường (không streaming), và đôi khi double-stringify cả body.
+// Chuỗi "[DONE]" tự chứa ký tự `[`/`]` nên bộ dò ngoặc của JsonExtractor dễ
+// nhận nhầm nó là 1 phần cấu trúc JSON — phải dọn rác này TRƯỚC khi extract/parse.
+function stripNineRouterArtifacts(rawText: string): string {
+  let text = rawText.replace(/data:\s*\[DONE\]\s*$/g, '').trim();
+
+  try {
+    const parsed = JSON.parse(text);
+    if (typeof parsed === 'string') {
+      text = parsed;
+    }
+  } catch {
+    // Không phải double-stringified, giữ nguyên text.
+  }
+
+  return text;
+}
+
 @Injectable()
 export class OpenAiStrategy implements LlmStrategy {
   readonly id = 'openai';
@@ -38,31 +57,19 @@ export class OpenAiStrategy implements LlmStrategy {
 
           // Bỏ qua nếu là stream (vì stream chunk được xử lý riêng rẽ)
           const isStream = init?.body && typeof init.body === 'string' && init.body.includes('"stream":true');
-
-          // Nếu là API gọi bình thường, ta chặn luồng HTTP response lại để dọn rác do 9Router sinh ra
-          if (!isStream && response.headers.get('content-type')?.includes('application/json')) {
-            let text = await response.text();
-
-            // 1. Dọn rác `data: [DONE]` do 9Router gắn nhầm vào cuối response
-            text = text.replace(/data:\s*\[DONE\]\s*$/g, '').trim();
-
-            // 2. Dọn lỗi double-stringified (chuỗi JSON bị mã hoá thành string 2 lần)
-            try {
-              const parsed = JSON.parse(text);
-              if (typeof parsed === 'string') {
-                text = parsed;
-              }
-            } catch (e) {
-              // Bỏ qua nếu parse lỗi, giữ nguyên text gốc
-            }
-
-            return new Response(text, {
-              status: response.status,
-              statusText: response.statusText,
-              headers: response.headers
-            });
+          if (isStream) {
+            return response;
           }
-          return response;
+
+          // KHÔNG dựa vào header content-type 9Router trả về để quyết định có dọn
+          // rác hay không — 9Router có lúc gắn content-type kiểu SSE (text/event-stream)
+          // cho cả request non-stream, khiến bước dọn rác bị bỏ qua đúng lúc cần nhất.
+          const text = await response.text();
+          return new Response(stripNineRouterArtifacts(text), {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers,
+          });
         }
       });
     } else {
@@ -107,7 +114,9 @@ export class OpenAiStrategy implements LlmStrategy {
         if (typeof completion === 'string' || completion instanceof String) {
           try {
             const extractor = new JsonExtractor();
-            const cleanRaw = extractor.extract(completion.toString());
+            // Dọn rác 9Router trước — "[DONE]" tự chứa dấu ngoặc nên nếu để lọt
+            // vào extractor, nó đánh lừa bộ dò ngoặc và làm JSON.parse fail.
+            const cleanRaw = extractor.extract(stripNineRouterArtifacts(completion.toString()));
             completion = JSON.parse(cleanRaw);
           } catch (e) {
             // ignore, let it fail below
