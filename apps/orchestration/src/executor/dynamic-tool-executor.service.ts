@@ -7,7 +7,6 @@ import { CallToolResponseDto } from '../dto/mcp.dto';
 import { EDynamicProviderAuthType } from '../entity/dynamic-provider.entity';
 import { QueueService, EQueueName, EJobName } from '@slack/queue';
 import { PiiScrubProcessor } from './pii-scrub.processor';
-import { RETRYABLE_HTTP_STATUS_CODES } from './tool-error-classifier.util';
 import {
   OpenApiSecurityInjector as LibSecurityInjector,
   Oauth2RefreshTokenRefresher,
@@ -224,16 +223,19 @@ export class DynamicToolExecutorService {
 
     if (error instanceof ToolExecutionError) {
       this.logger.error(`Error executing dynamic tool: ${error.message}`);
-      // `statusCode` là HTTP status THẬT của lời gọi upstream (3rd-party API)
-      // vừa thất bại — quyết định retryable NGAY TẠI ĐÂY, gần nguồn lỗi nhất,
-      // thay vì để slack-be tầng trên đoán lại từ text (xem tool-error-classifier.util.ts).
-      const retryable =
-        error.statusCode !== undefined &&
-        RETRYABLE_HTTP_STATUS_CODES.has(error.statusCode);
+      // libExecutor.execute() (agentic-openapi-parser) đã tự retry 3 lần thật
+      // (retry.maxRetries: 2) TRƯỚC KHI ném lỗi này ra — tức là "còn đáng thử
+      // lại không" đã được thư viện trả lời rồi (KHÔNG). Vì vậy luôn báo
+      // retryable: false ở đây, để tầng transient-retry của handleToolCall()
+      // (react-loop.service.ts) không thử lại chồng thêm lần nữa — tránh nhân
+      // 2 tầng retry lên nhau (2 lần orchestration × 3 lần thư viện = 6 lời gọi
+      // HTTP thật cho 1 lỗi 503 dai dẳng). Tầng transient-retry đó vẫn cần thiết
+      // cho static provider (mcp_server tự viết) vì static provider KHÔNG có
+      // retry nội bộ nào cả.
       return this.formatErrorResponse(
         error.message,
         'DYNAMIC_PROVIDER_ERROR',
-        retryable,
+        false,
       );
     }
 
@@ -252,7 +254,11 @@ export class DynamicToolExecutorService {
     this.logger.error(
       `Unexpected error executing dynamic tool "${toolName}": ${message}`,
     );
-    return this.formatErrorResponse(message, `UNKNOWN_ERROR:${toolName}`, false);
+    return this.formatErrorResponse(
+      message,
+      `UNKNOWN_ERROR:${toolName}`,
+      false,
+    );
   }
 
   private formatErrorResponse(

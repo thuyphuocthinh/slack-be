@@ -551,11 +551,13 @@ describe('DynamicToolExecutorService', () => {
 
     expect(result.isError).toBe(true);
     expect(result.content![0].text).toContain('Status 503');
-    // 503 — thuộc nhóm HTTP status TẠM THỜI (Giai đoạn System, mục 4 nâng
-    // cấp) — dù thư viện đã tự retry 2 lần và vẫn thất bại, orchestration
-    // tầng trên (react-loop.service.ts) vẫn đọc được cờ này để tự quyết định
-    // có thử thêm lần nữa hay không, ẩn với LLM.
-    expect(JSON.parse(result.content![0].text!).retryable).toBe(true);
+    // Dù 503 thuộc nhóm HTTP status tạm thời, thư viện ĐÃ tự retry 3 lần thật
+    // (initial + maxRetries: 2) và vẫn thất bại — nghĩa là "còn đáng thử lại
+    // không" đã được trả lời (KHÔNG) trước khi lỗi này thoát ra. Vì vậy luôn
+    // retryable: false ở đây, để react-loop.service.ts không retry chồng thêm
+    // lần nữa (tránh nhân 2 tầng retry: 2 orchestration × 3 thư viện = 6 lời
+    // gọi HTTP cho 1 lỗi dai dẳng).
+    expect(JSON.parse(result.content![0].text!).retryable).toBe(false);
     // Initial attempt + 2 retries (maxRetries: 2), matching the configured retry policy.
     expect(axios).toHaveBeenCalledTimes(3);
   });
