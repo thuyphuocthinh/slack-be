@@ -657,7 +657,9 @@ describe('ReactLoopService', () => {
             {
               type: 'text',
               text: JSON.stringify({
-                code: 503,
+                error: true,
+                retryable: true,
+                code: 'DYNAMIC_PROVIDER_ERROR',
                 message: 'Service temporarily unavailable',
               }),
             },
@@ -707,7 +709,15 @@ describe('ReactLoopService', () => {
       jest.useFakeTimers();
       mockMcpClient.callTool.mockResolvedValue({
         content: [
-          { type: 'text', text: JSON.stringify({ code: 503, message: 'Still down' }) },
+          {
+            type: 'text',
+            text: JSON.stringify({
+              error: true,
+              retryable: true,
+              code: 'DYNAMIC_PROVIDER_ERROR',
+              message: 'Still down',
+            }),
+          },
         ],
         isError: true,
       });
@@ -738,10 +748,18 @@ describe('ReactLoopService', () => {
       expect(result.toolCalls[0].status).toBe('error');
     });
 
-    it('does not retry a permanent error even when a recognizable-but-non-retryable HTTP code is present (VD 400 — client error, not transient)', async () => {
+    it('does not retry a permanent error even when the envelope has a recognizable code but retryable: false (VD 400 — client error, not transient)', async () => {
       mockMcpClient.callTool.mockResolvedValue({
         content: [
-          { type: 'text', text: JSON.stringify({ code: 400, message: 'Bad request' }) },
+          {
+            type: 'text',
+            text: JSON.stringify({
+              error: true,
+              retryable: false,
+              code: 'DYNAMIC_PROVIDER_ERROR',
+              message: 'Bad request',
+            }),
+          },
         ],
         isError: true,
       });

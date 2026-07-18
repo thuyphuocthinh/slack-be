@@ -1,46 +1,42 @@
 import { classifyToolError } from './tool-error-classifier.util';
 
 describe('classifyToolError', () => {
-  it.each([429, 502, 503, 504])(
-    'classifies HTTP %i as retryable when found under "code"',
-    (code) => {
-      const text = JSON.stringify({ code, message: 'There was an error processing your request.' });
-      expect(classifyToolError(text)).toBe('retryable');
-    },
-  );
+  it('classifies as retryable when the JSON envelope has retryable: true', () => {
+    const text = JSON.stringify({
+      error: true,
+      retryable: true,
+      code: 'TOOL_EXECUTION_ERROR:getInventory',
+      message: 'Service temporarily unavailable',
+    });
+    expect(classifyToolError(text)).toBe('retryable');
+  });
 
-  it.each([429, 502, 503, 504])(
-    'classifies HTTP %i as retryable when found under "statusCode"',
-    (code) => {
-      const text = JSON.stringify({ statusCode: code, message: 'Too many requests' });
-      expect(classifyToolError(text)).toBe('retryable');
-    },
-  );
+  it('classifies as permanent when the JSON envelope has retryable: false', () => {
+    const text = JSON.stringify({
+      error: true,
+      retryable: false,
+      code: 'AUTHENTICATION_ERROR',
+      message: 'Chưa kết nối sql_server.',
+    });
+    expect(classifyToolError(text)).toBe('permanent');
+  });
 
-  it('classifies a generic HTTP 500 as permanent — only the classic transient codes count', () => {
+  it('classifies as permanent when retryable is missing entirely from an otherwise-valid JSON object', () => {
     const text = JSON.stringify({ code: 500, message: 'Internal error' });
     expect(classifyToolError(text)).toBe('permanent');
   });
 
-  it.each([400, 401, 403, 404, 422])(
-    'classifies client-error HTTP %i as permanent',
-    (code) => {
-      const text = JSON.stringify({ code, message: 'Bad request' });
-      expect(classifyToolError(text)).toBe('permanent');
-    },
-  );
-
-  it('classifies semantic error text with no HTTP code at all as permanent (static provider errors, VD "Error [AUTHENTICATION_ERROR]: ...")', () => {
+  it('classifies as permanent when the text is not JSON at all (VD exception message từ McpClientService, hoặc lỗi tool cũ chưa theo format mới)', () => {
     expect(
       classifyToolError('Error [AUTHENTICATION_ERROR]: Chưa kết nối sql_server.'),
     ).toBe('permanent');
-    expect(
-      classifyToolError('Error [TOOL_EXECUTION_ERROR:execute_write_query]: Multiple SQL statements are not permitted.'),
-    ).toBe('permanent');
+    expect(classifyToolError('ECONNREFUSED')).toBe('permanent');
   });
 
-  it('classifies empty/unrecognizable text as permanent (safe default)', () => {
+  it('classifies as permanent for empty text or non-object JSON (string/number/null)', () => {
     expect(classifyToolError('')).toBe('permanent');
-    expect(classifyToolError('something went wrong, no idea what')).toBe('permanent');
+    expect(classifyToolError('"just a string"')).toBe('permanent');
+    expect(classifyToolError('42')).toBe('permanent');
+    expect(classifyToolError('null')).toBe('permanent');
   });
 });

@@ -7,6 +7,7 @@ import { CallToolResponseDto } from '../dto/mcp.dto';
 import { EDynamicProviderAuthType } from '../entity/dynamic-provider.entity';
 import { QueueService, EQueueName, EJobName } from '@slack/queue';
 import { PiiScrubProcessor } from './pii-scrub.processor';
+import { RETRYABLE_HTTP_STATUS_CODES } from './tool-error-classifier.util';
 import {
   OpenApiSecurityInjector as LibSecurityInjector,
   Oauth2RefreshTokenRefresher,
@@ -216,28 +217,57 @@ export class DynamicToolExecutorService {
     if (error instanceof ToolNotFoundError) {
       return this.formatErrorResponse(
         `Tool "${toolName}" not found in spec for provider "${providerId}"`,
+        'TOOL_NOT_FOUND',
+        false,
       );
     }
 
-    if (
-      error instanceof ToolExecutionError ||
-      error instanceof ResponseProcessingError
-    ) {
+    if (error instanceof ToolExecutionError) {
       this.logger.error(`Error executing dynamic tool: ${error.message}`);
-      return this.formatErrorResponse(error.message);
+      // `statusCode` là HTTP status THẬT của lời gọi upstream (3rd-party API)
+      // vừa thất bại — quyết định retryable NGAY TẠI ĐÂY, gần nguồn lỗi nhất,
+      // thay vì để slack-be tầng trên đoán lại từ text (xem tool-error-classifier.util.ts).
+      const retryable =
+        error.statusCode !== undefined &&
+        RETRYABLE_HTTP_STATUS_CODES.has(error.statusCode);
+      return this.formatErrorResponse(
+        error.message,
+        'DYNAMIC_PROVIDER_ERROR',
+        retryable,
+      );
+    }
+
+    if (error instanceof ResponseProcessingError) {
+      // Lỗi xử lý HẬU KỲ (PII scrub/truncate) — không có HTTP status nào để
+      // phân loại, luôn coi là cố định.
+      this.logger.error(`Error executing dynamic tool: ${error.message}`);
+      return this.formatErrorResponse(
+        error.message,
+        'RESPONSE_PROCESSING_ERROR',
+        false,
+      );
     }
 
     const message = error instanceof Error ? error.message : String(error);
     this.logger.error(
       `Unexpected error executing dynamic tool "${toolName}": ${message}`,
     );
-    return this.formatErrorResponse(message);
+    return this.formatErrorResponse(message, `UNKNOWN_ERROR:${toolName}`, false);
   }
 
-  private formatErrorResponse(message: string): CallToolResponseDto {
+  private formatErrorResponse(
+    message: string,
+    code: string,
+    retryable: boolean,
+  ): CallToolResponseDto {
     return {
       isError: true,
-      content: [{ type: 'text', text: message }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({ error: true, retryable, code, message }),
+        },
+      ],
     };
   }
 }

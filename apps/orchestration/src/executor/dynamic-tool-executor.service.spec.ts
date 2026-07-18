@@ -177,6 +177,8 @@ describe('DynamicToolExecutorService', () => {
     expect(result.isError).toBe(true);
     expect(result.content![0].text).toContain('Status 404');
     expect(result.content![0].text).toContain('Not Found');
+    // 404 — lỗi client, KHÔNG thuộc nhóm HTTP status tạm thời (429/502/503/504).
+    expect(JSON.parse(result.content![0].text!).retryable).toBe(false);
   });
 
   it('should return error DTO if tool is not found in spec', async () => {
@@ -197,6 +199,7 @@ describe('DynamicToolExecutorService', () => {
 
     expect(result.isError).toBe(true);
     expect(result.content![0].text).toContain('not found in spec');
+    expect(JSON.parse(result.content![0].text!).retryable).toBe(false);
   });
 
   it('redacts sensitive keys in the response via the PII scrub processor', async () => {
@@ -548,6 +551,11 @@ describe('DynamicToolExecutorService', () => {
 
     expect(result.isError).toBe(true);
     expect(result.content![0].text).toContain('Status 503');
+    // 503 — thuộc nhóm HTTP status TẠM THỜI (Giai đoạn System, mục 4 nâng
+    // cấp) — dù thư viện đã tự retry 2 lần và vẫn thất bại, orchestration
+    // tầng trên (react-loop.service.ts) vẫn đọc được cờ này để tự quyết định
+    // có thử thêm lần nữa hay không, ẩn với LLM.
+    expect(JSON.parse(result.content![0].text!).retryable).toBe(true);
     // Initial attempt + 2 retries (maxRetries: 2), matching the configured retry policy.
     expect(axios).toHaveBeenCalledTimes(3);
   });
