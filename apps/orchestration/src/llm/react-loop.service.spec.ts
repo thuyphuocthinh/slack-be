@@ -540,7 +540,11 @@ describe('ReactLoopService', () => {
       expect(result.answer).toBe('ok');
     });
 
-    it('blocks further real calls to the same tool with the same args after MAX_SAME_TOOL_CALL_REPEATS attempts in one turn, instead of letting the LLM loop forever on a self-triggered repeat', async () => {
+    it('blocks a second call to the same tool+args right after the first one FAILS — no retry for application-level errors, only connection errors get retried (and that retry is invisible, inside McpClientService)', async () => {
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'HTTP 500 upstream error' }],
+        isError: true,
+      });
       mockSession.sendMessage.mockResolvedValue({
         text: '',
         toolCalls: [{ name: 'get_database_schema', args: { x: 1 } }],
@@ -548,19 +552,16 @@ describe('ReactLoopService', () => {
 
       const result = await service.run(baseDto);
 
-      // Chỉ ĐÚNG 1 lần gọi tool THẬT — lần lặp thứ 2 (chưa vượt ngưỡng) được
-      // phục vụ từ cache kết quả thành công, không tốn thêm lời gọi backend
-      // thật nào; chỉ từ lần thứ 3 trở đi (vượt ngưỡng) mới bị chặn hẳn.
+      // Đúng 1 lần gọi tool THẬT — lỗi ứng dụng (đã kết nối được, chỉ là bản
+      // thân request lỗi) không có lý do gì để retry với ĐÚNG tham số đó,
+      // nên MAX_SAME_TOOL_CALL_REPEATS=1 chặn ngay từ lần lặp thứ 2.
       expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
-      // MAX_REACT_STEPS lượt tool-call tổng cộng đều được ghi trace (thật,
-      // cache, hay bị chặn) — số bị chặn (từ sau ngưỡng) phải có status 'error'.
       expect(result.toolCalls).toHaveLength(
         ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS,
       );
-      const blocked = result.toolCalls.slice(
-        ORCHESTRATION_CONSTANTS.MAX_SAME_TOOL_CALL_REPEATS,
-      );
-      expect(blocked.every((t) => t.status === 'error')).toBe(true);
+      expect(result.toolCalls[0].status).toBe('error'); // lần gọi thật, tool trả lỗi
+      const blockedAfterFirst = result.toolCalls.slice(1);
+      expect(blockedAfterFirst.every((t) => t.status === 'error')).toBe(true);
     });
 
     it('serves a repeated identical call from cache instead of hitting the real tool again (bug: model re-called google_docs.get_document_content twice in a row even though the first call already succeeded)', async () => {
@@ -595,6 +596,23 @@ describe('ReactLoopService', () => {
       ]);
     });
 
+    it('keeps reusing the cached success for a signature that already succeeded, no matter how many times it repeats — never hard-blocks a proven-good call', async () => {
+      mockSession.sendMessage.mockResolvedValue({
+        text: '',
+        toolCalls: [{ name: 'get_database_schema', args: { x: 1 } }],
+      });
+      // Mặc định beforeEach đã mock callTool trả về thành công.
+
+      const result = await service.run(baseDto);
+
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1); // chỉ 1 lần thật, còn lại phục vụ từ cache
+      expect(result.toolCalls).toHaveLength(
+        ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS,
+      );
+      // KHÔNG có entry nào bị chặn cứng — cache-hit luôn ưu tiên hơn ngưỡng chặn.
+      expect(result.toolCalls.every((t) => t.status === 'success')).toBe(true);
+    });
+
     it('names the other available tools in the block message so the LLM has a concrete next step instead of re-reading forever (bug: model kept re-calling get_document_content instead of ever trying append_document_text)', async () => {
       mockMcpClient.getTools.mockResolvedValue([
         { name: 'get_document_content', description: 'desc', inputSchema: {} },
@@ -605,6 +623,10 @@ describe('ReactLoopService', () => {
           annotations: { readOnlyHint: false, destructiveHint: false },
         },
       ]);
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'not found' }],
+        isError: true,
+      });
       mockSession.sendMessage.mockResolvedValue({
         text: '',
         toolCalls: [
@@ -614,7 +636,9 @@ describe('ReactLoopService', () => {
 
       const result = await service.run(baseDto);
 
-      const blocked = result.toolCalls.find((t) => t.status === 'error');
+      const blocked = result.toolCalls.find((t) =>
+        t.resultPreview?.includes('KHÔNG được gọi lại tool này'),
+      );
       expect(blocked?.resultPreview).toContain('KHÔNG được gọi lại tool này');
       // Gợi ý phải liệt kê CHÍNH XÁC tool còn lại (append_document_text),
       // không lặp lại chính tool vừa bị chặn (get_document_content) trong gợi ý.

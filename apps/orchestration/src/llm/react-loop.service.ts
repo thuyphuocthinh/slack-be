@@ -226,6 +226,38 @@ export class ReactLoopService {
     // để LLM tự đổi hướng thay vì lặp vô ích.
     const attempts = (callSignatureCounts.get(signature) ?? 0) + 1;
     callSignatureCounts.set(signature, attempts);
+
+    // Check cache TRƯỚC khi check ngưỡng chặn (đảo thứ tự so với bản đầu) —
+    // model tự gọi lại ĐÚNG tool đã thành công (self-check nudge nghi ngờ
+    // thừa, hoặc 1 response chứa 2 tool_call y hệt cùng lúc) luôn được phục vụ
+    // từ cache, KHÔNG BAO GIỜ bị chặn cứng dù lặp lại bao nhiêu lần — vì đây
+    // là repeat VÔ HẠI (không tốn thêm lời gọi backend thật), khác hẳn việc
+    // lặp lại sau 1 LỖI. Không cache lỗi, nên lần lặp sau 1 lần lỗi luôn rơi
+    // xuống dưới, ăn đúng ngưỡng chặn (xem MAX_SAME_TOOL_CALL_REPEATS = 1 —
+    // lỗi ứng dụng gọi lại y hệt tham số không có lý do gì ra kết quả khác;
+    // lỗi kết nối/session thật đã có retry riêng, tách biệt, ở McpClientService).
+    if (attempts > 1) {
+      const cached = successfulCallCache.get(signature);
+      if (cached) {
+        this.logger.log(
+          `tool_call ${displayName} lặp lại lần ${attempts}, ĐÚNG tham số đã thành công trước đó — dùng lại kết quả cũ, không gọi tool thật lần nữa`,
+        );
+        await this.emitStep(dto, { type: 'tool_call', tool: displayName });
+        await this.emitStep(dto, {
+          type: 'tool_result',
+          tool: displayName,
+          status: 'success',
+          resultPreview: cached.resultPreview,
+        });
+        toolCalls.push({
+          tool: displayName,
+          status: 'success',
+          resultPreview: cached.resultPreview,
+        });
+        return cached.feedText;
+      }
+    }
+
     if (attempts > ORCHESTRATION_CONSTANTS.MAX_SAME_TOOL_CALL_REPEATS) {
       // Không chỉ nói chung chung "thử cách khác" — model hay đọc xong rồi
       // vẫn gọi lại đúng tool đọc đó thay vì chuyển sang tool HÀNH ĐỘNG. Liệt
@@ -251,34 +283,6 @@ export class ReactLoopService {
       });
       toolCalls.push({ tool: displayName, status: 'error', resultPreview });
       return resultPreview;
-    }
-
-    // Đây là lần gọi LẶP LẠI (attempts > 1) nhưng CHƯA vượt ngưỡng chặn ở
-    // trên — model tự gọi lại ĐÚNG tool đã thành công (self-check nudge nghi
-    // ngờ thừa, hoặc 1 response chứa 2 tool_call y hệt cùng lúc). Dùng lại kết
-    // quả cũ thay vì tốn 1 lượt tool thật vô ích — model vẫn nhận được y hệt
-    // nội dung nó sẽ nhận nếu gọi thật. Không cache lỗi, nên lần lặp sau 1 lỗi
-    // thoáng qua vẫn đi tiếp xuống gọi tool thật như cũ (có thể lỗi đã hết).
-    if (attempts > 1) {
-      const cached = successfulCallCache.get(signature);
-      if (cached) {
-        this.logger.log(
-          `tool_call ${displayName} lặp lại lần ${attempts}, ĐÚNG tham số đã thành công trước đó — dùng lại kết quả cũ, không gọi tool thật lần nữa`,
-        );
-        await this.emitStep(dto, { type: 'tool_call', tool: displayName });
-        await this.emitStep(dto, {
-          type: 'tool_result',
-          tool: displayName,
-          status: 'success',
-          resultPreview: cached.resultPreview,
-        });
-        toolCalls.push({
-          tool: displayName,
-          status: 'success',
-          resultPreview: cached.resultPreview,
-        });
-        return cached.feedText;
-      }
     }
 
     this.logger.log(`tool_call ${displayName} args=${JSON.stringify(args)}`);

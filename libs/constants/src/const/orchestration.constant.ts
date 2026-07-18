@@ -46,9 +46,14 @@ export const ORCHESTRATION_CONSTANTS = {
   // xử lý nhanh hơn).
   MAX_ORCHESTRATION_QUEUE_DEPTH: 100,
   // Giai đoạn System, mục 4 — chặn LLM tự gọi lại CÙNG 1 tool với CÙNG tham số
-  // quá nhiều lần trong 1 lượt run() (dấu hiệu tự lặp vô ích sau khi thấy lỗi,
-  // khác với retry nội bộ 3 lần của McpClientService khi mất kết nối/session).
-  MAX_SAME_TOOL_CALL_REPEATS: 2,
+  // trong 1 lượt run(). = 1 nghĩa là CHỈ CHO PHÉP ĐÚNG 1 LẦN GỌI THẬT cho mỗi
+  // (tool, tham số) — lần thứ 2 trở đi bị chặn ngay, KHÔNG phải "cho phép lặp
+  // lại N lần rồi mới chặn". Cố ý nghiêm ngặt: 1 lỗi ỨNG DỤNG (VD dynamic
+  // provider trả HTTP 500) gọi lại y hệt tham số không có lý do gì để ra kết
+  // quả khác — retry kiểu đó chỉ hợp lý cho lỗi TRUYỀN TẢI/KẾT NỐI, và lỗi đó
+  // đã có cơ chế riêng, TÁCH BIỆT, vô hình với LLM (McpClientService.callWithReconnect,
+  // 3 lần, chỉ áp dụng khi mất kết nối/session — không đụng gì ở đây).
+  MAX_SAME_TOOL_CALL_REPEATS: 1,
   // Giai đoạn System, mục 5.2 — giới hạn số request đồng thời được phép dồn
   // vào CÙNG 1 MCP provider, độc lập với concurrency:5 (global) của BullMQ
   // worker. Circuit breaker chỉ phản ứng SAU khi đã đủ lỗi (reactive) — giới
