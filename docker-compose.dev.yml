@@ -1,9 +1,11 @@
 version: '3.8'
 
-# Compose gọn cho LOCAL DEV — chỉ chạy hạ tầng cần thiết (Postgres + Redis),
-# bỏ PgBouncer/Loki/Grafana/Prometheus/cAdvisor/node-exporter/9router (mấy cái
-# đó phục vụ observability trên server thật, không cần thiết để chạy tính năng
-# ở local và chỉ tổ tốn RAM trên máy dev).
+# Compose gọn cho LOCAL DEV — chỉ chạy hạ tầng cần thiết (Postgres + Redis + 9router),
+# bỏ PgBouncer/Loki/Grafana/Prometheus/cAdvisor/node-exporter (mấy cái đó phục vụ
+# observability trên server thật, không cần thiết để chạy tính năng ở local và
+# chỉ tổ tốn RAM trên máy dev). 9router PHẢI chạy — cả 3 LLM strategy (OpenAI/
+# Anthropic/Gemini) trong orchestration đều gọi qua nó, không có đường gọi
+# thẳng provider thật (xem apps/orchestration/src/llm/strategy/*.strategy.ts).
 #
 # Cách dùng:
 #   docker compose -f docker-compose.dev.yml up -d
@@ -60,7 +62,21 @@ services:
     volumes:
       - redis_bullmq_dev_data:/data
 
+  9router:
+    image: decolua/9router:latest
+    container_name: slack-9router-dev
+    restart: unless-stopped
+    ports:
+      - "20128:20128"
+    volumes:
+      # Data (API key thật của OpenAI/Anthropic/Gemini + virtual key cấp cho
+      # slack-be) là volume RỖNG lúc đầu — bản cũ nằm trên EC2 đã mất, không
+      # có trong dump.sql. Phải vào cấu hình lại provider key từ đầu sau khi
+      # container này chạy lần đầu.
+      - 9router_dev_data:/app/data
+
 volumes:
   postgres_dev_data:
   redis_cache_dev_data:
   redis_bullmq_dev_data:
+  9router_dev_data:
