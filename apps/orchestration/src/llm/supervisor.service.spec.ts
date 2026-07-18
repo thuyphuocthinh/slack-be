@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { Logger } from '@nestjs/common';
 import {
   ORCHESTRATION_CONSTANTS,
   SUPERVISOR_PLAN_SCHEMA,
@@ -382,9 +383,10 @@ describe('SupervisorService', () => {
       ];
       // Mock embedding thô: text nào chứa "github" thì vector [1,0], còn lại [0,1] —
       // đủ để cosine similarity xếp đúng "github" lên đầu khi query cũng chứa từ đó.
-      mockEmbeddingProvider.embed.mockImplementation(
-        async (texts: string[]) =>
-          texts.map((t) => (t.toLowerCase().includes('github') ? [1, 0] : [0, 1])),
+      mockEmbeddingProvider.embed.mockImplementation(async (texts: string[]) =>
+        texts.map((t) =>
+          t.toLowerCase().includes('github') ? [1, 0] : [0, 1],
+        ),
       );
 
       await service.plan('liệt kê issue trên GitHub', lotsOfAgents);
@@ -420,6 +422,112 @@ describe('SupervisorService', () => {
         `agent_${ORCHESTRATION_CONSTANTS.MAX_AGENTS_BEFORE_RANKING} (Agent ${ORCHESTRATION_CONSTANTS.MAX_AGENTS_BEFORE_RANKING})`,
       );
       expect(sentInstruction).not.toContain('không liên quan tới câu hỏi này');
+    });
+  });
+
+  describe('plan — đo tần suất positional bias (accuracy_problem.md mục 1, bước 1)', () => {
+    it('logs an ambiguous-cluster warning when the chosen agent has a description similar to another connected agent', async () => {
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn');
+      const agents = [
+        {
+          provider: 'google_docs',
+          label: 'Google Docs',
+          description: 'Đọc và chỉnh sửa nội dung Google Docs.',
+        },
+        {
+          provider: 'notion',
+          label: 'Notion',
+          description: 'Đọc và chỉnh sửa trang/database trên Notion.',
+        },
+      ];
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'plan',
+        steps: [{ agent: 'google_docs', task: 'lưu thông tin này lại' }],
+      });
+
+      await service.plan('lưu thông tin này lại', agents);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[ambiguous-agent-cluster]'),
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('candidates=google_docs,notion'),
+      );
+    });
+
+    it('does not log anything when connected agents have clearly distinct descriptions', async () => {
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn');
+      const agents = [
+        {
+          provider: 'sql_server',
+          label: 'SQL Server',
+          description: 'Truy vấn schema và dữ liệu trên SQL Server của bạn.',
+        },
+        {
+          provider: 'github',
+          label: 'GitHub',
+          description: 'Truy cập repository, issue, pull request trên GitHub.',
+        },
+      ];
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'plan',
+        steps: [{ agent: 'sql_server', task: 'liệt kê bảng' }],
+      });
+
+      await service.plan('liệt kê bảng trong SQL Server', agents);
+
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('[ambiguous-agent-cluster]'),
+      );
+    });
+
+    it('does not log anything when action is "respond" (no agent chosen)', async () => {
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn');
+      const agents = [
+        {
+          provider: 'google_docs',
+          label: 'Google Docs',
+          description: 'Đọc và chỉnh sửa nội dung Google Docs.',
+        },
+        {
+          provider: 'notion',
+          label: 'Notion',
+          description: 'Đọc và chỉnh sửa trang/database trên Notion.',
+        },
+      ];
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'respond',
+        answer: 'Chào bạn!',
+      });
+
+      await service.plan('chào bạn', agents);
+
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('[ambiguous-agent-cluster]'),
+      );
+    });
+
+    it('does not call the embedding provider — thuần lexical, không tốn thêm lời gọi LLM/embedding nào', async () => {
+      const agents = [
+        {
+          provider: 'google_docs',
+          label: 'Google Docs',
+          description: 'Đọc và chỉnh sửa nội dung Google Docs.',
+        },
+        {
+          provider: 'notion',
+          label: 'Notion',
+          description: 'Đọc và chỉnh sửa trang/database trên Notion.',
+        },
+      ];
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'plan',
+        steps: [{ agent: 'google_docs', task: 'lưu thông tin này lại' }],
+      });
+
+      await service.plan('lưu thông tin này lại', agents);
+
+      expect(mockEmbeddingProvider.embed).not.toHaveBeenCalled();
     });
   });
 
@@ -476,7 +584,9 @@ describe('SupervisorService', () => {
     it('does not affect evaluate() — it keeps resolving via SUPERVISOR_MODEL regardless of SUPERVISOR_PLANNING_MODEL', async () => {
       process.env.SUPERVISOR_PLANNING_MODEL = 'gpt-4o';
       process.env.SUPERVISOR_MODEL = 'gpt-4o-mini';
-      mockStrategy.generateStructured.mockResolvedValue({ verdict: 'continue' });
+      mockStrategy.generateStructured.mockResolvedValue({
+        verdict: 'continue',
+      });
 
       await service.evaluate(
         'câu hỏi gốc',

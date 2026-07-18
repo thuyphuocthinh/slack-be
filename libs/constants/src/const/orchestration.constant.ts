@@ -81,6 +81,13 @@ export const ORCHESTRATION_CONSTANTS = {
   // Tool RAG hiện có cũng chỉ kích hoạt khi tool > 128.
   MAX_AGENTS_BEFORE_RANKING: 8,
   AGENT_RANKING_TOP_K: 6,
+  // accuracy_problem.md mục 1, bước 1 — đo tần suất case "2+ agent mô tả
+  // tương tự nhau" thật ở production (positional bias đã xác nhận: plan()
+  // luôn chọn agent đứng ĐẦU mảng khi mơ hồ). Ngưỡng Jaccard similarity giữa
+  // token mô tả 2 agent — 0.3 là điểm khởi đầu ước lượng, CHƯA hiệu chỉnh
+  // bằng dữ liệu thật; nếu log ra quá nhiều/quá ít so với cảm nhận thực tế,
+  // chỉnh lại con số này (không cần đổi code).
+  AMBIGUOUS_AGENT_JACCARD_THRESHOLD: 0.3,
 };
 
 export const ORCHESTRATION_SYSTEM_PROMPT = `Bạn là AI Assistant, 1 thành viên thật trong channel Slack này (không phải app/bot riêng biệt) — nói chuyện tự nhiên như đồng nghiệp, không xưng "tôi là 1 mô hình AI".

@@ -113,6 +113,46 @@ export class SupervisorService {
   }
 
   /**
+   * accuracy_problem.md mục 1, bước 1 — đo tần suất case positional bias thật
+   * ở production (đã xác nhận qua thực nghiệm ở accuracy.v2.md mục 6: khi 2+
+   * agent mô tả tương tự nhau, plan() luôn chọn agent đứng ĐẦU mảng, không hề
+   * lộ tín hiệu bất định). Thuần quan sát — KHÔNG đổi kết quả plan(), KHÔNG
+   * gọi thêm LLM/embedding nào (so sánh từ vựng - Jaccard, rẻ, tức thời) —
+   * chỉ log để đếm tần suất, quyết định mục 6 (accuracy.v2.md) có đáng xây
+   * HITL clarification UI hay không dựa trên con số đo được.
+   */
+  private logAmbiguousAgentClusterIfAny(
+    agents: AvailableAgentDto[],
+    chosenProvider: string,
+  ): void {
+    const chosen = agents.find((a) => a.provider === chosenProvider);
+    if (!chosen) return;
+
+    const tokenize = (text: string) =>
+      new Set(text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
+    const chosenTokens = tokenize(chosen.description);
+
+    const similarOthers = agents.filter((a) => {
+      if (a.provider === chosenProvider) return false;
+      const otherTokens = tokenize(a.description);
+      const intersectionSize = [...chosenTokens].filter((t) =>
+        otherTokens.has(t),
+      ).length;
+      const unionSize = new Set([...chosenTokens, ...otherTokens]).size;
+      const jaccard = unionSize === 0 ? 0 : intersectionSize / unionSize;
+      return (
+        jaccard >= ORCHESTRATION_CONSTANTS.AMBIGUOUS_AGENT_JACCARD_THRESHOLD
+      );
+    });
+
+    if (similarOthers.length === 0) return;
+
+    this.logger.warn(
+      `[ambiguous-agent-cluster] plan() chọn "${chosenProvider}" giữa ${similarOthers.length + 1} agent mô tả tương tự nhau — candidates=${[chosenProvider, ...similarOthers.map((a) => a.provider)].join(',')}`,
+    );
+  }
+
+  /**
    * Plan-and-Execute (xem accuracy.md) — thay cho decide() cũ (hỏi lại "làm
    * gì tiếp" mỗi round). Gọi ĐÚNG 1 LẦN mỗi khi TurnResolverService.continueRounds()
    * cần 1 kế hoạch mới (turn mới HOẶC re-plan giữa chừng) — trả về TOÀN BỘ các
@@ -184,6 +224,9 @@ export class SupervisorService {
         ),
       );
       this.logger.log(`plan() result=${JSON.stringify(plan)}`);
+      if (plan.action === 'plan' && plan.steps?.[0]) {
+        this.logAmbiguousAgentClusterIfAny(shown, plan.steps[0].agent);
+      }
       return plan;
     } catch (error) {
       this.logger.error(
