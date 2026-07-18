@@ -305,6 +305,143 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
     });
   });
 
+  describe('mục 3 (accuracy.v2.md) — planning-stage guardrail (chặn TRƯỚC khi thực thi 1 lựa chọn agent rành rành sai)', () => {
+    const twoAgents = [
+      { provider: 'sql_server', label: 'SQL Server', description: 'desc' },
+      { provider: 'google_docs', label: 'Google Docs', description: 'desc' },
+    ];
+
+    beforeEach(() => {
+      mockSupervisor.getAvailableAgents.mockResolvedValue(twoAgents);
+    });
+
+    it('blocks execution and re-plans early (no reactLoop.run()) when the task clearly names a DIFFERENT connected agent than the one chosen', async () => {
+      mockSupervisor.plan
+        .mockResolvedValueOnce({
+          action: 'plan',
+          steps: [
+            { agent: 'sql_server', task: 'lưu nội dung này vào Google Docs' },
+          ],
+        })
+        .mockResolvedValueOnce({
+          action: 'plan',
+          steps: [
+            {
+              agent: 'google_docs',
+              task: 'lưu nội dung này vào Google Docs',
+            },
+          ],
+        });
+      mockReactLoop.run.mockResolvedValue({ answer: 'Đã lưu.', toolCalls: [] });
+      mockSupervisor.evaluate.mockResolvedValue({ verdict: 'done' });
+      // rounds giờ có 2 phần tử (note bị guardrail chặn + kết quả thật) — đánh
+      // đổi đã biết (xem comment ở continueRounds()): finalizeAnswer() thấy
+      // rounds.length > 1 nên tổng hợp qua synthesize() thay vì trả thẳng
+      // rounds[0].result.
+      mockSupervisor.synthesize.mockResolvedValue(
+        'Đã lưu nội dung vào Google Docs.',
+      );
+
+      const result = await resolve();
+
+      expect(mockSupervisor.plan).toHaveBeenCalledTimes(2);
+      expect(mockReactLoop.run).toHaveBeenCalledTimes(1);
+      expect(mockReactLoop.run).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: 'google_docs' }),
+      );
+      expect(mockSupervisor.synthesize).toHaveBeenCalledTimes(1);
+      expect(result.content).toBe('Đã lưu nội dung vào Google Docs.');
+    });
+
+    it('does NOT block a correct choice whose task text simply shares no keywords with the agent description — avoids the false-positive a naive keyword-overlap check would cause', async () => {
+      mockSupervisor.plan.mockResolvedValue({
+        action: 'plan',
+        steps: [
+          {
+            agent: 'sql_server',
+            task: 'chèn thông tin diễn viên vào bảng users',
+          },
+        ],
+      });
+      mockReactLoop.run.mockResolvedValue({ answer: 'Đã chèn.', toolCalls: [] });
+      mockSupervisor.evaluate.mockResolvedValue({ verdict: 'done' });
+
+      const result = await resolve();
+
+      expect(mockSupervisor.plan).toHaveBeenCalledTimes(1);
+      expect(mockReactLoop.run).toHaveBeenCalledTimes(1);
+      expect(result.content).toBe('Đã chèn.');
+    });
+
+    it('does not block when the task mentions the chosen agent by name even if it ALSO mentions a different connected agent', async () => {
+      mockSupervisor.plan.mockResolvedValue({
+        action: 'plan',
+        steps: [
+          {
+            agent: 'sql_server',
+            task: 'Lấy dữ liệu đã có từ Google Docs rồi ghi vào SQL Server',
+          },
+        ],
+      });
+      mockReactLoop.run.mockResolvedValue({ answer: 'Đã ghi.', toolCalls: [] });
+      mockSupervisor.evaluate.mockResolvedValue({ verdict: 'done' });
+
+      await resolve();
+
+      expect(mockSupervisor.plan).toHaveBeenCalledTimes(1);
+      expect(mockReactLoop.run).toHaveBeenCalledTimes(1);
+    });
+
+    it('ignores very short agent labels when checking for a mismatch, to avoid spurious matches against generic short names', async () => {
+      mockSupervisor.getAvailableAgents.mockResolvedValue([
+        ...twoAgents,
+        { provider: 'short_agent', label: 'Go', description: 'desc' },
+      ]);
+      mockSupervisor.plan.mockResolvedValue({
+        action: 'plan',
+        // Câu task tình cờ chứa "go" như 1 phần của từ khác — KHÔNG nên bị
+        // coi là "nhắc tới agent short_agent" (nhãn "Go" quá ngắn, dưới
+        // MIN_AGENT_LABEL_LENGTH_FOR_MISMATCH_CHECK).
+        steps: [
+          {
+            agent: 'sql_server',
+            task: 'go xem thử báo cáo doanh thu tháng này',
+          },
+        ],
+      });
+      mockReactLoop.run.mockResolvedValue({ answer: 'ok', toolCalls: [] });
+      mockSupervisor.evaluate.mockResolvedValue({ verdict: 'done' });
+
+      await resolve();
+
+      expect(mockSupervisor.plan).toHaveBeenCalledTimes(1);
+      expect(mockReactLoop.run).toHaveBeenCalledTimes(1);
+    });
+
+    it('stays within MAX_SUPERVISOR_ROUNDS even if plan() keeps proposing a misrouted step every time — bounded, not an infinite loop', async () => {
+      mockSupervisor.plan.mockImplementation(() =>
+        Promise.resolve({
+          action: 'plan',
+          steps: [
+            { agent: 'sql_server', task: 'lưu nội dung này vào Google Docs' },
+          ],
+        }),
+      );
+      mockSupervisor.synthesize.mockResolvedValue(
+        'Không xác định được hệ thống phù hợp.',
+      );
+
+      const result = await resolve();
+
+      expect(mockReactLoop.run).not.toHaveBeenCalled();
+      expect(mockSupervisor.plan).toHaveBeenCalledTimes(
+        ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS,
+      );
+      expect(mockSupervisor.synthesize).toHaveBeenCalledTimes(1);
+      expect(result.content).toBe('Không xác định được hệ thống phù hợp.');
+    });
+  });
+
   it('stops after MAX_SUPERVISOR_ROUNDS and asks Supervisor to synthesize all collected rounds instead of returning the raw last step (Step 9)', async () => {
     // mockImplementation (không phải mockResolvedValue) — trả về 1 mảng MỚI
     // mỗi lần gọi. continueRounds() dùng steps.shift() (mutate tại chỗ); nếu

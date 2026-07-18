@@ -27,6 +27,11 @@ import {
   buildAnswer,
 } from './orchestration-answer.types';
 
+// Giai đoạn Accuracy v2, mục 3 — guardrail rẻ ở planning stage. Nhãn agent quá
+// ngắn (VD dynamic provider đặt tên chung chung "API", "Data") dễ khớp nhầm
+// vào bất kỳ câu task nào — bỏ qua các nhãn dưới ngưỡng này để giảm false-positive.
+const MIN_AGENT_LABEL_LENGTH_FOR_MISMATCH_CHECK = 3;
+
 // Giai đoạn 2/3 (Supervisor multi-round + HITL) — vòng lặp "Supervisor quyết
 // định respond/delegate" tách riêng khỏi AiOrchestrationProcessor (chỉ còn lo
 // vòng đời job/turn) và khỏi CheckpointPauseService (chỉ lo việc TẠO checkpoint).
@@ -194,6 +199,35 @@ export class TurnResolverService {
       }
 
       const step = steps.shift()!;
+
+      // Giai đoạn Accuracy v2, mục 3 — guardrail RẺ (không LLM) TRƯỚC khi thực
+      // thi: chặn sớm 1 lựa chọn agent rành rành sai, thay vì đợi evaluate()
+      // phát hiện SAU KHI đã tốn 1 lượt reactLoop.run() + 1 lượt LLM evaluate().
+      const misroutedTo = this.findLikelyMisroutedAgent(step, agents);
+      if (misroutedTo) {
+        this.logger.warn(
+          `Guardrail: bước chọn agent "${step.agent}" nhưng task nhắc rõ hệ thống "${misroutedTo.label}" (provider "${misroutedTo.provider}") — nghi ngờ chọn sai, re-plan sớm thay vì thực thi mù.`,
+        );
+        // Đánh đổi nhỏ đã biết: push note này vào CHUNG `rounds` với kết quả
+        // thật (kênh duy nhất plan() đọc lại được) làm rounds.length tăng lên
+        // ngay cả khi CHƯA có kết quả thật nào — nếu sau đó chỉ có ĐÚNG 1 bước
+        // thật thành công, finalizeAnswer() sẽ thấy rounds.length > 1 và gọi
+        // synthesize() (tốn 1 lượt LLM) thay vì trả thẳng rounds[0].result như
+        // bình thường. Chấp nhận được vì: (a) guardrail tự nó không tốn LLM
+        // call nào (rẻ hơn hẳn để evaluate() bắt lỗi này SAU khi đã chạy thật),
+        // (b) synthesize() vẫn cho ra câu trả lời đúng, chỉ là tốn thêm đúng 1
+        // lượt LLM cho trường hợp phục hồi ngay sau khi bị chặn.
+        rounds.push({
+          agent: step.agent,
+          task: step.task,
+          result: `Bỏ qua bước này — kế hoạch chọn hệ thống "${step.agent}" nhưng yêu cầu nhắc rõ tới hệ thống "${misroutedTo.label}" (đã kết nối, provider "${misroutedTo.provider}") — có khả năng chọn sai agent, cần lập lại kế hoạch.`,
+        });
+        round++;
+        needsPlan = true;
+        steps = [];
+        continue;
+      }
+
       // delegateRound() không bao giờ throw (trừ approvalRequired) — 1 bước lỗi
       // ghi lại thành round lỗi, không làm sập cả turn.
       const result = await this.delegateRound(
@@ -330,6 +364,39 @@ export class TurnResolverService {
     return buildAnswer(
       answerHint || 'Xin lỗi, mình chưa có câu trả lời phù hợp.',
       toolCalls,
+    );
+  }
+
+  // Giai đoạn Accuracy v2, mục 3 — KHÔNG dùng "task có khớp từ khoá với mô tả
+  // agent ĐƯỢC CHỌN" (như dự tính ban đầu ở accuracy.v2.md): rủi ro false-positive
+  // cao, vì task và mô tả của agent ĐÚNG cũng thường không chung từ khoá nào
+  // (VD task "chèn vào bảng users" vs agent sql_server mô tả "Truy vấn schema
+  // và dữ liệu trên SQL Server" — không share từ khoá dù đây là lựa chọn ĐÚNG).
+  // Naive keyword-overlap sẽ tự báo động nhầm cho phần lớn plan đúng.
+  //
+  // Đổi hướng an toàn hơn: chỉ nghi ngờ khi `task` nhắc rõ TÊN (label) của 1
+  // agent KHÁC đã kết nối, mà KHÔNG hề nhắc tên agent đang được chọn — tín
+  // hiệu hiếm khi sai (1 task mô tả đúng việc của agent X hiếm khi tự nhiên
+  // nhắc tên 1 agent Y khác).
+  private findLikelyMisroutedAgent(
+    step: DelegationDto,
+    agents: AvailableAgentDto[],
+  ): AvailableAgentDto | null {
+    const chosenAgent = agents.find((a) => a.provider === step.agent);
+    // Agent không tồn tại trong danh sách — đã có nhánh xử lý riêng ở
+    // delegateRound() (fallback "chưa khả dụng"), không phải việc của guardrail này.
+    if (!chosenAgent) return null;
+
+    const taskLower = step.task.toLowerCase();
+    if (taskLower.includes(chosenAgent.label.toLowerCase())) return null;
+
+    return (
+      agents.find(
+        (a) =>
+          a.provider !== step.agent &&
+          a.label.length >= MIN_AGENT_LABEL_LENGTH_FOR_MISMATCH_CHECK &&
+          taskLower.includes(a.label.toLowerCase()),
+      ) ?? null
     );
   }
 
