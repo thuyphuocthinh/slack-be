@@ -423,6 +423,75 @@ describe('SupervisorService', () => {
     });
   });
 
+  describe('plan — model tiering theo độ khó (Giai đoạn Accuracy v2, mục 4)', () => {
+    const agents = [
+      {
+        provider: 'sql_server',
+        label: 'SQL Server',
+        description: 'Truy vấn SQL Server.',
+      },
+    ];
+    const originalPlanningModel = process.env.SUPERVISOR_PLANNING_MODEL;
+    const originalSupervisorModel = process.env.SUPERVISOR_MODEL;
+
+    afterEach(() => {
+      if (originalPlanningModel === undefined) {
+        delete process.env.SUPERVISOR_PLANNING_MODEL;
+      } else {
+        process.env.SUPERVISOR_PLANNING_MODEL = originalPlanningModel;
+      }
+      if (originalSupervisorModel === undefined) {
+        delete process.env.SUPERVISOR_MODEL;
+      } else {
+        process.env.SUPERVISOR_MODEL = originalSupervisorModel;
+      }
+    });
+
+    it('resolves the model via SUPERVISOR_PLANNING_MODEL when set, overriding SUPERVISOR_MODEL', async () => {
+      process.env.SUPERVISOR_PLANNING_MODEL = 'gpt-4o';
+      process.env.SUPERVISOR_MODEL = 'gpt-4o-mini';
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'respond',
+        answer: 'ok',
+      });
+
+      await service.plan('câu hỏi', agents);
+
+      expect(mockLlmFactory.resolve).toHaveBeenCalledWith('gpt-4o');
+    });
+
+    it('falls back to SUPERVISOR_MODEL when SUPERVISOR_PLANNING_MODEL is not set — unchanged from before this feature existed', async () => {
+      delete process.env.SUPERVISOR_PLANNING_MODEL;
+      process.env.SUPERVISOR_MODEL = 'gpt-4o-mini';
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'respond',
+        answer: 'ok',
+      });
+
+      await service.plan('câu hỏi', agents);
+
+      expect(mockLlmFactory.resolve).toHaveBeenCalledWith('gpt-4o-mini');
+    });
+
+    it('does not affect evaluate() — it keeps resolving via SUPERVISOR_MODEL regardless of SUPERVISOR_PLANNING_MODEL', async () => {
+      process.env.SUPERVISOR_PLANNING_MODEL = 'gpt-4o';
+      process.env.SUPERVISOR_MODEL = 'gpt-4o-mini';
+      mockStrategy.generateStructured.mockResolvedValue({ verdict: 'continue' });
+
+      await service.evaluate(
+        'câu hỏi gốc',
+        {
+          agent: 'sql_server',
+          task: 'lấy danh sách diễn viên',
+          result: '⚠️ Lỗi: timeout khi query',
+        },
+        [{ agent: 'sql_server', task: 'chèn vào bảng users' }],
+      );
+
+      expect(mockLlmFactory.resolve).toHaveBeenCalledWith('gpt-4o-mini');
+    });
+  });
+
   describe('evaluate (Plan-and-Execute — gọi SAU MỖI bước, trước khi qua bước kế)', () => {
     // Kết quả trông "đáng ngờ" (khớp dấu hiệu lỗi đã biết) — CHƯA đủ để rule
     // đơn giản tự quyết, phải hỏi LLM. Test riêng bên dưới ("skips the LLM

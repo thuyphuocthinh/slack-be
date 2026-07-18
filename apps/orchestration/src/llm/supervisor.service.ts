@@ -154,8 +154,16 @@ export class SupervisorService {
         : SUPERVISOR_PLAN_SCHEMA;
 
     try {
+      // Giai đoạn Accuracy v2, mục 4 — model tiering theo độ khó. `plan()` là
+      // bước suy luận khó nhất (chọn agent, thứ tự bước) nhưng tần suất THẤP
+      // NHẤT (1 lần/kế hoạch, không phải 1 lần/round như decide() cũ) — dư địa
+      // dùng model mạnh hơn mà không đội chi phí đáng kể. Tách biến môi trường
+      // RIÊNG cho plan(), không đụng evaluate()/synthesize() (đã tối ưu tần
+      // suất gọi LLM ở tầng khác — xem looksClearlySuccessful()). Không set
+      // SUPERVISOR_PLANNING_MODEL → rơi về đúng hành vi cũ (SUPERVISOR_MODEL).
       const { strategy, model } = this.llmFactory.resolve(
-        process.env.SUPERVISOR_MODEL ??
+        process.env.SUPERVISOR_PLANNING_MODEL ??
+          process.env.SUPERVISOR_MODEL ??
           ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
       );
       this.logger.log(
