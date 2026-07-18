@@ -12,6 +12,8 @@ import {
 import { McpAuthClientService } from '../mcp-auth/mcp-auth-client.service';
 import { AGENT_REGISTRY } from '../registry/agents.registry';
 import { DynamicProviderDbService } from '../registry/dynamic-provider-db.service';
+import { OpenAiEmbeddingProvider } from '../registry/openai-embedding.provider';
+import { SemanticToolIndex } from '../common/agentic-openapi-parser';
 import {
   AvailableAgentDto,
   DelegationDto,
@@ -34,6 +36,7 @@ export class SupervisorService {
     private readonly llmFactory: LlmStrategyFactory,
     private readonly circuitBreaker: CircuitBreakerService,
     private readonly dynamicProviderDb: DynamicProviderDbService,
+    private readonly embeddingProvider: OpenAiEmbeddingProvider,
   ) {}
 
   /**
@@ -68,6 +71,48 @@ export class SupervisorService {
   }
 
   /**
+   * Giai đoạn Accuracy v2, mục 2 (xem accuracy.v2.md) — agent-level Tool RAG.
+   * Tái dùng CHÍNH `SemanticToolIndex` đã dùng cho Tool RAG ở tầng tool (1
+   * dynamic provider nhiều tool) — áp dụng lên tầng agent: khi user connect
+   * nhiều agent, `agentListText` (plan()) trước đây liệt kê hết KHÔNG rank,
+   * đúng kiểu vấn đề "quá nhiều lựa chọn không rank làm accuracy rớt" (tương
+   * tự tool >128 phải rank). Dưới ngưỡng `MAX_AGENTS_BEFORE_RANKING` — giữ
+   * nguyên hành vi cũ (trả nguyên `agents`, không tốn lời gọi embedding nào).
+   *
+   * Build lại index MỖI LẦN gọi (không cache theo user) — agent list nhỏ
+   * (ngưỡng kích hoạt mới ở mức chục) và `plan()` giờ chỉ gọi 1 lần/turn
+   * (Plan-and-Execute, không phải mỗi round như decide() cũ), nên chi phí
+   * không đáng kể so với lợi ích tránh cache-invalidation khi user connect/
+   * ngắt kết nối agent giữa chừng.
+   */
+  private async rankAgentsForPrompt(
+    prompt: string,
+    agents: AvailableAgentDto[],
+  ): Promise<{ shown: AvailableAgentDto[]; omittedCount: number }> {
+    if (agents.length <= ORCHESTRATION_CONSTANTS.MAX_AGENTS_BEFORE_RANKING) {
+      return { shown: agents, omittedCount: 0 };
+    }
+
+    try {
+      const index = new SemanticToolIndex<AvailableAgentDto & { name: string }>(
+        this.embeddingProvider,
+      );
+      await index.build(agents.map((a) => ({ ...a, name: a.label })));
+      const ranked = await index.search(
+        prompt,
+        ORCHESTRATION_CONSTANTS.AGENT_RANKING_TOP_K,
+      );
+      if (ranked.length === 0) return { shown: agents, omittedCount: 0 };
+      return { shown: ranked, omittedCount: agents.length - ranked.length };
+    } catch (error) {
+      this.logger.warn(
+        `rankAgentsForPrompt() lỗi, fallback về liệt kê hết ${agents.length} agent: ${(error as Error).message}`,
+      );
+      return { shown: agents, omittedCount: 0 };
+    }
+  }
+
+  /**
    * Plan-and-Execute (xem accuracy.md) — thay cho decide() cũ (hỏi lại "làm
    * gì tiếp" mỗi round). Gọi ĐÚNG 1 LẦN mỗi khi TurnResolverService.continueRounds()
    * cần 1 kế hoạch mới (turn mới HOẶC re-plan giữa chừng) — trả về TOÀN BỘ các
@@ -84,11 +129,18 @@ export class SupervisorService {
     rounds: SupervisorRoundDto[] = [],
     history: ChatHistoryTurnDto[] = [],
   ): Promise<SupervisorPlanDto> {
+    const { shown, omittedCount } = await this.rankAgentsForPrompt(
+      prompt,
+      agents,
+    );
     const agentListText =
-      agents.length > 0
-        ? agents
+      shown.length > 0
+        ? shown
             .map((a) => `- ${a.provider} (${a.label}): ${a.description}`)
-            .join('\n')
+            .join('\n') +
+          (omittedCount > 0
+            ? `\n(Còn ${omittedCount} hệ thống khác đã kết nối nhưng không liên quan tới câu hỏi này, đã ẩn bớt khỏi danh sách trên.)`
+            : '')
         : '(Người dùng chưa kết nối agent nào — nếu câu hỏi cần dữ liệu, trả lời "respond" và nhắc user vào Settings để kết nối.)';
 
     const fullPrompt = this.buildPrompt(prompt, rounds, history);

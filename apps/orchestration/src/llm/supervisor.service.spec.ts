@@ -9,6 +9,7 @@ import { McpAuthClientService } from '../mcp-auth/mcp-auth-client.service';
 import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { DynamicProviderDbService } from '../registry/dynamic-provider-db.service';
+import { OpenAiEmbeddingProvider } from '../registry/openai-embedding.provider';
 
 // Cô lập test khỏi giá trị thật của process.env.AGENT_SQL_SERVER_URL — mock
 // thẳng registry để chủ động quyết định agent nào có/thiếu hạ tầng thật.
@@ -41,6 +42,10 @@ describe('SupervisorService', () => {
   const mockDynamicProviderDb = {
     getProvidersByUser: jest.fn().mockResolvedValue([]),
   };
+  // Chỉ được gọi khi agents.length > MAX_AGENTS_BEFORE_RANKING (xem describe
+  // "agent-level Tool RAG" riêng bên dưới) — mọi test khác dùng agents ít nên
+  // không bao giờ chạm tới mock này.
+  const mockEmbeddingProvider = { embed: jest.fn() };
 
   beforeEach(async () => {
     mockLlmFactory.resolve.mockReturnValue({
@@ -60,6 +65,7 @@ describe('SupervisorService', () => {
         { provide: LlmStrategyFactory, useValue: mockLlmFactory },
         { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
         { provide: DynamicProviderDbService, useValue: mockDynamicProviderDb },
+        { provide: OpenAiEmbeddingProvider, useValue: mockEmbeddingProvider },
       ],
     }).compile();
 
@@ -328,6 +334,92 @@ describe('SupervisorService', () => {
 
       expect(plan.action).toBe('respond');
       expect(mockStrategy.generateStructured).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('plan — agent-level Tool RAG ranking (Giai đoạn Accuracy v2, mục 2)', () => {
+    const manyAgents = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        provider: `agent_${i}`,
+        label: `Agent ${i}`,
+        description: `Hệ thống thứ ${i}`,
+      }));
+
+    it('does not call the embedding provider when agents.length is within MAX_AGENTS_BEFORE_RANKING — no ranking needed, same behavior as before', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'respond',
+        answer: 'ok',
+      });
+      const fewAgents = manyAgents(
+        ORCHESTRATION_CONSTANTS.MAX_AGENTS_BEFORE_RANKING,
+      );
+
+      await service.plan('câu hỏi', fewAgents);
+
+      expect(mockEmbeddingProvider.embed).not.toHaveBeenCalled();
+      const sentInstruction =
+        mockStrategy.generateStructured.mock.calls[0][0].systemInstruction;
+      // Vẫn liệt kê HẾT — dưới ngưỡng thì không cắt gì cả.
+      expect(sentInstruction).toContain('agent_0 (Agent 0)');
+      expect(sentInstruction).toContain(
+        `agent_${ORCHESTRATION_CONSTANTS.MAX_AGENTS_BEFORE_RANKING - 1}`,
+      );
+    });
+
+    it('ranks and trims agentListText to top-K when agents.length exceeds the threshold, keeping the agent most relevant to the prompt and noting how many were omitted', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'respond',
+        answer: 'ok',
+      });
+      // 8 agent không liên quan + 1 "github" liên quan = 9, vượt ngưỡng 8.
+      const lotsOfAgents = [
+        ...manyAgents(ORCHESTRATION_CONSTANTS.MAX_AGENTS_BEFORE_RANKING),
+        {
+          provider: 'github',
+          label: 'GitHub',
+          description: 'Truy cập repository, issue, pull request trên GitHub.',
+        },
+      ];
+      // Mock embedding thô: text nào chứa "github" thì vector [1,0], còn lại [0,1] —
+      // đủ để cosine similarity xếp đúng "github" lên đầu khi query cũng chứa từ đó.
+      mockEmbeddingProvider.embed.mockImplementation(
+        async (texts: string[]) =>
+          texts.map((t) => (t.toLowerCase().includes('github') ? [1, 0] : [0, 1])),
+      );
+
+      await service.plan('liệt kê issue trên GitHub', lotsOfAgents);
+
+      // build() embed 1 lần (cả 9 agent) + search() embed 1 lần (query) = 2.
+      expect(mockEmbeddingProvider.embed).toHaveBeenCalledTimes(2);
+      const sentInstruction =
+        mockStrategy.generateStructured.mock.calls[0][0].systemInstruction;
+      expect(sentInstruction).toContain('github (GitHub)');
+      expect(sentInstruction).toContain(
+        'hệ thống khác đã kết nối nhưng không liên quan tới câu hỏi này',
+      );
+    });
+
+    it('falls back to listing every agent unranked (no throw) when the embedding provider fails', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'respond',
+        answer: 'ok',
+      });
+      const lotsOfAgents = manyAgents(
+        ORCHESTRATION_CONSTANTS.MAX_AGENTS_BEFORE_RANKING + 1,
+      );
+      mockEmbeddingProvider.embed.mockRejectedValue(
+        new Error('OPENAI_API_KEY not configured'),
+      );
+
+      await service.plan('câu hỏi', lotsOfAgents);
+
+      const sentInstruction =
+        mockStrategy.generateStructured.mock.calls[0][0].systemInstruction;
+      expect(sentInstruction).toContain('agent_0 (Agent 0)');
+      expect(sentInstruction).toContain(
+        `agent_${ORCHESTRATION_CONSTANTS.MAX_AGENTS_BEFORE_RANKING} (Agent ${ORCHESTRATION_CONSTANTS.MAX_AGENTS_BEFORE_RANKING})`,
+      );
+      expect(sentInstruction).not.toContain('không liên quan tới câu hỏi này');
     });
   });
 

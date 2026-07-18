@@ -60,6 +60,13 @@ export const ORCHESTRATION_CONSTANTS = {
   // tránh giữ socket/session mở vô thời hạn khi có nhiều user riêng biệt qua
   // suốt vòng đời process.
   MCP_CLIENT_IDLE_TTL_MS: 30 * 60 * 1000,
+  // Giai đoạn Accuracy v2, mục 2 — agent-level Tool RAG (tái dùng SemanticToolIndex
+  // đã có cho tool trong 1 dynamic provider, áp dụng lên tầng agent trong
+  // SupervisorService.plan()). Vượt ngưỡng này mới rank + cắt bớt agentListText
+  // đưa vào prompt — dưới ngưỡng giữ nguyên hành vi cũ (liệt kê hết), đúng cách
+  // Tool RAG hiện có cũng chỉ kích hoạt khi tool > 128.
+  MAX_AGENTS_BEFORE_RANKING: 8,
+  AGENT_RANKING_TOP_K: 6,
 };
 
 export const ORCHESTRATION_SYSTEM_PROMPT = `Bạn là AI Assistant, 1 thành viên thật trong channel Slack này (không phải app/bot riêng biệt) — nói chuyện tự nhiên như đồng nghiệp, không xưng "tôi là 1 mô hình AI".

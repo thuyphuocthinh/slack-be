@@ -30,6 +30,7 @@ import { AnthropicStrategy } from '../src/llm/strategy/anthropic.strategy';
 import { MockStrategy } from '../src/llm/strategy/mock.strategy';
 import { CircuitBreakerService } from '../src/common/circuit-breaker.service';
 import { MetricsRegistryService } from '../src/common/metrics-registry.service';
+import { OpenAiEmbeddingProvider } from '../src/registry/openai-embedding.provider';
 import { SupervisorPlanDto } from '../src/dto/supervisor.dto';
 import {
   SUPERVISOR_PLAN_EVAL_CASES,
@@ -47,12 +48,15 @@ function buildSupervisor(): SupervisorService {
 
   // plan() không đụng tới mcpAuthClient/dynamicProviderDb (2 cái đó chỉ phục
   // vụ getAvailableAgents(), KHÔNG dùng ở đây — dataset tự cấp sẵn `agents`) —
-  // stub rỗng, không cần DB/HTTP client thật cho eval script này.
+  // stub rỗng, không cần DB/HTTP client thật cho eval script này. embeddingProvider
+  // THẬT (mục 2, agent-level Tool RAG) — chỉ thật sự gọi API khi 1 case có
+  // agents.length > MAX_AGENTS_BEFORE_RANKING.
   return new SupervisorService(
     {} as any,
     llmFactory,
     circuitBreaker,
     {} as any,
+    new OpenAiEmbeddingProvider(),
   );
 }
 

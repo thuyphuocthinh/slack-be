@@ -41,6 +41,42 @@ const GOOGLE_DOCS_AGENT: AvailableAgentDto = {
   description: 'Đọc và chỉnh sửa nội dung Google Docs.',
 };
 
+const GOOGLE_SHEETS_AGENT: AvailableAgentDto = {
+  provider: 'google_sheets',
+  label: 'Google Sheets',
+  description: 'Đọc và chỉnh sửa dữ liệu trên Google Sheets.',
+};
+
+const GOOGLE_MAIL_AGENT: AvailableAgentDto = {
+  provider: 'google_mail',
+  label: 'Gmail',
+  description: 'Đọc, soạn và gửi email qua Gmail của bạn.',
+};
+
+const GOOGLE_DRIVE_AGENT: AvailableAgentDto = {
+  provider: 'google_drive',
+  label: 'Google Drive',
+  description: 'Truy cập file và thư mục trên Google Drive.',
+};
+
+const GOOGLE_CALENDAR_AGENT: AvailableAgentDto = {
+  provider: 'google_calendar',
+  label: 'Google Calendar',
+  description: 'Đọc và quản lý sự kiện trên Google Calendar của bạn.',
+};
+
+const SLACK_AGENT: AvailableAgentDto = {
+  provider: 'slack',
+  label: 'Slack',
+  description: 'Tương tác với workspace Slack khác của bạn.',
+};
+
+const NOTION_AGENT: AvailableAgentDto = {
+  provider: 'notion',
+  label: 'Notion',
+  description: 'Đọc và chỉnh sửa trang/database trên Notion.',
+};
+
 /**
  * Giai đoạn System, mục "Accuracy v2" (`accuracy.v2.md`, mục 1) — golden
  * dataset đo Tool Correctness của `SupervisorService.plan()`: agent đúng,
@@ -94,6 +130,28 @@ export const SUPERVISOR_PLAN_EVAL_CASES: SupervisorPlanEvalCase[] = [
     name: 'single-agent-github-only-among-many',
     prompt: 'liệt kê giúp mình các issue đang mở trong repo',
     agents: [SQL_SERVER_AGENT, GITHUB_AGENT, GOOGLE_DOCS_AGENT, TMDB_AGENT],
+    rounds: [],
+    expectedAction: 'plan',
+    expectedAgents: ['github'],
+  },
+  {
+    // Giai đoạn Accuracy v2, mục 2 — agent-level Tool RAG. 9 agent (vượt
+    // MAX_AGENTS_BEFORE_RANKING=8) — chỉ đúng 1 cái liên quan tới GitHub, còn
+    // lại là các hệ thống khác không liên quan. Case này gọi embedding THẬT
+    // (không mock), khác với các case trên (agents ít, không kích hoạt ranking).
+    name: 'agent-level-rag-github-relevant-among-many',
+    prompt: 'liệt kê giúp mình các issue đang mở trong repo trên GitHub',
+    agents: [
+      SQL_SERVER_AGENT,
+      GOOGLE_DOCS_AGENT,
+      GOOGLE_SHEETS_AGENT,
+      GOOGLE_MAIL_AGENT,
+      GOOGLE_DRIVE_AGENT,
+      GOOGLE_CALENDAR_AGENT,
+      SLACK_AGENT,
+      NOTION_AGENT,
+      GITHUB_AGENT,
+    ],
     rounds: [],
     expectedAction: 'plan',
     expectedAgents: ['github'],
