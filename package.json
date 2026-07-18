@@ -51,7 +51,8 @@
     "typeorm": "node -r ts-node/register -r tsconfig-paths/register ./node_modules/typeorm/cli.js",
     "migration:generate": "pnpm typeorm migration:generate -d ./data-source.ts",
     "migration:run": "pnpm typeorm migration:run -d ./data-source.ts",
-    "migration:revert": "pnpm typeorm migration:revert -d ./data-source.ts"
+    "migration:revert": "pnpm typeorm migration:revert -d ./data-source.ts",
+    "eval:supervisor-plan": "node -r ts-node/register -r tsconfig-paths/register apps/orchestration/scripts/eval-supervisor-plan.ts"
   },
   "lint-staged": {
     "*.ts": [
