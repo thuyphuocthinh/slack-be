@@ -15,7 +15,9 @@ async function bootstrap() {
   dotenv.config();
 
   if (cluster.isPrimary) {
-    const numCPUs = availableParallelism();
+    // GATEWAY_CLUSTER_WORKERS cho phép giới hạn số worker khi chạy local
+    // (mặc định fork theo số CPU core, dư thừa cho máy dev nhiều core).
+    const numCPUs = parseInt(process.env.GATEWAY_CLUSTER_WORKERS || '', 10) || availableParallelism();
     console.log(`Primary process ${process.pid} is running. Forking ${numCPUs} workers...`);
 
     for (let i = 0; i < numCPUs; i++) {

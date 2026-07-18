@@ -1,0 +1,66 @@
+version: '3.8'
+
+# Compose gọn cho LOCAL DEV — chỉ chạy hạ tầng cần thiết (Postgres + Redis),
+# bỏ PgBouncer/Loki/Grafana/Prometheus/cAdvisor/node-exporter/9router (mấy cái
+# đó phục vụ observability trên server thật, không cần thiết để chạy tính năng
+# ở local và chỉ tổ tốn RAM trên máy dev).
+#
+# Cách dùng:
+#   docker compose -f docker-compose.dev.yml up -d
+#
+# Rồi sửa .env trỏ vào container thay vì RDS/tunnel:
+#   DB_HOST=127.0.0.1
+#   DB_PORT=5432
+#   DB_USER=postgres
+#   DB_PASS=postgres
+#   DB_NAME=slack_db
+#   REDIS_HOST=127.0.0.1
+#   REDIS_PORT=6379
+#   REDIS_PASSWORD=123456
+#   BULLMQ_HOST=127.0.0.1
+#   BULLMQ_PORT=6380
+#   BULLMQ_PASSWORD=123456
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: slack-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: slack_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis-cache:
+    image: redis:7-alpine
+    container_name: slack-redis-cache-dev
+    restart: unless-stopped
+    command: redis-server --requirepass 123456 --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_cache_dev_data:/data
+
+  redis-bullmq:
+    image: redis:7-alpine
+    container_name: slack-redis-bullmq-dev
+    restart: unless-stopped
+    command: redis-server --requirepass 123456 --appendonly yes
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_bullmq_dev_data:/data
+
+volumes:
+  postgres_dev_data:
+  redis_cache_dev_data:
+  redis_bullmq_dev_data:
