@@ -410,7 +410,7 @@ describe('SupervisorService', () => {
         ORCHESTRATION_CONSTANTS.MAX_AGENTS_BEFORE_RANKING + 1,
       );
       mockEmbeddingProvider.embed.mockRejectedValue(
-        new Error('OPENAI_API_KEY not configured'),
+        new Error('OPENAI_EMBEDDING_API_KEY not configured'),
       );
 
       await service.plan('câu hỏi', lotsOfAgents);
