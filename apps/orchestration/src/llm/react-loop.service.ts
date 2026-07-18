@@ -26,6 +26,7 @@ import { AgentCancellationService } from '../cancellation/agent-cancellation.ser
 import { runCancellable } from '../common/cancellable-run.util';
 import { TurnCancelledError } from './turn-cancelled.error';
 import { capToolResultSize } from '../executor/tool-result-size-cap.util';
+import { classifyToolError } from '../executor/tool-error-classifier.util';
 
 // Root trace + "done" thuộc về AiOrchestrationProcessor, không phải ở đây.
 @Injectable()
@@ -289,35 +290,70 @@ export class ReactLoopService {
     await this.emitStep(dto, { type: 'tool_call', tool: displayName });
 
     let result: CallToolResponseDto;
-    try {
-      result = await this.mcpClient.callTool({
-        provider: dto.provider,
-        name,
-        args,
-        ownerId: dto.userId,
-      });
-    } catch (error) {
-      // Trước đây: exception bay thẳng qua đây, bỏ luôn bước emit tool_result
-      // bên dưới — dòng tool-call trên UI kẹt ở trạng thái "đang chạy" tới hết
-      // turn. Bắt lại ngay tại đây, emit đúng 1 lần tool_result lỗi, và trả
-      // lỗi này về CHO LLM (không throw tiếp) để nó tự quyết định bước kế.
-      const resultPreview = (error as Error).message;
-      this.logger.warn(
-        `tool_result ${displayName} FAILED (exception): ${resultPreview}`,
-      );
-      await this.emitStep(dto, {
-        type: 'tool_result',
-        tool: displayName,
-        status: 'error',
-        resultPreview,
-      });
-      toolCalls.push({ tool: displayName, status: 'error', resultPreview });
-      return capToolResultSize(resultPreview);
-    }
+    let text: string;
+    let status: 'success' | 'error';
+    let resultPreview: string;
+    let transientAttempt = 0;
 
-    const text = extractTextFromMcpResult(result);
-    const status: 'success' | 'error' = result.isError ? 'error' : 'success';
-    const resultPreview = this.formatResultPreview(text);
+    // Giai đoạn System, mục 4 (nâng cấp) — lỗi ỨNG DỤNG được phân loại
+    // "retryable" (429/502/503/504 — kinh điển cho lỗi TẠM THỜI, VD dynamic
+    // provider rate-limit/quá tải đúng lúc đó) được TỰ THỬ LẠI NGAY TẠI ĐÂY,
+    // ẨN HOÀN TOÀN với LLM — không emit gì cho lần thất bại tạm thời, giống
+    // hệt cách McpClientService retry lỗi kết nối. KHÔNG đụng
+    // callSignatureCounts (bộ đếm chặn LLM TỰ Ý lặp lại) — đây là hệ thống tự
+    // lặp TRƯỚC KHI trả bất kỳ kết quả nào về cho LLM, 2 cơ chế độc lập nhau.
+    while (true) {
+      transientAttempt++;
+      try {
+        result = await this.mcpClient.callTool({
+          provider: dto.provider,
+          name,
+          args,
+          ownerId: dto.userId,
+        });
+      } catch (error) {
+        // Trước đây: exception bay thẳng qua đây, bỏ luôn bước emit tool_result
+        // bên dưới — dòng tool-call trên UI kẹt ở trạng thái "đang chạy" tới hết
+        // turn. Bắt lại ngay tại đây, emit đúng 1 lần tool_result lỗi, và trả
+        // lỗi này về CHO LLM (không throw tiếp) để nó tự quyết định bước kế.
+        // KHÔNG áp dụng transient-retry ở đây — exception nghĩa là đã hết 3
+        // lần retry kết nối riêng của McpClientService rồi, thử thêm vô ích.
+        const errorMessage = (error as Error).message;
+        this.logger.warn(
+          `tool_result ${displayName} FAILED (exception): ${errorMessage}`,
+        );
+        await this.emitStep(dto, {
+          type: 'tool_result',
+          tool: displayName,
+          status: 'error',
+          resultPreview: errorMessage,
+        });
+        toolCalls.push({
+          tool: displayName,
+          status: 'error',
+          resultPreview: errorMessage,
+        });
+        return capToolResultSize(errorMessage);
+      }
+
+      text = extractTextFromMcpResult(result);
+      status = result.isError ? 'error' : 'success';
+      resultPreview = this.formatResultPreview(text);
+
+      const shouldRetryTransiently =
+        status === 'error' &&
+        transientAttempt <
+          ORCHESTRATION_CONSTANTS.MAX_TRANSIENT_TOOL_RETRY_ATTEMPTS &&
+        classifyToolError(resultPreview) === 'retryable';
+      if (!shouldRetryTransiently) break;
+
+      this.logger.warn(
+        `tool_result ${displayName} lỗi tạm thời (retryable) — tự thử lại lần ${transientAttempt + 1}/${ORCHESTRATION_CONSTANTS.MAX_TRANSIENT_TOOL_RETRY_ATTEMPTS}, ẩn với LLM: ${resultPreview}`,
+      );
+      await new Promise((resolve) =>
+        setTimeout(resolve, ORCHESTRATION_CONSTANTS.TRANSIENT_RETRY_BACKOFF_MS),
+      );
+    }
 
     if (status === 'error') {
       this.logger.warn(`tool_result ${displayName} FAILED: ${resultPreview}`);

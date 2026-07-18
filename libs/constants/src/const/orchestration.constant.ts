@@ -54,6 +54,15 @@ export const ORCHESTRATION_CONSTANTS = {
   // đã có cơ chế riêng, TÁCH BIỆT, vô hình với LLM (McpClientService.callWithReconnect,
   // 3 lần, chỉ áp dụng khi mất kết nối/session — không đụng gì ở đây).
   MAX_SAME_TOOL_CALL_REPEATS: 1,
+  // Giai đoạn System, mục 4 (nâng cấp — phân loại lỗi theo mã HTTP status,
+  // xem tool-error-classifier.util.ts) — với lỗi ĐƯỢC PHÂN LOẠI "retryable"
+  // (429/502/503/504 — kinh điển cho lỗi TẠM THỜI), tự thử lại NGAY TRONG
+  // handleToolCall(), ẩn hoàn toàn với LLM (giống retry kết nối của
+  // McpClientService) — KHÔNG tính vào MAX_SAME_TOOL_CALL_REPEATS ở trên
+  // (cái đó chặn LLM tự lặp, đây là hệ thống tự lặp trước khi trả lời LLM).
+  // = 2 nghĩa là tổng cộng 2 lần thử THẬT (1 lần đầu + 1 lần retry).
+  MAX_TRANSIENT_TOOL_RETRY_ATTEMPTS: 2,
+  TRANSIENT_RETRY_BACKOFF_MS: 500,
   // Giai đoạn System, mục 5.2 — giới hạn số request đồng thời được phép dồn
   // vào CÙNG 1 MCP provider, độc lập với concurrency:5 (global) của BullMQ
   // worker. Circuit breaker chỉ phản ứng SAU khi đã đủ lỗi (reactive) — giới

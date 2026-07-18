@@ -646,6 +646,118 @@ describe('ReactLoopService', () => {
     });
   });
 
+  describe('mục 4 (nâng cấp) — transient tool-error auto-retry, ẩn với LLM (classifyToolError)', () => {
+    afterEach(() => jest.useRealTimers());
+
+    it('silently retries once when the error is classified as retryable (HTTP 503), succeeding on the 2nd real attempt without ever exposing the failed first attempt to the LLM', async () => {
+      jest.useFakeTimers();
+      mockMcpClient.callTool
+        .mockResolvedValueOnce({
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                code: 503,
+                message: 'Service temporarily unavailable',
+              }),
+            },
+          ],
+          isError: true,
+        })
+        .mockResolvedValueOnce({
+          content: [{ type: 'text', text: 'result data' }],
+          isError: false,
+        });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'get_database_schema', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'ok', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'vẫn giữ nguyên', toolCalls: [] });
+
+      const runPromise = service.run(baseDto);
+      await jest.advanceTimersByTimeAsync(
+        ORCHESTRATION_CONSTANTS.TRANSIENT_RETRY_BACKOFF_MS + 100,
+      );
+      const result = await runPromise;
+
+      // 2 lần gọi THẬT bên trong, nhưng ẩn hoàn toàn với LLM/UI.
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
+      const toolResultEmits = mockAgentStream.emitStep.mock.calls.filter(
+        (call) => (call[1] as { type?: string })?.type === 'tool_result',
+      );
+      // Chỉ ĐÚNG 1 cặp tool_call/tool_result được emit ra UI — không lộ lần
+      // lỗi tạm thời đầu tiên ra ngoài.
+      expect(toolResultEmits).toHaveLength(1);
+      expect(toolResultEmits[0][1]).toEqual({
+        type: 'tool_result',
+        tool: 'sql_server.get_database_schema',
+        status: 'success',
+        resultPreview: 'result data',
+      });
+      expect(result.toolCalls[0]).toEqual({
+        tool: 'sql_server.get_database_schema',
+        status: 'success',
+        resultPreview: 'result data',
+      });
+    });
+
+    it('gives up after MAX_TRANSIENT_TOOL_RETRY_ATTEMPTS and surfaces exactly 1 error tool_result, when the retryable error never clears', async () => {
+      jest.useFakeTimers();
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [
+          { type: 'text', text: JSON.stringify({ code: 503, message: 'Still down' }) },
+        ],
+        isError: true,
+      });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'get_database_schema', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'ok', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'vẫn giữ nguyên', toolCalls: [] });
+
+      const runPromise = service.run(baseDto);
+      await jest.advanceTimersByTimeAsync(
+        ORCHESTRATION_CONSTANTS.TRANSIENT_RETRY_BACKOFF_MS * 3,
+      );
+      const result = await runPromise;
+
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(
+        ORCHESTRATION_CONSTANTS.MAX_TRANSIENT_TOOL_RETRY_ATTEMPTS,
+      );
+      const toolResultEmits = mockAgentStream.emitStep.mock.calls.filter(
+        (call) => (call[1] as { type?: string })?.type === 'tool_result',
+      );
+      expect(toolResultEmits).toHaveLength(1);
+      expect(
+        (toolResultEmits[0][1] as { status?: string }).status,
+      ).toBe('error');
+      expect(result.toolCalls[0].status).toBe('error');
+    });
+
+    it('does not retry a permanent error even when a recognizable-but-non-retryable HTTP code is present (VD 400 — client error, not transient)', async () => {
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [
+          { type: 'text', text: JSON.stringify({ code: 400, message: 'Bad request' }) },
+        ],
+        isError: true,
+      });
+      mockSession.sendMessage.mockResolvedValue({
+        text: '',
+        toolCalls: [{ name: 'get_database_schema', args: { x: 1 } }],
+      });
+
+      await service.run(baseDto);
+
+      // Không retry transient nào — đúng 1 lần gọi thật cho bước đầu tiên,
+      // các bước lặp lại sau đó bị MAX_SAME_TOOL_CALL_REPEATS chặn (khác cơ chế).
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('Risk Gate (Giai đoạn 3 — HITL, Step 3)', () => {
     it('throws ApprovalRequiredError instead of calling the tool when destructiveHint is true', async () => {
       mockMcpClient.getTools.mockResolvedValue([
