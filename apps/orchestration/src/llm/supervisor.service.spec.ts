@@ -710,6 +710,53 @@ describe('SupervisorService', () => {
       expect(verdict).toEqual({ verdict: 'continue' });
     });
 
+    it('accuracy_problem.md mục 5 — completedStep.result chưa qua capRoundResults() (chỉ áp dụng ở round SAU) nên KHÔNG được nhồi thẳng RAW không cap vào prompt evaluate() — cap theo ĐÚNG ngân sách model, không phải hằng số cứng cũ, và KHÔNG cắt case cỡ thật (500 dòng)', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        verdict: 'continue',
+      });
+      const fiveHundredRows = JSON.stringify(
+        Array.from({ length: 500 }, (_, i) => ({ id: i, name: `KH ${i}` })),
+      );
+
+      await service.evaluate(
+        'câu hỏi gốc',
+        {
+          agent: 'sql_server',
+          task: 'lấy 500 khách hàng',
+          result: fiveHundredRows,
+        },
+        [{ agent: 'sheets', task: 'ghi vào Google Sheets' }],
+      );
+
+      const promptSent = mockStrategy.generateStructured.mock.calls[0][0]
+        .prompt as string;
+      expect(promptSent).toContain('"id":0');
+      expect(promptSent).toContain('"id":499');
+      expect(promptSent).not.toContain('truncated');
+    });
+
+    it('accuracy_problem.md mục 5 — vẫn cap đúng khi completedStep.result vượt XA ngân sách đã nới rộng theo model (chặn timeout cũ tái diễn ở evaluate())', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        verdict: 'continue',
+      });
+      const hugeResult = 'z'.repeat(160_000);
+
+      await service.evaluate(
+        'câu hỏi gốc',
+        {
+          agent: 'sql_server',
+          task: 'lấy dữ liệu khổng lồ',
+          result: hugeResult,
+        },
+        [{ agent: 'sheets', task: 'ghi vào Google Sheets' }],
+      );
+
+      const promptSent = mockStrategy.generateStructured.mock.calls[0][0]
+        .prompt as string;
+      expect(promptSent.length).toBeLessThan(hugeResult.length);
+      expect(promptSent).toContain('[truncated');
+    });
+
     it('Giai đoạn 4, Step 6 — routes the LLM call through the breaker keyed by "llm:<strategy.id>"', async () => {
       mockStrategy.generateStructured.mockResolvedValue({
         verdict: 'continue',

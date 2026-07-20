@@ -28,6 +28,7 @@ import { withTimeout } from './with-timeout.util';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import {
   capRoundResults,
+  capToolResultSize,
   resolveDataCharBudget,
 } from '../executor/tool-result-size-cap.util';
 
@@ -269,10 +270,25 @@ export class SupervisorService {
     // so chuỗi không đủ khả năng đánh giá việc này. Luôn hỏi LLM (có
     // originalPrompt) khi còn bước phía sau — chấp nhận tốn thêm lời gọi LLM
     // để không bỏ lọt case "trông ổn nhưng lạc đề".
+    // accuracy_problem.md mục 5 — completedStep.result là dữ liệu THẬT, CHƯA
+    // qua bất kỳ cap nào (capRoundResults chỉ áp dụng ở buildPrompt()/
+    // synthesize()/delegateRound() cho round SAU, không phải ở đây) — 1 round
+    // trả lời trực tiếp dữ liệu lớn (VD "đã lấy xong 500 dòng: ...") sẽ nhồi
+    // NGUYÊN VĂN vào prompt evaluate() này, đúng loại sự cố timeout cũ
+    // (accuracy.md mục B) đã sinh ra MAX_TOOL_RESULT_CHARS ban đầu. Cap theo
+    // ĐÚNG model của evaluate() (resolveDataCharBudget), không phải hằng số cứng.
+    const evaluateModelId =
+      process.env.SUPERVISOR_EVALUATE_MODEL ??
+      process.env.SUPERVISOR_MODEL ??
+      ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL;
+    const cappedResult = capToolResultSize(
+      completedStep.result,
+      resolveDataCharBudget(evaluateModelId),
+    );
     const remainingText = remainingSteps
       .map((s, i) => `${i + 1}. Agent "${s.agent}": ${s.task}`)
       .join('\n');
-    const prompt = `Câu hỏi gốc: ${originalPrompt}\n\nBước vừa thực hiện xong — Agent "${completedStep.agent}" (yêu cầu: "${completedStep.task}") → kết quả: ${completedStep.result}\n\nCác bước CÒN LẠI trong kế hoạch (chưa chạy):\n${remainingText}\n\nBước vừa xong có đạt kỳ vọng không, các bước còn lại có còn hợp lý để tiếp tục không?`;
+    const prompt = `Câu hỏi gốc: ${originalPrompt}\n\nBước vừa thực hiện xong — Agent "${completedStep.agent}" (yêu cầu: "${completedStep.task}") → kết quả: ${cappedResult}\n\nCác bước CÒN LẠI trong kế hoạch (chưa chạy):\n${remainingText}\n\nBước vừa xong có đạt kỳ vọng không, các bước còn lại có còn hợp lý để tiếp tục không?`;
 
     try {
       // Vừa bỏ shortcut rule-based (xem accuracy_problem.md mục 0) — evaluate()
@@ -283,11 +299,7 @@ export class SupervisorService {
       // + lý do ngắn), dư địa dùng model rẻ hơn mà không đổi SUPERVISOR_MODEL
       // dùng chung cho synthesize(). Không set SUPERVISOR_EVALUATE_MODEL → rơi
       // về đúng hành vi cũ (SUPERVISOR_MODEL).
-      const { strategy, model } = this.llmFactory.resolve(
-        process.env.SUPERVISOR_EVALUATE_MODEL ??
-          process.env.SUPERVISOR_MODEL ??
-          ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
-      );
+      const { strategy, model } = this.llmFactory.resolve(evaluateModelId);
       const verdict = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
         withTimeout(
           strategy.generateStructured<SupervisorEvaluateDto>({
