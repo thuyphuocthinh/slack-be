@@ -25,7 +25,10 @@ import { CallToolResponseDto, McpToolDto } from '../dto/mcp.dto';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
 import { runCancellable } from '../common/cancellable-run.util';
 import { TurnCancelledError } from './turn-cancelled.error';
-import { capToolResultSize } from '../executor/tool-result-size-cap.util';
+import {
+  capToolResultSize,
+  resolveDataCharBudget,
+} from '../executor/tool-result-size-cap.util';
 import { classifyToolError } from '../executor/tool-error-classifier.util';
 
 // Root trace + "done" thuộc về AiOrchestrationProcessor, không phải ở đây.
@@ -44,16 +47,20 @@ export class ReactLoopService {
   async run(dto: RunReactLoopRequestDto): Promise<RunReactLoopResponseDto> {
     const toolCalls: ToolCallTraceDto[] = [];
 
+    // accuracy_problem.md mục 5 — modelId (registry key, VD 'gpt-4o-mini')
+    // dùng để resolve NGÂN SÁCH cap dữ liệu (resolveDataCharBudget), KHÁC với
+    // `model` factory trả về bên dưới (tên SDK thật, VD 'openai/gpt-4o-mini').
+    const reactModelId =
+      dto.model ??
+      process.env.DEFAULT_REACT_MODEL ??
+      ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL;
+
     const [mcpTools, systemInstruction] = await Promise.all([
       this.mcpClient.getTools(dto.provider, dto.prompt),
-      this.buildSystemInstruction(dto.provider, dto.userId),
+      this.buildSystemInstruction(dto.provider, dto.userId, reactModelId),
     ]);
 
-    const { strategy, model } = this.llmFactory.resolve(
-      dto.model ??
-        process.env.DEFAULT_REACT_MODEL ??
-        ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL,
-    );
+    const { strategy, model } = this.llmFactory.resolve(reactModelId);
     this.logger.log(
       `run() userId=${dto.userId} provider=${dto.provider} model=${model} toolsAvailable=${mcpTools.length}`,
     );
@@ -96,6 +103,7 @@ export class ReactLoopService {
           toolCalls,
           callSignatureCounts,
           successfulCallCache,
+          reactModelId,
         ),
       { name: 'mcp.callTool' },
     );
@@ -166,6 +174,7 @@ export class ReactLoopService {
   private async buildSystemInstruction(
     provider: string,
     userId: string,
+    modelId: string,
   ): Promise<string> {
     const mcpResources = await this.mcpClient.getResources(provider);
     const resourceContents = await Promise.all(
@@ -176,7 +185,7 @@ export class ReactLoopService {
             r.uri,
             userId,
           );
-          return `\n--- Resource: ${r.name} ---\n${capToolResultSize(content)}`;
+          return `\n--- Resource: ${r.name} ---\n${capToolResultSize(content, resolveDataCharBudget(modelId))}`;
         } catch (error) {
           this.logger.warn(
             `Failed to read resource ${r.uri}: ${(error as Error).message}`,
@@ -205,6 +214,7 @@ export class ReactLoopService {
       string,
       { resultPreview: string; feedText: string }
     >,
+    modelId: string,
   ): Promise<string> {
     if (mcpTools.find((t) => t.name === name)?.annotations?.destructiveHint) {
       this.logger.log(
@@ -333,7 +343,7 @@ export class ReactLoopService {
           status: 'error',
           resultPreview: errorMessage,
         });
-        return capToolResultSize(errorMessage);
+        return capToolResultSize(errorMessage, resolveDataCharBudget(modelId));
       }
 
       text = extractTextFromMcpResult(result);
@@ -371,7 +381,12 @@ export class ReactLoopService {
     // resultPreview (trace UI) giữ NGUYÊN VĂN đầy đủ — chỉ cap phần feed
     // NGƯỢC LẠI cho LLM, tránh 1 kết quả tool quá lớn (VD JSON lồng nhau từ
     // dynamic provider) làm sendMessage() kế tiếp timeout vì context quá to.
-    const feedText = capToolResultSize(text);
+    // accuracy_problem.md mục 5 — đây là điểm dữ liệu tool RAW (VD 500 dòng
+    // SQL) lần đầu đi vào LLM, TRƯỚC CẢ khi có "round" nào để cap theo mục 4 —
+    // phải cap theo ĐÚNG model đang chạy agent này (resolveDataCharBudget),
+    // không phải hằng số cứng cũ, nếu không dữ liệu đã mất NGAY TẠI ĐÂY, dù
+    // các round sau có ngân sách lớn tới đâu cũng không cứu lại được.
+    const feedText = capToolResultSize(text, resolveDataCharBudget(modelId));
     if (status === 'success') {
       successfulCallCache.set(signature, { resultPreview, feedText });
     }

@@ -388,7 +388,10 @@ describe('ApprovalFlowService', () => {
       mockMcpClient.callTool.mockResolvedValue({
         content: [{ type: 'text', text: 'raw mcp result' }],
       });
-      const hugeResult = 'x'.repeat(7000);
+      // accuracy_problem.md mục 5 — budget giờ tính THEO model thật
+      // (gpt-4o-mini ~153.600 ký tự), không còn hằng số cứng 6000 — dữ liệu
+      // phải vượt XA budget mới để còn kiểm được hành vi cap.
+      const hugeResult = 'x'.repeat(160_000);
       (extractTextFromMcpResult as jest.Mock).mockReturnValue(hugeResult);
 
       await runApprovalJob();
@@ -397,6 +400,29 @@ describe('ApprovalFlowService', () => {
       const foldedResult = roundsArg[roundsArg.length - 1].result;
       expect(foldedResult.length).toBeLessThan(hugeResult.length);
       expect(foldedResult).toContain('[truncated');
+    });
+
+    it('accuracy_problem.md mục 5 — KHÔNG cắt kết quả tool cỡ thật (VD 500 dòng SQL, ~40k ký tự) sau khi đã được duyệt', async () => {
+      mockCheckpoint.findById.mockResolvedValue(checkpoint);
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'raw mcp result' }],
+      });
+      const fiveHundredRows = JSON.stringify(
+        Array.from({ length: 500 }, (_, i) => ({
+          id: i,
+          name: `Khách hàng ${i}`,
+          email: `customer${i}@example.com`,
+        })),
+      );
+      (extractTextFromMcpResult as jest.Mock).mockReturnValue(fiveHundredRows);
+
+      await runApprovalJob();
+
+      const roundsArg = mockTurnResolver.continueRounds.mock.calls[0][5];
+      const foldedResult = roundsArg[roundsArg.length - 1].result;
+      expect(foldedResult).toContain('"id":0');
+      expect(foldedResult).toContain('"id":499');
+      expect(foldedResult).not.toContain('truncated');
     });
 
     it('forwards whatever the Supervisor loop returns as-is (VD toolCalls: undefined) to the final message update', async () => {

@@ -478,7 +478,10 @@ describe('ReactLoopService', () => {
     });
 
     it('caps the tool result text fed BACK to the LLM once it exceeds the context-safety limit, without touching resultPreview', async () => {
-      const hugeText = 'y'.repeat(7000);
+      // accuracy_problem.md mục 5 — budget giờ tính THEO model thật
+      // (gpt-4o-mini ~153.600 ký tự), không còn hằng số cứng 6000 — dữ liệu
+      // phải vượt XA budget mới để còn kiểm được hành vi cap.
+      const hugeText = 'y'.repeat(160_000);
       mockMcpClient.callTool.mockResolvedValue({
         content: [{ type: 'text', text: hugeText }],
         isError: false,
@@ -500,6 +503,34 @@ describe('ReactLoopService', () => {
 
       // resultPreview (trace UI) vẫn đầy đủ, không bị cap.
       expect(result.toolCalls[0].resultPreview).toBe(hugeText);
+    });
+
+    it('accuracy_problem.md mục 5 — KHÔNG cắt kết quả tool cỡ thật (VD 500 dòng SQL, ~40k ký tự) trước khi feed lại cho LLM trong CÙNG 1 lượt ReactLoop', async () => {
+      const fiveHundredRows = JSON.stringify(
+        Array.from({ length: 500 }, (_, i) => ({
+          id: i,
+          name: `Khách hàng ${i}`,
+          email: `customer${i}@example.com`,
+        })),
+      );
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [{ type: 'text', text: fiveHundredRows }],
+        isError: false,
+      });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'get_database_schema', args: {} }],
+        })
+        .mockImplementationOnce((input) => {
+          const fedBackText = (input as { content: string }[])[0].content;
+          expect(fedBackText).toContain('"id":0');
+          expect(fedBackText).toContain('"id":499');
+          expect(fedBackText).not.toContain('truncated');
+          return Promise.resolve({ text: 'ok', toolCalls: [] });
+        });
+
+      await service.run(baseDto);
     });
   });
 
@@ -742,9 +773,9 @@ describe('ReactLoopService', () => {
         (call) => (call[1] as { type?: string })?.type === 'tool_result',
       );
       expect(toolResultEmits).toHaveLength(1);
-      expect(
-        (toolResultEmits[0][1] as { status?: string }).status,
-      ).toBe('error');
+      expect((toolResultEmits[0][1] as { status?: string }).status).toBe(
+        'error',
+      );
       expect(result.toolCalls[0].status).toBe('error');
     });
 

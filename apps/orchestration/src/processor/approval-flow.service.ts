@@ -6,7 +6,7 @@ import {
   IProcessApprovalJobData,
   QueueService,
 } from '@slack/queue';
-import { ORCHESTRATION_ERROR } from '@slack/constants';
+import { ORCHESTRATION_CONSTANTS, ORCHESTRATION_ERROR } from '@slack/constants';
 import { extractTextFromMcpResult } from '@slack/common';
 import { MessageClientService } from '../message-client.service';
 import { SupervisorService } from '../llm/supervisor.service';
@@ -21,7 +21,10 @@ import { ResolveApprovalRequestDto } from '../dto/orchestration.dto';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
 import { TurnCancelledError } from '../llm/turn-cancelled.error';
 import { TurnResolverService } from './turn-resolver.service';
-import { capToolResultSize } from '../executor/tool-result-size-cap.util';
+import {
+  capToolResultSize,
+  resolveDataCharBudget,
+} from '../executor/tool-result-size-cap.util';
 
 // Giai đoạn 3 (HITL) — toàn bộ vòng đời "duyệt/từ chối 1 hành động rủi ro":
 // nhận request duyệt (resolveApproval, nhanh — chỉ claim() rồi trả về), rồi
@@ -375,6 +378,11 @@ export class ApprovalFlowService {
   // lần nữa. Cap dung lượng kết quả (capToolResultSize) trước khi nó được feed
   // vào round tiếp theo — 1 kết quả tool lớn (VD JSON lồng nhau từ dynamic
   // provider) từng làm sendMessage() của vòng kế tiếp timeout vì context quá to.
+  // accuracy_problem.md mục 5 — cap theo ĐÚNG ngân sách của model ReactLoop
+  // (resolveDataCharBudget), không phải hằng số cứng: checkpoint không lưu
+  // model dùng cho agent gốc, nhưng ReactLoopService.run() LUÔN resolve
+  // DEFAULT_REACT_MODEL trong thực tế (không caller nào override dto.model),
+  // nên dùng lại đúng nguồn đó để khớp ngân sách thật.
   private async executeApprovedToolForReal(
     checkpoint: CheckpointResponseDto,
     userId: string,
@@ -387,8 +395,14 @@ export class ApprovalFlowService {
       args: pendingTool.args,
       ownerId: userId,
     });
+    const reactModelId =
+      process.env.DEFAULT_REACT_MODEL ??
+      ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL;
     return {
-      text: capToolResultSize(extractTextFromMcpResult(toolResult)),
+      text: capToolResultSize(
+        extractTextFromMcpResult(toolResult),
+        resolveDataCharBudget(reactModelId),
+      ),
       isError: Boolean(toolResult.isError),
     };
   }
