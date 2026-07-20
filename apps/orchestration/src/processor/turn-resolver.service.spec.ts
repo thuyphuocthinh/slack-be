@@ -363,7 +363,10 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
           },
         ],
       });
-      mockReactLoop.run.mockResolvedValue({ answer: 'Đã chèn.', toolCalls: [] });
+      mockReactLoop.run.mockResolvedValue({
+        answer: 'Đã chèn.',
+        toolCalls: [],
+      });
       mockSupervisor.evaluate.mockResolvedValue({ verdict: 'done' });
 
       const result = await resolve();
@@ -466,6 +469,9 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
 
     const result = await resolve();
 
+    // Mỗi vòng re-plan tốn ĐÚNG 1 "vé" nonProgressRounds (accuracy_problem.md)
+    // -> dừng sau đúng MAX_SUPERVISOR_ROUNDS bước thật, dù realStepsRun còn dư
+    // rất nhiều (MAX_REAL_STEPS_PER_TURN cao hơn hẳn).
     expect(mockReactLoop.run).toHaveBeenCalledTimes(
       ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS,
     );
@@ -473,9 +479,17 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
     const [synthesizePrompt, synthesizeRounds] =
       mockSupervisor.synthesize.mock.calls[0];
     expect(synthesizePrompt).toBe('có bao nhiêu bảng?');
+    // Mỗi vòng re-plan đẩy THÊM 1 round thật ('kết quả bước N') VÀ 1 marker
+    // '[re-plan]...' (để sống sót qua resume, xem TurnResolverService) -> gấp
+    // đôi số lượng so với chỉ đếm bước thật.
     expect(synthesizeRounds).toHaveLength(
-      ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS,
+      ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS * 2,
     );
+    expect(
+      synthesizeRounds.filter((r: { result: string }) =>
+        r.result.startsWith('kết quả bước'),
+      ),
+    ).toHaveLength(ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS);
     expect(result.content).toBe('Tổng hợp toàn bộ các bước đã thu thập được.');
   });
 
@@ -760,13 +774,17 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
       expect(result.content).toContain('Cần bạn duyệt');
     });
 
-    it('does NOT grant a fresh MAX_SUPERVISOR_ROUNDS budget on resume — synthesizes and stops immediately once the accumulated rounds already used up the shared budget (regression test for the "pause→resume forever" loop)', async () => {
-      const maxedOutRounds = Array.from(
+    it('accuracy_problem.md — does NOT grant a fresh non-progress budget on resume — synthesizes and stops immediately once accumulated re-plan/guardrail markers already used up MAX_SUPERVISOR_ROUNDS (regression test for the "pause→resume forever" loop)', async () => {
+      // 5 marker "không tiến triển" (re-plan) từ (các) lần resume TRƯỚC —
+      // đây là tín hiệu THẬT của vòng lặp bệnh lý, phải cấm resume cấp lại
+      // ngân sách mới, KHÔNG liên quan tới số bước THẬT đã chạy.
+      const maxedOutNonProgressRounds = Array.from(
         { length: ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS },
         (_, i) => ({
           agent: 'sql_server',
           task: `bước ${i}`,
-          result: `kết quả ${i}`,
+          result:
+            '[re-plan] evaluate() cho rằng bước vừa xong không đạt kỳ vọng, đã lập lại kế hoạch.',
         }),
       );
       mockSupervisor.synthesize.mockResolvedValue(
@@ -779,26 +797,61 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         'lấy diễn viên rồi chèn vào bảng users',
         availableAgents,
         [],
-        maxedOutRounds,
+        maxedOutNonProgressRounds,
         [],
       );
 
-      // KHÔNG plan()/delegate thêm — rounds đã chạm MAX_SUPERVISOR_ROUNDS
-      // ngay từ đầu, đi thẳng vào nhánh fallback tổng hợp.
+      // KHÔNG plan()/delegate thêm — nonProgressRounds đã chạm
+      // MAX_SUPERVISOR_ROUNDS ngay từ đầu, đi thẳng vào nhánh fallback tổng hợp.
       expect(mockSupervisor.plan).not.toHaveBeenCalled();
       expect(mockSupervisor.synthesize).toHaveBeenCalledTimes(1);
       expect(result.content).toBe('Tổng hợp lại vì đã hết ngân sách vòng.');
     });
 
-    it('shares ONE MAX_SUPERVISOR_ROUNDS budget across chained approval-resumes instead of resetting it every time', async () => {
-      // Mô phỏng: turn đã tiêu (MAX_SUPERVISOR_ROUNDS - 1) vòng qua các lần
-      // resume TRƯỚC — chỉ còn ĐÚNG 1 vòng ngân sách cho lần continueRounds() này.
-      const almostMaxedRounds = Array.from(
+    it('accuracy_problem.md — does NOT stop a long chain of purely REAL steps just because rounds.length is already high — MAX_REAL_STEPS_PER_TURN is much more generous than the non-progress budget, unlike the old shared counter', async () => {
+      // 10 bước THẬT đã chạy thành công từ (các) lần resume trước, KHÔNG có
+      // marker non-progress nào. Dưới thiết kế CŨ (1 ngân sách chung = 5),
+      // continueRounds() sẽ KHÔNG BAO GIỜ gọi plan() ở đây (round=10 đã vượt
+      // ngưỡng ngay từ vòng while đầu tiên) — đây chính là lỗ hổng đã sửa.
+      const manyRealRounds = Array.from({ length: 10 }, (_, i) => ({
+        agent: 'sql_server',
+        task: `bước ${i}`,
+        result: `kết quả ${i}`,
+      }));
+      mockSupervisor.plan.mockResolvedValue({
+        action: 'respond',
+        answer: 'Xong rồi.',
+      });
+      mockSupervisor.synthesize.mockResolvedValue('Tổng hợp từ 10 bước.');
+
+      const result = await service.continueRounds(
+        data,
+        replyMessageId,
+        'chuỗi dài nhiều bước hợp lệ',
+        availableAgents,
+        [],
+        manyRealRounds,
+        [],
+      );
+
+      expect(mockSupervisor.plan).toHaveBeenCalledTimes(1);
+      // rounds.length > 1 -> finalizeAnswer() bỏ qua plan.answer, gọi
+      // synthesize() để nội dung stream = nội dung lưu ("stream = save").
+      expect(mockSupervisor.synthesize).toHaveBeenCalledTimes(1);
+      expect(result.content).toBe('Tổng hợp từ 10 bước.');
+    });
+
+    it('shares ONE non-progress budget across chained approval-resumes instead of resetting it every time', async () => {
+      // Mô phỏng: turn đã tiêu (MAX_SUPERVISOR_ROUNDS - 1) lần "không tiến
+      // triển" qua các lần resume TRƯỚC — chỉ còn ĐÚNG 1 vé trước khi chạm
+      // MAX_SUPERVISOR_ROUNDS.
+      const almostMaxedNonProgress = Array.from(
         { length: ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS - 1 },
         (_, i) => ({
           agent: 'sql_server',
           task: `bước ${i}`,
-          result: `kết quả ${i}`,
+          result:
+            '[re-plan] evaluate() cho rằng bước vừa xong không đạt kỳ vọng, đã lập lại kế hoạch.',
         }),
       );
       mockSupervisor.plan.mockResolvedValue({
@@ -820,11 +873,11 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         'lấy diễn viên rồi chèn vào bảng users',
         availableAgents,
         [],
-        almostMaxedRounds,
+        almostMaxedNonProgress,
         [],
       );
 
-      // Chỉ còn ĐÚNG 1 vòng ngân sách -> plan() gọi đúng 1 lần rồi hết ngân
+      // Chỉ còn ĐÚNG 1 vé non-progress -> plan() gọi đúng 1 lần rồi hết ngân
       // sách chung, KHÔNG được cấp lại nguyên 5 vòng mới.
       expect(mockSupervisor.plan).toHaveBeenCalledTimes(1);
       expect(mockReactLoop.run).toHaveBeenCalledTimes(1);

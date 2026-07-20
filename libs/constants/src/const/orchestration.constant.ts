@@ -4,10 +4,20 @@ export const ORCHESTRATION_CONSTANTS = {
   DEFAULT_REACT_MODEL: 'gpt-4o-mini',
   SUPERVISOR_MODEL: 'gpt-4o-mini',
   MAX_REACT_STEPS: 8,
-  // Guard hội tụ cho vòng lặp Supervisor ↔ SubAgent (Giai đoạn 2, Step 3) —
-  // cùng tinh thần MAX_REACT_STEPS nhưng ở tầng routing giữa nhiều agent,
-  // tránh Supervisor ping-pong vô hạn nếu không hội tụ được câu trả lời.
+  // accuracy_problem.md — ĐÃ TÁCH khỏi ý nghĩa gốc "tổng ngân sách vòng lặp".
+  // Giờ CHỈ đếm số lần "KHÔNG TIẾN TRIỂN" trong continueRounds() (guardrail
+  // chặn sớm mục 3, HOẶC evaluate() trả 're-plan') — tín hiệu THẬT của vòng
+  // lặp bệnh lý (Supervisor cứ thử mà không tiến triển). Số BƯỚC THẬT đã chạy
+  // (dù thành công/lỗi) giờ đếm riêng ở MAX_REAL_STEPS_PER_TURN — tách ra vì 1
+  // chuỗi nhiều bước HỢP LỆ chỉ cần 1 lần re-plan là gần hết sạch ngân sách nếu
+  // dùng chung 1 con số như trước.
   MAX_SUPERVISOR_ROUNDS: 5,
+  // accuracy_problem.md — trần số bước THẬT (delegateRound() đã chạy, không
+  // tính round bị guardrail chặn) cho CẢ turn, kể cả qua nhiều lần resume sau
+  // duyệt HITL. Cao hơn hẳn MAX_SUPERVISOR_ROUNDS có chủ đích — task hợp lệ
+  // nhiều provider (3-5 bước) không nên bị bóp bởi lưới chặn vòng lặp bệnh lý.
+  // Giá trị khởi điểm ước lượng, chưa hiệu chỉnh bằng dữ liệu thật.
+  MAX_REAL_STEPS_PER_TURN: 15,
   // Giai đoạn 2, Step 7 — checklist plan.md mục 3 yêu cầu "temperature thấp
   // cho bước gọi tool" (chống hallucination), trước đó chỉ áp cho Supervisor
   // (generateStructured, temperature 0) mà thiếu ở SubAgentExecutor.

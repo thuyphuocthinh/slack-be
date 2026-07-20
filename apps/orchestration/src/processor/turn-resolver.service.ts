@@ -32,6 +32,16 @@ import {
 // vào bất kỳ câu task nào — bỏ qua các nhãn dưới ngưỡng này để giảm false-positive.
 const MIN_AGENT_LABEL_LENGTH_FOR_MISMATCH_CHECK = 3;
 
+// accuracy_problem.md — 2 marker để nhận lại round "KHÔNG TIẾN TRIỂN" (guardrail
+// chặn sớm HOẶC evaluate() trả 're-plan') trong mảng `rounds` khi resume từ
+// checkpoint — `rounds` lưu CHUNG mọi loại round, không có field riêng phân
+// biệt. Dùng lại đúng 2 tiền tố này ở nơi tạo note (bên dưới) và nơi lọc lại
+// (continueRounds()) — thiếu marker cho 're-plan' sẽ làm mất dấu vết non-progress
+// đã xảy ra TRƯỚC 1 lần pause HITL, tái diễn bug "pause→resume vô hạn" mà chính
+// ngân sách này sinh ra để chặn.
+const GUARDRAIL_BLOCKED_MARKER = 'Bỏ qua bước này';
+const REPLAN_MARKER = '[re-plan]';
+
 // Giai đoạn 2/3 (Supervisor multi-round + HITL) — vòng lặp "Supervisor quyết
 // định respond/delegate" tách riêng khỏi AiOrchestrationProcessor (chỉ còn lo
 // vòng đời job/turn) và khỏi CheckpointPauseService (chỉ lo việc TẠO checkpoint).
@@ -109,19 +119,37 @@ export class TurnResolverService {
   ): Promise<AnswerResult> {
     const { userId, channelId, channelType } = data;
 
-    // QUAN TRỌNG: KHÔNG bắt đầu lại từ round=0 — `rounds` có thể đã có sẵn kết
-    // quả từ (các) lần resume TRƯỚC (approveCheckpoint gọi lại continueRounds()
-    // sau mỗi lần duyệt). Nếu reset về 0 mỗi lần, mỗi lượt duyệt lại được cấp
-    // NGUYÊN 1 ngân sách MAX_SUPERVISOR_ROUNDS mới — Supervisor cứ delegate sai/
-    // lặp lại là pause-resume vô hạn (không có trần tổng nào cho cả turn), phải
-    // tự bấm Stop mới dừng được. `rounds.length` dùng làm điểm bắt đầu để CẢ
-    // turn (kể cả qua nhiều lần duyệt) chỉ tiêu tốn tối đa MAX_SUPERVISOR_ROUNDS
-    // bước thực thi, dù có re-plan bao nhiêu lần đi nữa.
-    let round = rounds.length;
+    // accuracy_problem.md — TÁCH 2 ngân sách, trước đây dùng CHUNG 1 biến `round`
+    // (mỗi bước thật LẪN mỗi lần guardrail chặn LẪN mỗi lần re-plan đều trừ vào
+    // cùng 1 con số): 1 chuỗi 4-5 bước HỢP LỆ chỉ cần 1 lần guardrail chặn/re-plan
+    // là gần như hết sạch ngân sách, dù task hoàn toàn giải được.
+    // - realStepsRun: số bước THẬT đã chạy qua delegateRound() (thành công hay
+    //   lỗi đều tính) — task hợp lệ nhiều bước cần room LỚN, không nên bị bóp bởi
+    //   lưới chặn vòng lặp bệnh lý.
+    // - nonProgressRounds: số lần "không tiến triển" — guardrail chặn sớm (mục 3)
+    //   HOẶC evaluate() trả 're-plan' (bước vừa chạy không đạt kỳ vọng). Đây MỚI
+    //   là tín hiệu thật của vòng lặp bệnh lý (Supervisor cứ thử mà không tiến
+    //   triển) — giữ nguyên ngưỡng CHẶT MAX_SUPERVISOR_ROUNDS như cũ.
+    //
+    // QUAN TRỌNG: KHÔNG bắt đầu lại từ 0 — `rounds` có thể đã có sẵn kết quả từ
+    // (các) lần resume TRƯỚC (approveCheckpoint gọi lại continueRounds() sau mỗi
+    // lần duyệt). `rounds` lưu CHUNG mọi loại round, không có field riêng phân
+    // biệt — tách lại bằng GUARDRAIL_BLOCKED_MARKER/REPLAN_MARKER (do chính code
+    // này tự gắn khi tạo note, xem bên dưới) thay vì cần đổi schema/migration
+    // checkpoint.
+    let nonProgressRounds = rounds.filter(
+      (r) =>
+        r.result.startsWith(GUARDRAIL_BLOCKED_MARKER) ||
+        r.result.startsWith(REPLAN_MARKER),
+    ).length;
+    let realStepsRun = rounds.length - nonProgressRounds;
     let steps: DelegationDto[] = [];
     let needsPlan = true;
 
-    while (round < ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS) {
+    while (
+      realStepsRun < ORCHESTRATION_CONSTANTS.MAX_REAL_STEPS_PER_TURN &&
+      nonProgressRounds < ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS
+    ) {
       // plan()/evaluate() dùng generateStructured() (không stream) nên không
       // bọc được AbortSignal như ReactLoop/synthesize() — kiểm tra cờ huỷ GIỮA
       // các bước là đủ, vì đây vốn đã là các lệnh gọi ngắn (JSON, không phải
@@ -220,9 +248,9 @@ export class TurnResolverService {
         rounds.push({
           agent: step.agent,
           task: step.task,
-          result: `Bỏ qua bước này — kế hoạch chọn hệ thống "${step.agent}" nhưng yêu cầu nhắc rõ tới hệ thống "${misroutedTo.label}" (đã kết nối, provider "${misroutedTo.provider}") — có khả năng chọn sai agent, cần lập lại kế hoạch.`,
+          result: `${GUARDRAIL_BLOCKED_MARKER} — kế hoạch chọn hệ thống "${step.agent}" nhưng yêu cầu nhắc rõ tới hệ thống "${misroutedTo.label}" (đã kết nối, provider "${misroutedTo.provider}") — có khả năng chọn sai agent, cần lập lại kế hoạch.`,
         });
-        round++;
+        nonProgressRounds++;
         needsPlan = true;
         steps = [];
         continue;
@@ -237,10 +265,10 @@ export class TurnResolverService {
         prompt,
         replyMessageId,
         history,
-        round,
+        realStepsRun,
         rounds,
       );
-      round++;
+      realStepsRun++;
 
       if (result && 'approvalRequired' in result) {
         toolCalls.push(...result.toolCalls);
@@ -280,6 +308,17 @@ export class TurnResolverService {
         );
       }
       if (verdict.verdict === 're-plan') {
+        nonProgressRounds++;
+        // Đẩy thêm 1 note "vô hình" — CÙNG cơ chế guardrail-block đã dùng
+        // (đánh đổi đã biết: lọt vào input của synthesize() sau này) — không
+        // có chỗ nào khác để giữ lại tín hiệu "bước này bị đánh giá không đạt"
+        // qua 1 lần pause/resume HITL, vì `rounds` là kênh DUY NHẤT sống sót
+        // qua checkpoint.
+        rounds.push({
+          agent: completedRound.agent,
+          task: completedRound.task,
+          result: `${REPLAN_MARKER} evaluate() cho rằng bước vừa xong không đạt kỳ vọng, đã lập lại kế hoạch.`,
+        });
         needsPlan = true;
         steps = [];
       }
@@ -288,7 +327,7 @@ export class TurnResolverService {
     }
 
     this.logger.warn(
-      `Supervisor chưa hội tụ sau ${ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS} bước cho user ${userId}, tổng hợp lại kết quả đã có`,
+      `Supervisor chưa hội tụ (realSteps=${realStepsRun}/${ORCHESTRATION_CONSTANTS.MAX_REAL_STEPS_PER_TURN}, nonProgress=${nonProgressRounds}/${ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS}) cho user ${userId}, tổng hợp lại kết quả đã có`,
     );
     const fallbackAccumulator = { text: '' };
     const finalAnswer = await runCancellable(
