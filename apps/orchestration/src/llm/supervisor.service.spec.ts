@@ -763,5 +763,47 @@ describe('SupervisorService', () => {
         expect.any(Function),
       );
     });
+
+    it('accuracy_problem.md — caps the combined roundsText when several rounds each carry a realistically large result (VD nhiều trăm dòng SQL/Sheets), instead of feeding the raw concatenation straight to the LLM', async () => {
+      mockSession.sendMessage.mockResolvedValue({ text: 'ok' });
+
+      // Mô phỏng 1 chuỗi 4 bước THẬT — mỗi round trả về JSON cỡ ~2000 ký tự
+      // (VD 100 dòng SQL/Sheets), y hệt kích thước dữ liệu thật thay vì chuỗi
+      // giả lập ngắn ("Có 2 bảng") như các test khác trong file này.
+      const bigRowsAsJson = (label: string) =>
+        JSON.stringify(
+          Array.from({ length: 60 }, (_, i) => ({
+            id: i,
+            name: `${label}-customer-${i}`,
+            email: `${label.toLowerCase()}${i}@example.com`,
+            note: 'lorem ipsum dolor sit amet consectetur adipiscing elit',
+          })),
+        );
+      const rounds = ['A', 'B', 'C', 'D'].map((label) => ({
+        agent: 'sql_server',
+        task: `lấy dữ liệu batch ${label}`,
+        result: bigRowsAsJson(label),
+      }));
+      // Xác nhận setup thật sự "lớn" — tổng 4 round vượt xa MAX_TOOL_RESULT_CHARS
+      // (6000) nếu nối thẳng không qua cap nào.
+      const totalRawLength = rounds.reduce(
+        (sum, r) => sum + r.result.length,
+        0,
+      );
+      expect(totalRawLength).toBeGreaterThan(6000);
+
+      await service.synthesize('liệt kê toàn bộ khách hàng', rounds);
+
+      const promptSent = mockSession.sendMessage.mock.calls[0][0] as string;
+      // Không được feed nguyên văn toàn bộ 4 batch chưa qua cap nào vào prompt.
+      expect(promptSent.length).toBeLessThan(totalRawLength);
+      // Cả 4 nhãn round vẫn phải xuất hiện trong prompt (mất TRỌN 1 round vì
+      // cap sẽ là 1 bug khác, tệ hơn — cap chỉ nên cắt BỚT nội dung mỗi round,
+      // không được xoá sổ nguyên 1 round khỏi ngữ cảnh).
+      expect(promptSent).toContain('batch A');
+      expect(promptSent).toContain('batch B');
+      expect(promptSent).toContain('batch C');
+      expect(promptSent).toContain('batch D');
+    });
   });
 });

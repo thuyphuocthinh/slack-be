@@ -19,7 +19,7 @@ import { TurnCancelledError } from '../llm/turn-cancelled.error';
 import { describeExternalServiceError } from '../llm/external-service-error.util';
 import { CheckpointPauseService } from './checkpoint-pause.service';
 import { buildOnToken } from './agent-stream-token.util';
-import { capToolResultSize } from '../executor/tool-result-size-cap.util';
+import { capRoundResults } from '../executor/tool-result-size-cap.util';
 import {
   AnswerResult,
   ApprovalRequiredDelegateResult,
@@ -492,18 +492,20 @@ export class TurnResolverService {
     // thu thập được (VD số liệu SQL cần ghi vào Google Docs ở bước sau). Ghép
     // thêm dữ liệu thật đó vào đây — nguyên tắc giống hệt buildPrompt() của
     // Supervisor, chỉ khác là dành cho sub-agent thực thi, không phải Supervisor.
-    // Cap bằng capToolResultSize để không lặp lại sự cố "context quá to → LLM
-    // timeout" (xem accuracy.md, mục B).
+    // Cap TỪNG round riêng (capRoundResults) để không lặp lại sự cố "context
+    // quá to → LLM timeout" (xem accuracy.md, mục B) — KHÔNG nối rồi cap cả
+    // khối, vì cách đó có thể xoá sổ hoàn toàn 1 round Ở GIỮA khi tổng dữ
+    // liệu vượt cap (accuracy_problem.md).
     const promptWithContext =
       roundsSoFar.length > 0
-        ? `${task}\n\nDữ liệu THẬT đã thu thập được từ (các) bước trước trong CÙNG yêu cầu này (PHẢI dùng ĐÚNG NGUYÊN VĂN, không tự bịa/diễn giải lại số liệu):\n${capToolResultSize(
-            roundsSoFar
-              .map(
-                (r, i) =>
-                  `${i + 1}. Agent "${r.agent}" (yêu cầu: "${r.task}") → kết quả: ${r.result}`,
-              )
-              .join('\n'),
-          )}`
+        ? `${task}\n\nDữ liệu THẬT đã thu thập được từ (các) bước trước trong CÙNG yêu cầu này (PHẢI dùng ĐÚNG NGUYÊN VĂN, không tự bịa/diễn giải lại số liệu):\n${capRoundResults(
+            roundsSoFar,
+          )
+            .map(
+              (r, i) =>
+                `${i + 1}. Agent "${r.agent}" (yêu cầu: "${r.task}") → kết quả: ${r.result}`,
+            )
+            .join('\n')}`
         : task;
     try {
       const { answer, toolCalls } = await this.reactLoop.run({

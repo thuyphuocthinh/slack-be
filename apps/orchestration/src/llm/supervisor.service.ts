@@ -26,7 +26,7 @@ import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
 import { describeExternalServiceError } from './external-service-error.util';
 import { withTimeout } from './with-timeout.util';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
-import { capToolResultSize } from '../executor/tool-result-size-cap.util';
+import { capRoundResults } from '../executor/tool-result-size-cap.util';
 
 @Injectable()
 export class SupervisorService {
@@ -320,19 +320,16 @@ export class SupervisorService {
     onToken?: (chunk: string) => void,
     signal?: AbortSignal,
   ): Promise<string> {
-    // capToolResultSize() ở đây — cùng lý do đã áp dụng cho context ghép vào
-    // prompt SubAgent ở delegateRound() (turn-resolver.service.ts): nhiều
-    // round dữ liệu lớn nối lại có thể phình to, từng gây timeout/context quá
-    // khổ (xem accuracy.md mục B) — synthesize() trước đây là chỗ DUY NHẤT
-    // nối `r.result` mà không qua cap nào, dù mọi nơi khác trong pipeline đều có.
-    const roundsText = capToolResultSize(
-      rounds
-        .map(
-          (r, i) =>
-            `${i + 1}. Agent "${r.agent}" (yêu cầu: "${r.task}") → kết quả: ${r.result}`,
-        )
-        .join('\n'),
-    );
+    // capRoundResults() cap TỪNG round riêng theo ngân sách chia đều — KHÔNG
+    // nối hết rồi cap 1 lần (bug thật đã tìm ra: join() trước rồi cap sau có
+    // thể XOÁ SỔ HOÀN TOÀN 1 round Ở GIỮA, không chỉ cắt bớt dữ liệu của nó,
+    // xem accuracy_problem.md).
+    const roundsText = capRoundResults(rounds)
+      .map(
+        (r, i) =>
+          `${i + 1}. Agent "${r.agent}" (yêu cầu: "${r.task}") → kết quả: ${r.result}`,
+      )
+      .join('\n');
 
     try {
       const { strategy, model } = this.llmFactory.resolve(
@@ -391,7 +388,10 @@ export class SupervisorService {
     sections.push(`Câu hỏi gốc của user: ${originalPrompt}`);
 
     if (previousRounds.length > 0) {
-      const roundsText = previousRounds
+      // accuracy_problem.md — cap TỪNG round riêng (capRoundResults), không
+      // nối rồi cap cả khối — buildPrompt() TRƯỚC ĐÂY không cap gì cả, rủi ro
+      // còn nặng hơn synthesize()/delegateRound() (context có thể phình vô hạn).
+      const roundsText = capRoundResults(previousRounds)
         .map(
           (r, i) =>
             `${i + 1}. Đã delegate agent "${r.agent}" với yêu cầu "${r.task}" → kết quả: ${r.result}`,
