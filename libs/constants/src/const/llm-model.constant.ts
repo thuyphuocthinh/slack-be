@@ -54,6 +54,17 @@ export const LLM_MODEL_REGISTRY: Record<string, LlmModelRegistryEntry> = {
     pricePerMillionInputTokens: 0.15,
     pricePerMillionOutputTokens: 0.6,
   },
+  // Rẻ hơn gpt-4o-mini ~33% ($0.10/$0.40 vs $0.15/$0.60) — OpenAI định vị cho
+  // classification/routing/quyết định đơn giản, đúng việc SUPERVISOR_EVALUATE_MODEL
+  // cần (xem accuracy_problem.md). Đi qua 9Router giống mọi model khác — CHƯA
+  // xác nhận 9Router route được model id này, cần test thật trước khi tin dùng.
+  'gpt-4.1-nano': {
+    strategyId: 'openai',
+    model: 'openai/gpt-4.1-nano',
+    label: 'GPT-4.1 nano',
+    pricePerMillionInputTokens: 0.1,
+    pricePerMillionOutputTokens: 0.4,
+  },
   'gpt-4o': {
     strategyId: 'openai',
     model: 'openai/gpt-4o',
