@@ -19,7 +19,10 @@ import { TurnCancelledError } from '../llm/turn-cancelled.error';
 import { describeExternalServiceError } from '../llm/external-service-error.util';
 import { CheckpointPauseService } from './checkpoint-pause.service';
 import { buildOnToken } from './agent-stream-token.util';
-import { capRoundResults } from '../executor/tool-result-size-cap.util';
+import {
+  capRoundResults,
+  resolveDataCharBudget,
+} from '../executor/tool-result-size-cap.util';
 import {
   AnswerResult,
   ApprovalRequiredDelegateResult,
@@ -495,11 +498,17 @@ export class TurnResolverService {
     // Cap TỪNG round riêng (capRoundResults) để không lặp lại sự cố "context
     // quá to → LLM timeout" (xem accuracy.md, mục B) — KHÔNG nối rồi cap cả
     // khối, vì cách đó có thể xoá sổ hoàn toàn 1 round Ở GIỮA khi tổng dữ
-    // liệu vượt cap (accuracy_problem.md).
+    // liệu vượt cap (accuracy_problem.md). ReactLoop luôn dùng DEFAULT_REACT_MODEL
+    // (dto.model không có caller nào override) — ngân sách tính THEO ĐÚNG model
+    // đó (resolveDataCharBudget), không phải 1 hằng số cố định không liên quan.
+    const reactModelId =
+      process.env.DEFAULT_REACT_MODEL ??
+      ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL;
     const promptWithContext =
       roundsSoFar.length > 0
         ? `${task}\n\nDữ liệu THẬT đã thu thập được từ (các) bước trước trong CÙNG yêu cầu này (PHẢI dùng ĐÚNG NGUYÊN VĂN, không tự bịa/diễn giải lại số liệu):\n${capRoundResults(
             roundsSoFar,
+            resolveDataCharBudget(reactModelId),
           )
             .map(
               (r, i) =>

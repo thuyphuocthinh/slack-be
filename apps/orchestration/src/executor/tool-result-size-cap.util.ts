@@ -5,6 +5,7 @@ import {
   PayloadCompressor,
   JsonValue,
 } from 'agentic-io-parser';
+import { LLM_MODEL_REGISTRY } from '@slack/constants';
 
 // Chặn cuối cùng trước khi 1 kết quả tool (MCP tĩnh HOẶC dynamic provider) được
 // nhồi vào prompt/rounds gửi lại cho LLM. Đặt cap TỔNG dung lượng ở đây
@@ -91,6 +92,34 @@ export function capToolResultSize(
   return resultStr;
 }
 
+// accuracy_problem.md — ngưỡng MAX_TOOL_RESULT_CHARS (6000) sinh ra từ 1 sự cố
+// timeout cũ (accuracy.md mục B), KHÔNG liên quan gì tới context window THẬT
+// của model đang xử lý nó — gpt-4o-mini đã có 128K token (~500.000 ký tự)
+// nhưng vẫn bị cắt xuống 6000, dù model dư sức chứa nhiều hơn hẳn (VD 500
+// dòng SQL ~40.000-50.000 ký tự, thừa sức nằm gọn trong 128K token thật).
+//
+// resolveDataCharBudget() tính ngân sách THEO ĐÚNG model đang dùng: 1 phần
+// (CHARS_PER_TOKEN_ESTIMATE × DATA_BUDGET_FRACTION) của context window thật,
+// chừa lại phần còn lại cho system prompt/instruction/lịch sử/completion —
+// KHÔNG dồn hết context cho dữ liệu dù model có context window rất lớn (VD
+// Gemini 1M token), vì prompt quá to vẫn tốn tiền/độ trễ thật dù "vừa" về
+// mặt kỹ thuật — nên vẫn có MAX_DATA_CHARS_CEILING chặn trần tuyệt đối.
+const CHARS_PER_TOKEN_ESTIMATE = 4; // ước lượng thô (tiếng Việt/Anh trộn lẫn), KHÔNG chính xác tuyệt đối theo tokenizer thật của từng provider.
+const DATA_BUDGET_FRACTION = 0.3;
+const MAX_DATA_CHARS_CEILING = 200_000;
+
+export function resolveDataCharBudget(modelId: string): number {
+  const entry = LLM_MODEL_REGISTRY[modelId];
+  // Model chưa đăng ký contextWindowTokens (hoặc modelId lạ) → rơi về đúng
+  // hành vi CŨ (6000), an toàn, không đoán mù.
+  if (!entry?.contextWindowTokens) return MAX_TOOL_RESULT_CHARS;
+
+  const scaled = Math.floor(
+    entry.contextWindowTokens * CHARS_PER_TOKEN_ESTIMATE * DATA_BUDGET_FRACTION,
+  );
+  return Math.min(scaled, MAX_DATA_CHARS_CEILING);
+}
+
 // accuracy_problem.md — cap TỪNG round.result riêng theo ngân sách CHIA ĐỀU,
 // KHÔNG nối hết rồi cap 1 lần (sai lầm cũ ở synthesize()/buildPrompt()/
 // delegateRound() — join() trước rồi capToolResultSize() sau CÓ THỂ XOÁ SỔ
@@ -99,11 +128,16 @@ export function capToolResultSize(
 // round — xác nhận bằng test thật, không phải suy đoán). Chỉ cap field
 // `result` — agent/task luôn ngắn, giữ nguyên để LLM luôn biết ĐỦ các bước
 // đã chạy, kể cả khi dữ liệu của 1 vài bước bị rút gọn.
+//
+// `totalBudget` mặc định MAX_TOOL_RESULT_CHARS (hành vi CŨ) — caller nên
+// truyền `resolveDataCharBudget(model)` để ngân sách khớp ĐÚNG model thật sẽ
+// xử lý văn bản này (xem synthesize()/buildPrompt()/delegateRound()).
 export function capRoundResults<T extends { result: string }>(
   rounds: readonly T[],
+  totalBudget: number = MAX_TOOL_RESULT_CHARS,
 ): T[] {
   if (rounds.length === 0) return [...rounds];
-  const perRoundBudget = Math.floor(MAX_TOOL_RESULT_CHARS / rounds.length);
+  const perRoundBudget = Math.floor(totalBudget / rounds.length);
   return rounds.map((r) => ({
     ...r,
     result: capToolResultSize(r.result, perRoundBudget),

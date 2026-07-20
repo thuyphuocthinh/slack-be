@@ -26,7 +26,10 @@ import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
 import { describeExternalServiceError } from './external-service-error.util';
 import { withTimeout } from './with-timeout.util';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
-import { capRoundResults } from '../executor/tool-result-size-cap.util';
+import {
+  capRoundResults,
+  resolveDataCharBudget,
+} from '../executor/tool-result-size-cap.util';
 
 @Injectable()
 export class SupervisorService {
@@ -185,7 +188,6 @@ export class SupervisorService {
             : '')
         : '(Người dùng chưa kết nối agent nào — nếu câu hỏi cần dữ liệu, trả lời "respond" và nhắc user vào Settings để kết nối.)';
 
-    const fullPrompt = this.buildPrompt(prompt, rounds, history);
     // continueRounds() CHỈ dùng plan.answer khi rounds rỗng (chưa chạy bước
     // nào) — mọi lần plan() sau đều tự tổng hợp lại (rounds[0].result hoặc
     // synthesize(), xem "stream = save"). Bỏ field "answer" khỏi schema ở các
@@ -202,11 +204,14 @@ export class SupervisorService {
       // dùng model mạnh hơn mà không đội chi phí đáng kể. Tách biến môi trường
       // RIÊNG cho plan(), không đụng evaluate()/synthesize(). Không set
       // SUPERVISOR_PLANNING_MODEL → rơi về đúng hành vi cũ (SUPERVISOR_MODEL).
-      const { strategy, model } = this.llmFactory.resolve(
+      const planModelId =
         process.env.SUPERVISOR_PLANNING_MODEL ??
-          process.env.SUPERVISOR_MODEL ??
-          ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
-      );
+        process.env.SUPERVISOR_MODEL ??
+        ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL;
+      const { strategy, model } = this.llmFactory.resolve(planModelId);
+      // buildPrompt() cần biết model ĐANG DÙNG để cap context các round trước
+      // theo ĐÚNG ngân sách model đó (resolveDataCharBudget) — accuracy_problem.md.
+      const fullPrompt = this.buildPrompt(prompt, rounds, history, planModelId);
       this.logger.log(
         `plan() model=${model} agents=${agents.length} historyTurns=${history.length} prompt=${fullPrompt}`,
       );
@@ -320,22 +325,24 @@ export class SupervisorService {
     onToken?: (chunk: string) => void,
     signal?: AbortSignal,
   ): Promise<string> {
-    // capRoundResults() cap TỪNG round riêng theo ngân sách chia đều — KHÔNG
-    // nối hết rồi cap 1 lần (bug thật đã tìm ra: join() trước rồi cap sau có
-    // thể XOÁ SỔ HOÀN TOÀN 1 round Ở GIỮA, không chỉ cắt bớt dữ liệu của nó,
-    // xem accuracy_problem.md).
-    const roundsText = capRoundResults(rounds)
-      .map(
-        (r, i) =>
-          `${i + 1}. Agent "${r.agent}" (yêu cầu: "${r.task}") → kết quả: ${r.result}`,
-      )
-      .join('\n');
-
     try {
-      const { strategy, model } = this.llmFactory.resolve(
+      const modelId =
         process.env.SUPERVISOR_MODEL ??
-          ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
-      );
+        ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL;
+      const { strategy, model } = this.llmFactory.resolve(modelId);
+
+      // capRoundResults() cap TỪNG round riêng theo ngân sách chia đều — KHÔNG
+      // nối hết rồi cap 1 lần (bug thật đã tìm ra: join() trước rồi cap sau có
+      // thể XOÁ SỔ HOÀN TOÀN 1 round Ở GIỮA, không chỉ cắt bớt dữ liệu của nó).
+      // Ngân sách tính THEO ĐÚNG model đang dùng (resolveDataCharBudget) — model
+      // context lớn hơn (VD Gemini 1M token) mới thật sự tận dụng được, thay vì
+      // bị chặn ngang bởi 1 hằng số không liên quan tới model (accuracy_problem.md).
+      const roundsText = capRoundResults(rounds, resolveDataCharBudget(modelId))
+        .map(
+          (r, i) =>
+            `${i + 1}. Agent "${r.agent}" (yêu cầu: "${r.task}") → kết quả: ${r.result}`,
+        )
+        .join('\n');
 
       const session = strategy.startChat({
         model,
@@ -369,6 +376,7 @@ export class SupervisorService {
     originalPrompt: string,
     previousRounds: SupervisorRoundDto[],
     history: ChatHistoryTurnDto[],
+    modelId: string,
   ): string {
     const sections: string[] = [];
 
@@ -391,7 +399,11 @@ export class SupervisorService {
       // accuracy_problem.md — cap TỪNG round riêng (capRoundResults), không
       // nối rồi cap cả khối — buildPrompt() TRƯỚC ĐÂY không cap gì cả, rủi ro
       // còn nặng hơn synthesize()/delegateRound() (context có thể phình vô hạn).
-      const roundsText = capRoundResults(previousRounds)
+      // Ngân sách tính theo ĐÚNG model đang lập kế hoạch (resolveDataCharBudget).
+      const roundsText = capRoundResults(
+        previousRounds,
+        resolveDataCharBudget(modelId),
+      )
         .map(
           (r, i) =>
             `${i + 1}. Đã delegate agent "${r.agent}" với yêu cầu "${r.task}" → kết quả: ${r.result}`,

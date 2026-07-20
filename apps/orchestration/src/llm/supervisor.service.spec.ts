@@ -764,46 +764,76 @@ describe('SupervisorService', () => {
       );
     });
 
-    it('accuracy_problem.md — caps the combined roundsText when several rounds each carry a realistically large result (VD nhiều trăm dòng SQL/Sheets), instead of feeding the raw concatenation straight to the LLM', async () => {
+    it('accuracy_problem.md — does NOT truncate a realistic bulk-transfer case (VD 500 dòng SQL → Sheets, ~40-50k ký tự) — ngân sách cap giờ tính theo context window THẬT của model (gpt-4o-mini = 128K token), không phải hằng số 6000 không liên quan gì tới model', async () => {
       mockSession.sendMessage.mockResolvedValue({ text: 'ok' });
 
-      // Mô phỏng 1 chuỗi 4 bước THẬT — mỗi round trả về JSON cỡ ~2000 ký tự
-      // (VD 100 dòng SQL/Sheets), y hệt kích thước dữ liệu thật thay vì chuỗi
-      // giả lập ngắn ("Có 2 bảng") như các test khác trong file này.
-      const bigRowsAsJson = (label: string) =>
-        JSON.stringify(
-          Array.from({ length: 60 }, (_, i) => ({
-            id: i,
-            name: `${label}-customer-${i}`,
-            email: `${label.toLowerCase()}${i}@example.com`,
-            note: 'lorem ipsum dolor sit amet consectetur adipiscing elit',
-          })),
-        );
-      const rounds = ['A', 'B', 'C', 'D'].map((label) => ({
-        agent: 'sql_server',
-        task: `lấy dữ liệu batch ${label}`,
-        result: bigRowsAsJson(label),
-      }));
-      // Xác nhận setup thật sự "lớn" — tổng 4 round vượt xa MAX_TOOL_RESULT_CHARS
-      // (6000) nếu nối thẳng không qua cap nào.
-      const totalRawLength = rounds.reduce(
-        (sum, r) => sum + r.result.length,
-        0,
+      const fiveHundredRows = JSON.stringify(
+        Array.from({ length: 500 }, (_, i) => ({
+          id: i,
+          name: `Khách hàng ${i}`,
+          email: `customer${i}@example.com`,
+          totalSpent: (i * 137) % 5000,
+        })),
       );
-      expect(totalRawLength).toBeGreaterThan(6000);
+      const rounds = [
+        {
+          agent: 'sql_server',
+          task: 'lấy toàn bộ 500 khách hàng',
+          result: fiveHundredRows,
+        },
+      ];
+      // Xác nhận setup đúng cỡ "dữ liệu lớn" đã bàn — vượt xa MAX_TOOL_RESULT_CHARS
+      // cũ (6000), nhưng vẫn nằm gọn trong context window thật của gpt-4o-mini.
+      expect(rounds[0].result.length).toBeGreaterThan(6000);
 
       await service.synthesize('liệt kê toàn bộ khách hàng', rounds);
 
       const promptSent = mockSession.sendMessage.mock.calls[0][0] as string;
-      // Không được feed nguyên văn toàn bộ 4 batch chưa qua cap nào vào prompt.
+      // KHÔNG bị cắt — toàn bộ 500 bản ghi (id cuối cùng = 499) phải còn nguyên,
+      // không chỉ 1 phần đầu/cuối như hành vi CŨ (cap cứng 6000).
+      expect(promptSent).toContain('"id":0');
+      expect(promptSent).toContain('"id":499');
+      expect(promptSent).not.toContain('truncated');
+    });
+
+    it('accuracy_problem.md — vẫn cap đúng cách (không mất round) khi dữ liệu VƯỢT XA cả ngân sách đã nới rộng theo model', async () => {
+      mockSession.sendMessage.mockResolvedValue({ text: 'ok' });
+
+      // Mỗi round ~20.000 ký tự × 10 round = ~200.000 ký tự — vượt cả ngân sách
+      // đã tính theo context window thật của gpt-4o-mini (128K token × 4 ×
+      // 0.3 ≈ 153.600 ký tự), để xác nhận cơ chế cap-từng-round-riêng vẫn hoạt
+      // động đúng (không xoá sổ round nào) ngay cả khi dữ liệu THẬT SỰ khổng lồ.
+      const hugeRowsAsJson = (label: string) =>
+        JSON.stringify(
+          Array.from({ length: 500 }, (_, i) => ({
+            id: i,
+            name: `${label}-customer-${i}`,
+            email: `${label.toLowerCase()}${i}@example.com`,
+            note: 'lorem ipsum dolor sit amet consectetur adipiscing elit '.repeat(
+              2,
+            ),
+          })),
+        );
+      const rounds = Array.from({ length: 10 }, (_, i) => ({
+        agent: 'sql_server',
+        task: `lấy dữ liệu batch ${i}`,
+        result: hugeRowsAsJson(`batch${i}`),
+      }));
+      const totalRawLength = rounds.reduce(
+        (sum, r) => sum + r.result.length,
+        0,
+      );
+      expect(totalRawLength).toBeGreaterThan(150_000);
+
+      await service.synthesize('liệt kê toàn bộ khách hàng', rounds);
+
+      const promptSent = mockSession.sendMessage.mock.calls[0][0] as string;
       expect(promptSent.length).toBeLessThan(totalRawLength);
-      // Cả 4 nhãn round vẫn phải xuất hiện trong prompt (mất TRỌN 1 round vì
-      // cap sẽ là 1 bug khác, tệ hơn — cap chỉ nên cắt BỚT nội dung mỗi round,
-      // không được xoá sổ nguyên 1 round khỏi ngữ cảnh).
-      expect(promptSent).toContain('batch A');
-      expect(promptSent).toContain('batch B');
-      expect(promptSent).toContain('batch C');
-      expect(promptSent).toContain('batch D');
+      // Cả 10 nhãn round vẫn phải xuất hiện — cap chỉ cắt DỮ LIỆU mỗi round,
+      // không được xoá sổ nguyên round nào khỏi ngữ cảnh.
+      for (let i = 0; i < 10; i++) {
+        expect(promptSent).toContain(`batch ${i}`);
+      }
     });
   });
 });
