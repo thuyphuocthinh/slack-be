@@ -93,6 +93,7 @@ describe('ApprovalFlowService', () => {
         },
       ],
       history: [],
+      kind: 'approval' as const,
     };
 
     it('reject: marks the checkpoint rejected, edits the message, does NOT run the tool', async () => {
@@ -191,6 +192,87 @@ describe('ApprovalFlowService', () => {
       expect(mockMcpClient.callTool).not.toHaveBeenCalled();
       expect(mockMessageClient.updateMessage).not.toHaveBeenCalled();
     });
+
+    it('accuracy_problem.md mục 1 — clarify: claims with selectedProvider then enqueues the same background job as approve', async () => {
+      const clarificationCheckpoint = {
+        ...checkpoint,
+        kind: 'clarification' as const,
+      };
+      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(
+        clarificationCheckpoint,
+      );
+
+      await service.resolveApproval({
+        userId: 'user-1',
+        messageId: 'approval-msg-1',
+        action: 'clarify',
+        selectedProvider: 'notion',
+      });
+
+      expect(mockCheckpoint.claim).toHaveBeenCalledWith({
+        id: 'checkpoint-1',
+        toStatus: OrchestrationCheckpointStatus.APPROVED,
+        selectedProvider: 'notion',
+      });
+      expect(mockQueueService.addJob).toHaveBeenCalledWith(
+        EQueueName.AI_ORCHESTRATION_QUEUE,
+        EJobName.PROCESS_APPROVAL,
+        { checkpointId: 'checkpoint-1', userId: 'user-1' },
+        { attempts: 1 },
+      );
+    });
+
+    it('throws CHECKPOINT_ACTION_MISMATCH when action="clarify" but the checkpoint kind is "approval"', async () => {
+      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(checkpoint);
+
+      await expect(
+        service.resolveApproval({
+          userId: 'user-1',
+          messageId: 'approval-msg-1',
+          action: 'clarify',
+          selectedProvider: 'notion',
+        }),
+      ).rejects.toThrow();
+      expect(mockCheckpoint.claim).not.toHaveBeenCalled();
+    });
+
+    it('throws CHECKPOINT_ACTION_MISMATCH when action="clarify" but selectedProvider is missing', async () => {
+      const clarificationCheckpoint = {
+        ...checkpoint,
+        kind: 'clarification' as const,
+      };
+      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(
+        clarificationCheckpoint,
+      );
+
+      await expect(
+        service.resolveApproval({
+          userId: 'user-1',
+          messageId: 'approval-msg-1',
+          action: 'clarify',
+        }),
+      ).rejects.toThrow();
+      expect(mockCheckpoint.claim).not.toHaveBeenCalled();
+    });
+
+    it('throws CHECKPOINT_ACTION_MISMATCH when action="approve" but the checkpoint kind is "clarification"', async () => {
+      const clarificationCheckpoint = {
+        ...checkpoint,
+        kind: 'clarification' as const,
+      };
+      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(
+        clarificationCheckpoint,
+      );
+
+      await expect(
+        service.resolveApproval({
+          userId: 'user-1',
+          messageId: 'approval-msg-1',
+          action: 'approve',
+        }),
+      ).rejects.toThrow();
+      expect(mockCheckpoint.claim).not.toHaveBeenCalled();
+    });
   });
 
   describe('processApprovalJob (Giai đoạn 3 — HITL, Step 5 — thực thi nền qua queue)', () => {
@@ -217,6 +299,7 @@ describe('ApprovalFlowService', () => {
         },
       ],
       history: [],
+      kind: 'approval' as const,
     };
 
     const runApprovalJob = (
@@ -501,6 +584,106 @@ describe('ApprovalFlowService', () => {
           '⏸️ Cần bạn duyệt 1 hành động trước khi tiếp tục — xem tin nhắn bên dưới.',
         toolCalls: undefined,
       });
+    });
+  });
+
+  describe('processApprovalJob — resolveClarificationCheckpoint (accuracy_problem.md mục 1)', () => {
+    const clarificationCheckpoint = {
+      id: 'checkpoint-2',
+      replyMessageId: 'clarification-msg-1',
+      userId: 'user-1',
+      botUserId: 'bot-1',
+      channelId: 'channel-1',
+      workspaceId: 'workspace-1',
+      channelType: 'direct',
+      originalPrompt: 'lưu thông tin này lại giúp tôi',
+      pendingTool: null,
+      pendingTask: 'lưu thông tin này lại',
+      roundsSoFar: [],
+      history: [],
+      kind: 'clarification' as const,
+      clarificationQuestion: 'Bạn muốn dùng "Google Docs" hay "Notion"?',
+      clarificationCandidates: [
+        { provider: 'google_docs', label: 'Google Docs' },
+        { provider: 'notion', label: 'Notion' },
+      ],
+      selectedProvider: 'notion',
+    };
+
+    const runApprovalJob = (
+      data: IProcessApprovalJobData = {
+        checkpointId: 'checkpoint-2',
+        userId: 'user-1',
+      },
+    ) => service.processApprovalJob(data);
+
+    it('forces the selected agent into the pending step and resumes continueRounds() — does NOT call any tool directly', async () => {
+      mockCheckpoint.findById.mockResolvedValue(clarificationCheckpoint);
+      const agents = [
+        { provider: 'notion', label: 'Notion', description: 'desc' },
+      ];
+      mockSupervisor.getAvailableAgents.mockResolvedValue(agents);
+      mockTurnResolver.continueRounds.mockResolvedValue({
+        content: 'Đã lưu vào Notion.',
+        toolCalls: [],
+      });
+
+      await runApprovalJob();
+
+      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
+      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+        id: 'clarification-msg-1',
+        userId: 'bot-1',
+        content: '🤖 Đang tổng hợp kết quả...',
+      });
+      expect(mockTurnResolver.continueRounds).toHaveBeenCalledWith(
+        {
+          userId: 'user-1',
+          channelId: 'channel-1',
+          workspaceId: 'workspace-1',
+          messageId: 'clarification-msg-1',
+          botUserId: 'bot-1',
+          channelType: 'direct',
+        },
+        'clarification-msg-1',
+        'lưu thông tin này lại giúp tôi',
+        agents,
+        [],
+        [],
+        [],
+        { agent: 'notion', task: 'lưu thông tin này lại' },
+      );
+      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+        id: 'clarification-msg-1',
+        userId: 'bot-1',
+        content: 'Đã lưu vào Notion.',
+        toolCalls: [],
+      });
+    });
+
+    it('keeps the "done" signal + Stop/cancel handling identical to approveCheckpoint()', async () => {
+      mockCheckpoint.findById.mockResolvedValue(clarificationCheckpoint);
+      mockSupervisor.getAvailableAgents.mockResolvedValue([]);
+      mockTurnResolver.continueRounds.mockRejectedValue(
+        new TurnCancelledError('phần đã có'),
+      );
+
+      await runApprovalJob();
+
+      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+        id: 'clarification-msg-1',
+        userId: 'bot-1',
+        content: 'phần đã có',
+      });
+      expect(mockAgentStream.emitStep).toHaveBeenCalledWith(
+        {
+          userId: 'user-1',
+          channelId: 'channel-1',
+          messageId: 'clarification-msg-1',
+          channelType: 'direct',
+        },
+        { type: 'done' },
+      );
     });
   });
 });

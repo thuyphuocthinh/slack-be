@@ -116,6 +116,11 @@ export class TurnResolverService {
     history: ChatHistoryTurnDto[],
     rounds: SupervisorRoundDto[],
     toolCalls: ToolCallTraceDto[],
+    // accuracy_problem.md mục 1 — set bởi ApprovalFlowService khi resume sau
+    // khi user vừa trả lời 1 clarification (đã biết CHÍNH XÁC agent nào đúng)
+    // — bỏ qua plan() cho bước ĐẦU TIÊN này, thực thi thẳng, không re-check
+    // ambiguity (đã hỏi rồi, không hỏi lại vòng 2 cho CÙNG 1 bước).
+    forcedStep?: DelegationDto,
   ): Promise<AnswerResult> {
     const { userId, channelId, channelType } = data;
 
@@ -143,8 +148,8 @@ export class TurnResolverService {
         r.result.startsWith(REPLAN_MARKER),
     ).length;
     let realStepsRun = rounds.length - nonProgressRounds;
-    let steps: DelegationDto[] = [];
-    let needsPlan = true;
+    let steps: DelegationDto[] = forcedStep ? [forcedStep] : [];
+    let needsPlan = !forcedStep;
 
     while (
       realStepsRun < ORCHESTRATION_CONSTANTS.MAX_REAL_STEPS_PER_TURN &&
@@ -209,6 +214,25 @@ export class TurnResolverService {
             toolCalls,
           );
         }
+        // accuracy_problem.md mục 1 — chỉ hỏi lại user khi cụm mơ hồ TRÙNG với
+        // bước ĐẦU TIÊN sắp thực thi (agent vừa fix nhãn ở trên). Gated sau
+        // ENABLE_CLARIFICATION_HITL — mặc định TẮT (chưa đủ dữ liệu tần suất
+        // từ mục 1 bước 1 để biết có đáng bật hay không).
+        if (
+          process.env.ENABLE_CLARIFICATION_HITL === 'true' &&
+          plan.ambiguousCandidates?.some((c) => c.provider === steps[0]?.agent)
+        ) {
+          return this.checkpointPause.pauseForClarification(
+            data,
+            prompt,
+            rounds,
+            toolCalls,
+            history,
+            steps[0].task,
+            plan.ambiguousCandidates,
+          );
+        }
+
         needsPlan = false;
       }
 

@@ -374,4 +374,109 @@ describe('CheckpointPauseService', () => {
       expect(getPreview()).toContain('INSERT INTO Orders');
     });
   });
+
+  describe('pauseForClarification (accuracy_problem.md mục 1)', () => {
+    const candidates = [
+      { provider: 'google_docs', label: 'Google Docs', description: 'desc' },
+      { provider: 'notion', label: 'Notion', description: 'desc' },
+    ];
+
+    it('creates a NEW clarification_request message (not approval_request), saves a checkpoint with kind="clarification" and no pendingTool, and returns a pause answer', async () => {
+      const result = await service.pauseForClarification(
+        data,
+        originalPrompt,
+        [],
+        [],
+        [],
+        'lưu thông tin này lại',
+        candidates,
+      );
+
+      expect(mockMessageClient.createMessage).toHaveBeenCalledWith({
+        channelId: data.channelId,
+        senderId: data.botUserId,
+        content: {
+          type: 'clarification_request',
+          question: expect.stringContaining('"Google Docs" hay "Notion"'),
+          candidates: [
+            { provider: 'google_docs', label: 'Google Docs' },
+            { provider: 'notion', label: 'Notion' },
+          ],
+          status: 'pending',
+          triggerUserId: data.userId,
+        },
+      });
+      expect(mockCheckpoint.create).toHaveBeenCalledWith({
+        replyMessageId: 'approval-msg-1',
+        userId: data.userId,
+        botUserId: data.botUserId,
+        channelId: data.channelId,
+        workspaceId: data.workspaceId,
+        channelType: data.channelType,
+        originalPrompt,
+        pendingTool: null,
+        pendingTask: 'lưu thông tin này lại',
+        roundsSoFar: [],
+        history: [],
+        kind: 'clarification',
+        clarificationQuestion: expect.stringContaining(
+          '"Google Docs" hay "Notion"',
+        ),
+        clarificationCandidates: [
+          { provider: 'google_docs', label: 'Google Docs' },
+          { provider: 'notion', label: 'Notion' },
+        ],
+      });
+      expect(result).toEqual({
+        content:
+          '⏸️ Cần bạn làm rõ trước khi tiếp tục — xem tin nhắn bên dưới.',
+        toolCalls: undefined,
+      });
+    });
+
+    it('persists the rounds/history passed in as-is', async () => {
+      const roundsSoFar = [
+        { agent: 'sql_server', task: 'tìm đơn', result: 'Đơn Pending' },
+      ];
+      const history = [{ role: 'user' as const, text: 'hi' }];
+
+      await service.pauseForClarification(
+        data,
+        originalPrompt,
+        roundsSoFar,
+        [],
+        history,
+        'lưu thông tin này lại',
+        candidates,
+      );
+
+      expect(mockCheckpoint.create).toHaveBeenCalledWith(
+        expect.objectContaining({ roundsSoFar, history }),
+      );
+    });
+
+    it('edits the orphaned message and rethrows when checkpoint.create() fails AFTER the message was already created', async () => {
+      mockCheckpoint.create.mockRejectedValue(
+        new Error('connect ECONNREFUSED'),
+      );
+
+      await expect(
+        service.pauseForClarification(
+          data,
+          originalPrompt,
+          [],
+          [],
+          [],
+          'lưu thông tin này lại',
+          candidates,
+        ),
+      ).rejects.toThrow('connect ECONNREFUSED');
+
+      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+        id: 'approval-msg-1',
+        userId: data.botUserId,
+        content: '⚠️ Không thể tạo yêu cầu làm rõ, vui lòng hỏi lại.',
+      });
+    });
+  });
 });

@@ -21,6 +21,13 @@ export interface PendingToolCall {
   args: Record<string, unknown>;
 }
 
+// accuracy_problem.md mục 1 — 1 candidate agent trong cụm mơ hồ mà
+// findAmbiguousAgentCluster() (supervisor.service.ts) phát hiện được.
+export interface AmbiguousAgentCandidate {
+  provider: string;
+  label: string;
+}
+
 /**
  * Giai đoạn 3 (HITL) — state của 1 turn đang DỪNG chờ user duyệt 1 tool rủi ro
  * (`destructiveHint`). `resolveAnswer()` chạy 1 mạch trong RAM của job hiện
@@ -64,11 +71,37 @@ export class OrchestrationCheckpointEntity {
 
   @Column({ type: 'text', name: 'original_prompt' })
   originalPrompt: string;
-  @Column({ type: 'jsonb', name: 'pending_tool' })
-  pendingTool: PendingToolCall;
+
+  // accuracy_problem.md mục 1 — nullable vì checkpoint 'clarification' KHÔNG
+  // gắn với 1 tool call cụ thể nào (chưa biết agent nào đúng), khác hẳn
+  // checkpoint 'approval' (luôn có đúng 1 pendingTool chờ duyệt).
+  @Column({ type: 'jsonb', name: 'pending_tool', nullable: true })
+  pendingTool: PendingToolCall | null;
 
   @Column({ type: 'text', name: 'pending_task' })
   pendingTask: string;
+
+  // accuracy_problem.md mục 1 — 'approval' (hành vi cũ, mặc định — chờ duyệt
+  // 1 tool destructiveHint) hay 'clarification' (chờ user chọn agent đúng khi
+  // plan() mơ hồ giữa 2+ lựa chọn, xem findAmbiguousAgentCluster()). Checkpoint
+  // cũ (tạo trước migration này) mặc định 'approval', vẫn đúng hành vi.
+  @Column({ type: 'varchar', default: 'approval' })
+  kind: 'approval' | 'clarification';
+
+  @Column({ type: 'text', name: 'clarification_question', nullable: true })
+  clarificationQuestion: string | null;
+
+  @Column({
+    type: 'jsonb',
+    name: 'clarification_candidates',
+    nullable: true,
+  })
+  clarificationCandidates: AmbiguousAgentCandidate[] | null;
+
+  // Set khi user chọn xong 1 candidate (resolveApproval action='clarify') —
+  // processApprovalJob() đọc lại field này để biết ép agent nào cho bước đang chờ.
+  @Column({ type: 'varchar', name: 'selected_provider', nullable: true })
+  selectedProvider: string | null;
 
   @Column({ type: 'jsonb', name: 'rounds_so_far', default: () => "'[]'" })
   roundsSoFar: SupervisorRoundDto[];

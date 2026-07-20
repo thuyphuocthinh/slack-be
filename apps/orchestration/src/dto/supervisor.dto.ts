@@ -15,6 +15,11 @@ export class SupervisorPlanDto {
   action: 'respond' | 'plan';
   answer?: string;
   steps?: DelegationDto[];
+  // accuracy_problem.md mục 1 — populated CHỈ khi action='plan' VÀ agent được
+  // chọn cho steps[0] khớp 1 cụm mơ hồ (findAmbiguousAgentCluster, Jaccard
+  // similarity) — TurnResolverService đọc field này để quyết định hỏi lại user
+  // (clarification, nếu ENABLE_CLARIFICATION_HITL=true) thay vì thực thi mù.
+  ambiguousCandidates?: AvailableAgentDto[];
 }
 
 export type SupervisorEvaluateVerdict = 'continue' | 're-plan' | 'done';

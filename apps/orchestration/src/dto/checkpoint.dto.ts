@@ -1,4 +1,5 @@
 import {
+  AmbiguousAgentCandidate,
   OrchestrationCheckpointStatus,
   PendingToolCall,
 } from '../entity/orchestration-checkpoint.entity';
@@ -13,10 +14,15 @@ export class CreateCheckpointRequestDto {
   workspaceId: string;
   channelType: string;
   originalPrompt: string;
-  pendingTool: PendingToolCall;
+  // accuracy_problem.md mục 1 — null khi kind='clarification' (chưa gắn với
+  // tool call cụ thể nào).
+  pendingTool: PendingToolCall | null;
   pendingTask: string;
   roundsSoFar: SupervisorRoundDto[];
   history: ChatHistoryTurnDto[];
+  kind?: 'approval' | 'clarification';
+  clarificationQuestion?: string | null;
+  clarificationCandidates?: AmbiguousAgentCandidate[] | null;
 }
 
 // Response cho create()/findPendingByReplyMessageId()/findById()/findExpiredPending()
@@ -30,11 +36,15 @@ export class CheckpointResponseDto {
   workspaceId: string;
   channelType: string;
   originalPrompt: string;
-  pendingTool: PendingToolCall;
+  pendingTool: PendingToolCall | null;
   pendingTask: string;
   roundsSoFar: SupervisorRoundDto[];
   history: ChatHistoryTurnDto[];
   status: OrchestrationCheckpointStatus;
+  kind: 'approval' | 'clarification';
+  clarificationQuestion: string | null;
+  clarificationCandidates: AmbiguousAgentCandidate[] | null;
+  selectedProvider: string | null;
   expiresAt: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -57,6 +67,9 @@ export class FindCheckpointByIdRequestDto {
 export class ClaimCheckpointRequestDto {
   id: string;
   toStatus: OrchestrationCheckpointStatus;
+  // accuracy_problem.md mục 1 — set khi resolve checkpoint 'clarification'
+  // (user vừa chọn 1 candidate), cùng 1 lượt atomic update với claim status.
+  selectedProvider?: string;
 }
 
 export class ClaimCheckpointResponseDto {

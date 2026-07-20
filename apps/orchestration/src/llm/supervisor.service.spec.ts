@@ -445,7 +445,7 @@ describe('SupervisorService', () => {
         steps: [{ agent: 'google_docs', task: 'lưu thông tin này lại' }],
       });
 
-      await service.plan('lưu thông tin này lại', agents);
+      const plan = await service.plan('lưu thông tin này lại', agents);
 
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('[ambiguous-agent-cluster]'),
@@ -453,6 +453,13 @@ describe('SupervisorService', () => {
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('candidates=google_docs,notion'),
       );
+      // accuracy_problem.md mục 1 — plan() giờ CŨNG trả cluster mơ hồ ra ngoài
+      // (không chỉ log) để TurnResolverService tự quyết định có hỏi lại user
+      // hay không (ENABLE_CLARIFICATION_HITL).
+      expect(plan.ambiguousCandidates?.map((c) => c.provider).sort()).toEqual([
+        'google_docs',
+        'notion',
+      ]);
     });
 
     it('does not log anything when connected agents have clearly distinct descriptions', async () => {
@@ -474,11 +481,12 @@ describe('SupervisorService', () => {
         steps: [{ agent: 'sql_server', task: 'liệt kê bảng' }],
       });
 
-      await service.plan('liệt kê bảng trong SQL Server', agents);
+      const plan = await service.plan('liệt kê bảng trong SQL Server', agents);
 
       expect(warnSpy).not.toHaveBeenCalledWith(
         expect.stringContaining('[ambiguous-agent-cluster]'),
       );
+      expect(plan.ambiguousCandidates).toBeUndefined();
     });
 
     it('does not log anything when action is "respond" (no agent chosen)', async () => {

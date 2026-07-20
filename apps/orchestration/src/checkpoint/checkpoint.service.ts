@@ -31,8 +31,11 @@ export class CheckpointService {
     const expiresAt = new Date(
       Date.now() + ORCHESTRATION_CONSTANTS.CHECKPOINT_EXPIRY_MS,
     );
+    const toolLabel = dto.pendingTool
+      ? `${dto.pendingTool.provider}.${dto.pendingTool.name}`
+      : `clarification(${dto.clarificationCandidates?.map((c) => c.provider).join(',')})`;
     this.logger.log(
-      `create() replyMessageId=${dto.replyMessageId} tool=${dto.pendingTool.provider}.${dto.pendingTool.name} expiresAt=${expiresAt.toISOString()}`,
+      `create() replyMessageId=${dto.replyMessageId} tool=${toolLabel} expiresAt=${expiresAt.toISOString()}`,
     );
     const saved = await this.repo.save(this.repo.create({ ...dto, expiresAt }));
     return this.toResponseDto(saved);
@@ -88,6 +91,10 @@ export class CheckpointService {
       roundsSoFar,
       history,
       status,
+      kind,
+      clarificationQuestion,
+      clarificationCandidates,
+      selectedProvider,
       expiresAt,
       createdAt,
       updatedAt,
@@ -106,6 +113,10 @@ export class CheckpointService {
       roundsSoFar,
       history,
       status,
+      kind,
+      clarificationQuestion,
+      clarificationCandidates,
+      selectedProvider,
       expiresAt,
       createdAt,
       updatedAt,
@@ -117,7 +128,12 @@ export class CheckpointService {
   ): Promise<ClaimCheckpointResponseDto> {
     const result = await this.repo.update(
       { id: dto.id, status: OrchestrationCheckpointStatus.PENDING },
-      { status: dto.toStatus },
+      {
+        status: dto.toStatus,
+        ...(dto.selectedProvider !== undefined && {
+          selectedProvider: dto.selectedProvider,
+        }),
+      },
     );
     const claimed = result.affected === 1;
     this.logger.log(

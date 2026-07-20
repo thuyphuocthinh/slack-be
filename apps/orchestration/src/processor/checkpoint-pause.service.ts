@@ -4,8 +4,11 @@ import { extractTextFromMcpResult } from '@slack/common';
 import { MessageClientService } from '../message-client.service';
 import { McpClientService } from '../mcp/mcp-client.service';
 import { CheckpointService } from '../checkpoint/checkpoint.service';
-import { PendingToolCall } from '../entity/orchestration-checkpoint.entity';
-import { SupervisorRoundDto } from '../dto/supervisor.dto';
+import {
+  AmbiguousAgentCandidate,
+  PendingToolCall,
+} from '../entity/orchestration-checkpoint.entity';
+import { AvailableAgentDto, SupervisorRoundDto } from '../dto/supervisor.dto';
 import { ChatHistoryTurnDto } from '../dto/message-client.dto';
 import { ToolCallTraceDto } from '../dto/react-loop.dto';
 import {
@@ -126,6 +129,115 @@ export class CheckpointPauseService {
         id: approvalMessageId,
         userId: botUserId,
         content: '⚠️ Không thể tạo yêu cầu duyệt, vui lòng hỏi lại.',
+      });
+      throw error;
+    }
+  }
+
+  // accuracy_problem.md mục 1 — dừng turn khi plan() mơ hồ giữa 2+ agent
+  // (findAmbiguousAgentCluster, SupervisorService). Song song pauseForApproval()
+  // ở trên nhưng KHÔNG gắn với 1 tool call cụ thể nào — câu hỏi dựng bằng
+  // template từ chính candidates đã phát hiện, KHÔNG gọi thêm LLM (thực nghiệm
+  // mục 6 accuracy.v2.md đã cho thấy hỏi LLM tự đánh giá "có chắc không" không
+  // đáng tin trong đúng tình huống này).
+  async pauseForClarification(
+    data: IProcessAiTriggerJobData,
+    originalPrompt: string,
+    rounds: SupervisorRoundDto[],
+    toolCalls: ToolCallTraceDto[],
+    history: ChatHistoryTurnDto[],
+    task: string,
+    candidates: AvailableAgentDto[],
+  ): Promise<AnswerResult> {
+    const { userId, channelId, botUserId } = data;
+    const question = this.buildClarificationQuestion(task, candidates);
+    const clarificationContent = {
+      type: 'clarification_request',
+      question,
+      candidates: candidates.map((c) => ({
+        provider: c.provider,
+        label: c.label,
+      })),
+      status: 'pending',
+      triggerUserId: userId,
+    };
+    const clarificationMessage = await this.messageClient.createMessage({
+      channelId,
+      senderId: botUserId,
+      content: clarificationContent,
+    });
+
+    await this.persistClarificationCheckpoint(
+      clarificationMessage.id,
+      data,
+      originalPrompt,
+      task,
+      candidates,
+      rounds,
+      history,
+    );
+
+    this.logger.log(
+      `pauseForClarification() candidates=${candidates.map((c) => c.provider).join(',')} clarificationMessageId=${clarificationMessage.id}`,
+    );
+    return buildAnswer(
+      '⏸️ Cần bạn làm rõ trước khi tiếp tục — xem tin nhắn bên dưới.',
+      toolCalls,
+    );
+  }
+
+  private buildClarificationQuestion(
+    task: string,
+    candidates: AvailableAgentDto[],
+  ): string {
+    const labels = candidates.map((c) => `"${c.label}"`).join(' hay ');
+    return `Bạn muốn dùng ${labels} cho việc: "${task}"?`;
+  }
+
+  private async persistClarificationCheckpoint(
+    clarificationMessageId: string,
+    data: IProcessAiTriggerJobData,
+    originalPrompt: string,
+    task: string,
+    candidates: AvailableAgentDto[],
+    rounds: SupervisorRoundDto[],
+    history: ChatHistoryTurnDto[],
+  ): Promise<void> {
+    const { userId, botUserId, channelId, workspaceId, channelType } = data;
+    try {
+      await this.checkpoint.create({
+        replyMessageId: clarificationMessageId,
+        userId,
+        botUserId,
+        channelId,
+        workspaceId,
+        channelType,
+        originalPrompt,
+        pendingTool: null,
+        pendingTask: task,
+        roundsSoFar: rounds,
+        history,
+        kind: 'clarification',
+        clarificationQuestion: this.buildClarificationQuestion(
+          task,
+          candidates,
+        ),
+        clarificationCandidates: candidates.map(
+          (c): AmbiguousAgentCandidate => ({
+            provider: c.provider,
+            label: c.label,
+          }),
+        ),
+      });
+    } catch (error) {
+      this.logger.error(
+        `persistClarificationCheckpoint() failed for message ${clarificationMessageId}: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+      await this.messageClient.updateMessage({
+        id: clarificationMessageId,
+        userId: botUserId,
+        content: '⚠️ Không thể tạo yêu cầu làm rõ, vui lòng hỏi lại.',
       });
       throw error;
     }

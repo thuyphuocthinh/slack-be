@@ -45,12 +45,15 @@ export class DisconnectProviderResponseDto {
   success: boolean;
 }
 
-// Giai đoạn 3 (HITL) — messageId là message "approval_request" FE đang hiện
-// nút Approve/Reject trên đó, KHÔNG phải messageId gốc user hỏi ban đầu.
+// Giai đoạn 3 (HITL) — messageId là message "approval_request"/"clarification_request"
+// FE đang hiện nút trên đó, KHÔNG phải messageId gốc user hỏi ban đầu.
+// accuracy_problem.md mục 1 — 'clarify' dùng cho checkpoint kind='clarification'
+// (user vừa chọn 1 candidate agent), kèm `selectedProvider` bắt buộc khi đó.
 export class ResolveApprovalRequestDto {
   userId: string;
   messageId: string;
-  action: 'approve' | 'reject';
+  action: 'approve' | 'reject' | 'clarify';
+  selectedProvider?: string;
 }
 
 export class ResolveApprovalResponseDto {

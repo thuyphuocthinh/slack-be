@@ -31,7 +31,10 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
   };
   const mockAgentStream = { emitStep: jest.fn() };
   const mockCancellation = { isCancelled: jest.fn().mockResolvedValue(false) };
-  const mockCheckpointPause = { pauseForApproval: jest.fn() };
+  const mockCheckpointPause = {
+    pauseForApproval: jest.fn(),
+    pauseForClarification: jest.fn(),
+  };
 
   const data: IProcessAiTriggerJobData = {
     userId: 'user-1',
@@ -881,6 +884,113 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
       // sách chung, KHÔNG được cấp lại nguyên 5 vòng mới.
       expect(mockSupervisor.plan).toHaveBeenCalledTimes(1);
       expect(mockReactLoop.run).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('uncertainty clarification (accuracy_problem.md mục 1, gated bởi ENABLE_CLARIFICATION_HITL)', () => {
+    const originalEnv = process.env.ENABLE_CLARIFICATION_HITL;
+    afterEach(() => {
+      if (originalEnv === undefined)
+        delete process.env.ENABLE_CLARIFICATION_HITL;
+      else process.env.ENABLE_CLARIFICATION_HITL = originalEnv;
+    });
+
+    const ambiguousAgents = [
+      { provider: 'google_docs', label: 'Google Docs', description: 'desc' },
+      { provider: 'notion', label: 'Notion', description: 'desc' },
+    ];
+
+    it('pauses for clarification instead of delegating when the flag is on and plan() flags the chosen step as ambiguous', async () => {
+      process.env.ENABLE_CLARIFICATION_HITL = 'true';
+      mockSupervisor.getAvailableAgents.mockResolvedValue(ambiguousAgents);
+      mockSupervisor.plan.mockResolvedValue({
+        action: 'plan',
+        steps: [{ agent: 'google_docs', task: 'lưu thông tin này lại' }],
+        ambiguousCandidates: ambiguousAgents,
+      });
+      mockCheckpointPause.pauseForClarification.mockResolvedValue({
+        content:
+          '⏸️ Cần bạn làm rõ trước khi tiếp tục — xem tin nhắn bên dưới.',
+        toolCalls: undefined,
+      });
+
+      const result = await resolve();
+
+      expect(mockReactLoop.run).not.toHaveBeenCalled();
+      expect(mockCheckpointPause.pauseForClarification).toHaveBeenCalledWith(
+        data,
+        'có bao nhiêu bảng?',
+        [],
+        [],
+        [],
+        'lưu thông tin này lại',
+        ambiguousAgents,
+      );
+      expect(result.content).toContain('làm rõ');
+    });
+
+    it('does NOT pause for clarification when the flag is off (default), even if plan() flags an ambiguous cluster', async () => {
+      // ENABLE_CLARIFICATION_HITL cố ý KHÔNG set — hành vi mặc định.
+      mockSupervisor.getAvailableAgents.mockResolvedValue(ambiguousAgents);
+      mockSupervisor.plan.mockResolvedValue({
+        action: 'plan',
+        steps: [{ agent: 'google_docs', task: 'lưu thông tin này lại' }],
+        ambiguousCandidates: ambiguousAgents,
+      });
+      mockReactLoop.run.mockResolvedValue({ answer: 'ok', toolCalls: [] });
+
+      await resolve();
+
+      expect(mockCheckpointPause.pauseForClarification).not.toHaveBeenCalled();
+      expect(mockReactLoop.run).toHaveBeenCalled();
+    });
+
+    it("does NOT pause for clarification when ambiguousCandidates does not include the chosen step's agent", async () => {
+      process.env.ENABLE_CLARIFICATION_HITL = 'true';
+      // sql_server KHÔNG nằm trong ambiguousAgents — agent được chọn cho bước
+      // này không liên quan gì tới cluster mơ hồ, phải connect thêm nó để
+      // delegateRound() tìm thấy targetAgent hợp lệ.
+      mockSupervisor.getAvailableAgents.mockResolvedValue([
+        ...ambiguousAgents,
+        ...availableAgents,
+      ]);
+      mockSupervisor.plan.mockResolvedValue({
+        action: 'plan',
+        steps: [{ agent: 'sql_server', task: 'liệt kê bảng' }],
+        // Cluster mơ hồ tồn tại NHƯNG không liên quan agent thật sự được chọn
+        // cho bước này — an toàn, không nên chặn oan.
+        ambiguousCandidates: ambiguousAgents,
+      });
+      mockReactLoop.run.mockResolvedValue({ answer: 'ok', toolCalls: [] });
+
+      await resolve();
+
+      expect(mockCheckpointPause.pauseForClarification).not.toHaveBeenCalled();
+      expect(mockReactLoop.run).toHaveBeenCalled();
+    });
+
+    it('executes a forcedStep directly, skipping plan() entirely, when resuming after the user answers a clarification', async () => {
+      mockReactLoop.run.mockResolvedValue({ answer: 'Đã lưu.', toolCalls: [] });
+
+      const result = await service.continueRounds(
+        data,
+        replyMessageId,
+        'lưu thông tin này lại',
+        availableAgents,
+        [],
+        [],
+        [],
+        { agent: 'sql_server', task: 'lưu thông tin này lại' },
+      );
+
+      expect(mockSupervisor.plan).not.toHaveBeenCalled();
+      expect(mockReactLoop.run).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: 'lưu thông tin này lại',
+          provider: 'sql_server',
+        }),
+      );
+      expect(result.content).toBe('Đã lưu.');
     });
   });
 });

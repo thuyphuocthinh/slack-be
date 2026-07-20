@@ -216,6 +216,38 @@ describe('CheckpointService', () => {
 
       expect(result).toEqual({ claimed: false });
     });
+
+    it('accuracy_problem.md mục 1 — includes selectedProvider in the SAME atomic update when resolving a clarification checkpoint', async () => {
+      mockRepo.update.mockResolvedValue({ affected: 1 });
+
+      await service.claim({
+        id: 'checkpoint-2',
+        toStatus: OrchestrationCheckpointStatus.APPROVED,
+        selectedProvider: 'notion',
+      });
+
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'checkpoint-2', status: OrchestrationCheckpointStatus.PENDING },
+        {
+          status: OrchestrationCheckpointStatus.APPROVED,
+          selectedProvider: 'notion',
+        },
+      );
+    });
+
+    it('does not touch selectedProvider at all when resolving a normal approval checkpoint', async () => {
+      mockRepo.update.mockResolvedValue({ affected: 1 });
+
+      await service.claim({
+        id: 'checkpoint-1',
+        toStatus: OrchestrationCheckpointStatus.APPROVED,
+      });
+
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'checkpoint-1', status: OrchestrationCheckpointStatus.PENDING },
+        { status: OrchestrationCheckpointStatus.APPROVED },
+      );
+    });
   });
 
   describe('claimExecution (Giai đoạn 4, Step 1 — idempotency cho processApprovalJob)', () => {

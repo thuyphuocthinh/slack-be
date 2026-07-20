@@ -60,10 +60,18 @@ export const ORCHESTRATION_ERROR = {
   },
   TURN_NOT_FOUND: {
     code: 'ERR.ORCHESTRATION.0115',
-    message: 'NO RUNNING TURN FOUND FOR THIS MESSAGE (ALREADY FINISHED OR NEVER STARTED)',
+    message:
+      'NO RUNNING TURN FOUND FOR THIS MESSAGE (ALREADY FINISHED OR NEVER STARTED)',
   },
   TURN_FORBIDDEN: {
     code: 'ERR.ORCHESTRATION.0116',
     message: 'ONLY THE USER WHO TRIGGERED THIS TURN CAN STOP IT',
+  },
+  // accuracy_problem.md mục 1 — action="clarify" chỉ hợp lệ cho checkpoint
+  // kind='clarification' kèm selectedProvider; action="approve"/"reject" chỉ
+  // hợp lệ cho kind='approval'.
+  CHECKPOINT_ACTION_MISMATCH: {
+    code: 'ERR.ORCHESTRATION.0117',
+    message: 'THIS ACTION DOES NOT MATCH THE CHECKPOINT KIND',
   },
 };

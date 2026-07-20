@@ -15,6 +15,7 @@ import { AgentStreamService } from '../socket/agent-stream.service';
 import { describeExternalServiceError } from '../llm/external-service-error.util';
 import { CheckpointService } from '../checkpoint/checkpoint.service';
 import { OrchestrationCheckpointStatus } from '../entity/orchestration-checkpoint.entity';
+import { DelegationDto } from '../dto/supervisor.dto';
 import { CheckpointResponseDto } from '../dto/checkpoint.dto';
 import { ResolveApprovalRequestDto } from '../dto/orchestration.dto';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
@@ -48,6 +49,18 @@ export class ApprovalFlowService {
   // "reject" đủ nhanh (1 lần updateMessage) nên vẫn xử lý luôn tại đây.
   async resolveApproval(dto: ResolveApprovalRequestDto): Promise<void> {
     const checkpoint = await this.loadOwnedCheckpoint(dto);
+
+    // accuracy_problem.md mục 1 — action="clarify" chỉ hợp lệ cho checkpoint
+    // 'clarification' kèm selectedProvider; ngược lại (VD bấm approve nhầm 1
+    // checkpoint clarification) là lỗi rõ ràng, không âm thầm cho qua.
+    const kindMatchesAction =
+      dto.action === 'clarify'
+        ? checkpoint.kind === 'clarification' && Boolean(dto.selectedProvider)
+        : checkpoint.kind === 'approval';
+    if (!kindMatchesAction) {
+      throw new RpcException(ORCHESTRATION_ERROR.CHECKPOINT_ACTION_MISMATCH);
+    }
+
     const toStatus =
       dto.action === 'reject'
         ? OrchestrationCheckpointStatus.REJECTED
@@ -57,6 +70,9 @@ export class ApprovalFlowService {
     const { claimed } = await this.checkpoint.claim({
       id: checkpoint.id,
       toStatus,
+      ...(dto.action === 'clarify' && {
+        selectedProvider: dto.selectedProvider,
+      }),
     });
     if (!claimed) {
       throw new RpcException(ORCHESTRATION_ERROR.CHECKPOINT_ALREADY_RESOLVED);
@@ -69,6 +85,8 @@ export class ApprovalFlowService {
 
     // attempts:1 — mcpClient.callTool() không idempotent (VD UPDATE, tạo
     // issue thật), auto-retry mặc định của queue sẽ chạy lại tool THẬT lần 2.
+    // "clarify" không gọi tool nào, nhưng vẫn qua CÙNG job (resume continueRounds()
+    // có thể mất vài giây tới vài chục giây, cùng lý do đẩy nền như "approve").
     await this.queueService.addJob(
       EQueueName.AI_ORCHESTRATION_QUEUE,
       EJobName.PROCESS_APPROVAL,
@@ -106,6 +124,10 @@ export class ApprovalFlowService {
       return;
     }
 
+    if (checkpoint.kind === 'clarification') {
+      await this.resolveClarificationCheckpoint(checkpoint, data.userId);
+      return;
+    }
     await this.approveCheckpoint(checkpoint, data.userId);
   }
 
@@ -154,12 +176,16 @@ export class ApprovalFlowService {
       channelId,
       workspaceId,
       channelType,
-      pendingTool,
+      // approveCheckpoint() chỉ gọi cho checkpoint kind='approval' (xem
+      // processApprovalJob()) — pendingTool LUÔN có giá trị ở nhánh đó, chỉ
+      // null cho kind='clarification' (resolveClarificationCheckpoint()).
+      pendingTool: pendingToolOrNull,
       pendingTask,
       roundsSoFar,
       originalPrompt,
       history,
     } = checkpoint;
+    const pendingTool = pendingToolOrNull!;
     // Checkpoint có thể pending tới 24h (CHECKPOINT_EXPIRY_MS) trước khi được
     // duyệt, trong khi bản ghi chủ turn (startTurn ở handleAiTrigger) chỉ sống
     // TURN_TTL (15 phút) — ghi lại NGAY LÚC NÀY để Stop vẫn xác thực được quyền
@@ -260,6 +286,91 @@ export class ApprovalFlowService {
     }
   }
 
+  // accuracy_problem.md mục 1 — user vừa chọn xong 1 candidate cho checkpoint
+  // 'clarification' (selectedProvider đã lưu qua claim()). KHÔNG gọi tool nào
+  // (khác approveCheckpoint()) — chỉ ép agent đã chọn vào ĐÚNG bước đang chờ,
+  // rồi quay lại continueRounds() với forcedStep, tái dùng nguyên vẹn cơ chế
+  // resume/pause-tiếp-nếu-cần đã có cho HITL duyệt.
+  private async resolveClarificationCheckpoint(
+    checkpoint: CheckpointResponseDto,
+    userId: string,
+  ): Promise<void> {
+    const {
+      id,
+      replyMessageId,
+      botUserId,
+      channelId,
+      workspaceId,
+      channelType,
+      pendingTask,
+      roundsSoFar,
+      originalPrompt,
+      history,
+      selectedProvider,
+    } = checkpoint;
+    await this.cancellation.startTurn(replyMessageId, userId);
+    try {
+      await this.messageClient.updateMessage({
+        id: replyMessageId,
+        userId: botUserId,
+        content: '🤖 Đang tổng hợp kết quả...',
+      });
+
+      const agents = await this.supervisor.getAvailableAgents(userId);
+      const data = {
+        userId,
+        channelId,
+        workspaceId,
+        messageId: replyMessageId,
+        botUserId,
+        channelType,
+      };
+      const forcedStep: DelegationDto = {
+        agent: selectedProvider!,
+        task: pendingTask,
+      };
+
+      const result = await this.turnResolver.continueRounds(
+        data,
+        replyMessageId,
+        originalPrompt,
+        agents,
+        history,
+        roundsSoFar,
+        [],
+        forcedStep,
+      );
+
+      await this.messageClient.updateMessage({
+        id: replyMessageId,
+        userId: botUserId,
+        ...result,
+      });
+    } catch (error) {
+      if (error instanceof TurnCancelledError) {
+        this.logger.log(
+          `resolveClarificationCheckpoint() checkpoint=${id} bị huỷ theo yêu cầu (Stop)`,
+        );
+        await this.messageClient.updateMessage({
+          id: replyMessageId,
+          userId: botUserId,
+          content: error.partialText || '⏹️ Đã dừng theo yêu cầu.',
+        });
+      } else {
+        this.logger.error(
+          `resolveClarificationCheckpoint() failed for checkpoint ${id}: ${(error as Error).message}`,
+          (error as Error).stack,
+        );
+        await this.tryDisplayError(replyMessageId, botUserId, error);
+      }
+    } finally {
+      await this.agentStream.emitStep(
+        { userId, channelId, messageId: replyMessageId, channelType },
+        { type: 'done' },
+      );
+    }
+  }
+
   // Hành động ĐÃ được duyệt nên gọi tool THẬT trực tiếp, không qua Risk Gate
   // lần nữa. Cap dung lượng kết quả (capToolResultSize) trước khi nó được feed
   // vào round tiếp theo — 1 kết quả tool lớn (VD JSON lồng nhau từ dynamic
@@ -268,7 +379,8 @@ export class ApprovalFlowService {
     checkpoint: CheckpointResponseDto,
     userId: string,
   ): Promise<{ text: string; isError: boolean }> {
-    const { pendingTool } = checkpoint;
+    // Chỉ gọi cho checkpoint kind='approval' — pendingTool luôn có giá trị.
+    const pendingTool = checkpoint.pendingTool!;
     const toolResult = await this.mcpClient.callTool({
       provider: pendingTool.provider,
       name: pendingTool.name,
