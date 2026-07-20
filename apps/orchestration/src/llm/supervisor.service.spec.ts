@@ -603,9 +603,6 @@ describe('SupervisorService', () => {
   });
 
   describe('evaluate (Plan-and-Execute — gọi SAU MỖI bước, trước khi qua bước kế)', () => {
-    // Kết quả trông "đáng ngờ" (khớp dấu hiệu lỗi đã biết) — CHƯA đủ để rule
-    // đơn giản tự quyết, phải hỏi LLM. Test riêng bên dưới ("skips the LLM
-    // call...") mới dùng kết quả THÀNH CÔNG rõ ràng.
     const completedStep = {
       agent: 'sql_server',
       task: 'lấy danh sách diễn viên',
@@ -619,7 +616,10 @@ describe('SupervisorService', () => {
       expect(mockStrategy.generateStructured).not.toHaveBeenCalled();
     });
 
-    it('skips the LLM call and returns "continue" directly (rule-based, xem accuracy.md) when the completed step clearly succeeded with real data', async () => {
+    it('accuracy_problem.md — still calls the LLM even when the completed step looks clearly successful (no rule-based "continue" shortcut anymore — "not an obvious error" is not proof the result is relevant to originalPrompt)', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        verdict: 'continue',
+      });
       const clearlySuccessfulStep = {
         agent: 'sql_server',
         task: 'lấy danh sách diễn viên',
@@ -633,7 +633,11 @@ describe('SupervisorService', () => {
       );
 
       expect(verdict).toEqual({ verdict: 'continue' });
-      expect(mockStrategy.generateStructured).not.toHaveBeenCalled();
+      expect(mockStrategy.generateStructured).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('câu hỏi gốc'),
+        }),
+      );
     });
 
     it('does NOT skip the LLM call when the result is empty — cannot rule-based decide, must ask', async () => {

@@ -198,8 +198,7 @@ export class SupervisorService {
       // bước suy luận khó nhất (chọn agent, thứ tự bước) nhưng tần suất THẤP
       // NHẤT (1 lần/kế hoạch, không phải 1 lần/round như decide() cũ) — dư địa
       // dùng model mạnh hơn mà không đội chi phí đáng kể. Tách biến môi trường
-      // RIÊNG cho plan(), không đụng evaluate()/synthesize() (đã tối ưu tần
-      // suất gọi LLM ở tầng khác — xem looksClearlySuccessful()). Không set
+      // RIÊNG cho plan(), không đụng evaluate()/synthesize(). Không set
       // SUPERVISOR_PLANNING_MODEL → rơi về đúng hành vi cũ (SUPERVISOR_MODEL).
       const { strategy, model } = this.llmFactory.resolve(
         process.env.SUPERVISOR_PLANNING_MODEL ??
@@ -252,15 +251,13 @@ export class SupervisorService {
       return { verdict: 'done' };
     }
 
-    // Tối ưu chi phí (xem accuracy.md, mục "chưa triển khai") — bước vừa xong
-    // rõ ràng thành công (có dữ liệu thật, không phải lỗi/agent chưa khả dụng)
-    // thì mặc định 'continue' bằng rule đơn giản, KHÔNG tốn 1 lượt gọi LLM.
-    // Chỉ gọi LLM khi có tín hiệu đáng ngờ — nhất quán với nhánh lỗi bên dưới
-    // (LLM lỗi cũng mặc định 'continue', MAX_SUPERVISOR_ROUNDS là lưới chặn cuối).
-    if (this.looksClearlySuccessful(completedStep)) {
-      return { verdict: 'continue' };
-    }
-
+    // accuracy_problem.md — ĐÃ BỎ shortcut rule-based "kết quả không rỗng và
+    // không khớp 2 cụm lỗi đã biết → coi là thành công, khỏi hỏi LLM". Sai ở
+    // chỗ: "không thấy lỗi rành rành" KHÔNG đồng nghĩa "đúng ý user" — đây là
+    // phán đoán NGỮ NGHĨA (kết quả có liên quan/đủ cho originalPrompt không),
+    // so chuỗi không đủ khả năng đánh giá việc này. Luôn hỏi LLM (có
+    // originalPrompt) khi còn bước phía sau — chấp nhận tốn thêm lời gọi LLM
+    // để không bỏ lọt case "trông ổn nhưng lạc đề".
     const remainingText = remainingSteps
       .map((s, i) => `${i + 1}. Agent "${s.agent}": ${s.task}`)
       .join('\n');
@@ -295,22 +292,6 @@ export class SupervisorService {
       // hoạch thật sự sai.
       return { verdict: 'continue' };
     }
-  }
-
-  // Rule đơn giản, KHÔNG gọi LLM — chỉ coi là "rõ ràng thành công" khi có nội
-  // dung THẬT (không rỗng) và không khớp 2 dấu hiệu lỗi/không khả dụng đã biết:
-  // (1) describeExternalServiceError() luôn bắt đầu bằng "⚠️ Lỗi" (xem
-  // external-service-error.util.ts), (2) TurnResolverService.continueRounds()
-  // dùng đúng cụm "chưa khả dụng" khi agent không tồn tại/chưa kết nối. Bất kỳ
-  // nội dung nào KHÁC 2 dấu hiệu này đều coi là thành công thật — nhất quán với
-  // triết lý toàn hàm: khi không chắc thì cứ "continue", MAX_SUPERVISOR_ROUNDS
-  // là lưới chặn cuối nếu có sai thì cũng không loop vô hạn.
-  private looksClearlySuccessful(round: SupervisorRoundDto): boolean {
-    const result = round.result?.trim();
-    if (!result) return false;
-    if (result.startsWith('⚠️ Lỗi')) return false;
-    if (result.includes('chưa khả dụng')) return false;
-    return true;
   }
 
   /**
