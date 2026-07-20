@@ -26,6 +26,7 @@ import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
 import { describeExternalServiceError } from './external-service-error.util';
 import { withTimeout } from './with-timeout.util';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
+import { capToolResultSize } from '../executor/tool-result-size-cap.util';
 
 @Injectable()
 export class SupervisorService {
@@ -264,8 +265,17 @@ export class SupervisorService {
     const prompt = `Câu hỏi gốc: ${originalPrompt}\n\nBước vừa thực hiện xong — Agent "${completedStep.agent}" (yêu cầu: "${completedStep.task}") → kết quả: ${completedStep.result}\n\nCác bước CÒN LẠI trong kế hoạch (chưa chạy):\n${remainingText}\n\nBước vừa xong có đạt kỳ vọng không, các bước còn lại có còn hợp lý để tiếp tục không?`;
 
     try {
+      // Vừa bỏ shortcut rule-based (xem accuracy_problem.md mục 0) — evaluate()
+      // giờ gọi LLM ở HẦU HẾT các bước thay vì gần như miễn phí như trước. Bù
+      // lại phần chi phí tăng thêm đó bằng biến môi trường model RIÊNG cho
+      // evaluate() (cùng pattern SUPERVISOR_PLANNING_MODEL của plan(), mục 4
+      // accuracy.v2.md) — câu hỏi của evaluate() hẹp hơn plan() nhiều (yes/no
+      // + lý do ngắn), dư địa dùng model rẻ hơn mà không đổi SUPERVISOR_MODEL
+      // dùng chung cho synthesize(). Không set SUPERVISOR_EVALUATE_MODEL → rơi
+      // về đúng hành vi cũ (SUPERVISOR_MODEL).
       const { strategy, model } = this.llmFactory.resolve(
-        process.env.SUPERVISOR_MODEL ??
+        process.env.SUPERVISOR_EVALUATE_MODEL ??
+          process.env.SUPERVISOR_MODEL ??
           ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
       );
       const verdict = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
@@ -305,12 +315,19 @@ export class SupervisorService {
     onToken?: (chunk: string) => void,
     signal?: AbortSignal,
   ): Promise<string> {
-    const roundsText = rounds
-      .map(
-        (r, i) =>
-          `${i + 1}. Agent "${r.agent}" (yêu cầu: "${r.task}") → kết quả: ${r.result}`,
-      )
-      .join('\n');
+    // capToolResultSize() ở đây — cùng lý do đã áp dụng cho context ghép vào
+    // prompt SubAgent ở delegateRound() (turn-resolver.service.ts): nhiều
+    // round dữ liệu lớn nối lại có thể phình to, từng gây timeout/context quá
+    // khổ (xem accuracy.md mục B) — synthesize() trước đây là chỗ DUY NHẤT
+    // nối `r.result` mà không qua cap nào, dù mọi nơi khác trong pipeline đều có.
+    const roundsText = capToolResultSize(
+      rounds
+        .map(
+          (r, i) =>
+            `${i + 1}. Agent "${r.agent}" (yêu cầu: "${r.task}") → kết quả: ${r.result}`,
+        )
+        .join('\n'),
+    );
 
     try {
       const { strategy, model } = this.llmFactory.resolve(
