@@ -85,9 +85,10 @@ describe('CheckpointPauseService', () => {
           type: 'approval_request',
           tool: approvalNeeded.approvalRequired,
           status: 'pending',
-          // mcpClient.callTool không mock ở test này -> không đếm được -> fallback cảnh báo chung
-          preview:
-            'Không ước lượng được ảnh hưởng, cân nhắc kỹ trước khi duyệt.',
+          // mcpClient.callTool không mock ở test này -> không đếm được -> fallback hiện raw args
+          preview: expect.stringContaining(
+            'Sẽ gọi "sql_server.execute_write_query" với tham số:',
+          ),
           triggerUserId: data.userId,
         },
       });
@@ -150,15 +151,18 @@ describe('CheckpointPauseService', () => {
         approvalNeeded,
       );
 
-      const approvalContent = mockMessageClient.createMessage.mock.calls[0][0]
-        .content;
+      const approvalContent =
+        mockMessageClient.createMessage.mock.calls[0][0].content;
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
         id: 'approval-msg-1',
         userId: data.botUserId,
         content: approvalContent,
         toolCalls: [
           ...priorToolCalls,
-          { tool: 'sql_server.execute_write_query', status: 'awaiting_approval' },
+          {
+            tool: 'sql_server.execute_write_query',
+            status: 'awaiting_approval',
+          },
         ],
       });
     });
@@ -170,17 +174,33 @@ describe('CheckpointPauseService', () => {
       const approvalNeeded = buildApprovalNeeded();
 
       await expect(
-        service.pauseForApproval(data, originalPrompt, [], [], [], approvalNeeded),
+        service.pauseForApproval(
+          data,
+          originalPrompt,
+          [],
+          [],
+          [],
+          approvalNeeded,
+        ),
       ).resolves.toBeDefined();
       expect(mockCheckpoint.create).toHaveBeenCalled();
     });
 
     it('edits the orphaned approval message and rethrows when checkpoint.create() fails AFTER the message was already created', async () => {
-      mockCheckpoint.create.mockRejectedValue(new Error('connect ECONNREFUSED'));
+      mockCheckpoint.create.mockRejectedValue(
+        new Error('connect ECONNREFUSED'),
+      );
       const approvalNeeded = buildApprovalNeeded();
 
       await expect(
-        service.pauseForApproval(data, originalPrompt, [], [], [], approvalNeeded),
+        service.pauseForApproval(
+          data,
+          originalPrompt,
+          [],
+          [],
+          [],
+          approvalNeeded,
+        ),
       ).rejects.toThrow('connect ECONNREFUSED');
 
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
@@ -210,7 +230,14 @@ describe('CheckpointPauseService', () => {
         args: { query: "UPDATE Orders SET Status='Completed' WHERE OrderId=1" },
       });
 
-      await service.pauseForApproval(data, originalPrompt, [], [], [], approvalNeeded);
+      await service.pauseForApproval(
+        data,
+        originalPrompt,
+        [],
+        [],
+        [],
+        approvalNeeded,
+      );
 
       expect(mockMcpClient.callTool).toHaveBeenCalledWith({
         provider: 'sql_server',
@@ -234,7 +261,14 @@ describe('CheckpointPauseService', () => {
         args: { query: 'DELETE FROM Orders' },
       });
 
-      await service.pauseForApproval(data, originalPrompt, [], [], [], approvalNeeded);
+      await service.pauseForApproval(
+        data,
+        originalPrompt,
+        [],
+        [],
+        [],
+        approvalNeeded,
+      );
 
       expect(mockMcpClient.callTool).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -245,21 +279,29 @@ describe('CheckpointPauseService', () => {
       expect(getPreview()).toContain('9999');
     });
 
-    it('falls back to a generic warning for execute_stored_procedure (cannot estimate an arbitrary SP), without running a COUNT query', async () => {
+    it('falls back to a generic preview showing the raw args for execute_stored_procedure (cannot estimate an arbitrary SP), without running a COUNT query', async () => {
       const approvalNeeded = buildApprovalNeeded({
         name: 'execute_stored_procedure',
         args: { query: "EXEC sp_x @a='1'" },
       });
 
-      await service.pauseForApproval(data, originalPrompt, [], [], [], approvalNeeded);
+      await service.pauseForApproval(
+        data,
+        originalPrompt,
+        [],
+        [],
+        [],
+        approvalNeeded,
+      );
 
       expect(mockMcpClient.callTool).not.toHaveBeenCalled();
-      expect(getPreview()).toBe(
-        'Không ước lượng được ảnh hưởng, cân nhắc kỹ trước khi duyệt.',
+      expect(getPreview()).toContain(
+        'Sẽ gọi "sql_server.execute_stored_procedure" với tham số:',
       );
+      expect(getPreview()).toContain('sp_x');
     });
 
-    it('falls back to a generic warning for other domains (VD github.create_issue), without running a COUNT query', async () => {
+    it('falls back to a generic preview showing the raw args for other domains (VD github.create_issue), without running a COUNT query', async () => {
       const approvalNeeded: ApprovalRequiredDelegateResult = {
         approvalRequired: {
           provider: 'github',
@@ -270,38 +312,66 @@ describe('CheckpointPauseService', () => {
         toolCalls: [],
       };
 
-      await service.pauseForApproval(data, originalPrompt, [], [], [], approvalNeeded);
+      await service.pauseForApproval(
+        data,
+        originalPrompt,
+        [],
+        [],
+        [],
+        approvalNeeded,
+      );
 
       expect(mockMcpClient.callTool).not.toHaveBeenCalled();
-      expect(getPreview()).toBe(
-        'Không ước lượng được ảnh hưởng, cân nhắc kỹ trước khi duyệt.',
+      expect(getPreview()).toContain(
+        'Sẽ gọi "github.create_issue" với tham số:',
+      );
+      expect(getPreview()).toContain('Bug');
+      expect(getPreview()).toContain(
+        'Không ước lượng được mức độ ảnh hưởng cụ thể — kiểm tra kỹ tham số trên trước khi duyệt.',
       );
     });
 
-    it('falls back to a generic warning if the COUNT query itself fails, instead of blocking the approval flow', async () => {
-      mockMcpClient.callTool.mockRejectedValue(new Error('connect ECONNREFUSED'));
+    it('falls back to a generic args preview if the COUNT query itself fails, instead of blocking the approval flow', async () => {
+      mockMcpClient.callTool.mockRejectedValue(
+        new Error('connect ECONNREFUSED'),
+      );
       const approvalNeeded = buildApprovalNeeded({
         args: { query: 'DELETE FROM Orders WHERE OrderId=1' },
       });
 
-      await service.pauseForApproval(data, originalPrompt, [], [], [], approvalNeeded);
+      await service.pauseForApproval(
+        data,
+        originalPrompt,
+        [],
+        [],
+        [],
+        approvalNeeded,
+      );
 
-      expect(getPreview()).toBe(
-        'Không ước lượng được ảnh hưởng, cân nhắc kỹ trước khi duyệt.',
+      expect(getPreview()).toContain(
+        'Sẽ gọi "sql_server.execute_write_query" với tham số:',
       );
     });
 
-    it('falls back to a generic warning when the write query cannot be parsed (VD INSERT)', async () => {
+    it('falls back to a generic args preview when the write query cannot be parsed (VD INSERT)', async () => {
       const approvalNeeded = buildApprovalNeeded({
         args: { query: "INSERT INTO Orders (Status) VALUES ('Pending')" },
       });
 
-      await service.pauseForApproval(data, originalPrompt, [], [], [], approvalNeeded);
+      await service.pauseForApproval(
+        data,
+        originalPrompt,
+        [],
+        [],
+        [],
+        approvalNeeded,
+      );
 
       expect(mockMcpClient.callTool).not.toHaveBeenCalled();
-      expect(getPreview()).toBe(
-        'Không ước lượng được ảnh hưởng, cân nhắc kỹ trước khi duyệt.',
+      expect(getPreview()).toContain(
+        'Sẽ gọi "sql_server.execute_write_query" với tham số:',
       );
+      expect(getPreview()).toContain('INSERT INTO Orders');
     });
   });
 });

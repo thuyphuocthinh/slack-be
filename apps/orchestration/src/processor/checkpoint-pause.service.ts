@@ -18,6 +18,7 @@ import {
   ApprovalRequiredDelegateResult,
   buildAnswer,
 } from './orchestration-answer.types';
+import { capToolResultSize } from '../executor/tool-result-size-cap.util';
 
 // Giai đoạn 3 (HITL) — tách riêng khỏi TurnResolverService/ApprovalFlowService
 // vì "đi vào trạng thái chờ duyệt" là 1 hành vi độc lập được gọi từ CẢ 2 nơi:
@@ -26,9 +27,6 @@ import {
 @Injectable()
 export class CheckpointPauseService {
   private readonly logger = new Logger(CheckpointPauseService.name);
-
-  private static readonly NO_ESTIMATE_PREVIEW =
-    'Không ước lượng được ảnh hưởng, cân nhắc kỹ trước khi duyệt.';
 
   constructor(
     private readonly messageClient: MessageClientService,
@@ -163,30 +161,44 @@ export class CheckpointPauseService {
     }
   }
 
-  // Chỉ ước lượng được UPDATE/DELETE của sql_server.execute_write_query —
-  // INSERT, stored procedure, và domain khác (VD github) chỉ hiện cảnh báo chung.
+  // Ước lượng SỐ LIỆU chỉ khả thi cho sql_server.execute_write_query (đếm thử
+  // qua execute_read_only_query) — "đếm dòng ảnh hưởng" không có khái niệm
+  // tương đương cho GitHub/Google Docs/dynamic provider... Với MỌI tool khác
+  // (và cả khi ước lượng SQL thất bại), fallback KHÔNG còn là câu chung chung
+  // vô nghĩa nữa — hiện thẳng tham số THẬT sắp gửi đi (buildGenericArgsPreview),
+  // luôn có sẵn cho BẤT KỲ provider nào, không cần biết domain cụ thể.
   private async buildRiskPreview(
     pendingTool: PendingToolCall,
     userId: string,
   ): Promise<string> {
     if (
-      pendingTool.provider !== 'sql_server' ||
-      pendingTool.name !== 'execute_write_query'
+      pendingTool.provider === 'sql_server' &&
+      pendingTool.name === 'execute_write_query'
     ) {
-      return CheckpointPauseService.NO_ESTIMATE_PREVIEW;
+      const target = extractWriteQueryPreviewTarget(
+        String(pendingTool.args?.query ?? ''),
+      );
+      if (target) {
+        const count = await this.countAffectedRows(target, userId);
+        if (count !== null) {
+          return target.whereClause
+            ? `Sẽ ảnh hưởng ~${count} dòng.`
+            : `⚠️ Câu lệnh KHÔNG có mệnh đề WHERE — sẽ ảnh hưởng TOÀN BỘ bảng (~${count} dòng).`;
+        }
+      }
     }
 
-    const target = extractWriteQueryPreviewTarget(
-      String(pendingTool.args?.query ?? ''),
+    return this.buildGenericArgsPreview(pendingTool);
+  }
+
+  // Fallback TỔNG QUÁT — hiện nguyên tham số thật sẽ gửi đi kèm tên tool, thay
+  // vì "không ước lượng được ảnh hưởng" không mang thông tin gì. capToolResultSize()
+  // vì args có thể chứa nội dung dài (VD text sắp append vào Google Docs).
+  private buildGenericArgsPreview(pendingTool: PendingToolCall): string {
+    const argsText = capToolResultSize(
+      JSON.stringify(pendingTool.args ?? {}, null, 2),
     );
-    if (!target) return CheckpointPauseService.NO_ESTIMATE_PREVIEW;
-
-    const count = await this.countAffectedRows(target, userId);
-    if (count === null) return CheckpointPauseService.NO_ESTIMATE_PREVIEW;
-
-    return target.whereClause
-      ? `Sẽ ảnh hưởng ~${count} dòng.`
-      : `⚠️ Câu lệnh KHÔNG có mệnh đề WHERE — sẽ ảnh hưởng TOÀN BỘ bảng (~${count} dòng).`;
+    return `Sẽ gọi "${pendingTool.provider}.${pendingTool.name}" với tham số:\n${argsText}\n\nKhông ước lượng được mức độ ảnh hưởng cụ thể — kiểm tra kỹ tham số trên trước khi duyệt.`;
   }
 
   private async countAffectedRows(
