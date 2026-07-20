@@ -91,7 +91,8 @@ export class AiProvidersService {
   async resolveApproval(
     userId: string,
     messageId: string,
-    action: 'approve' | 'reject',
+    action: 'approve' | 'reject' | 'clarify',
+    selectedProvider?: string,
   ) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
@@ -102,6 +103,7 @@ export class AiProvidersService {
               userId,
               messageId,
               action,
+              selectedProvider,
             },
           ),
         ),
@@ -116,10 +118,13 @@ export class AiProvidersService {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         lastValueFrom(
-          this.orchestrationClient.send(ORCHESTRATION_MESSAGE_PATTERNS.CANCEL_TURN, {
-            userId,
-            messageId,
-          }),
+          this.orchestrationClient.send(
+            ORCHESTRATION_MESSAGE_PATTERNS.CANCEL_TURN,
+            {
+              userId,
+              messageId,
+            },
+          ),
         ),
       'cancelTurn',
       'AiProvidersService',

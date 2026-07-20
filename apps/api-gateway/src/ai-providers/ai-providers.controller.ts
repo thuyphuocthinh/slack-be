@@ -90,6 +90,7 @@ export class AiProvidersController {
       user.sub,
       messageId,
       dto.action,
+      dto.selectedProvider,
     );
   }
 
