@@ -382,6 +382,9 @@ describe('CheckpointPauseService', () => {
     ];
 
     it('creates a NEW clarification_request message (not approval_request), saves a checkpoint with kind="clarification" and no pendingTool, and returns a pause answer', async () => {
+      const remainingSteps = [
+        { agent: 'sql_server', task: 'ghi log vào bảng logs' },
+      ];
       const result = await service.pauseForClarification(
         data,
         originalPrompt,
@@ -390,6 +393,7 @@ describe('CheckpointPauseService', () => {
         [],
         'lưu thông tin này lại',
         candidates,
+        remainingSteps,
       );
 
       expect(mockMessageClient.createMessage).toHaveBeenCalledWith({
@@ -417,6 +421,7 @@ describe('CheckpointPauseService', () => {
         pendingTool: null,
         pendingTask: 'lưu thông tin này lại',
         roundsSoFar: [],
+        remainingSteps,
         history: [],
         kind: 'clarification',
         clarificationQuestion: expect.stringContaining(
@@ -448,6 +453,7 @@ describe('CheckpointPauseService', () => {
         history,
         'lưu thông tin này lại',
         candidates,
+        [],
       );
 
       expect(mockCheckpoint.create).toHaveBeenCalledWith(
@@ -469,6 +475,7 @@ describe('CheckpointPauseService', () => {
           [],
           'lưu thông tin này lại',
           candidates,
+          [],
         ),
       ).rejects.toThrow('connect ECONNREFUSED');
 

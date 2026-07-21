@@ -1130,8 +1130,40 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         [],
         'lưu thông tin này lại',
         ambiguousAgents,
+        // accuracy_problem.md mục 9.2 — kế hoạch (mock plan()) chỉ có đúng 1
+        // bước (bước đang mơ hồ) — không còn bước nào khác để lưu lại resume.
+        [],
       );
       expect(result.content).toContain('làm rõ');
+    });
+
+    it('accuracy_problem.md mục 9.2 — carries the OTHER steps of a multi-step plan (B, C after the ambiguous one) into pauseForClarification() instead of losing them', async () => {
+      process.env.ENABLE_CLARIFICATION_HITL = 'true';
+      mockSupervisor.getAvailableAgents.mockResolvedValue(ambiguousAgents);
+      const stepB = { agent: 'sql_server', task: 'ghi log vào bảng logs' };
+      mockSupervisor.plan.mockResolvedValue({
+        action: 'plan',
+        steps: [{ agent: 'google_docs', task: 'lưu thông tin này lại' }, stepB],
+        ambiguousCandidates: ambiguousAgents,
+      });
+      mockCheckpointPause.pauseForClarification.mockResolvedValue({
+        content:
+          '⏸️ Cần bạn làm rõ trước khi tiếp tục — xem tin nhắn bên dưới.',
+        toolCalls: undefined,
+      });
+
+      await resolve();
+
+      expect(mockCheckpointPause.pauseForClarification).toHaveBeenCalledWith(
+        data,
+        'có bao nhiêu bảng?',
+        [],
+        [],
+        [],
+        'lưu thông tin này lại',
+        ambiguousAgents,
+        [stepB],
+      );
     });
 
     it('does NOT pause for clarification when the flag is off (default), even if plan() flags an ambiguous cluster', async () => {
@@ -1196,6 +1228,47 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         }),
       );
       expect(result.content).toBe('Đã lưu.');
+    });
+
+    it('accuracy_problem.md mục 9.2 — after resolving a clarification, still runs the OTHER leftover steps (B, C) restored alongside forcedStep, instead of stopping right after it', async () => {
+      const agents = [
+        ...availableAgents,
+        { provider: 'google_docs', label: 'Google Docs', description: 'desc' },
+      ];
+      const forcedStep = {
+        agent: 'google_docs',
+        task: 'lưu thông tin này lại',
+      };
+      const stepB = { agent: 'sql_server', task: 'ghi log vào bảng logs' };
+      mockReactLoop.run
+        .mockResolvedValueOnce({ answer: 'Đã lưu.', toolCalls: [] })
+        .mockResolvedValueOnce({ answer: 'Đã ghi log.', toolCalls: [] });
+      mockSupervisor.evaluate.mockResolvedValueOnce({ verdict: 'continue' });
+      mockSupervisor.synthesize.mockResolvedValue('Đã lưu và ghi log.');
+
+      const result = await service.continueRounds(
+        data,
+        replyMessageId,
+        'lưu thông tin này lại rồi ghi log',
+        agents,
+        [],
+        [],
+        [],
+        forcedStep,
+        [stepB],
+      );
+
+      expect(mockSupervisor.plan).not.toHaveBeenCalled();
+      expect(mockReactLoop.run).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ provider: 'google_docs' }),
+      );
+      // Bước B KHÔNG bị mất — vẫn chạy sau forcedStep, đúng agent của nó.
+      expect(mockReactLoop.run).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ provider: 'sql_server' }),
+      );
+      expect(result.content).toBe('Đã lưu và ghi log.');
     });
   });
 });

@@ -682,6 +682,9 @@ describe('ApprovalFlowService', () => {
         [],
         [],
         { agent: 'notion', task: 'lưu thông tin này lại' },
+        // accuracy_problem.md mục 9.2 — fixture `clarificationCheckpoint` ở
+        // trên không set remainingSteps => destructure ra undefined.
+        undefined,
       );
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
         id: 'clarification-msg-1',
@@ -689,6 +692,39 @@ describe('ApprovalFlowService', () => {
         content: 'Đã lưu vào Notion.',
         toolCalls: [],
       });
+    });
+
+    it('accuracy_problem.md mục 9.2 — forwards the checkpoint remainingSteps (B, C after the ambiguous step) into continueRounds() so they are not lost', async () => {
+      const remainingSteps = [
+        { agent: 'sql_server', task: 'ghi log vào bảng logs' },
+      ];
+      mockCheckpoint.findById.mockResolvedValue({
+        ...clarificationCheckpoint,
+        remainingSteps,
+      });
+      const agents = [
+        { provider: 'notion', label: 'Notion', description: 'desc' },
+        { provider: 'sql_server', label: 'SQL Server', description: 'desc' },
+      ];
+      mockSupervisor.getAvailableAgents.mockResolvedValue(agents);
+      mockTurnResolver.continueRounds.mockResolvedValue({
+        content: 'Đã lưu vào Notion và ghi log.',
+        toolCalls: [],
+      });
+
+      await runApprovalJob();
+
+      expect(mockTurnResolver.continueRounds).toHaveBeenCalledWith(
+        expect.anything(),
+        'clarification-msg-1',
+        'lưu thông tin này lại giúp tôi',
+        agents,
+        [],
+        [],
+        [],
+        { agent: 'notion', task: 'lưu thông tin này lại' },
+        remainingSteps,
+      );
     });
 
     it('keeps the "done" signal + Stop/cancel handling identical to approveCheckpoint()', async () => {

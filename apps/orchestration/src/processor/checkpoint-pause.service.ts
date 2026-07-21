@@ -160,6 +160,11 @@ export class CheckpointPauseService {
     history: ChatHistoryTurnDto[],
     task: string,
     candidates: AvailableAgentDto[],
+    // accuracy_problem.md mục 9.2 — các bước CÒN LẠI SAU bước đang mơ hồ (B, C
+    // của kế hoạch [A(mơ hồ), B, C]) — lưu lại để resolveClarificationCheckpoint()
+    // phục hồi ĐÚNG theo kế hoạch gốc thay vì làm mất trắng B/C (bug thật đã
+    // gặp, xem turn-resolver.service.ts).
+    remainingSteps: DelegationDto[],
   ): Promise<AnswerResult> {
     const { userId, channelId, botUserId } = data;
     const question = this.buildClarificationQuestion(task, candidates);
@@ -187,6 +192,7 @@ export class CheckpointPauseService {
       candidates,
       rounds,
       history,
+      remainingSteps,
     );
 
     this.logger.log(
@@ -214,6 +220,7 @@ export class CheckpointPauseService {
     candidates: AvailableAgentDto[],
     rounds: SupervisorRoundDto[],
     history: ChatHistoryTurnDto[],
+    remainingSteps: DelegationDto[],
   ): Promise<void> {
     const { userId, botUserId, channelId, workspaceId, channelType } = data;
     try {
@@ -228,6 +235,7 @@ export class CheckpointPauseService {
         pendingTool: null,
         pendingTask: task,
         roundsSoFar: rounds,
+        remainingSteps,
         history,
         kind: 'clarification',
         clarificationQuestion: this.buildClarificationQuestion(

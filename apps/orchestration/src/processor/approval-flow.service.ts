@@ -322,6 +322,7 @@ export class ApprovalFlowService {
       channelType,
       pendingTask,
       roundsSoFar,
+      remainingSteps,
       originalPrompt,
       history,
       selectedProvider,
@@ -348,6 +349,9 @@ export class ApprovalFlowService {
         task: pendingTask,
       };
 
+      // accuracy_problem.md mục 9.2 — truyền kèm `remainingSteps` (B, C còn
+      // dang dở SAU bước mơ hồ) đã lưu lúc pauseForClarification(), để
+      // continueRounds() không làm mất chúng sau khi forcedStep chạy xong.
       const result = await this.turnResolver.continueRounds(
         data,
         replyMessageId,
@@ -357,6 +361,7 @@ export class ApprovalFlowService {
         roundsSoFar,
         [],
         forcedStep,
+        remainingSteps,
       );
 
       await this.messageClient.updateMessage({

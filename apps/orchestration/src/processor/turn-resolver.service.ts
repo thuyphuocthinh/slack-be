@@ -187,8 +187,13 @@ export class TurnResolverService {
         r.result.startsWith(REPLAN_MARKER),
     ).length;
     let realStepsRun = rounds.length - nonProgressRounds;
+    // forcedStep (resume sau clarification) đứng trước, các bước B/C được
+    // phục hồi (nếu có) nối tiếp NGAY SAU nó — forcedStep CHƯA từng chạy (sẽ
+    // chạy qua delegateRound() bình thường trong vòng while bên dưới), khác
+    // hẳn trường hợp remainingSteps-không-forcedStep (resume sau approval) nơi
+    // round tương ứng đã chạy XONG rồi.
     let steps: DelegationDto[] = forcedStep
-      ? [forcedStep]
+      ? [forcedStep, ...(remainingSteps ?? [])]
       : (remainingSteps ?? []);
     let needsPlan = !forcedStep && remainingSteps === undefined;
 
@@ -198,8 +203,11 @@ export class TurnResolverService {
     // MỌI bước khác được đánh giá ngay sau khi chạy xong (xem trong vòng while
     // bên dưới), tránh mất tín hiệu "bước vừa duyệt có ổn không, còn cần làm
     // tiếp B/C không" chỉ vì nó tới từ 1 đường vòng khác (HITL) thay vì
-    // delegateRound() trực tiếp.
-    if (remainingSteps !== undefined && rounds.length > 0) {
+    // delegateRound() trực tiếp. CHỈ áp dụng cho resume sau APPROVAL (không có
+    // forcedStep) — resume sau CLARIFICATION có forcedStep CHƯA từng chạy,
+    // không có gì "vừa xong" để đánh giá ở đây, nó sẽ tự đi qua evaluate() sau
+    // khi delegateRound() chạy nó trong vòng while như 1 bước bình thường.
+    if (!forcedStep && remainingSteps !== undefined && rounds.length > 0) {
       const lastRound = rounds[rounds.length - 1];
       const outcome = await this.runEvaluateAndDecide(prompt, lastRound, steps);
       if (outcome === 'finalize') {
@@ -304,6 +312,11 @@ export class TurnResolverService {
             history,
             steps[0].task,
             plan.ambiguousCandidates,
+            // accuracy_problem.md mục 9.2 — `steps` ở đây CHƯA bị shift(), nên
+            // steps[0] chính là bước mơ hồ đang dừng lại hỏi; phần còn lại
+            // (B, C...) lưu kèm để resolveClarificationCheckpoint() phục hồi
+            // đúng kế hoạch gốc sau khi user chọn xong.
+            steps.slice(1),
           );
         }
 
