@@ -306,6 +306,13 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
       task: 'tìm bảng có cột Email',
       result: 'Bảng Users có cột Email',
     });
+    // Bug thật phát hiện qua review — bước "github" (sau re-plan) phải thấy dữ
+    // liệu thật của bước sql_server, nhưng KHÔNG được thấy nguyên văn ghi chú
+    // nội bộ REPLAN_MARKER (chỉ Supervisor cần biết "vừa re-plan", không phải
+    // sub-agent đang thực thi bước tiếp theo).
+    const githubCallPrompt = mockReactLoop.run.mock.calls[1][0].prompt;
+    expect(githubCallPrompt).toContain('Bảng Users có cột Email');
+    expect(githubCallPrompt).not.toContain('[re-plan]');
   });
 
   // accuracy_problem.md mục 6 (bổ sung) — lưới an toàn rule-based: evaluate()
@@ -427,6 +434,50 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
       );
       expect(mockSupervisor.synthesize).toHaveBeenCalledTimes(1);
       expect(result.content).toBe('Đã lưu nội dung vào Google Docs.');
+    });
+
+    it('bug thật phát hiện qua review — KHÔNG rò rỉ ghi chú nội bộ GUARDRAIL_BLOCKED_MARKER vào prompt của sub-agent thực thi bước sau (chỉ Supervisor cần biết chuyện "vừa bị chặn", sub-agent không cần và không nên thấy)', async () => {
+      mockSupervisor.plan
+        .mockResolvedValueOnce({
+          action: 'plan',
+          steps: [
+            { agent: 'sql_server', task: 'lưu nội dung này vào Google Docs' },
+          ],
+        })
+        .mockResolvedValueOnce({
+          action: 'plan',
+          steps: [
+            {
+              agent: 'google_docs',
+              task: 'lưu nội dung này vào Google Docs',
+            },
+            {
+              agent: 'sql_server',
+              task: 'ghi log kết quả vào bảng logs',
+            },
+          ],
+        });
+      mockReactLoop.run
+        .mockResolvedValueOnce({ answer: 'Đã lưu.', toolCalls: [] })
+        .mockResolvedValueOnce({ answer: 'Đã ghi log.', toolCalls: [] });
+      mockSupervisor.evaluate
+        .mockResolvedValueOnce({ verdict: 'continue' })
+        .mockResolvedValueOnce({ verdict: 'done' });
+
+      await resolve();
+
+      // Bước 2 (ghi log) chạy SAU bước bị guardrail chặn + bước "lưu Google
+      // Docs" — prompt của nó PHẢI có dữ liệu thật của bước "lưu Google Docs",
+      // nhưng TUYỆT ĐỐI không được chứa nguyên văn ghi chú nội bộ của guardrail.
+      expect(mockReactLoop.run).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          provider: 'sql_server',
+          prompt: expect.stringContaining('Đã lưu.'),
+        }),
+      );
+      const secondCallPrompt = mockReactLoop.run.mock.calls[1][0].prompt;
+      expect(secondCallPrompt).not.toContain('Bỏ qua bước này');
     });
 
     it('does NOT block a correct choice whose task text simply shares no keywords with the agent description — avoids the false-positive a naive keyword-overlap check would cause', async () => {

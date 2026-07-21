@@ -553,10 +553,23 @@ export class TurnResolverService {
     const reactModelId =
       process.env.DEFAULT_REACT_MODEL ??
       ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL;
+    // Bug thật phát hiện qua review — GUARDRAIL_BLOCKED_MARKER/REPLAN_MARKER
+    // là ghi chú NỘI BỘ cho SUPERVISOR (plan()/synthesize() cần biết "vừa có
+    // 1 lần không tiến triển" để tránh lặp lại sai lầm — xem mục 3/4), KHÔNG
+    // phải dữ liệu thật của bất kỳ hệ thống nào. Sub-agent thực thi bước này
+    // không có lý do gì cần biết chuyện nội bộ đó — nếu không lọc ra, nó sẽ
+    // nhận nguyên văn "[re-plan] evaluate() cho rằng bước vừa xong không đạt
+    // kỳ vọng..." như thể đây là 1 kết quả THẬT "PHẢI dùng ĐÚNG NGUYÊN VĂN",
+    // gây nhiễu/sai lệch ngữ cảnh cho chính bước đang thực thi.
+    const realRoundsSoFar = roundsSoFar.filter(
+      (r) =>
+        !r.result.startsWith(GUARDRAIL_BLOCKED_MARKER) &&
+        !r.result.startsWith(REPLAN_MARKER),
+    );
     const promptWithContext =
-      roundsSoFar.length > 0
+      realRoundsSoFar.length > 0
         ? `${task}\n\nDữ liệu THẬT đã thu thập được từ (các) bước trước trong CÙNG yêu cầu này (PHẢI dùng ĐÚNG NGUYÊN VĂN, không tự bịa/diễn giải lại số liệu):\n${capRoundResults(
-            roundsSoFar,
+            realRoundsSoFar,
             resolveDataCharBudget(reactModelId),
           )
             .map(
