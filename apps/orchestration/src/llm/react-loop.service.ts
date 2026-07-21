@@ -24,6 +24,7 @@ import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { CallToolResponseDto, McpToolDto } from '../dto/mcp.dto';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
 import { runCancellable } from '../common/cancellable-run.util';
+import { abortableSleep } from '../common/abortable-sleep.util';
 import { TurnCancelledError } from './turn-cancelled.error';
 import {
   capToolResultSize,
@@ -92,22 +93,6 @@ export class ReactLoopService {
       { resultPreview: string; feedText: string }
     >();
 
-    // Wrap ở đây để nest đúng cây trace nếu processor đang có traceable() bao quanh.
-    const callTool = traceable(
-      (name: string, args: Record<string, unknown>) =>
-        this.handleToolCall(
-          name,
-          args,
-          dto,
-          mcpTools,
-          toolCalls,
-          callSignatureCounts,
-          successfulCallCache,
-          reactModelId,
-        ),
-      { name: 'mcp.callTool' },
-    );
-
     // Luôn khớp CHÍNH XÁC với những gì FE đang hiển thị (được reset đúng lúc
     // FE cũng được báo resync) — dùng để: (a) không có tác dụng gì thêm khi
     // turn xong bình thường (answer đã tự trả về đúng chỗ), (b) làm nội dung
@@ -138,11 +123,33 @@ export class ReactLoopService {
 
     // runCancellable() poll Redis (Stop/Cancel) định kỳ, abort() ngay khi phát
     // hiện — signal truyền xuống tận SDK provider nên huỷ được GIỮA lúc đang
-    // stream, không phải đợi hết response mới dừng.
+    // stream, không phải đợi hết response mới dừng. Bug đã sửa: TRƯỚC ĐÂY
+    // signal chỉ tới được sendMessage() — lúc đang chạy TOOL CALL (SQL query,
+    // API dynamic provider...) Stop hoàn toàn vô tác dụng, phải đợi tool tự
+    // xong (tới MCP_CALL_TIMEOUT_MS=15s + retry). callTool giờ tạo TRONG
+    // callback này để có sẵn `signal`, truyền tiếp xuống handleToolCall()
+    // rồi tới mcpClient.callTool().
     return runCancellable(
       dto.messageId,
       this.cancellation,
       (signal) => {
+        // Wrap ở đây để nest đúng cây trace nếu processor đang có traceable() bao quanh.
+        const callTool = traceable(
+          (name: string, args: Record<string, unknown>) =>
+            this.handleToolCall(
+              name,
+              args,
+              dto,
+              mcpTools,
+              toolCalls,
+              callSignatureCounts,
+              successfulCallCache,
+              reactModelId,
+              signal,
+            ),
+          { name: 'mcp.callTool' },
+        );
+
         const sendMessage = (
           input: string | LlmToolResult[],
           onTok?: (chunk: string) => void,
@@ -215,6 +222,7 @@ export class ReactLoopService {
       { resultPreview: string; feedText: string }
     >,
     modelId: string,
+    signal?: AbortSignal,
   ): Promise<string> {
     if (mcpTools.find((t) => t.name === name)?.annotations?.destructiveHint) {
       this.logger.log(
@@ -315,13 +323,26 @@ export class ReactLoopService {
     while (true) {
       transientAttempt++;
       try {
-        result = await this.mcpClient.callTool({
-          provider: dto.provider,
-          name,
-          args,
-          ownerId: dto.userId,
-        });
+        result = await this.mcpClient.callTool(
+          {
+            provider: dto.provider,
+            name,
+            args,
+            ownerId: dto.userId,
+          },
+          signal,
+        );
       } catch (error) {
+        // Bug đã sửa: Stop giữa lúc tool call đang chạy trước đây rơi thẳng
+        // vào nhánh dưới (swallow thành lỗi bình thường, feed lại cho LLM tự
+        // quyết định tiếp) — turn KHÔNG BAO GIỜ thực sự dừng, chỉ "tưởng như"
+        // dừng. Phải ném lại NGAY để bay lên tới runCancellable(), chuyển đúng
+        // thành TurnCancelledError — không emit/log gì thêm vì turn đang kết
+        // thúc, không phải 1 bước lỗi bình thường.
+        if (signal?.aborted) {
+          throw error;
+        }
+
         // Trước đây: exception bay thẳng qua đây, bỏ luôn bước emit tool_result
         // bên dưới — dòng tool-call trên UI kẹt ở trạng thái "đang chạy" tới hết
         // turn. Bắt lại ngay tại đây, emit đúng 1 lần tool_result lỗi, và trả
@@ -360,8 +381,11 @@ export class ReactLoopService {
       this.logger.warn(
         `tool_result ${displayName} lỗi tạm thời (retryable) — tự thử lại lần ${transientAttempt + 1}/${ORCHESTRATION_CONSTANTS.MAX_TRANSIENT_TOOL_RETRY_ATTEMPTS}, ẩn với LLM: ${resultPreview}`,
       );
-      await new Promise((resolve) =>
-        setTimeout(resolve, ORCHESTRATION_CONSTANTS.TRANSIENT_RETRY_BACKOFF_MS),
+      // abortable — Stop trong lúc đang chờ giữa 2 lần tự-thử-lại cũng phải có
+      // tác dụng ngay, không đợi hết backoff rồi mới phát hiện bị huỷ.
+      await abortableSleep(
+        ORCHESTRATION_CONSTANTS.TRANSIENT_RETRY_BACKOFF_MS,
+        signal,
       );
     }
 

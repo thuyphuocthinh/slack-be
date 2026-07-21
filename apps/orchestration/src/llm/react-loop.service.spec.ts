@@ -430,6 +430,7 @@ describe('ReactLoopService', () => {
       // Gọi MCP server thật vẫn dùng đúng tên gốc "list_issues", KHÔNG bị namespace
       expect(mockMcpClient.callTool).toHaveBeenCalledWith(
         expect.objectContaining({ provider: 'github', name: 'list_issues' }),
+        expect.anything(),
       );
     });
 
@@ -1020,6 +1021,39 @@ describe('ReactLoopService', () => {
       });
       await jest.advanceTimersByTimeAsync(1100);
       await assertion;
+    });
+
+    // Bug thật đã sửa: Stop bấm ĐÚNG LÚC 1 tool call đang chạy (SQL query, gọi
+    // API dynamic provider...) trước đây hoàn toàn vô tác dụng — signal chỉ
+    // tới được sendMessage(), không tới mcpClient.callTool(). Người dùng phải
+    // đợi tool tự xong (có thể tới MCP_CALL_TIMEOUT_MS=15s) mới thấy Stop có
+    // tác dụng, dù đã bấm từ đầu.
+    it('truyền signal xuống mcpClient.callTool() — huỷ được NGAY CẢ KHI đang giữa lúc chạy tool call, không chỉ lúc LLM đang stream', async () => {
+      jest.useFakeTimers();
+      mockSession.sendMessage.mockResolvedValueOnce({
+        text: '',
+        toolCalls: [{ name: 'get_database_schema', args: {} }],
+      });
+      mockMcpClient.callTool.mockImplementation(
+        (_dto: unknown, signal?: AbortSignal) =>
+          new Promise((_, reject) => {
+            signal?.addEventListener('abort', () =>
+              reject(new Error('aborted by signal')),
+            );
+          }),
+      );
+      mockCancellation.isCancelled.mockResolvedValue(true);
+
+      const assertion = expect(service.run(baseDto)).rejects.toMatchObject({
+        name: 'TurnCancelledError',
+      });
+      await jest.advanceTimersByTimeAsync(1100); // cho interval poll (1s) phát hiện Stop
+      await assertion;
+
+      // Không bị "nuốt" thành 1 tool_result lỗi bình thường rồi tiếp tục hỏi
+      // LLM — sendMessage() chỉ được gọi đúng 1 lần (lượt tạo ra tool call),
+      // KHÔNG có lượt thứ 2 nào feed "lỗi" tool này lại cho LLM.
+      expect(mockSession.sendMessage).toHaveBeenCalledTimes(1);
     });
   });
 });

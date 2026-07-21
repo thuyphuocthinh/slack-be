@@ -216,9 +216,31 @@ describe('McpClientService', () => {
         ownerId: 'user-1',
       });
 
-      expect(mockCallTool).toHaveBeenCalledWith({
-        name: 'execute_read_only_query',
-        arguments: { query: 'SELECT 1' },
+      expect(mockCallTool).toHaveBeenCalledWith(
+        { name: 'execute_read_only_query', arguments: { query: 'SELECT 1' } },
+        undefined,
+        { signal: undefined },
+      );
+    });
+
+    it('accuracy_problem.md — forwards the Stop-cancellation signal to the MCP client (huỷ được cả lúc đang chạy tool call, không chỉ lúc LLM đang stream)', async () => {
+      mockCallTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'ok' }],
+      });
+      const controller = new AbortController();
+
+      await service.callTool(
+        {
+          provider: 'sql_server',
+          name: 'execute_read_only_query',
+          args: { query: 'SELECT 1' },
+          ownerId: 'user-1',
+        },
+        controller.signal,
+      );
+
+      expect(mockCallTool).toHaveBeenCalledWith(expect.anything(), undefined, {
+        signal: controller.signal,
       });
     });
 
@@ -243,6 +265,61 @@ describe('McpClientService', () => {
 
       expect(result).toEqual({ content: [] });
       expect(mockConnect).toHaveBeenCalledTimes(2);
+    });
+
+    // Bug thật đã sửa: Stop giữa turn trước đây không cắt được lúc đang chạy
+    // tool call/retry — người dùng phải đợi hết vòng retry rồi mới thấy Stop
+    // có tác dụng.
+    it('không thử lại (throw ngay) khi signal ĐÃ bị abort TRƯỚC KHI thực hiện lần gọi tiếp theo', async () => {
+      (service as any).toolsCache.set('sql_server', {
+        data: [],
+        fetchedAt: Date.now(),
+      });
+      const controller = new AbortController();
+      mockCallTool.mockImplementation(() => {
+        // Mô phỏng đúng kịch bản thật: Stop xảy ra NGAY LÚC lỗi đầu tiên xảy
+        // ra, trước khi vòng lặp kịp xét tới lần thử tiếp theo.
+        controller.abort();
+        return Promise.reject(new Error('Server not initialized'));
+      });
+
+      await expect(
+        service.callTool(
+          {
+            provider: 'sql_server',
+            name: 'get_database_schema',
+            args: {},
+            ownerId: 'user-1',
+          },
+          controller.signal,
+        ),
+      ).rejects.toThrow('Server not initialized');
+
+      // Đúng 1 lần gọi thật — không retry thêm sau khi đã bị huỷ.
+      expect(mockCallTool).toHaveBeenCalledTimes(1);
+    });
+
+    it('throw "Aborted" ngay lập tức, không gọi tool nào, khi signal đã bị abort TỪ TRƯỚC khi callTool() bắt đầu', async () => {
+      (service as any).toolsCache.set('sql_server', {
+        data: [],
+        fetchedAt: Date.now(),
+      });
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(
+        service.callTool(
+          {
+            provider: 'sql_server',
+            name: 'get_database_schema',
+            args: {},
+            ownerId: 'user-1',
+          },
+          controller.signal,
+        ),
+      ).rejects.toThrow('Aborted');
+
+      expect(mockCallTool).not.toHaveBeenCalled();
     });
 
     it('does NOT retry a destructive (non-idempotent) tool — a timeout/error might mean it already ran server-side, so blind retry risks duplicating the write', async () => {

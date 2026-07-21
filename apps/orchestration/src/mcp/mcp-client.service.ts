@@ -14,6 +14,7 @@ import {
 } from '../dto/mcp.dto';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { withTimeout } from '../llm/with-timeout.util';
+import { abortableSleep } from '../common/abortable-sleep.util';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { ProviderConcurrencyLimiterService } from '../common/provider-concurrency-limiter.service';
 import { DynamicToolRegistryService } from '../registry/dynamic-tool-registry.service';
@@ -225,7 +226,14 @@ export class McpClientService {
     return error instanceof McpError && error.code === ErrorCode.MethodNotFound;
   }
 
-  async callTool(dto: CallToolRequestDto): Promise<CallToolResponseDto> {
+  // `signal` (Stop giữa turn, xem ReactLoopService.run()/runCancellable()) chỉ
+  // huỷ được nhánh static (SDK MCP hỗ trợ RequestOptions.signal) — dynamic
+  // provider đi qua agentic-openapi-parser (thư viện riêng, KHÔNG hỗ trợ
+  // AbortSignal ở bản hiện tại) nên vẫn phải đợi tool đó tự xong/timeout.
+  async callTool(
+    dto: CallToolRequestDto,
+    signal?: AbortSignal,
+  ): Promise<CallToolResponseDto> {
     if (await this.dynamicRegistry.isDynamicProvider(dto.provider)) {
       return this.dynamicExecutor.execute(
         dto.provider,
@@ -259,11 +267,11 @@ export class McpClientService {
       dto.provider,
       dto.ownerId,
       (client) =>
-        client.callTool({
-          name: dto.name,
-          arguments: dto.args,
+        client.callTool({ name: dto.name, arguments: dto.args }, undefined, {
+          signal,
         }) as Promise<CallToolResponseDto>,
       maxRetries,
+      signal,
     );
   }
 
@@ -309,12 +317,13 @@ export class McpClientService {
     ownerId: string | undefined,
     fn: (client: Client) => Promise<T>,
     maxRetries = 3,
+    signal?: AbortSignal,
   ): Promise<T> {
     return this.circuitBreaker.run(`mcp:${provider}`, () =>
       this.concurrencyLimiter.run(
         `mcp:${provider}`,
         ORCHESTRATION_CONSTANTS.MAX_CONCURRENT_MCP_CALLS_PER_PROVIDER,
-        () => this.callWithReconnect(provider, ownerId, fn, maxRetries),
+        () => this.callWithReconnect(provider, ownerId, fn, maxRetries, signal),
       ),
     );
   }
@@ -331,6 +340,7 @@ export class McpClientService {
     ownerId: string | undefined,
     fn: (client: Client) => Promise<T>,
     maxRetries: number,
+    signal?: AbortSignal,
   ): Promise<T> {
     const cacheKey = `${provider}:${ownerId ?? '__anon__'}`;
     const timeoutMsg = `MCP call timeout sau ${ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS / 1000}s (${cacheKey})`;
@@ -338,6 +348,11 @@ export class McpClientService {
     let attempt = 0;
 
     while (attempt < maxRetries) {
+      // Stop vừa xảy ra trong lúc đang đợi backoff ở vòng lặp trước — dừng
+      // NGAY, đừng cố thêm 1 round-trip mạng vô ích nữa.
+      if (signal?.aborted) {
+        throw new Error('Aborted');
+      }
       try {
         const client = await this.getClient(provider, ownerId);
         return await withTimeout(
@@ -347,6 +362,14 @@ export class McpClientService {
         );
       } catch (error: any) {
         attempt++;
+
+        // Bị huỷ giữa chừng (Stop) — đây KHÔNG phải lỗi tạm thời đáng thử lại,
+        // ném thẳng lên để runCancellable() nhận diện đúng là turn bị huỷ,
+        // không lãng phí thêm 1 vòng backoff+retry vô nghĩa.
+        if (signal?.aborted) {
+          throw error;
+        }
+
         this.logger.warn(
           `MCP call failed for "${cacheKey}", attempt ${attempt}/${maxRetries}: ${error.message}`,
         );
@@ -356,9 +379,10 @@ export class McpClientService {
           throw error;
         }
 
-        // Exponential backoff: 500ms, 1500ms...
+        // Exponential backoff: 500ms, 1500ms... — abortable để Stop trong lúc
+        // đang chờ giữa 2 lần retry cũng có tác dụng ngay, không phải đợi hết delay.
         const delay = 500 * Math.pow(3, attempt - 1);
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        await abortableSleep(delay, signal);
       }
     }
 
