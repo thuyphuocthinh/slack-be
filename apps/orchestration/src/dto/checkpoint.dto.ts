@@ -3,7 +3,7 @@ import {
   OrchestrationCheckpointStatus,
   PendingToolCall,
 } from '../entity/orchestration-checkpoint.entity';
-import { SupervisorRoundDto } from './supervisor.dto';
+import { DelegationDto, SupervisorRoundDto } from './supervisor.dto';
 import { ChatHistoryTurnDto } from './message-client.dto';
 
 export class CreateCheckpointRequestDto {
@@ -23,6 +23,9 @@ export class CreateCheckpointRequestDto {
   kind?: 'approval' | 'clarification';
   clarificationQuestion?: string | null;
   clarificationCandidates?: AmbiguousAgentCandidate[] | null;
+  // accuracy_problem.md mục 9.2 — mặc định [] nếu không truyền (checkpoint
+  // 'clarification' hiện chưa dùng field này).
+  remainingSteps?: DelegationDto[];
 }
 
 // Response cho create()/findPendingByReplyMessageId()/findById()/findExpiredPending()
@@ -39,6 +42,7 @@ export class CheckpointResponseDto {
   pendingTool: PendingToolCall | null;
   pendingTask: string;
   roundsSoFar: SupervisorRoundDto[];
+  remainingSteps: DelegationDto[];
   history: ChatHistoryTurnDto[];
   status: OrchestrationCheckpointStatus;
   kind: 'approval' | 'clarification';

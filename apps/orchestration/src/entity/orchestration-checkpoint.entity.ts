@@ -6,7 +6,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { SupervisorRoundDto } from '../dto/supervisor.dto';
+import { DelegationDto, SupervisorRoundDto } from '../dto/supervisor.dto';
 import { ChatHistoryTurnDto } from '../dto/message-client.dto';
 
 export enum OrchestrationCheckpointStatus {
@@ -105,6 +105,16 @@ export class OrchestrationCheckpointEntity {
 
   @Column({ type: 'jsonb', name: 'rounds_so_far', default: () => "'[]'" })
   roundsSoFar: SupervisorRoundDto[];
+
+  // accuracy_problem.md mục 9.2 — các bước CÒN LẠI CHƯA CHẠY của kế hoạch gốc
+  // tại thời điểm dừng (VD kế hoạch [A(cần duyệt), B, C] → lưu [B, C] ở đây).
+  // Cho phép resume ĐÚNG theo kế hoạch gốc (continueRounds() bỏ qua plan(),
+  // dùng lại mảng này) thay vì buộc phải lập lại kế hoạch từ đầu, không có gì
+  // đảm bảo bản mới không bỏ sót B/C. Rỗng cho checkpoint 'clarification'
+  // (chưa fix — xem ghi chú continueRounds()) và checkpoint tạo trước migration
+  // này (coi như không có gì để resume thêm, giữ đúng hành vi cũ).
+  @Column({ type: 'jsonb', name: 'remaining_steps', default: () => "'[]'" })
+  remainingSteps: DelegationDto[];
 
   @Column({ type: 'jsonb', default: () => "'[]'" })
   history: ChatHistoryTurnDto[];

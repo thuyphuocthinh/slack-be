@@ -8,7 +8,11 @@ import {
   AmbiguousAgentCandidate,
   PendingToolCall,
 } from '../entity/orchestration-checkpoint.entity';
-import { AvailableAgentDto, SupervisorRoundDto } from '../dto/supervisor.dto';
+import {
+  AvailableAgentDto,
+  DelegationDto,
+  SupervisorRoundDto,
+} from '../dto/supervisor.dto';
 import { ChatHistoryTurnDto } from '../dto/message-client.dto';
 import { ToolCallTraceDto } from '../dto/react-loop.dto';
 import {
@@ -49,6 +53,11 @@ export class CheckpointPauseService {
     toolCalls: ToolCallTraceDto[],
     history: ChatHistoryTurnDto[],
     approvalNeeded: ApprovalRequiredDelegateResult,
+    // accuracy_problem.md mục 9.2 — các bước CÒN LẠI CHƯA CHẠY của kế hoạch
+    // gốc (đã `shift()` bước gây pause ra khỏi mảng này TRƯỚC khi gọi vào
+    // đây) — lưu lại để resume ĐÚNG theo kế hoạch gốc, xem
+    // TurnResolverService.continueRounds().
+    remainingSteps: DelegationDto[],
   ): Promise<AnswerResult> {
     const { userId, channelId, botUserId } = data;
     const { approvalRequired: pendingTool, task: pendingTask } = approvalNeeded;
@@ -75,6 +84,7 @@ export class CheckpointPauseService {
       pendingTask,
       rounds,
       history,
+      remainingSteps,
     );
     await this.attachPendingToolCallTrace(
       approvalMessage.id,
@@ -104,6 +114,7 @@ export class CheckpointPauseService {
     pendingTask: string,
     rounds: SupervisorRoundDto[],
     history: ChatHistoryTurnDto[],
+    remainingSteps: DelegationDto[],
   ): Promise<void> {
     const { userId, botUserId, channelId, workspaceId, channelType } = data;
     try {
@@ -118,6 +129,7 @@ export class CheckpointPauseService {
         pendingTool,
         pendingTask,
         roundsSoFar: rounds,
+        remainingSteps,
         history,
       });
     } catch (error) {

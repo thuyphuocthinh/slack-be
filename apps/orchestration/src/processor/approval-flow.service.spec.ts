@@ -369,6 +369,10 @@ describe('ApprovalFlowService', () => {
           },
         ],
         [],
+        undefined,
+        // accuracy_problem.md mục 9.2 — fixture `checkpoint` ở trên không set
+        // remainingSteps => destructure ra undefined, truyền nguyên vậy xuống.
+        undefined,
       );
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
         id: 'approval-msg-1',

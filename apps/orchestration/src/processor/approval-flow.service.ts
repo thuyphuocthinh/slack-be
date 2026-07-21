@@ -185,6 +185,7 @@ export class ApprovalFlowService {
       pendingTool: pendingToolOrNull,
       pendingTask,
       roundsSoFar,
+      remainingSteps,
       originalPrompt,
       history,
     } = checkpoint;
@@ -226,11 +227,20 @@ export class ApprovalFlowService {
       });
 
       // Quay lại ĐÚNG vòng lặp Supervisor (rounds đã có sẵn kết quả hành động
-      // vừa duyệt) thay vì resume cứng trên CÙNG agent vừa dùng — để phần việc
-      // CÒN LẠI được delegate sang đúng agent cần thiết (có thể là 1 agent
-      // KHÁC). Nếu vòng này lại gặp thêm 1 tool rủi ro, TurnResolverService tự
-      // pause qua CheckpointPauseService như bình thường — không cần xử lý gì
-      // thêm ở đây, dù final answer hay "cần duyệt tiếp" đều chỉ là 1 AnswerResult.
+      // vừa duyệt) — KHÔNG resume cứng trên CÙNG agent vừa dùng, vì mỗi
+      // ReactLoopService.run() chỉ thấy tool của ĐÚNG 1 provider
+      // (mcpClient.getTools(dto.provider)) — resume nhầm session của agent
+      // VỪA DÙNG sẽ khiến nó không thấy tool của agent CẦN CHO bước sau, dễ tự
+      // bịa 1 tool sai để "giả vờ" làm việc không phải của nó (bug cũ đã gặp
+      // thật). continueRounds() vẫn LUÔN mở lại đúng agent CỦA TỪNG BƯỚC qua
+      // delegateRound() (agents.find(a => a.provider === step.agent)), dù bước
+      // đó tới từ `plan()` mới hay từ `remainingSteps` được restore ở đây —
+      // không phải re-plan mới là thứ tránh được bug đó, per-step agent
+      // routing của delegateRound() mới là thứ tránh được (xem
+      // accuracy_problem.md mục 9.2). Nếu vòng này lại gặp thêm 1 tool rủi ro,
+      // TurnResolverService tự pause qua CheckpointPauseService như bình
+      // thường — không cần xử lý gì thêm ở đây, dù final answer hay "cần
+      // duyệt tiếp" đều chỉ là 1 AnswerResult.
       const agents = await this.supervisor.getAvailableAgents(userId);
       const rounds = [
         ...roundsSoFar,
@@ -249,6 +259,9 @@ export class ApprovalFlowService {
         channelType,
       };
 
+      // accuracy_problem.md mục 9.2 — truyền `remainingSteps` đã lưu lúc pause
+      // để continueRounds() bỏ qua plan() (không lập lại kế hoạch từ đầu),
+      // dùng lại ĐÚNG các bước B/C còn dang dở của kế hoạch GỐC.
       const result = await this.turnResolver.continueRounds(
         data,
         replyMessageId,
@@ -257,6 +270,8 @@ export class ApprovalFlowService {
         history,
         rounds,
         [],
+        undefined,
+        remainingSteps,
       );
 
       await this.messageClient.updateMessage({

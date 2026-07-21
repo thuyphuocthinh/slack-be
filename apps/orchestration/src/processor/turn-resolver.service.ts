@@ -153,6 +153,13 @@ export class TurnResolverService {
     // — bỏ qua plan() cho bước ĐẦU TIÊN này, thực thi thẳng, không re-check
     // ambiguity (đã hỏi rồi, không hỏi lại vòng 2 cho CÙNG 1 bước).
     forcedStep?: DelegationDto,
+    // accuracy_problem.md mục 9.2 — set bởi ApprovalFlowService khi resume sau
+    // khi 1 hành động vừa được duyệt + thực thi thật: các bước B, C... CÒN LẠI
+    // của kế hoạch GỐC (đã lưu trong checkpoint lúc pause) — bỏ qua plan(),
+    // dùng lại ĐÚNG kế hoạch cũ thay vì lập lại từ đầu (trước đây KHÔNG lưu gì
+    // cả, buộc phải plan() lại toàn bộ, không có gì đảm bảo bản mới không bỏ
+    // sót B/C).
+    remainingSteps?: DelegationDto[],
   ): Promise<AnswerResult> {
     const { userId, channelId, channelType } = data;
 
@@ -180,8 +187,43 @@ export class TurnResolverService {
         r.result.startsWith(REPLAN_MARKER),
     ).length;
     let realStepsRun = rounds.length - nonProgressRounds;
-    let steps: DelegationDto[] = forcedStep ? [forcedStep] : [];
-    let needsPlan = !forcedStep;
+    let steps: DelegationDto[] = forcedStep
+      ? [forcedStep]
+      : (remainingSteps ?? []);
+    let needsPlan = !forcedStep && remainingSteps === undefined;
+
+    // accuracy_problem.md mục 9.2 — round VỪA được duyệt+thực thi thật
+    // (approveCheckpoint() tự chạy tool đó TRỰC TIẾP, KHÔNG qua delegateRound())
+    // chưa từng đi qua evaluate() — đánh giá nó NGAY BÂY GIỜ, giống hệt cách
+    // MỌI bước khác được đánh giá ngay sau khi chạy xong (xem trong vòng while
+    // bên dưới), tránh mất tín hiệu "bước vừa duyệt có ổn không, còn cần làm
+    // tiếp B/C không" chỉ vì nó tới từ 1 đường vòng khác (HITL) thay vì
+    // delegateRound() trực tiếp.
+    if (remainingSteps !== undefined && rounds.length > 0) {
+      const lastRound = rounds[rounds.length - 1];
+      const outcome = await this.runEvaluateAndDecide(prompt, lastRound, steps);
+      if (outcome === 'finalize') {
+        return this.finalizeAnswer(
+          data,
+          replyMessageId,
+          prompt,
+          rounds,
+          toolCalls,
+        );
+      }
+      if (outcome === 'replan') {
+        nonProgressRounds++;
+        rounds.push({
+          agent: lastRound.agent,
+          task: lastRound.task,
+          result: `${REPLAN_MARKER} evaluate() cho rằng bước vừa xong không đạt kỳ vọng, đã lập lại kế hoạch.`,
+        });
+        needsPlan = true;
+        steps = [];
+      }
+      // 'continue' — giữ nguyên `steps`/`needsPlan` đã set ở trên, vào while
+      // loop bình thường để tiếp tục đúng kế hoạch cũ.
+    }
 
     while (
       realStepsRun < ORCHESTRATION_CONSTANTS.MAX_REAL_STEPS_PER_TURN &&
@@ -328,6 +370,9 @@ export class TurnResolverService {
 
       if (result && 'approvalRequired' in result) {
         toolCalls.push(...result.toolCalls);
+        // accuracy_problem.md mục 9.2 — `steps` tại đây CHÍNH LÀ các bước còn
+        // lại của kế hoạch gốc (đã shift() bước gây pause ra khỏi mảng ở trên)
+        // — lưu lại để resume ĐÚNG theo kế hoạch cũ, không phải lập lại từ đầu.
         return this.checkpointPause.pauseForApproval(
           data,
           prompt,
@@ -335,6 +380,7 @@ export class TurnResolverService {
           toolCalls,
           history,
           result,
+          steps,
         );
       }
 
@@ -349,28 +395,21 @@ export class TurnResolverService {
       rounds.push(completedRound);
       if (result) toolCalls.push(...result.toolCalls);
 
-      const verdict = await this.supervisor.evaluate(
+      const outcome = await this.runEvaluateAndDecide(
         prompt,
         completedRound,
         steps,
       );
-      if (verdict.verdict === 'done') {
-        if (!this.hasPendingActionStep(steps)) {
-          return this.finalizeAnswer(
-            data,
-            replyMessageId,
-            prompt,
-            rounds,
-            toolCalls,
-          );
-        }
-        // Lưới an toàn rule-based (xem ghi chú ACTION_TASK_KEYWORDS) — bác bỏ
-        // "done", rơi xuống coi như 'continue': vòng while lặp lại, needsPlan
-        // vẫn false, tiếp tục lấy đúng bước hành động còn lại trong `steps`.
-        this.logger.warn(
-          `evaluate() trả 'done' nhưng còn bước HÀNH ĐỘNG chưa chạy (${steps.map((s) => s.task).join('; ')}) — bác bỏ 'done', tiếp tục chạy nốt kế hoạch.`,
+      if (outcome === 'finalize') {
+        return this.finalizeAnswer(
+          data,
+          replyMessageId,
+          prompt,
+          rounds,
+          toolCalls,
         );
-      } else if (verdict.verdict === 're-plan') {
+      }
+      if (outcome === 'replan') {
         nonProgressRounds++;
         // Đẩy thêm 1 note "vô hình" — CÙNG cơ chế guardrail-block đã dùng
         // (đánh đổi đã biết: lọt vào input của synthesize() sau này) — không
@@ -480,6 +519,39 @@ export class TurnResolverService {
       const taskLower = s.task.toLowerCase();
       return ACTION_TASK_KEYWORDS.some((kw) => taskLower.includes(kw));
     });
+  }
+
+  // accuracy_problem.md mục 9.2 — dùng CHUNG cho 2 nơi: (a) sau khi
+  // delegateRound() 1 bước bình thường trong vòng lặp chính, (b) ngay khi
+  // resume sau khi 1 hành động vừa được duyệt+thực thi thật
+  // (ApprovalFlowService.approveCheckpoint() tự chạy tool đó TRỰC TIẾP, KHÔNG
+  // qua delegateRound() — round đó vì vậy CHƯA từng đi qua evaluate(), phải
+  // đánh giá NGAY khi resume, y hệt cách mọi bước khác được đánh giá).
+  private async runEvaluateAndDecide(
+    prompt: string,
+    completedRound: SupervisorRoundDto,
+    remainingSteps: DelegationDto[],
+  ): Promise<'finalize' | 'replan' | 'continue'> {
+    const verdict = await this.supervisor.evaluate(
+      prompt,
+      completedRound,
+      remainingSteps,
+    );
+    if (verdict.verdict === 'done') {
+      if (!this.hasPendingActionStep(remainingSteps)) {
+        return 'finalize';
+      }
+      // Lưới an toàn rule-based (mục 6, xem ghi chú ACTION_TASK_KEYWORDS) —
+      // bác bỏ "done", coi như 'continue'.
+      this.logger.warn(
+        `evaluate() trả 'done' nhưng còn bước HÀNH ĐỘNG chưa chạy (${remainingSteps.map((s) => s.task).join('; ')}) — bác bỏ 'done', tiếp tục chạy nốt kế hoạch.`,
+      );
+      return 'continue';
+    }
+    if (verdict.verdict === 're-plan') {
+      return 'replan';
+    }
+    return 'continue';
   }
 
   // Giai đoạn Accuracy v2, mục 3 — KHÔNG dùng "task có khớp từ khoá với mô tả

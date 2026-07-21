@@ -664,6 +664,9 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         task: 'cập nhật status đơn OrderId=1',
         toolCalls: [],
       },
+      // accuracy_problem.md mục 9.2 — kế hoạch chỉ có đúng 1 bước (bước vừa bị
+      // chặn) — không còn bước nào khác để lưu lại resume.
+      [],
     );
     expect(result.content).toContain('Cần bạn duyệt');
   });
@@ -850,6 +853,81 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
       );
     });
 
+    it('accuracy_problem.md mục 9.2 — restores remainingSteps after an approval instead of re-planning, evaluates the just-approved round first, then runs the correct agent for the leftover step', async () => {
+      const agentsWithTmdb = [
+        ...availableAgents,
+        { provider: 'dynamic_tmdb', label: 'TMDB', description: 'desc' },
+      ];
+      // Round A (bước vừa được ApprovalFlowService duyệt+chạy TRỰC TIẾP, KHÔNG
+      // qua delegateRound()) — nên CHƯA từng đi qua evaluate().
+      const existingRounds = [
+        {
+          agent: 'sql_server',
+          task: 'cập nhật status đơn OrderId=1',
+          result: 'Đã cập nhật status.',
+        },
+      ];
+      // Bước B còn lại của kế hoạch GỐC — được ApprovalFlowService phục hồi
+      // lại từ checkpoint.remainingSteps, KHÔNG phải từ 1 lần plan() mới.
+      const remainingSteps = [
+        { agent: 'dynamic_tmdb', task: 'lấy poster phim liên quan' },
+      ];
+      mockSupervisor.evaluate
+        // Đánh giá round A (mới resume) — bác bỏ 'done' để chứng minh phải
+        // chạy tiếp bước B, KHÔNG tắt sớm.
+        .mockResolvedValueOnce({ verdict: 'continue' })
+        // Đánh giá round B sau khi chạy xong — đủ điều kiện kết thúc.
+        .mockResolvedValueOnce({ verdict: 'done' });
+      mockReactLoop.run.mockResolvedValue({
+        answer: 'Đã lấy poster phim.',
+        toolCalls: [{ tool: 'dynamic_tmdb.get_poster', status: 'success' }],
+      });
+      mockSupervisor.synthesize.mockResolvedValue(
+        'Đã cập nhật đơn và lấy poster phim liên quan.',
+      );
+
+      const result = await service.continueRounds(
+        data,
+        replyMessageId,
+        'cập nhật đơn rồi lấy poster phim liên quan',
+        agentsWithTmdb,
+        [],
+        existingRounds,
+        [],
+        undefined,
+        remainingSteps,
+      );
+
+      // plan() KHÔNG được gọi lại — resume dùng lại ĐÚNG bước B đã lưu.
+      expect(mockSupervisor.plan).not.toHaveBeenCalled();
+      // evaluate() được gọi cho round A TRƯỚC khi chạy bước B (trước đây bug:
+      // round vừa duyệt không bao giờ đi qua evaluate()).
+      expect(mockSupervisor.evaluate).toHaveBeenNthCalledWith(
+        1,
+        'cập nhật đơn rồi lấy poster phim liên quan',
+        existingRounds[0],
+        remainingSteps,
+      );
+      // Bước B chạy đúng agent của NÓ (dynamic_tmdb), không bị ép ở lại
+      // sql_server (bug cũ: agent A không thấy tool của agent B).
+      expect(mockReactLoop.run).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: 'dynamic_tmdb' }),
+      );
+      expect(mockSupervisor.evaluate).toHaveBeenNthCalledWith(
+        2,
+        'cập nhật đơn rồi lấy poster phim liên quan',
+        {
+          agent: 'dynamic_tmdb',
+          task: 'lấy poster phim liên quan',
+          result: 'Đã lấy poster phim.',
+        },
+        [],
+      );
+      expect(result.content).toBe(
+        'Đã cập nhật đơn và lấy poster phim liên quan.',
+      );
+    });
+
     it('pauses for approval again (via CheckpointPauseService) if the continued step also hits the Risk Gate — no special-casing needed by the caller', async () => {
       const existingRounds = [
         {
@@ -897,6 +975,9 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
           task: 'chèn diễn viên vào bảng users',
           toolCalls: [],
         },
+        // accuracy_problem.md mục 9.2 — kế hoạch (mock plan()) chỉ có đúng 1
+        // bước (bước vừa bị chặn) — không còn bước nào khác để lưu lại resume.
+        [],
       );
       expect(result.content).toContain('Cần bạn duyệt');
     });
