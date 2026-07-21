@@ -308,6 +308,79 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
     });
   });
 
+  // accuracy_problem.md mục 6 (bổ sung) — lưới an toàn rule-based: evaluate()
+  // là LLM, hướng dẫn prompt không tự nó ĐẢM BẢO model tuân theo 100%. Test
+  // này mô phỏng ĐÚNG kịch bản bug thật đã gặp (petstore→sql_server): model
+  // trả "done" ngay sau bước LẤY dữ liệu, dù bước CHÈN dữ liệu (đã có sẵn
+  // trong kế hoạch từ plan() ban đầu) vẫn còn chưa chạy.
+  it('accuracy_problem.md mục 6 — KHÔNG bỏ dở bước HÀNH ĐỘNG còn lại khi evaluate() trả "done" quá sớm (rule-based safety net, không chỉ dựa vào prompt)', async () => {
+    const twoAgents = [
+      { provider: 'petstore', label: 'Petstore', description: 'desc' },
+      { provider: 'sql_server', label: 'SQL Server', description: 'desc' },
+    ];
+    mockSupervisor.getAvailableAgents.mockResolvedValue(twoAgents);
+    mockSupervisor.plan.mockResolvedValue({
+      action: 'plan',
+      steps: [
+        { agent: 'petstore', task: 'lấy danh sách pet từ petstore' },
+        { agent: 'sql_server', task: 'chèn danh sách pet vào bảng pet' },
+      ],
+    });
+    mockReactLoop.run
+      .mockResolvedValueOnce({
+        answer: 'Đã lấy 500 con pet từ petstore',
+        toolCalls: [{ tool: 'petstore.findPetsByStatus', status: 'success' }],
+      })
+      .mockResolvedValueOnce({
+        answer: 'Đã chèn 500 dòng vào bảng pet',
+        toolCalls: [
+          { tool: 'sql_server.execute_write_query', status: 'success' },
+        ],
+      });
+    // Bug thật: evaluate() sai lầm trả "done" NGAY SAU bước lấy dữ liệu, dù
+    // bước "chèn" vẫn còn nguyên trong `steps` — chưa hề chạy.
+    mockSupervisor.evaluate.mockResolvedValueOnce({ verdict: 'done' });
+    mockSupervisor.synthesize.mockResolvedValue(
+      'Đã lấy dữ liệu và chèn vào bảng pet.',
+    );
+
+    const result = await resolve();
+
+    // Bước "chèn" PHẢI được thực thi — không bị bỏ dở giữa chừng.
+    expect(mockReactLoop.run).toHaveBeenCalledTimes(2);
+    expect(mockReactLoop.run).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        provider: 'sql_server',
+        prompt: expect.stringContaining('chèn danh sách pet vào bảng pet'),
+      }),
+    );
+    expect(result.toolCalls).toEqual([
+      { tool: 'petstore.findPetsByStatus', status: 'success' },
+      { tool: 'sql_server.execute_write_query', status: 'success' },
+    ]);
+  });
+
+  it('accuracy_problem.md mục 6 — VẪN tôn trọng "done" như bình thường khi KHÔNG còn bước hành động nào bị bỏ dở (không phải lúc nào cũng ép continue)', async () => {
+    mockSupervisor.plan.mockResolvedValue({
+      action: 'plan',
+      steps: [{ agent: 'sql_server', task: 'liệt kê danh sách bảng hiện có' }],
+    });
+    mockReactLoop.run.mockResolvedValue({
+      answer: 'Có 2 bảng: users, orders',
+      toolCalls: [{ tool: 'get_database_schema', status: 'success' }],
+    });
+    mockSupervisor.evaluate.mockResolvedValueOnce({ verdict: 'done' });
+
+    const result = await resolve();
+
+    // Đúng 1 bước, không có bước nào khác bị bỏ dở — "done" hợp lệ, không cần
+    // ép continue, không cần gọi lại plan()/reactLoop.run() thêm lần nào.
+    expect(mockReactLoop.run).toHaveBeenCalledTimes(1);
+    expect(mockSupervisor.plan).toHaveBeenCalledTimes(1);
+    expect(result.content).toBe('Có 2 bảng: users, orders');
+  });
+
   describe('mục 3 (accuracy.v2.md) — planning-stage guardrail (chặn TRƯỚC khi thực thi 1 lựa chọn agent rành rành sai)', () => {
     const twoAgents = [
       { provider: 'sql_server', label: 'SQL Server', description: 'desc' },

@@ -45,6 +45,35 @@ const MIN_AGENT_LABEL_LENGTH_FOR_MISMATCH_CHECK = 3;
 const GUARDRAIL_BLOCKED_MARKER = 'Bỏ qua bước này';
 const REPLAN_MARKER = '[re-plan]';
 
+// accuracy_problem.md mục 6 — hướng dẫn PROMPT (SUPERVISOR_EVALUATE_PROMPT)
+// đã dặn model không chọn "done" nếu còn bước HÀNH ĐỘNG chưa chạy, nhưng đó
+// CHỈ là hướng dẫn — không có gì đảm bảo model tuân theo 100% (LLM vẫn có thể
+// lệch tuỳ lần gọi). Đây là lưới an toàn RULE-BASED bổ sung, KHÔNG thay thế
+// prompt: nếu evaluate() trả "done" mà `steps` (từ CHÍNH plan() đã lập, chưa
+// bị sửa bởi model) còn bước nào nhắc rõ 1 hành động ghi/thay đổi dữ liệu, tự
+// động bác bỏ "done", ép tiếp tục chạy nốt — tránh việc evaluate() phán đoán
+// sai khiến kế hoạch bị bỏ dở giữa chừng (VD "lấy dữ liệu rồi CHÈN vào bảng"
+// — dừng lại sau khi lấy dữ liệu, bỏ qua hẳn bước chèn).
+const ACTION_TASK_KEYWORDS = [
+  'ghi',
+  'chèn',
+  'thêm',
+  'tạo',
+  'sửa',
+  'cập nhật',
+  'xoá',
+  'xóa',
+  'lưu',
+  'insert',
+  'update',
+  'delete',
+  'create',
+  'write',
+  'save',
+  'append',
+  'remove',
+];
+
 // Giai đoạn 2/3 (Supervisor multi-round + HITL) — vòng lặp "Supervisor quyết
 // định respond/delegate" tách riêng khỏi AiOrchestrationProcessor (chỉ còn lo
 // vòng đời job/turn) và khỏi CheckpointPauseService (chỉ lo việc TẠO checkpoint).
@@ -326,15 +355,22 @@ export class TurnResolverService {
         steps,
       );
       if (verdict.verdict === 'done') {
-        return this.finalizeAnswer(
-          data,
-          replyMessageId,
-          prompt,
-          rounds,
-          toolCalls,
+        if (!this.hasPendingActionStep(steps)) {
+          return this.finalizeAnswer(
+            data,
+            replyMessageId,
+            prompt,
+            rounds,
+            toolCalls,
+          );
+        }
+        // Lưới an toàn rule-based (xem ghi chú ACTION_TASK_KEYWORDS) — bác bỏ
+        // "done", rơi xuống coi như 'continue': vòng while lặp lại, needsPlan
+        // vẫn false, tiếp tục lấy đúng bước hành động còn lại trong `steps`.
+        this.logger.warn(
+          `evaluate() trả 'done' nhưng còn bước HÀNH ĐỘNG chưa chạy (${steps.map((s) => s.task).join('; ')}) — bác bỏ 'done', tiếp tục chạy nốt kế hoạch.`,
         );
-      }
-      if (verdict.verdict === 're-plan') {
+      } else if (verdict.verdict === 're-plan') {
         nonProgressRounds++;
         // Đẩy thêm 1 note "vô hình" — CÙNG cơ chế guardrail-block đã dùng
         // (đánh đổi đã biết: lọt vào input của synthesize() sau này) — không
@@ -431,6 +467,19 @@ export class TurnResolverService {
       answerHint || 'Xin lỗi, mình chưa có câu trả lời phù hợp.',
       toolCalls,
     );
+  }
+
+  // accuracy_problem.md mục 6 — xem ghi chú ACTION_TASK_KEYWORDS ở đầu file.
+  // Chỉ nhận diện THEO TỪ KHOÁ trong `task` do CHÍNH plan() sinh ra (không phải
+  // câu hỏi gốc của user — text mơ hồ hơn nhiều, dễ false-positive) nên rủi ro
+  // sai thấp: `task` của plan() luôn là 1 câu mô tả NGẮN GỌN, TRỰC TIẾP đúng
+  // việc agent đó cần làm (xem SUPERVISOR_PLANNING_PROMPT), không phải văn bản
+  // tự do dài dòng dễ chứa từ khoá "ăn theo" tình cờ.
+  private hasPendingActionStep(steps: DelegationDto[]): boolean {
+    return steps.some((s) => {
+      const taskLower = s.task.toLowerCase();
+      return ACTION_TASK_KEYWORDS.some((kw) => taskLower.includes(kw));
+    });
   }
 
   // Giai đoạn Accuracy v2, mục 3 — KHÔNG dùng "task có khớp từ khoá với mô tả
