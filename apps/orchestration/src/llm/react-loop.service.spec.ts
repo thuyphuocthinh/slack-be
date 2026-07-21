@@ -246,8 +246,11 @@ describe('ReactLoopService', () => {
 
     const result = await service.run(baseDto);
 
+    // accuracy_problem.md — mọi tool call ở test này đều THÀNH CÔNG (mock mặc
+    // định), nên bắt buộc phải kèm caveat "đã thực hiện thành công trước khi
+    // dừng" — tránh user tưởng nhầm chưa có gì xảy ra rồi lặp lại thao tác.
     expect(result.answer).toBe(
-      'Xin lỗi, câu hỏi này cần nhiều bước hơn mình hỗ trợ được.',
+      'Xin lỗi, câu hỏi này cần nhiều bước hơn mình hỗ trợ được. Một số hành động (đọc/ghi dữ liệu) đã thực hiện THÀNH CÔNG trước khi dừng — kiểm tra lại kết quả hiện có trước khi yêu cầu lại, tránh lặp lại đúng thao tác đã làm.',
     );
     expect(mockMcpClient.callTool).toHaveBeenCalledTimes(
       ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS,
@@ -255,6 +258,26 @@ describe('ReactLoopService', () => {
     // 1 lượt gọi ban đầu + đúng MAX_REACT_STEPS lượt trong loop
     expect(mockSession.sendMessage).toHaveBeenCalledTimes(
       ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS + 1,
+    );
+  });
+
+  it('accuracy_problem.md — KHÔNG kèm caveat "đã thực hiện thành công" khi hết MAX_REACT_STEPS mà KHÔNG có tool call nào thành công (không có gì để cảnh báo lặp lại)', async () => {
+    let call = 0;
+    mockSession.sendMessage.mockImplementation(() =>
+      Promise.resolve({
+        text: '',
+        toolCalls: [{ name: 'get_database_schema', args: { step: call++ } }],
+      }),
+    );
+    mockMcpClient.callTool.mockResolvedValue({
+      content: [{ type: 'text', text: 'lỗi mô phỏng' }],
+      isError: true,
+    });
+
+    const result = await service.run(baseDto);
+
+    expect(result.answer).toBe(
+      'Xin lỗi, câu hỏi này cần nhiều bước hơn mình hỗ trợ được.',
     );
   });
 

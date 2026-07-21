@@ -503,10 +503,20 @@ export class ReactLoopService {
     this.logger.warn(
       `run() hit MAX_REACT_STEPS=${ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS} userId=${dto.userId}`,
     );
+    // accuracy_problem.md — mục 7 (hướng dẫn chủ động chia nhỏ khi ghi lượng
+    // lớn dữ liệu) tạo ra 1 rủi ro mới: nếu cần NHIỀU lần gọi tool hơn
+    // MAX_REACT_STEPS (VD 500 dòng, chia 50 dòng/lần → 10 lần gọi > 8 bước),
+    // vòng lặp dừng GIỮA CHỪNG ngay sau khi đã ghi thành công MỘT PHẦN — nếu
+    // không nói rõ, user dễ hiểu lầm "chưa ghi gì cả" rồi tự ý làm lại từ đầu,
+    // có thể ghi trùng dữ liệu đã ghi thành công trước đó.
+    const partialWriteCaveat = toolCalls.some((tc) => tc.status === 'success')
+      ? ' Một số hành động (đọc/ghi dữ liệu) đã thực hiện THÀNH CÔNG trước khi dừng — kiểm tra lại kết quả hiện có trước khi yêu cầu lại, tránh lặp lại đúng thao tác đã làm.'
+      : '';
     return {
       answer:
-        turn.text ||
-        'Xin lỗi, câu hỏi này cần nhiều bước hơn mình hỗ trợ được.',
+        (turn.text ||
+          'Xin lỗi, câu hỏi này cần nhiều bước hơn mình hỗ trợ được.') +
+        partialWriteCaveat,
       toolCalls,
     };
   }
