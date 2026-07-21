@@ -44,12 +44,16 @@ export class DynamicToolExecutorService {
   /**
    * Nhận Tool Call từ LLM và thực thi HTTP request dựa trên OpenAPI spec.
    */
+  // accuracy_problem.md — `signal` (Stop giữa turn) giờ CÓ tác dụng ở nhánh
+  // dynamic provider: agentic-openapi-parser@1.8.0 hỗ trợ AbortSignal ở
+  // ExecuteToolOptions, forward thẳng vào axios + bỏ qua retry sau khi huỷ.
   async execute(
     providerId: string,
     toolName: string,
     args: Record<string, unknown>,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for call-site parity (mcp-client.service.ts passes dto.ownerId); not wired to anything yet, unchanged from before this refactor
+
     ownerId?: string,
+    signal?: AbortSignal,
   ): Promise<CallToolResponseDto> {
     try {
       this.logger.log(
@@ -65,6 +69,7 @@ export class DynamicToolExecutorService {
         spec,
         toolName,
         args,
+        signal,
       );
 
       const responseText =
@@ -93,6 +98,7 @@ export class DynamicToolExecutorService {
     toolName: string,
     args: Record<string, unknown>,
     providerSpec: DynamicProviderSpec,
+    signal?: AbortSignal,
   ): Promise<unknown> {
     return this.libExecutor.execute(spec, toolName, args, {
       accessToken: providerSpec.accessToken,
@@ -101,6 +107,7 @@ export class DynamicToolExecutorService {
       responseProcessors: this.responseProcessors,
       retry: { maxRetries: 2 },
       hooks: this.buildHooks(),
+      signal,
     });
   }
 
@@ -113,9 +120,10 @@ export class DynamicToolExecutorService {
     spec: Record<string, unknown>,
     toolName: string,
     args: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<unknown> {
     try {
-      return await this.callTool(spec, toolName, args, providerSpec);
+      return await this.callTool(spec, toolName, args, providerSpec, signal);
     } catch (error) {
       if (
         !this.isUnauthorized(error) ||
@@ -124,7 +132,7 @@ export class DynamicToolExecutorService {
         throw error;
       }
       // Token vừa được refresh — thử lại đúng 1 lần với accessToken mới.
-      return this.callTool(spec, toolName, args, providerSpec);
+      return this.callTool(spec, toolName, args, providerSpec, signal);
     }
   }
 

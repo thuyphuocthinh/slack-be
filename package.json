@@ -96,7 +96,7 @@
     "@tiptap/extension-task-list": "^3.26.0",
     "@tiptap/starter-kit": "^3.26.0",
     "agentic-io-parser": "^1.0.1",
-    "agentic-openapi-parser": "^1.7.0",
+    "agentic-openapi-parser": "^1.8.0",
     "argon2": "^0.44.0",
     "axios": "^1.16.1",
     "bullmq": "^5.76.1",

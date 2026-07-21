@@ -201,6 +201,53 @@ describe('McpClientService', () => {
         'tôi cần refund đơn hàng',
       );
     });
+
+    // Bug thật đã sửa (Stop giữa turn) — trước đây callTool() không truyền
+    // signal cho nhánh dynamic provider, nên Stop vô tác dụng khi đang gọi 1
+    // dynamic tool. agentic-openapi-parser@1.8.0+ hỗ trợ AbortSignal.
+    it('forwards the Stop-cancellation signal to the dynamic provider executor too', async () => {
+      const mockDynamicRegistry = {
+        isDynamicProvider: jest.fn().mockResolvedValue(true),
+      };
+      const mockDynamicExecutor = {
+        execute: jest.fn().mockResolvedValue({ content: [] }),
+      };
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          McpClientService,
+          { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
+          ProviderConcurrencyLimiterService,
+          {
+            provide: DynamicToolRegistryService,
+            useValue: mockDynamicRegistry,
+          },
+          {
+            provide: DynamicToolExecutorService,
+            useValue: mockDynamicExecutor,
+          },
+        ],
+      }).compile();
+      const dynamicService = module.get<McpClientService>(McpClientService);
+      const controller = new AbortController();
+
+      await dynamicService.callTool(
+        {
+          provider: 'dynamic_provider_1',
+          name: 'findPetsByStatus',
+          args: { status: 'available' },
+          ownerId: 'user-1',
+        },
+        controller.signal,
+      );
+
+      expect(mockDynamicExecutor.execute).toHaveBeenCalledWith(
+        'dynamic_provider_1',
+        'findPetsByStatus',
+        { status: 'available' },
+        'user-1',
+        controller.signal,
+      );
+    });
   });
 
   describe('callTool', () => {

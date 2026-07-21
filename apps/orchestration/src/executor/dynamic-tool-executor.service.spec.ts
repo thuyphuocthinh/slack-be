@@ -107,6 +107,74 @@ describe('DynamicToolExecutorService', () => {
     );
   });
 
+  // Bug thật đã sửa (Stop giữa turn) — trước đây nhánh dynamic provider hoàn
+  // toàn không cancellable, phải đợi tool tự xong/timeout dù user đã bấm Stop.
+  // agentic-openapi-parser@1.8.0+ hỗ trợ AbortSignal ở ExecuteToolOptions.
+  it('accuracy_problem.md — forwards the Stop-cancellation signal all the way down to the underlying axios request config', async () => {
+    const mockSpec: OpenAPIV3.Document = {
+      openapi: '3.0.0',
+      info: { title: 'Test', version: '1.0' },
+      servers: [{ url: 'https://api.test.com' }],
+      paths: { '/users': { get: { operationId: 'getUsers' } as any } },
+    };
+    registryService.getProviderSpec.mockResolvedValue({
+      providerId: 'test_provider',
+      specUrl: 'http://test',
+      document: mockSpec,
+      tools: [],
+    });
+    (axios as unknown as jest.Mock).mockResolvedValue({ data: { ok: true } });
+    const controller = new AbortController();
+
+    await service.execute(
+      'test_provider',
+      'getUsers',
+      {},
+      'user-1',
+      controller.signal,
+    );
+
+    expect(axios).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
+  it('does NOT retry after the signal is aborted, even on a normally-retryable failure', async () => {
+    const mockSpec: OpenAPIV3.Document = {
+      openapi: '3.0.0',
+      info: { title: 'Test', version: '1.0' },
+      servers: [{ url: 'https://api.test.com' }],
+      paths: { '/users': { get: { operationId: 'getUsers' } as any } },
+    };
+    registryService.getProviderSpec.mockResolvedValue({
+      providerId: 'test_provider',
+      specUrl: 'http://test',
+      document: mockSpec,
+      tools: [],
+    });
+    const controller = new AbortController();
+    const cancelError = Object.assign(new Error('canceled'), {
+      code: 'ERR_CANCELED',
+    });
+    (axios as unknown as jest.Mock).mockImplementation(() => {
+      controller.abort();
+      return Promise.reject(cancelError);
+    });
+
+    const result = await service.execute(
+      'test_provider',
+      'getUsers',
+      {},
+      'user-1',
+      controller.signal,
+    );
+
+    expect(result.isError).toBe(true);
+    // Đúng 1 lần gọi thật — không retry sau khi đã bị huỷ, dù đây vốn là 1
+    // lỗi ĐÁNG lẽ retryable (không có response, giống network error).
+    expect(axios).toHaveBeenCalledTimes(1);
+  });
+
   it('should attach requestBody correctly for POST method', async () => {
     const mockSpec: OpenAPIV3.Document = {
       openapi: '3.0.0',

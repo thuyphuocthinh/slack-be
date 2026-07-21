@@ -226,10 +226,10 @@ export class McpClientService {
     return error instanceof McpError && error.code === ErrorCode.MethodNotFound;
   }
 
-  // `signal` (Stop giữa turn, xem ReactLoopService.run()/runCancellable()) chỉ
-  // huỷ được nhánh static (SDK MCP hỗ trợ RequestOptions.signal) — dynamic
-  // provider đi qua agentic-openapi-parser (thư viện riêng, KHÔNG hỗ trợ
-  // AbortSignal ở bản hiện tại) nên vẫn phải đợi tool đó tự xong/timeout.
+  // `signal` (Stop giữa turn, xem ReactLoopService.run()/runCancellable()) huỷ
+  // được cả 2 nhánh — static qua SDK MCP (RequestOptions.signal) và dynamic
+  // provider qua agentic-openapi-parser@1.8.0+ (ExecuteToolOptions.signal,
+  // forward thẳng vào axios + bỏ qua retry sau khi huỷ).
   async callTool(
     dto: CallToolRequestDto,
     signal?: AbortSignal,
@@ -240,6 +240,7 @@ export class McpClientService {
         dto.name,
         dto.args,
         dto.ownerId,
+        signal,
       );
     }
 
