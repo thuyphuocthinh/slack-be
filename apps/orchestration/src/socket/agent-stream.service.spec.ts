@@ -45,6 +45,7 @@ describe('AgentStreamService', () => {
           channelId: 'channel-1',
           messageId: 'msg-1',
           streamKey: DEFAULT_STREAM_KEY,
+          seq: 1,
         },
       }),
     );
@@ -264,6 +265,58 @@ describe('AgentStreamService', () => {
           }),
         }),
       );
+    });
+  });
+
+  // SocketProcessor (app socket-gateway, concurrency=20) có thể xử lý nhiều
+  // job của CÙNG 1 stream không đúng thứ tự enqueue — `seq` tăng dần theo
+  // ĐÚNG thứ tự emitStep() được gọi để processor tự sắp lại trước khi emit ra
+  // socket thật (xem socket.processor.spec.ts cho phần sắp thứ tự đó).
+  describe('đánh số seq tăng dần cho SocketProcessor tự sắp lại đúng thứ tự', () => {
+    const ctx = {
+      userId: 'user-1',
+      channelId: 'channel-1',
+      messageId: 'msg-1',
+      channelType: 'direct' as const,
+    };
+
+    it('tăng dần đúng thứ tự cho nhiều step liên tiếp CÙNG 1 key (messageId+streamKey)', async () => {
+      await service.emitStep(ctx, { type: 'tool_call', tool: 'a' });
+      await service.emitStep(ctx, {
+        type: 'tool_result',
+        tool: 'a',
+        status: 'success',
+      });
+
+      expect(mockQueueService.addJob.mock.calls[0][2].data.seq).toBe(1);
+      expect(mockQueueService.addJob.mock.calls[1][2].data.seq).toBe(2);
+    });
+
+    it('đếm ĐỘC LẬP theo từng streamKey — 2 stream khác nhau cùng messageId không lẫn số thứ tự của nhau', async () => {
+      await service.emitStep(
+        { ...ctx, streamKey: 'r0-sql' },
+        { type: 'tool_call', tool: 'sql' },
+      );
+      await service.emitStep(
+        { ...ctx, streamKey: 'r0-github' },
+        { type: 'tool_call', tool: 'gh' },
+      );
+      await service.emitStep(
+        { ...ctx, streamKey: 'r0-sql' },
+        { type: 'tool_result', tool: 'sql', status: 'success' },
+      );
+
+      expect(mockQueueService.addJob.mock.calls[0][2].data.seq).toBe(1); // r0-sql lần 1
+      expect(mockQueueService.addJob.mock.calls[1][2].data.seq).toBe(1); // r0-github lần 1, độc lập
+      expect(mockQueueService.addJob.mock.calls[2][2].data.seq).toBe(2); // r0-sql lần 2
+    });
+
+    it('bắt đầu lại từ 1 sau khi step "done" đã emit — dọn state ngay, không tích luỹ mãi qua nhiều turn', async () => {
+      await service.emitStep(ctx, { type: 'tool_call', tool: 'a' });
+      await service.emitStep(ctx, { type: 'done' });
+      await service.emitStep(ctx, { type: 'tool_call', tool: 'b' });
+
+      expect(mockQueueService.addJob.mock.calls[2][2].data.seq).toBe(1);
     });
   });
 });

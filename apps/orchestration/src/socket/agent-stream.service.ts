@@ -43,6 +43,23 @@ export interface AgentStreamStep {
 // xả hết token đang gộp dở TRƯỚC rồi mới emit chính nó — giữ đúng thứ tự event.
 const TOKEN_BATCH_FLUSH_MS = 75;
 
+// SocketProcessor (app socket-gateway, KHÁC process với orchestration) xử lý
+// SOCKET_QUEUE với concurrency=20 — nhiều job CÙNG 1 stream vẫn có thể bị BullMQ
+// xử lý không đúng thứ tự nếu rơi vào các worker slot khác nhau cùng lúc. Đánh
+// số `seq` TĂNG DẦN theo đúng thứ tự emitStep() được GỌI (không phải thứ tự job
+// tới nơi xử lý) — SocketProcessor dùng số này để tự sắp lại đúng thứ tự trước
+// khi emit ra socket thật, không cần FE đổi gì.
+interface StreamSequenceState {
+  next: number;
+  lastActivity: number;
+}
+
+// Dọn state của các stream đã lâu không hoạt động (turn xong từ lâu, hoặc
+// streamKey riêng của 1 round chỉ dùng đúng 1 lần rồi không bao giờ dùng lại —
+// xem delegateRound()) — tránh Map phình vô hạn qua thời gian uptime dài.
+const SEQUENCE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+const SEQUENCE_STALE_MS = 10 * 60 * 1000;
+
 interface PendingTokenBatch {
   text: string;
   context: AgentStreamContext;
@@ -63,8 +80,16 @@ export class AgentStreamService implements OnModuleDestroy {
   // Khoá theo `${messageId}:${streamKey}` — cô lập đúng 1 luồng text (xem
   // AgentStreamContext.streamKey), khớp cách FE tách nội dung theo streamKey.
   private readonly pendingTokenBatches = new Map<string, PendingTokenBatch>();
+  private readonly sequenceStates = new Map<string, StreamSequenceState>();
+  private readonly sweepTimer: NodeJS.Timeout;
 
-  constructor(private readonly queueService: QueueService) {}
+  constructor(private readonly queueService: QueueService) {
+    this.sweepTimer = setInterval(
+      () => this.sweepStaleSequenceStates(),
+      SEQUENCE_SWEEP_INTERVAL_MS,
+    );
+    this.sweepTimer.unref?.();
+  }
 
   /**
    * Luôn chỉ emit vào room riêng của người trigger (`user_<userId>`) —
@@ -84,10 +109,11 @@ export class AgentStreamService implements OnModuleDestroy {
     // Bất kỳ step nào KHÁC 'token' phải thấy đúng phần token đã gộp TRƯỚC nó —
     // xả ngay (đồng bộ với emit thật, không phải chỉ xoá buffer) rồi mới emit.
     await this.flush(key);
-    await this.emitNow(context, step);
+    await this.emitNow(key, context, step);
   }
 
   async onModuleDestroy(): Promise<void> {
+    clearInterval(this.sweepTimer);
     // Tắt app giữa lúc đang stream — xả nốt phần token còn dở thay vì mất
     // trắng đoạn cuối cùng chưa kịp tới ngưỡng flush.
     await Promise.all(
@@ -124,13 +150,38 @@ export class AgentStreamService implements OnModuleDestroy {
     if (!batch) return;
     clearTimeout(batch.timer);
     this.pendingTokenBatches.delete(key);
-    await this.emitNow(batch.context, { type: 'token', text: batch.text });
+    await this.emitNow(key, batch.context, { type: 'token', text: batch.text });
+  }
+
+  private nextSeq(key: string): number {
+    const state = this.sequenceStates.get(key) ?? { next: 1, lastActivity: 0 };
+    const seq = state.next;
+    state.next += 1;
+    state.lastActivity = Date.now();
+    this.sequenceStates.set(key, state);
+    return seq;
+  }
+
+  private sweepStaleSequenceStates(): void {
+    const now = Date.now();
+    for (const [key, state] of this.sequenceStates) {
+      if (now - state.lastActivity > SEQUENCE_STALE_MS) {
+        this.sequenceStates.delete(key);
+      }
+    }
   }
 
   private async emitNow(
+    key: string,
     context: AgentStreamContext,
     step: AgentStreamStep,
   ): Promise<void> {
+    const seq = this.nextSeq(key);
+    if (step.type === 'done') {
+      // Kết thúc turn — không còn event nào cho key này nữa, dọn ngay thay vì
+      // đợi sweep định kỳ.
+      this.sequenceStates.delete(key);
+    }
     await this.queueService.addJob(
       EQueueName.SOCKET_QUEUE,
       EJobName.EMIT_EVENT,
@@ -142,6 +193,7 @@ export class AgentStreamService implements OnModuleDestroy {
           channelId: context.channelId,
           messageId: context.messageId,
           streamKey: context.streamKey ?? DEFAULT_STREAM_KEY,
+          seq,
         },
       },
     );
