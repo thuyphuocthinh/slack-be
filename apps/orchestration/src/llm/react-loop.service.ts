@@ -541,6 +541,12 @@ export class ReactLoopService {
         channelId: dto.channelId,
         messageId: dto.messageId,
         channelType: dto.channelType,
+        // Bug thật — thiếu dòng này khiến MỌI tool_call/tool_result luôn rơi
+        // về streamKey mặc định ('main') bất kể đang ở bước nào, tách rời
+        // khỏi group đúng (được tạo bởi step_start, xem turn-resolver.service.ts)
+        // đã dùng ĐÚNG streamKey của bước đó — FE thấy 2 nhóm: 1 nhóm có nhãn
+        // nhưng rỗng, 1 nhóm "main" không nhãn nhưng chứa dữ liệu tool thật.
+        streamKey: dto.streamKey,
       },
       step,
     );

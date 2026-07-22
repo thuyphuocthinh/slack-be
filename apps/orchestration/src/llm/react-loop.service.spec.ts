@@ -432,6 +432,39 @@ describe('ReactLoopService', () => {
       );
     });
 
+    // accuracy_problem.md mục 11 (trace UI) — bug thật: emitStep() riêng dùng
+    // cho tool_call/tool_result (KHÁC emitToken() dùng cho token/resync) từng
+    // thiếu hẳn `streamKey` — MỌI tool_call/tool_result rơi về mặc định
+    // 'main' bất kể dto.streamKey là gì, tách rời khỏi nhóm đúng (được
+    // TurnResolverService tạo qua step_start, DÙNG ĐÚNG streamKey của bước
+    // đó) — FE thấy 2 nhóm: 1 có nhãn nhưng rỗng, 1 "main" không nhãn nhưng
+    // chứa dữ liệu tool thật. Test tất cả LOẠI event (tool_call/tool_result/
+    // token/resync) đều mang ĐÚNG CÙNG 1 streamKey khi dto có set streamKey
+    // (baseDto ở trên KHÔNG set, nên các test khác không bắt được bug này).
+    it('carries dto.streamKey through EVERY step type (tool_call/tool_result/token/resync), not just token/resync', async () => {
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'get_database_schema', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'ok', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'vẫn giữ nguyên', toolCalls: [] }); // self-check round
+
+      await service.run({ ...baseDto, streamKey: 'r0-sql_server' });
+
+      for (const [context] of mockAgentStream.emitStep.mock.calls) {
+        expect(context).toEqual(
+          expect.objectContaining({ streamKey: 'r0-sql_server' }),
+        );
+      }
+      // Xác nhận CỤ THỂ tool_call/tool_result (không chỉ resync/token) có mặt
+      // trong assertion trên — tránh false-positive nếu vòng lặp trên rỗng.
+      const toolEventTypes = mockAgentStream.emitStep.mock.calls
+        .map(([, step]) => step.type)
+        .filter((t) => t === 'tool_call' || t === 'tool_result');
+      expect(toolEventTypes).toEqual(['tool_call', 'tool_result']);
+    });
+
     it('namespaces the tool name by dto.provider, not hard-coded (Step 6 — avoid collisions across agents)', async () => {
       mockSession.sendMessage
         .mockResolvedValueOnce({
