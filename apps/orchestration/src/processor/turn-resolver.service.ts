@@ -486,6 +486,16 @@ export class TurnResolverService {
     this.logger.warn(
       `Supervisor chưa hội tụ (realSteps=${realStepsRun}/${ORCHESTRATION_CONSTANTS.MAX_REAL_STEPS_PER_TURN}, nonProgress=${nonProgressRounds}/${ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS}) cho user ${userId}, tổng hợp lại kết quả đã có`,
     );
+    await this.agentStream
+      .emitStep(
+        { userId, channelId, messageId: replyMessageId, channelType },
+        {
+          type: 'step_start',
+          label: 'Tổng hợp câu trả lời',
+          kind: 'synthesize',
+        },
+      )
+      .catch(() => {});
     const fallbackAccumulator = { text: '' };
     const finalAnswer = await runCancellable(
       replyMessageId,
@@ -535,6 +545,16 @@ export class TurnResolverService {
       return buildAnswer(rounds[0].result, toolCalls);
     }
     if (rounds.length > 1) {
+      await this.agentStream
+        .emitStep(
+          { userId, channelId, messageId: replyMessageId, channelType },
+          {
+            type: 'step_start',
+            label: 'Tổng hợp câu trả lời',
+            kind: 'synthesize',
+          },
+        )
+        .catch(() => {});
       const accumulator = { text: '' };
       const finalAnswer = await runCancellable(
         replyMessageId,
@@ -735,6 +755,26 @@ export class TurnResolverService {
             )
             .join('\n')}`
         : task;
+    // Mỗi bước trong plan chạy TUẦN TỰ (không còn fan-out song song, xem
+    // continueRounds()) nhưng vẫn khoá riêng theo (round, provider) — round
+    // tăng dần đều mỗi bước nên khoá này luôn duy nhất trong cả turn, kể cả
+    // khi cùng 1 provider xuất hiện lại ở bước sau (VD đọc rồi ghi).
+    const streamKey = `r${round}-${targetAgent.provider}`;
+    // FE trace UI — nhãn NGƯỜI ĐỌC ĐƯỢC cho nhóm event sắp phát dưới cùng
+    // `streamKey` này, phát TRƯỚC reactLoop.run() để FE có tiêu đề ngay khi
+    // bước bắt đầu, không phải đợi tool_call đầu tiên.
+    await this.agentStream
+      .emitStep(
+        {
+          userId,
+          channelId,
+          messageId: replyMessageId,
+          channelType,
+          streamKey,
+        },
+        { type: 'step_start', label: `${targetAgent.label}: ${task}` },
+      )
+      .catch(() => {});
     try {
       const { answer, toolCalls } = await this.reactLoop.run({
         prompt: promptWithContext,
@@ -745,11 +785,7 @@ export class TurnResolverService {
         messageId: replyMessageId,
         channelType,
         history,
-        // Mỗi bước trong plan chạy TUẦN TỰ (không còn fan-out song song, xem
-        // continueRounds()) nhưng vẫn khoá riêng theo (round, provider) — round
-        // tăng dần đều mỗi bước nên khoá này luôn duy nhất trong cả turn, kể cả
-        // khi cùng 1 provider xuất hiện lại ở bước sau (VD đọc rồi ghi).
-        streamKey: `r${round}-${targetAgent.provider}`,
+        streamKey,
       });
       return {
         round: { agent: targetAgent.provider, task, result: answer },

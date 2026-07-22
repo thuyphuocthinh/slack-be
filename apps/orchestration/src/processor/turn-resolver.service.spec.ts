@@ -439,6 +439,85 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
     expect(result.content).toBe('Khớp: A, B — không tìm thấy: C');
   });
 
+  describe('trace UI — step_start events (FE hiện trace theo từng bước, giống Claude Code)', () => {
+    it('emits a step_start event with a human-readable label BEFORE reactLoop.run(), on the SAME streamKey', async () => {
+      mockSupervisor.plan.mockResolvedValue({
+        action: 'plan',
+        steps: [{ agent: 'sql_server', task: 'liệt kê bảng' }],
+      });
+      mockReactLoop.run.mockResolvedValue({
+        answer: 'Có 2 bảng.',
+        toolCalls: [],
+      });
+
+      await resolve();
+
+      const stepStartCall = mockAgentStream.emitStep.mock.calls.find(
+        ([, step]) => step.type === 'step_start',
+      );
+      expect(stepStartCall).toBeDefined();
+      const [context, step] = stepStartCall!;
+      expect(context).toEqual(
+        expect.objectContaining({ streamKey: 'r0-sql_server' }),
+      );
+      expect(step).toEqual({
+        type: 'step_start',
+        label: 'SQL Server: liệt kê bảng',
+      });
+      // Phát TRƯỚC reactLoop.run(), không phải sau — FE cần nhãn TRƯỚC khi
+      // tool_call/token đầu tiên của bước đó tới.
+      const stepStartOrder =
+        mockAgentStream.emitStep.mock.invocationCallOrder[
+          mockAgentStream.emitStep.mock.calls.indexOf(stepStartCall!)
+        ];
+      expect(stepStartOrder).toBeLessThan(
+        mockReactLoop.run.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('emits a step_start with kind="synthesize" before synthesize() when a multi-round answer needs tổng hợp', async () => {
+      const twoAgents = [
+        { provider: 'sql_server', label: 'SQL Server', description: 'desc' },
+        { provider: 'github', label: 'GitHub', description: 'desc' },
+      ];
+      mockSupervisor.getAvailableAgents.mockResolvedValue(twoAgents);
+      mockSupervisor.plan.mockResolvedValue({
+        action: 'plan',
+        steps: [
+          { agent: 'sql_server', task: 'lấy danh sách khách VIP' },
+          { agent: 'github', task: 'tạo issue nhắc follow-up' },
+        ],
+      });
+      mockReactLoop.run
+        .mockResolvedValueOnce({ answer: 'Có 3 khách VIP', toolCalls: [] })
+        .mockResolvedValueOnce({ answer: 'Đã tạo issue #42', toolCalls: [] });
+      mockSupervisor.evaluate
+        .mockResolvedValueOnce({ verdict: 'continue' })
+        .mockResolvedValueOnce({ verdict: 'done' });
+      mockSupervisor.synthesize.mockResolvedValue('Đã xong cả 2 việc.');
+
+      await resolve();
+
+      const synthesizeStepStart = mockAgentStream.emitStep.mock.calls.find(
+        ([, step]) => step.type === 'step_start' && step.kind === 'synthesize',
+      );
+      expect(synthesizeStepStart).toBeDefined();
+      expect(synthesizeStepStart![1]).toEqual({
+        type: 'step_start',
+        label: 'Tổng hợp câu trả lời',
+        kind: 'synthesize',
+      });
+      // Phát TRƯỚC lệnh gọi synthesize() thật.
+      const synthesizeStepStartOrder =
+        mockAgentStream.emitStep.mock.invocationCallOrder[
+          mockAgentStream.emitStep.mock.calls.indexOf(synthesizeStepStart!)
+        ];
+      expect(synthesizeStepStartOrder).toBeLessThan(
+        mockSupervisor.synthesize.mock.invocationCallOrder[0],
+      );
+    });
+  });
+
   describe('mục 3 (accuracy.v2.md) — planning-stage guardrail (chặn TRƯỚC khi thực thi 1 lựa chọn agent rành rành sai)', () => {
     const twoAgents = [
       { provider: 'sql_server', label: 'SQL Server', description: 'desc' },

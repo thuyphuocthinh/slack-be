@@ -24,11 +24,28 @@ export interface AgentStreamStep {
   // nối thêm như 'token') — dùng khi 1 đoạn text đã stream ra hoá ra KHÔNG
   // phải câu trả lời cuối (preamble của vòng có tool-call, hoặc self-check bị
   // revert) — xem ReactLoopService.executeReactLoop(), nguyên tắc "stream = save".
-  type: 'tool_call' | 'tool_result' | 'done' | 'token' | 'resync';
+  // 'step_start' — FE trace UI (xem `label`/`kind`): đánh dấu 1 nhóm event
+  // (tool_call/tool_result/token cùng `streamKey`) sắp bắt đầu, kèm nhãn
+  // NGƯỜI ĐỌC ĐƯỢC để FE hiện tiêu đề — trước đó FE chỉ có `streamKey` dạng
+  // kỹ thuật (VD "r0-sql_server"), không đủ để hiện UI có ý nghĩa.
+  type:
+    | 'tool_call'
+    | 'tool_result'
+    | 'done'
+    | 'token'
+    | 'resync'
+    | 'step_start';
   tool?: string;
   status?: 'success' | 'error';
   resultPreview?: string;
   text?: string;
+  // step_start — nhãn hiển thị (VD "SQL Server: kiểm tra xem có record nào...").
+  label?: string;
+  // step_start — 'synthesize' cho khối TỔNG HỢP câu trả lời cuối (FE nên luôn
+  // hiện mở, đây là câu trả lời thật, không phải bước trung gian); undefined =
+  // 1 bước thực thi bình thường (FE có thể tự thu gọn khi xong, giống tool
+  // block của Claude Code).
+  kind?: 'synthesize';
 }
 
 // Log thật (session 2026-07-20): 1 câu trả lời dài (~vài trăm từ) sinh ra HÀNG
