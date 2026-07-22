@@ -671,6 +671,112 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
     expect(result.content).toContain('Cần bạn duyệt');
   });
 
+  it('accuracy_problem.md mục 9.5 — preserves a safe tool result that ran BEFORE a destructive tool blocked in the SAME LLM turn, as its own round in the checkpoint', async () => {
+    mockSupervisor.plan.mockResolvedValue({
+      action: 'plan',
+      steps: [
+        {
+          agent: 'sql_server',
+          task: 'đọc đơn OrderId=1 rồi huỷ nó',
+        },
+      ],
+    });
+    const pendingTool = {
+      provider: 'sql_server',
+      name: 'execute_write_query',
+      args: { query: 'DELETE FROM Orders WHERE OrderId=1' },
+    };
+    // ReactLoopService cho phép 1 lượt LLM xin gọi NHIỀU tool cùng lúc — tool
+    // đọc (an toàn) đã chạy XONG THẬT trước khi tool huỷ (nguy hiểm) bị chặn.
+    mockReactLoop.run.mockRejectedValue(
+      new ApprovalRequiredError(pendingTool, [
+        {
+          tool: 'sql_server.execute_read_only_query',
+          status: 'success',
+          resultPreview: 'Đơn OrderId=1: khách "Alice", tổng tiền 500000đ.',
+        },
+      ]),
+    );
+    mockCheckpointPause.pauseForApproval.mockResolvedValue({
+      content:
+        '⏸️ Cần bạn duyệt 1 hành động trước khi tiếp tục — xem tin nhắn bên dưới.',
+      toolCalls: undefined,
+    });
+
+    await resolve();
+
+    expect(mockCheckpointPause.pauseForApproval).toHaveBeenCalledWith(
+      data,
+      'có bao nhiêu bảng?',
+      // Round MỚI chứa dữ liệu tool đọc đã chạy xong — KHÔNG bị mất chỉ vì
+      // tool huỷ (nguy hiểm) cùng lượt đó bị chặn ngay sau.
+      [
+        {
+          agent: 'sql_server',
+          task: 'đọc đơn OrderId=1 rồi huỷ nó (dữ liệu đã thu thập được TRƯỚC KHI cần duyệt 1 hành động khác trong cùng bước này)',
+          result:
+            'sql_server.execute_read_only_query: Đơn OrderId=1: khách "Alice", tổng tiền 500000đ.',
+        },
+      ],
+      // toolCalls (trace CẢ turn) cũng nhận đúng entry đã thành công đó — kênh
+      // hiện UI, độc lập với round vừa thêm ở trên (kênh Supervisor dùng).
+      [
+        {
+          tool: 'sql_server.execute_read_only_query',
+          status: 'success',
+          resultPreview: 'Đơn OrderId=1: khách "Alice", tổng tiền 500000đ.',
+        },
+      ],
+      [],
+      {
+        approvalRequired: pendingTool,
+        task: 'đọc đơn OrderId=1 rồi huỷ nó',
+        toolCalls: [
+          {
+            tool: 'sql_server.execute_read_only_query',
+            status: 'success',
+            resultPreview: 'Đơn OrderId=1: khách "Alice", tổng tiền 500000đ.',
+          },
+        ],
+      },
+      [],
+    );
+  });
+
+  it('accuracy_problem.md mục 9.5 — does NOT add a synthetic round when the blocked tool was the FIRST/only one in the turn (nothing to preserve)', async () => {
+    mockSupervisor.plan.mockResolvedValue({
+      action: 'plan',
+      steps: [{ agent: 'sql_server', task: 'cập nhật status đơn OrderId=1' }],
+    });
+    const pendingTool = {
+      provider: 'sql_server',
+      name: 'execute_write_query',
+      args: { query: "UPDATE Orders SET Status='Completed' WHERE OrderId=1" },
+    };
+    mockReactLoop.run.mockRejectedValue(new ApprovalRequiredError(pendingTool));
+    mockCheckpointPause.pauseForApproval.mockResolvedValue({
+      content:
+        '⏸️ Cần bạn duyệt 1 hành động trước khi tiếp tục — xem tin nhắn bên dưới.',
+      toolCalls: undefined,
+    });
+
+    await resolve();
+
+    expect(mockCheckpointPause.pauseForApproval).toHaveBeenCalledWith(
+      data,
+      'có bao nhiêu bảng?',
+      [], // rounds KHÔNG có round nào thêm — không có gì để giữ lại.
+      [],
+      [],
+      {
+        approvalRequired: pendingTool,
+        task: 'cập nhật status đơn OrderId=1',
+        toolCalls: [],
+      },
+      [],
+    );
+  });
+
   it("keeps an earlier step's successful result in the rounds passed to CheckpointPauseService when a LATER sequential step needs approval", async () => {
     const twoAgents = [
       { provider: 'sql_server', label: 'SQL Server', description: 'desc' },

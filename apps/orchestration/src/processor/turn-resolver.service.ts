@@ -392,6 +392,19 @@ export class TurnResolverService {
 
       if (result && 'approvalRequired' in result) {
         toolCalls.push(...result.toolCalls);
+        // accuracy_problem.md mục 9.5 — 1 lượt LLM có thể xin gọi NHIỀU tool
+        // cùng lúc (turn.toolCalls trong ReactLoopService); nếu tool ĐẦU an
+        // toàn đã chạy xong thật rồi tool SAU mới bị Risk Gate chặn, dữ liệu
+        // tool đầu đó phải được giữ lại NGAY ĐÂY (đưa vào `rounds`) — nếu
+        // không, nó chỉ tồn tại trong `toolCalls` (trace hiện UI, KHÔNG được
+        // lưu vào checkpoint) và biến mất hoàn toàn sau khi duyệt+resume
+        // (approveCheckpoint() chỉ tạo lại round từ ĐÚNG kết quả tool vừa
+        // duyệt, không biết gì về tool đã chạy trước đó).
+        const preApprovalRound = this.buildPreApprovalRound(
+          step,
+          result.toolCalls,
+        );
+        if (preApprovalRound) rounds.push(preApprovalRound);
         // accuracy_problem.md mục 9.2 — `steps` tại đây CHÍNH LÀ các bước còn
         // lại của kế hoạch gốc (đã shift() bước gây pause ra khỏi mảng ở trên)
         // — lưu lại để resume ĐÚNG theo kế hoạch cũ, không phải lập lại từ đầu.
@@ -574,6 +587,32 @@ export class TurnResolverService {
       return 'replan';
     }
     return 'continue';
+  }
+
+  // accuracy_problem.md mục 9.5 — dữ liệu tool AN TOÀN chạy TRƯỚC tool bị
+  // Risk Gate chặn trong CÙNG 1 lượt LLM (ReactLoopService cho phép model xin
+  // gọi nhiều tool cùng lúc) — giữ lại thành 1 round RIÊNG trước khi pause,
+  // để nó sống sót qua checkpoint/resume thay vì chỉ tồn tại trong `toolCalls`
+  // (trace hiện UI, không được lưu vào checkpoint DB). `null` nếu không có
+  // tool nào chạy THÀNH CÔNG trước đó (VD tool bị chặn là tool ĐẦU TIÊN của
+  // lượt — trường hợp phổ biến nhất, không cần thêm round nào).
+  private buildPreApprovalRound(
+    step: DelegationDto,
+    toolCallsBeforeBlock: ToolCallTraceDto[],
+  ): SupervisorRoundDto | null {
+    const successful = toolCallsBeforeBlock.filter(
+      (tc) => tc.status === 'success',
+    );
+    if (successful.length === 0) return null;
+
+    const result = successful
+      .map((tc) => `${tc.tool}: ${tc.resultPreview ?? '(không có nội dung)'}`)
+      .join('\n');
+    return {
+      agent: step.agent,
+      task: `${step.task} (dữ liệu đã thu thập được TRƯỚC KHI cần duyệt 1 hành động khác trong cùng bước này)`,
+      result,
+    };
   }
 
   // Giai đoạn Accuracy v2, mục 3 — KHÔNG dùng "task có khớp từ khoá với mô tả
