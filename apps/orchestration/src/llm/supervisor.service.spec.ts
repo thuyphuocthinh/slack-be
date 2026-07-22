@@ -565,6 +565,48 @@ describe('SupervisorService', () => {
       expect(sentInstruction).not.toContain('short_label_agent');
     });
 
+    it('accuracy_problem.md mục 13 — rank RIÊNG từng mệnh đề (tách theo "rồi") thay vì 1 vector chung, cứu được agent cho Ý ĐỊNH NGẦM không hề gọi tên (rescueNamedAgents KHÔNG can thiệp được ở case này)', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'respond',
+        answer: 'ok',
+      });
+      const agents = [
+        ...manyAgents(ORCHESTRATION_CONSTANTS.MAX_AGENTS_BEFORE_RANKING),
+        {
+          provider: 'notes_app',
+          label: 'Notion',
+          description: 'Ghi chú và tài liệu.',
+        },
+      ];
+      mockEmbeddingProvider.embed.mockImplementation(
+        async (texts: string[]) => {
+          if (texts.length > 1) {
+            // build() — mô tả agent_0..7 luôn [1,0], notes_app (mô tả chứa
+            // "ghi chú") luôn [0,1].
+            return texts.map((t) =>
+              t.toLowerCase().includes('ghi chú') ? [0, 1] : [1, 0],
+            );
+          }
+          // search() — mô phỏng ĐÚNG lỗ hổng mục 13: vector của CẢ CÂU GHÉP
+          // (chứa cả 2 ý định) LUÔN lệch về ý định đầu (agent_0..7) — CHỈ
+          // mệnh đề ĐÃ TÁCH RIÊNG "ghi chú lại kết quả" mới ra đúng vector
+          // khớp notes_app (mô phỏng embedding thật: câu ghép bị ý định mạnh
+          // hơn lấn át, mệnh đề riêng thì không).
+          return texts[0] === 'ghi chú lại kết quả' ? [[0, 1]] : [[1, 0]];
+        },
+      );
+
+      // Không hề gọi tên "Notion" — chỉ nói ý định ngầm ("ghi chú lại").
+      await service.plan(
+        'lấy dữ liệu bán hàng rồi ghi chú lại kết quả',
+        agents,
+      );
+
+      const sentInstruction =
+        mockStrategy.generateStructured.mock.calls[0][0].systemInstruction;
+      expect(sentInstruction).toContain('notes_app (Notion)');
+    });
+
     it('falls back to listing every agent unranked (no throw) when the embedding provider fails', async () => {
       mockStrategy.generateStructured.mockResolvedValue({
         action: 'respond',

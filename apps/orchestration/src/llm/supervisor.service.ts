@@ -124,12 +124,34 @@ export class SupervisorService {
         this.embeddingProvider,
       );
       await index.build(agents.map((a) => ({ ...a, name: a.label })));
-      const ranked = await index.search(
-        prompt,
-        ORCHESTRATION_CONSTANTS.AGENT_RANKING_TOP_K,
+      // accuracy_problem.md mục 13 — trước đây search() CHỈ 1 lần trên NGUYÊN
+      // VĂN prompt gốc: câu hỏi ghép nhiều ý định (VD "lấy lịch ngày mai RỒI
+      // gửi email nhắc") chỉ có 1 vector embedding DUY NHẤT, ý định "yếu từ
+      // ngữ" hơn trong câu ghép dễ bị ý định còn lại lấn át, văng khỏi top-K
+      // dù thực sự cần dùng — và rescueNamedAgents() KHÔNG cứu được vì đây là
+      // Ý ĐỊNH NGẦM (không gọi tên agent). Giờ tách prompt thành từng mệnh đề
+      // theo các từ nối TUẦN TỰ đã dùng thống nhất trong toàn bộ prompt hệ
+      // thống (xem SUPERVISOR_PLANNING_PROMPT: "...rồi ghi vào bảng payroll"),
+      // search RIÊNG từng mệnh đề rồi UNION kết quả — mỗi ý định có 1 vector
+      // RIÊNG, không bị pha loãng bởi ý định khác. Câu hỏi 1 ý định (không có
+      // từ nối) chỉ tách ra ĐÚNG 1 mệnh đề (= prompt gốc) — hành vi giữ nguyên
+      // y hệt trước đây, không tốn thêm lệnh gọi embedding nào.
+      const clauses = this.splitPromptClauses(prompt);
+      const rankedPerClause = await Promise.all(
+        clauses.map((clause) =>
+          index.search(clause, ORCHESTRATION_CONSTANTS.AGENT_RANKING_TOP_K),
+        ),
       );
-      if (ranked.length === 0) return { shown: agents, omittedCount: 0 };
-      const shown = this.rescueNamedAgents(prompt, agents, ranked);
+      const rankedByProvider = new Map<string, AvailableAgentDto>();
+      for (const ranked of rankedPerClause) {
+        for (const a of ranked) rankedByProvider.set(a.provider, a);
+      }
+      if (rankedByProvider.size === 0) {
+        return { shown: agents, omittedCount: 0 };
+      }
+      const shown = this.rescueNamedAgents(prompt, agents, [
+        ...rankedByProvider.values(),
+      ]);
       return { shown, omittedCount: agents.length - shown.length };
     } catch (error) {
       this.logger.warn(
@@ -137,6 +159,20 @@ export class SupervisorService {
       );
       return { shown: agents, omittedCount: 0 };
     }
+  }
+
+  // accuracy_problem.md mục 13 — tách theo từ nối TUẦN TỰ (không phải "và"/
+  // "," — 2 từ nối này quá phổ biến TRONG CÙNG 1 ý định, VD "khách hàng tên A
+  // và B", tách theo chúng sẽ xé lẻ 1 ý định thành nhiều mảnh vô nghĩa thay vì
+  // tách ĐÚNG ranh giới giữa 2 ý định khác nhau). Luôn giữ prompt gốc làm 1
+  // mệnh đề (Set khử trùng nếu không tách được gì) để không mất tín hiệu ngữ
+  // cảnh toàn câu đã hoạt động tốt trước đây.
+  private splitPromptClauses(prompt: string): string[] {
+    const parts = prompt
+      .split(/\brồi\b|\bsau đó\b|\bthen\b|\bafter that\b|;/gi)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+    return [...new Set([prompt, ...parts])];
   }
 
   /**
@@ -150,9 +186,12 @@ export class SupervisorService {
    * findLikelyMisroutedAgent() (turn-resolver.service.ts): nếu prompt gốc
    * NHẮC RÕ TÊN NHÃN 1 agent bị loại (VD user gõ thẳng "Google Sheet"), khả
    * năng cao nó thực sự cần — ép quay lại `shown` bất kể ranking semantic nói
-   * gì. KHÔNG bắt được ý định NGẦM (không gọi tên hệ thống) — residual risk
-   * đã biết, chấp nhận vì giải pháp triệt để (tách câu hỏi thành nhiều ý định
-   * rồi rank riêng) tốn thêm chi phí không tương xứng ở quy mô hiện tại.
+   * gì. Trước đây KHÔNG bắt được ý định NGẦM (không gọi tên hệ thống) — mục 13
+   * đã xử lý phần lớn case này ở `rankAgentsForPrompt()`/`splitPromptClauses()`
+   * (tách câu ghép thành từng mệnh đề, rank riêng từng ý định thay vì 1 vector
+   * chung); `rescueNamedAgents()` ở đây vẫn giữ nguyên làm lớp phòng thủ THỨ 2
+   * cho case mệnh đề không tách được rạch ròi (VD không có từ nối "rồi"/
+   * "sau đó" nhưng vẫn ghép 2 ý định) mà user LỠ có gọi tên agent tường minh.
    */
   private rescueNamedAgents(
     prompt: string,
