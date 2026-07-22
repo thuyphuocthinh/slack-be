@@ -23,6 +23,12 @@ export const ORCHESTRATION_CONSTANTS = {
   // (generateStructured, temperature 0) mà thiếu ở SubAgentExecutor.
   REACT_LOOP_TEMPERATURE: 0.2,
   MCP_TOOLS_CACHE_TTL_MS: 5 * 60 * 1000,
+  // accuracy_problem.md mục 9.4 — riêng cho NỘI DUNG resource (readResource()),
+  // KHÔNG dùng chung MCP_TOOLS_CACHE_TTL_MS: cache sai danh sách TÊN tool ít
+  // hại (agent chỉ chậm thấy tool mới vài phút), nhưng cache sai NỘI DUNG (VD
+  // 1 resource kiểu "tồn kho hiện tại") có thể khiến agent trả lời dựa trên dữ
+  // liệu cũ — chọn TTL ngắn hơn hẳn để giảm cửa sổ rủi ro đó.
+  MCP_RESOURCE_CONTENT_CACHE_TTL_MS: 60 * 1000,
   // Số message gần nhất (trước message trigger) lấy làm context hội thoại.
   CHAT_HISTORY_LIMIT: 10,
   // Giai đoạn 4, Step 5 — khi lịch sử bị cắt bởi CHAT_HISTORY_LIMIT (còn tin

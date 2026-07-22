@@ -3,7 +3,10 @@ import { IProcessAiTriggerJobData } from '@slack/queue';
 import { ORCHESTRATION_CONSTANTS } from '@slack/constants';
 import { MessageClientService } from '../message-client.service';
 import { ReactLoopService } from '../llm/react-loop.service';
-import { SupervisorService } from '../llm/supervisor.service';
+import {
+  AgentRankingCache,
+  SupervisorService,
+} from '../llm/supervisor.service';
 import { AgentStreamService } from '../socket/agent-stream.service';
 import {
   AvailableAgentDto,
@@ -196,6 +199,11 @@ export class TurnResolverService {
       ? [forcedStep, ...(remainingSteps ?? [])]
       : (remainingSteps ?? []);
     let needsPlan = !forcedStep && remainingSteps === undefined;
+    // accuracy_problem.md mục 9.4 — sống ĐÚNG bằng phạm vi lần gọi
+    // continueRounds() này (turn hiện tại) — plan() có thể bị gọi lại nhiều
+    // lần trong lúc này (re-plan) với CÙNG prompt/agents, khỏi build lại
+    // embedding ranking agent mỗi lần.
+    const agentRankingCache: AgentRankingCache = {};
 
     // accuracy_problem.md mục 9.2 — round VỪA được duyệt+thực thi thật
     // (approveCheckpoint() tự chạy tool đó TRỰC TIẾP, KHÔNG qua delegateRound())
@@ -256,6 +264,7 @@ export class TurnResolverService {
           agents,
           rounds,
           history,
+          agentRankingCache,
         );
 
         if (plan.action === 'respond') {

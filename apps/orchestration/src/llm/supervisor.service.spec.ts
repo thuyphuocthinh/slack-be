@@ -401,6 +401,72 @@ describe('SupervisorService', () => {
       );
     });
 
+    it('accuracy_problem.md mục 9.4 — reuses the ranking from a passed-in rankingCache on a 2nd plan() call (re-plan) instead of re-embedding the same prompt/agents', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'respond',
+        answer: 'ok',
+      });
+      const lotsOfAgents = [
+        ...manyAgents(ORCHESTRATION_CONSTANTS.MAX_AGENTS_BEFORE_RANKING),
+        {
+          provider: 'github',
+          label: 'GitHub',
+          description: 'Truy cập repository, issue, pull request trên GitHub.',
+        },
+      ];
+      mockEmbeddingProvider.embed.mockImplementation(async (texts: string[]) =>
+        texts.map((t) =>
+          t.toLowerCase().includes('github') ? [1, 0] : [0, 1],
+        ),
+      );
+      const rankingCache = {};
+
+      // Lần 1 (plan() ban đầu) — chưa có gì trong cache, phải build+search
+      // (2 lệnh embed) như bình thường.
+      await service.plan(
+        'liệt kê issue trên GitHub',
+        lotsOfAgents,
+        [],
+        [],
+        rankingCache,
+      );
+      expect(mockEmbeddingProvider.embed).toHaveBeenCalledTimes(2);
+
+      // Lần 2 (re-plan, CÙNG prompt/agents, CÙNG object rankingCache đã có
+      // `.current` từ lần 1) — KHÔNG được gọi embed thêm lần nào nữa.
+      await service.plan(
+        'liệt kê issue trên GitHub',
+        lotsOfAgents,
+        [],
+        [],
+        rankingCache,
+      );
+      expect(mockEmbeddingProvider.embed).toHaveBeenCalledTimes(2);
+
+      const secondCallInstruction =
+        mockStrategy.generateStructured.mock.calls[1][0].systemInstruction;
+      expect(secondCallInstruction).toContain('github (GitHub)');
+    });
+
+    it('accuracy_problem.md mục 9.4 — a FRESH rankingCache object (new turn) re-embeds normally, not affected by a previous turn', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'respond',
+        answer: 'ok',
+      });
+      const lotsOfAgents = manyAgents(
+        ORCHESTRATION_CONSTANTS.MAX_AGENTS_BEFORE_RANKING + 1,
+      );
+      mockEmbeddingProvider.embed.mockImplementation(async (texts: string[]) =>
+        texts.map(() => [0, 1]),
+      );
+
+      await service.plan('câu hỏi turn 1', lotsOfAgents, [], [], {});
+      expect(mockEmbeddingProvider.embed).toHaveBeenCalledTimes(2);
+
+      await service.plan('câu hỏi turn 2', lotsOfAgents, [], [], {});
+      expect(mockEmbeddingProvider.embed).toHaveBeenCalledTimes(4);
+    });
+
     it('falls back to listing every agent unranked (no throw) when the embedding provider fails', async () => {
       mockStrategy.generateStructured.mockResolvedValue({
         action: 'respond',

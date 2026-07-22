@@ -32,6 +32,21 @@ import {
   resolveDataCharBudget,
 } from '../executor/tool-result-size-cap.util';
 
+// accuracy_problem.md mục 9.4 — memo CHỈ sống trong phạm vi 1 lần gọi
+// TurnResolverService.continueRounds() (caller tạo `{}` mới ở đầu hàm, KHÔNG
+// phải field cấp service) — plan() có thể bị gọi lại NHIỀU lần trong CÙNG 1
+// turn (guardrail chặn agent sai, hoặc evaluate() trả 're-plan'), luôn với
+// CÙNG `prompt` gốc (biến đóng gói từ đầu continueRounds(), không đổi suốt
+// turn) và hầu như chắc chắn CÙNG `agents` — rankAgentsForPrompt() vì vậy trả
+// về kết quả GIỐNG HỆT mỗi lần, nhưng trước đây vẫn tốn lại 2 lệnh gọi
+// embedding API (build + search) mỗi lần re-plan. Không cache ở CẤP SERVICE
+// (SupervisorService là singleton dùng chung mọi user/turn) để tránh phải trả
+// lời câu hỏi "bao giờ invalidate" — cache tự chết theo scope hàm khi turn
+// xong, không cần dọn.
+export interface AgentRankingCache {
+  current?: { shown: AvailableAgentDto[]; omittedCount: number };
+}
+
 @Injectable()
 export class SupervisorService {
   private readonly logger = new Logger(SupervisorService.name);
@@ -174,11 +189,15 @@ export class SupervisorService {
     agents: AvailableAgentDto[],
     rounds: SupervisorRoundDto[] = [],
     history: ChatHistoryTurnDto[] = [],
+    // accuracy_problem.md mục 9.4 — truyền bởi continueRounds() để tái dùng
+    // ranking đã tính giữa các lần plan()/re-plan() trong CÙNG 1 turn.
+    rankingCache?: AgentRankingCache,
   ): Promise<SupervisorPlanDto> {
-    const { shown, omittedCount } = await this.rankAgentsForPrompt(
-      prompt,
-      agents,
-    );
+    const { shown, omittedCount } =
+      rankingCache?.current ?? (await this.rankAgentsForPrompt(prompt, agents));
+    if (rankingCache && !rankingCache.current) {
+      rankingCache.current = { shown, omittedCount };
+    }
     const agentListText =
       shown.length > 0
         ? shown

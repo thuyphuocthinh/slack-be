@@ -276,18 +276,52 @@ export class McpClientService {
     );
   }
 
+  // accuracy_problem.md mục 9.4 — TRƯỚC ĐÂY đọc lại NỘI DUNG resource từ MCP
+  // server mỗi lần ReactLoopService.run() dựng systemInstruction, kể cả khi
+  // CÙNG 1 provider được delegate nhiều lần trong CÙNG 1 kế hoạch (VD đọc rồi
+  // ghi SQL) — lãng phí network/latency vô ích vì nội dung này thường tĩnh.
+  // Cache riêng theo (provider, uri) — CHỈ áp dụng cho provider TĨNH trong
+  // AGENT_REGISTRY (getResources() trả rỗng cho dynamic provider ngay từ đầu,
+  // xem trên), nên số lượng key bị bound chặt (không tăng theo user/turn) —
+  // giống lý do toolsCache/resourcesCache/promptsCache cũng không cần cron dọn.
+  // TTL riêng, NGẮN hơn MCP_TOOLS_CACHE_TTL_MS (xem giải thích tại hằng số đó).
+  private readonly resourceContentCache = new Map<
+    string,
+    { data: string; fetchedAt: number }
+  >();
+
   async readResource(
     provider: string,
     uri: string,
     ownerId?: string,
   ): Promise<string> {
-    return this.withReconnect(provider, ownerId, async (client) => {
-      const result = await client.readResource({ uri });
-      return (result.contents || [])
-        .map((c) => ('text' in c ? c.text : ''))
-        .filter(Boolean)
-        .join('\n');
+    const cacheKey = `${provider}:${uri}`;
+    const cached = this.resourceContentCache.get(cacheKey);
+    if (
+      cached &&
+      Date.now() - cached.fetchedAt <
+        ORCHESTRATION_CONSTANTS.MCP_RESOURCE_CONTENT_CACHE_TTL_MS
+    ) {
+      return cached.data;
+    }
+
+    const content = await this.withReconnect(
+      provider,
+      ownerId,
+      async (client) => {
+        const result = await client.readResource({ uri });
+        return (result.contents || [])
+          .map((c) => ('text' in c ? c.text : ''))
+          .filter(Boolean)
+          .join('\n');
+      },
+    );
+
+    this.resourceContentCache.set(cacheKey, {
+      data: content,
+      fetchedAt: Date.now(),
     });
+    return content;
   }
 
   async getPrompt(

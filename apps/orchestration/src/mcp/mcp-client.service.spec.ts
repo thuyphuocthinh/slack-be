@@ -567,6 +567,54 @@ describe('McpClientService', () => {
       expect(mockReadResource).toHaveBeenCalledWith({ uri: 'file://test' });
     });
 
+    describe('accuracy_problem.md mục 9.4 — resource content cache', () => {
+      afterEach(() => jest.useRealTimers());
+
+      it('does not re-read the same (provider, uri) from the MCP server within MCP_RESOURCE_CONTENT_CACHE_TTL_MS', async () => {
+        mockReadResource.mockResolvedValue({ contents: [{ text: 'line 1' }] });
+
+        const first = await service.readResource('sql_server', 'file://test');
+        const second = await service.readResource('sql_server', 'file://test');
+
+        expect(first).toBe('line 1');
+        expect(second).toBe('line 1');
+        expect(mockReadResource).toHaveBeenCalledTimes(1);
+      });
+
+      it('treats a different uri (same provider) as a separate cache entry — still reads it live', async () => {
+        mockReadResource.mockResolvedValue({ contents: [{ text: 'line 1' }] });
+
+        await service.readResource('sql_server', 'file://a');
+        await service.readResource('sql_server', 'file://b');
+
+        expect(mockReadResource).toHaveBeenCalledTimes(2);
+      });
+
+      it('re-reads from the MCP server after MCP_RESOURCE_CONTENT_CACHE_TTL_MS elapses', async () => {
+        jest.useFakeTimers();
+        mockReadResource.mockResolvedValue({ contents: [{ text: 'line 1' }] });
+
+        await service.readResource('sql_server', 'file://test');
+        jest.advanceTimersByTime(
+          ORCHESTRATION_CONSTANTS.MCP_RESOURCE_CONTENT_CACHE_TTL_MS + 1000,
+        );
+        await service.readResource('sql_server', 'file://test');
+
+        expect(mockReadResource).toHaveBeenCalledTimes(2);
+      });
+
+      it('does not re-read within TTL (rất ngắn so với TTL)', async () => {
+        jest.useFakeTimers();
+        mockReadResource.mockResolvedValue({ contents: [{ text: 'line 1' }] });
+
+        await service.readResource('sql_server', 'file://test');
+        jest.advanceTimersByTime(1000);
+        await service.readResource('sql_server', 'file://test');
+
+        expect(mockReadResource).toHaveBeenCalledTimes(1);
+      });
+    });
+
     it('gets a prompt and returns the full result object', async () => {
       mockGetPrompt.mockResolvedValue({
         description: 'Test',

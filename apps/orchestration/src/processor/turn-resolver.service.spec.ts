@@ -773,6 +773,10 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         availableAgents,
         existingRounds,
         [],
+        // accuracy_problem.md mục 9.4 — continueRounds() tạo 1 cache rỗng mới
+        // mỗi lần gọi, truyền xuống plan() để tái dùng ranking agent giữa các
+        // lần re-plan trong CÙNG turn.
+        {},
       );
       // Bước MỚI (sau resume) delegate sang ĐÚNG provider cần thiết cho phần
       // còn lại (sql_server) — KHÔNG bị ép ở lại provider vừa dùng trước đó.
