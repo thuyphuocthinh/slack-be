@@ -267,4 +267,76 @@ export const SUPERVISOR_PLAN_EVAL_CASES: SupervisorPlanEvalCase[] = [
     rounds: [],
     expectedAction: 'plan',
   },
+
+  // --- accuracy_problem.md mục 9.3 (agent-level Tool RAG bỏ sót agent bước
+  // sau) — 10 agent (vượt MAX_AGENTS_BEFORE_RANKING=8, kích hoạt ranking
+  // THẬT), prompt GHÉP 2 Ý ĐỊNH lệch hẳn về khối lượng từ ngữ: 1 đoạn dài mô
+  // tả chi tiết ý định CHÍNH (dễ áp đảo embedding của cả câu), 1 cụm NGẮN nêu
+  // tên THẲNG hệ thống phụ cần cho bước 2. Đo xem rescueNamedAgents() (rule
+  // cứng, so khớp label trong prompt) có giữ được agent phụ trong `shown` hay
+  // không khi ranking semantic (dựa trên toàn câu) có thể đã loại nó.
+  {
+    name: 'muc-9.3-rescue-secondary-agent-named-notion',
+    prompt:
+      'lấy thông tin chi tiết về 3 bộ phim đang thịnh hành nhất hiện nay từ TMDB, bao gồm độ phổ biến, điểm đánh giá trung bình, ngày phát hành và tóm tắt nội dung, rồi lưu bản tóm tắt đó vào Notion',
+    agents: [
+      TMDB_AGENT,
+      SQL_SERVER_AGENT,
+      GITHUB_AGENT,
+      GOOGLE_DOCS_AGENT,
+      GOOGLE_SHEETS_AGENT,
+      GOOGLE_MAIL_AGENT,
+      GOOGLE_DRIVE_AGENT,
+      GOOGLE_CALENDAR_AGENT,
+      SLACK_AGENT,
+      NOTION_AGENT,
+    ],
+    rounds: [],
+    expectedAction: 'plan',
+    expectedAgents: ['tmdb_dynamic_1', 'notion'],
+  },
+  {
+    name: 'muc-9.3-rescue-secondary-agent-named-google-sheets',
+    prompt:
+      'truy vấn toàn bộ đơn hàng trong bảng orders, tính tổng doanh thu theo từng danh mục sản phẩm, lọc riêng theo trạng thái đã thanh toán trong tháng này, rồi cập nhật số liệu tổng hợp đó vào Google Sheet',
+    agents: [
+      SQL_SERVER_AGENT,
+      TMDB_AGENT,
+      GITHUB_AGENT,
+      GOOGLE_DOCS_AGENT,
+      GOOGLE_MAIL_AGENT,
+      GOOGLE_DRIVE_AGENT,
+      GOOGLE_CALENDAR_AGENT,
+      SLACK_AGENT,
+      NOTION_AGENT,
+      GOOGLE_SHEETS_AGENT,
+    ],
+    rounds: [],
+    expectedAction: 'plan',
+    expectedAgents: ['sql_server', 'google_sheets'],
+  },
+  {
+    // Diagnostic — Y HỆT case trên nhưng KHÔNG gọi tên hệ thống phụ (ý định
+    // ngầm) — rescueNamedAgents() KHÔNG bắt được case này (residual risk đã
+    // biết, xem accuracy_problem.md mục 9.3). Không chấm đúng/sai — chỉ quan
+    // sát plan() có tự bỏ sót bước 2 hay không khi ranking loại mất agent cần.
+    name: 'muc-9.3-residual-risk-secondary-agent-unnamed',
+    diagnostic: true,
+    prompt:
+      'truy vấn toàn bộ đơn hàng trong bảng orders, tính tổng doanh thu theo từng danh mục sản phẩm, lọc riêng theo trạng thái đã thanh toán trong tháng này, rồi lưu kết quả tổng hợp lại giúp tôi',
+    agents: [
+      SQL_SERVER_AGENT,
+      TMDB_AGENT,
+      GITHUB_AGENT,
+      GOOGLE_DOCS_AGENT,
+      GOOGLE_MAIL_AGENT,
+      GOOGLE_DRIVE_AGENT,
+      GOOGLE_CALENDAR_AGENT,
+      SLACK_AGENT,
+      NOTION_AGENT,
+      GOOGLE_SHEETS_AGENT,
+    ],
+    rounds: [],
+    expectedAction: 'plan',
+  },
 ];

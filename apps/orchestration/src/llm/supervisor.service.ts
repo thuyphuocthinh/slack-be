@@ -47,6 +47,12 @@ export interface AgentRankingCache {
   current?: { shown: AvailableAgentDto[]; omittedCount: number };
 }
 
+// accuracy_problem.md mục 9.3 — cùng ngưỡng/kỹ thuật với
+// MIN_AGENT_LABEL_LENGTH_FOR_MISMATCH_CHECK (turn-resolver.service.ts): nhãn
+// quá ngắn (VD dynamic provider đặt tên chung chung "API") dễ khớp nhầm vào
+// bất kỳ câu nào, bỏ qua để giảm false-positive khi "cứu" agent bị ranking loại.
+const MIN_AGENT_LABEL_LENGTH_FOR_RESCUE = 3;
+
 @Injectable()
 export class SupervisorService {
   private readonly logger = new Logger(SupervisorService.name);
@@ -123,13 +129,50 @@ export class SupervisorService {
         ORCHESTRATION_CONSTANTS.AGENT_RANKING_TOP_K,
       );
       if (ranked.length === 0) return { shown: agents, omittedCount: 0 };
-      return { shown: ranked, omittedCount: agents.length - ranked.length };
+      const shown = this.rescueNamedAgents(prompt, agents, ranked);
+      return { shown, omittedCount: agents.length - shown.length };
     } catch (error) {
       this.logger.warn(
         `rankAgentsForPrompt() lỗi, fallback về liệt kê hết ${agents.length} agent: ${(error as Error).message}`,
       );
       return { shown: agents, omittedCount: 0 };
     }
+  }
+
+  /**
+   * accuracy_problem.md mục 9.3 — lưới an toàn RULE-BASED (không tốn LLM/
+   * embedding thêm) cho lỗ hổng: `rankAgentsForPrompt()` chỉ rank theo 1
+   * embedding DUY NHẤT của CẢ câu hỏi gốc (có thể chứa NHIỀU ý định/bước) —
+   * agent cần cho 1 ý định "yếu thế" hơn về từ ngữ trong câu ghép có thể bị
+   * văng khỏi top-K dù chắc chắn cần dùng, khiến `plan()` không hề biết nó
+   * tồn tại để lên kế hoạch (khác bug mục 6 — ở đây bước đó CHƯA BAO GIỜ được
+   * tạo ra, không có gì để rule cứng đó bắt lại). Cùng kỹ thuật với
+   * findLikelyMisroutedAgent() (turn-resolver.service.ts): nếu prompt gốc
+   * NHẮC RÕ TÊN NHÃN 1 agent bị loại (VD user gõ thẳng "Google Sheet"), khả
+   * năng cao nó thực sự cần — ép quay lại `shown` bất kể ranking semantic nói
+   * gì. KHÔNG bắt được ý định NGẦM (không gọi tên hệ thống) — residual risk
+   * đã biết, chấp nhận vì giải pháp triệt để (tách câu hỏi thành nhiều ý định
+   * rồi rank riêng) tốn thêm chi phí không tương xứng ở quy mô hiện tại.
+   */
+  private rescueNamedAgents(
+    prompt: string,
+    agents: AvailableAgentDto[],
+    shown: AvailableAgentDto[],
+  ): AvailableAgentDto[] {
+    const shownProviders = new Set(shown.map((a) => a.provider));
+    const promptLower = prompt.toLowerCase();
+    const rescued = agents.filter(
+      (a) =>
+        !shownProviders.has(a.provider) &&
+        a.label.length >= MIN_AGENT_LABEL_LENGTH_FOR_RESCUE &&
+        promptLower.includes(a.label.toLowerCase()),
+    );
+    if (rescued.length === 0) return shown;
+
+    this.logger.log(
+      `rescueNamedAgents() cứu ${rescued.length} agent bị ranking loại nhưng được nhắc rõ tên trong prompt gốc: ${rescued.map((a) => a.provider).join(',')}`,
+    );
+    return [...shown, ...rescued];
   }
 
   /**

@@ -467,6 +467,104 @@ describe('SupervisorService', () => {
       expect(mockEmbeddingProvider.embed).toHaveBeenCalledTimes(4);
     });
 
+    it('accuracy_problem.md mục 9.3 — rescues an agent explicitly named in the prompt even when ranking excludes it (compound-intent prompt)', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'respond',
+        answer: 'ok',
+      });
+      const agents = [
+        ...manyAgents(ORCHESTRATION_CONSTANTS.MAX_AGENTS_BEFORE_RANKING), // 8 agent, chiếm hết top-6
+        {
+          provider: 'google_sheets',
+          label: 'Google Sheets',
+          description: 'Ghi dữ liệu vào bảng tính Google Sheets.',
+        },
+      ];
+      // Mô phỏng ĐÚNG lỗ hổng mục 9.3: query (search(), texts.length === 1)
+      // luôn ra vector GẦN cụm "agent_0..7", XA "Google Sheets" — dù prompt
+      // NHẮC RÕ TÊN "Google Sheets" — mô tả CỦA agent_0..7 (build(), texts
+      // dài hơn 1) cũng cố định [1,0] để luôn thắng ranking so với sheets [0,1].
+      mockEmbeddingProvider.embed.mockImplementation(async (texts: string[]) =>
+        texts.length === 1
+          ? [[1, 0]]
+          : texts.map((t) =>
+              t.toLowerCase().includes('sheets') ? [0, 1] : [1, 0],
+            ),
+      );
+
+      await service.plan(
+        'lấy dữ liệu bán hàng rồi lưu vào Google Sheets',
+        agents,
+      );
+
+      const sentInstruction =
+        mockStrategy.generateStructured.mock.calls[0][0].systemInstruction;
+      // google_sheets bị ranking loại (luôn thua agent_0..7) NHƯNG được cứu lại
+      // vì prompt gọi thẳng tên nó.
+      expect(sentInstruction).toContain('google_sheets (Google Sheets)');
+    });
+
+    it('accuracy_problem.md mục 9.3 — does NOT rescue an agent that is neither ranked in top-K NOR named in the prompt — residual risk left as-is', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'respond',
+        answer: 'ok',
+      });
+      const agents = [
+        ...manyAgents(ORCHESTRATION_CONSTANTS.MAX_AGENTS_BEFORE_RANKING),
+        {
+          provider: 'google_sheets',
+          label: 'Google Sheets',
+          description: 'Ghi dữ liệu vào bảng tính Google Sheets.',
+        },
+      ];
+      mockEmbeddingProvider.embed.mockImplementation(async (texts: string[]) =>
+        texts.length === 1
+          ? [[1, 0]]
+          : texts.map((t) =>
+              t.toLowerCase().includes('sheets') ? [0, 1] : [1, 0],
+            ),
+      );
+
+      // Prompt KHÔNG nhắc tên "Google Sheets" — chỉ nói ý định ngầm.
+      await service.plan('lấy dữ liệu bán hàng rồi lưu kết quả lại', agents);
+
+      const sentInstruction =
+        mockStrategy.generateStructured.mock.calls[0][0].systemInstruction;
+      expect(sentInstruction).not.toContain('google_sheets');
+      expect(sentInstruction).toContain(
+        'hệ thống khác đã kết nối nhưng không liên quan tới câu hỏi này',
+      );
+    });
+
+    it('accuracy_problem.md mục 9.3 — does not rescue an agent whose label is too short (MIN_AGENT_LABEL_LENGTH_FOR_RESCUE) to avoid false positives', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'respond',
+        answer: 'ok',
+      });
+      const agents = [
+        ...manyAgents(ORCHESTRATION_CONSTANTS.MAX_AGENTS_BEFORE_RANKING),
+        {
+          provider: 'short_label_agent',
+          label: 'X',
+          description: 'Hệ thống nhãn ngắn.',
+        },
+      ];
+      mockEmbeddingProvider.embed.mockImplementation(async (texts: string[]) =>
+        texts.length === 1
+          ? [[1, 0]]
+          : texts.map((t) =>
+              t.toLowerCase().includes('nhãn ngắn') ? [0, 1] : [1, 0],
+            ),
+      );
+
+      // Prompt tình cờ chứa ký tự "x" — KHÔNG được rescue vì nhãn quá ngắn.
+      await service.plan('lấy dữ liệu x rồi tổng hợp lại', agents);
+
+      const sentInstruction =
+        mockStrategy.generateStructured.mock.calls[0][0].systemInstruction;
+      expect(sentInstruction).not.toContain('short_label_agent');
+    });
+
     it('falls back to listing every agent unranked (no throw) when the embedding provider fails', async () => {
       mockStrategy.generateStructured.mockResolvedValue({
         action: 'respond',
