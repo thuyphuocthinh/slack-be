@@ -280,11 +280,16 @@ export class McpClientService {
   // server mỗi lần ReactLoopService.run() dựng systemInstruction, kể cả khi
   // CÙNG 1 provider được delegate nhiều lần trong CÙNG 1 kế hoạch (VD đọc rồi
   // ghi SQL) — lãng phí network/latency vô ích vì nội dung này thường tĩnh.
-  // Cache riêng theo (provider, uri) — CHỈ áp dụng cho provider TĨNH trong
-  // AGENT_REGISTRY (getResources() trả rỗng cho dynamic provider ngay từ đầu,
-  // xem trên), nên số lượng key bị bound chặt (không tăng theo user/turn) —
-  // giống lý do toolsCache/resourcesCache/promptsCache cũng không cần cron dọn.
-  // TTL riêng, NGẮN hơn MCP_TOOLS_CACHE_TTL_MS (xem giải thích tại hằng số đó).
+  // Cache riêng theo (provider, ownerId, uri) — BẮT BUỘC có ownerId trong key:
+  // connectClient() gắn header X-Owner-Id RIÊNG cho từng user (xem trên) nên
+  // NỘI DUNG trả về cho CÙNG 1 uri được PHÉP khác nhau theo từng user (VD
+  // Notion/Google Docs — mỗi user 1 workspace/token riêng dù danh sách URI
+  // dùng chung 1 tên). Bỏ sót ownerId (bug thật đã tự gây ra ở lần thêm cache
+  // này) sẽ khiến User B trong cùng cửa sổ TTL nhận nhầm NGUYÊN VĂN nội dung
+  // của User A. CHỈ áp dụng cho provider TĨNH trong AGENT_REGISTRY (getResources()
+  // trả rỗng cho dynamic provider ngay từ đầu, xem trên) — số lượng key vẫn
+  // bound theo (provider × ownerId thực tế đang hoạt động), không cần cron dọn
+  // riêng vì đã có TTL ngắn tự làm mới liên tục.
   private readonly resourceContentCache = new Map<
     string,
     { data: string; fetchedAt: number }
@@ -295,7 +300,7 @@ export class McpClientService {
     uri: string,
     ownerId?: string,
   ): Promise<string> {
-    const cacheKey = `${provider}:${uri}`;
+    const cacheKey = `${provider}:${ownerId ?? '__anon__'}:${uri}`;
     const cached = this.resourceContentCache.get(cacheKey);
     if (
       cached &&

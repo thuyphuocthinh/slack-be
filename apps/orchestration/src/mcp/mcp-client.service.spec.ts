@@ -590,6 +590,43 @@ describe('McpClientService', () => {
         expect(mockReadResource).toHaveBeenCalledTimes(2);
       });
 
+      it("bug thật đã tự gây ra — NEVER serves user A's cached content to user B for the SAME (provider, uri): cache key phải bao gồm ownerId", async () => {
+        mockReadResource
+          .mockResolvedValueOnce({
+            contents: [{ text: 'nội dung của user A' }],
+          })
+          .mockResolvedValueOnce({
+            contents: [{ text: 'nội dung của user B' }],
+          });
+
+        const forUserA = await service.readResource(
+          'sql_server',
+          'file://shared-uri',
+          'user-A',
+        );
+        const forUserB = await service.readResource(
+          'sql_server',
+          'file://shared-uri',
+          'user-B',
+        );
+
+        expect(forUserA).toBe('nội dung của user A');
+        expect(forUserB).toBe('nội dung của user B');
+        // Mỗi user phải đọc LIVE riêng — không được lẫn cache của nhau.
+        expect(mockReadResource).toHaveBeenCalledTimes(2);
+      });
+
+      it('still caches per-user across repeated calls (same provider, same uri, same ownerId)', async () => {
+        mockReadResource.mockResolvedValue({
+          contents: [{ text: 'nội dung A' }],
+        });
+
+        await service.readResource('sql_server', 'file://shared-uri', 'user-A');
+        await service.readResource('sql_server', 'file://shared-uri', 'user-A');
+
+        expect(mockReadResource).toHaveBeenCalledTimes(1);
+      });
+
       it('re-reads from the MCP server after MCP_RESOURCE_CONTENT_CACHE_TTL_MS elapses', async () => {
         jest.useFakeTimers();
         mockReadResource.mockResolvedValue({ contents: [{ text: 'line 1' }] });
