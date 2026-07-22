@@ -439,6 +439,118 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
     expect(result.content).toBe('Khớp: A, B — không tìm thấy: C');
   });
 
+  // accuracy_problem.md mục 12 — ACTION_TASK_KEYWORDS/VERIFICATION_TASK_KEYWORDS
+  // (mục 6/11) chỉ match từ khoá tiếng Việt/Anh trong `task` — user hỏi bằng
+  // ngôn ngữ THỨ 3 (VD tiếng Pháp) khiến plan() có thể sinh `task` bằng ngôn
+  // ngữ đó, không khớp từ khoá nào, lưới an toàn cũ im re. Fix: field
+  // "mustExecute" (boolean cố định, model tự phán đoán NGỮ NGHĨA — không phải
+  // match chuỗi) đi kèm mỗi step, độc lập hoàn toàn với ngôn ngữ của `task`.
+  it('accuracy_problem.md mục 12 — KHÔNG bỏ dở bước KIỂM TRA dù `task` viết bằng ngôn ngữ KHÁC (không phải tiếng Việt/Anh), nhờ "mustExecute" thay vì từ khoá', async () => {
+    mockSupervisor.plan.mockResolvedValue({
+      action: 'plan',
+      steps: [
+        {
+          agent: 'sql_server',
+          task: 'obtenir toutes les données de la table Customers',
+          mustExecute: false,
+        },
+        {
+          agent: 'sql_server',
+          task: 'vérifier si les enregistrements correspondent à la liste {A, B, C}',
+          mustExecute: true,
+        },
+      ],
+    });
+    mockReactLoop.run
+      .mockResolvedValueOnce({
+        answer: '51 lignes récupérées',
+        toolCalls: [
+          { tool: 'sql_server.execute_read_only_query', status: 'success' },
+        ],
+      })
+      .mockResolvedValueOnce({
+        answer: 'Correspond: A, B — introuvable: C',
+        toolCalls: [
+          { tool: 'sql_server.execute_read_only_query', status: 'success' },
+        ],
+      });
+    // Bug (nếu chỉ dựa từ khoá): evaluate() trả "done" ngay sau bước "read",
+    // và `task` bước "verify" không chứa bất kỳ từ khoá tiếng Việt/Anh nào
+    // trong ACTION_TASK_KEYWORDS/VERIFICATION_TASK_KEYWORDS.
+    mockSupervisor.evaluate.mockResolvedValueOnce({ verdict: 'done' });
+    mockSupervisor.synthesize.mockResolvedValue(
+      'Correspond: A, B — introuvable: C',
+    );
+
+    const result = await resolve();
+
+    expect(mockReactLoop.run).toHaveBeenCalledTimes(2);
+    expect(mockReactLoop.run).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        provider: 'sql_server',
+        prompt: expect.stringContaining('vérifier si les enregistrements'),
+      }),
+    );
+    expect(result.content).toBe('Correspond: A, B — introuvable: C');
+  });
+
+  // accuracy_problem.md mục 12 (tiếp) — lý do đổi enum 'read'|'write'|'verify'
+  // sang boolean "mustExecute": bước TÍNH TOÁN/TỔNG HỢP dựa trên dữ liệu đã lấy
+  // (không ghi vào đâu, không phải so sánh đúng/sai) không thuộc rõ loại nào
+  // trong 3 loại cũ — dùng enum, model dễ gán nhầm "read" (vì không "ghi" đi
+  // đâu) khiến lưới an toàn bỏ sót. Boolean hỏi thẳng đúng câu cần biết ("bỏ
+  // qua được không") nên không bị giới hạn bởi 1 danh sách loại hành động.
+  it('accuracy_problem.md mục 12 — KHÔNG bỏ dở bước TÍNH TOÁN/TỔNG HỢP (không phải write, không phải verify — loại mà enum cũ bỏ sót)', async () => {
+    mockSupervisor.plan.mockResolvedValue({
+      action: 'plan',
+      steps: [
+        {
+          agent: 'sql_server',
+          task: 'lấy toàn bộ đơn hàng quý này từ bảng Orders',
+          mustExecute: false,
+        },
+        {
+          agent: 'sql_server',
+          task: 'tính tổng doanh số từ danh sách đơn hàng vừa lấy',
+          mustExecute: true,
+        },
+      ],
+    });
+    mockReactLoop.run
+      .mockResolvedValueOnce({
+        answer: 'Đã lấy 320 đơn hàng',
+        toolCalls: [
+          { tool: 'sql_server.execute_read_only_query', status: 'success' },
+        ],
+      })
+      .mockResolvedValueOnce({
+        answer: 'Tổng doanh số quý này: 1.250.000.000đ',
+        toolCalls: [
+          { tool: 'sql_server.execute_read_only_query', status: 'success' },
+        ],
+      });
+    // Bug (nếu chỉ dựa từ khoá cũ hoặc enum read/write/verify): bước "tính
+    // tổng" không chứa từ khoá GHI/KIỂM TRA nào, và không phải write/verify —
+    // evaluate() trả "done" ngay sau bước lấy dữ liệu thô sẽ bị bỏ lọt.
+    mockSupervisor.evaluate.mockResolvedValueOnce({ verdict: 'done' });
+    mockSupervisor.synthesize.mockResolvedValue(
+      'Tổng doanh số quý này: 1.250.000.000đ',
+    );
+
+    const result = await resolve();
+
+    expect(mockReactLoop.run).toHaveBeenCalledTimes(2);
+    expect(mockReactLoop.run).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        provider: 'sql_server',
+        prompt: expect.stringContaining('tính tổng doanh số'),
+      }),
+    );
+    expect(result.content).toBe('Tổng doanh số quý này: 1.250.000.000đ');
+  });
+
   describe('trace UI — step_start events (FE hiện trace theo từng bước, giống Claude Code)', () => {
     it('emits a step_start event with a human-readable label BEFORE reactLoop.run(), on the SAME streamKey', async () => {
       mockSupervisor.plan.mockResolvedValue({

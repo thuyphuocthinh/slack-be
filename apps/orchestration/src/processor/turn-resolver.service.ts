@@ -583,15 +583,24 @@ export class TurnResolverService {
     );
   }
 
-  // accuracy_problem.md mục 6/11 — xem ghi chú ACTION_TASK_KEYWORDS/
-  // VERIFICATION_TASK_KEYWORDS ở đầu file. Chỉ nhận diện THEO TỪ KHOÁ trong
-  // `task` do CHÍNH plan() sinh ra (không phải câu hỏi gốc của user — text mơ
-  // hồ hơn nhiều, dễ false-positive) nên rủi ro sai thấp: `task` của plan()
-  // luôn là 1 câu mô tả NGẮN GỌN, TRỰC TIẾP đúng việc agent đó cần làm (xem
-  // SUPERVISOR_PLANNING_PROMPT), không phải văn bản tự do dài dòng dễ chứa từ
-  // khoá "ăn theo" tình cờ.
+  // accuracy_problem.md mục 6/11/12. HAI lớp ĐỘC LẬP, OR với nhau — lớp nào
+  // bắt được cũng đủ ép continue, không lớp nào che lớp kia:
+  // (1) field "mustExecute" (boolean cố định do CHÍNH plan() gán tường minh,
+  //     xem DelegationDto/SUPERVISOR_PLAN_SCHEMA) — nhận diện ĐÚNG dù user hỏi
+  //     bằng ngôn ngữ bất kỳ, không bị giới hạn bởi 1 danh sách loại hành động
+  //     cố định (đã từng dùng enum 'read'|'write'|'verify' nhưng lọt bước TÍNH
+  //     TOÁN/TỔNG HỢP dựa trên dữ liệu đã lấy — không phải write cũng chẳng
+  //     phải verify).
+  // (2) từ khoá ACTION_TASK_KEYWORDS/VERIFICATION_TASK_KEYWORDS (tiếng Việt/Anh)
+  //     trên CHÍNH `task` — LUÔN chạy, kể cả khi model đã điền mustExecute —
+  //     phòng trường hợp model điền SAI "mustExecute: false" cho 1 bước thật ra
+  //     PHẢI chạy (model chỉ là 1 phán đoán, có thể sai) nhưng `task` vẫn lộ rõ
+  //     từ khoá hành động. Bỏ OR này đi (chỉ dùng fallback khi field "thiếu")
+  //     sẽ làm lưới an toàn YẾU HƠN bản gốc — trước đây từ khoá luôn chạy vô
+  //     điều kiện trên MỌI step.
   private hasPendingActionStep(steps: DelegationDto[]): boolean {
     return steps.some((s) => {
+      if (s.mustExecute === true) return true;
       const taskLower = s.task.toLowerCase();
       return (
         ACTION_TASK_KEYWORDS.some((kw) => taskLower.includes(kw)) ||

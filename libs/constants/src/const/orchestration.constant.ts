@@ -160,7 +160,8 @@ export const SUPERVISOR_PLANNING_PROMPT = `Bạn là bộ điều phối (Superv
   QUAN TRỌNG — "đã đủ dữ liệu để trả lời trọn vẹn" KHÔNG áp dụng nếu câu hỏi gốc có yêu cầu 1 HÀNH ĐỘNG rõ ràng (GHI/TẠO/THÊM/SỬA/XOÁ dữ liệu vào 1 hệ thống cụ thể — VD "...rồi chèn/lưu/cập nhật X vào Y") mà hành động đó CHƯA có trong các bước đã thực hiện trước đó. Chỉ mới có dữ liệu để TRÌNH BÀY (VD vừa lấy được danh sách cần chèn) không phải là đã hoàn thành yêu cầu — trường hợp này PHẢI chọn "plan" và đưa bước hành động còn thiếu đó vào "steps", TUYỆT ĐỐI không "respond" bằng cách mô tả lại dữ liệu rồi hỏi user có muốn thực hiện hành động đó không.
 - "plan": chọn khi câu hỏi cần dữ liệu/thao tác thật từ 1 hoặc nhiều hệ thống trong danh sách bên dưới mà CHƯA thu thập đủ. Điền field "steps" là 1 mảng ĐÚNG THỨ TỰ THỰC HIỆN, liệt kê TOÀN BỘ các bước CÒN LẠI cần làm (không chỉ bước đầu tiên) — mỗi phần tử gồm "agent" (đúng provider id trong danh sách, không tự bịa provider không có) và "task" (1 câu mô tả ngắn gọn, CHỈ chứa đúng phần việc agent đó cần làm). Nếu 1 bước sau cần dùng KẾT QUẢ THẬT của bước trước (VD: lấy dữ liệu từ hệ thống A rồi ghi vào hệ thống B), vẫn liệt kê ĐỦ CẢ 2 bước theo đúng thứ tự — hệ thống sẽ tự chạy tuần tự và đưa kết quả thật của bước trước vào bước sau, bạn KHÔNG cần (và không nên) tự đoán trước kết quả của bước chưa chạy.
   QUAN TRỌNG — mỗi agent CHỈ thấy được tool của ĐÚNG hệ thống nó phụ trách, KHÔNG thấy được tool của agent khác. Nếu yêu cầu có bước GHI/TẠO/CẬP NHẬT dữ liệu vào 1 hệ thống lưu trữ CỤ THỂ (VD 1 bảng CSDL, 1 CRM...), PHẢI liệt kê đúng agent quản lý hệ thống đó làm 1 bước RIÊNG trong "steps" — TUYỆT ĐỐI không giao việc ghi dữ liệu cho agent lấy dữ liệu nguồn (VD 1 API bên thứ 3) tự tìm tool gần giống để "giả lập" việc ghi dữ liệu, vì agent đó không có quyền/tool để làm việc này.
-  Ví dụ ĐÚNG: yêu cầu "lấy danh sách nhân viên mới từ hệ thống HR rồi ghi vào bảng payroll" → "steps": [{"agent": "hr_system", "task": "lấy danh sách nhân viên mới"}, {"agent": "sql_server", "task": "ghi danh sách nhân viên mới vào bảng payroll"}] — HAI bước tách biệt, đúng 2 agent khác nhau, KHÔNG gộp chung 1 bước, KHÔNG bỏ sót bước ghi dữ liệu, KHÔNG giao cả 2 việc cho "hr_system".
+  Ví dụ ĐÚNG: yêu cầu "lấy danh sách nhân viên mới từ hệ thống HR rồi ghi vào bảng payroll" → "steps": [{"agent": "hr_system", "task": "lấy danh sách nhân viên mới", "mustExecute": false}, {"agent": "sql_server", "task": "ghi danh sách nhân viên mới vào bảng payroll", "mustExecute": true}] — HAI bước tách biệt, đúng 2 agent khác nhau, KHÔNG gộp chung 1 bước, KHÔNG bỏ sót bước ghi dữ liệu, KHÔNG giao cả 2 việc cho "hr_system".
+  Mỗi bước PHẢI kèm "mustExecute" (boolean, không phụ thuộc ngôn ngữ câu hỏi gốc): đặt "false" CHỈ khi bước đó thuần tuý KHÁM PHÁ/LẤY THÊM dữ liệu để tham khảo và có thể trở nên KHÔNG CẦN THIẾT nếu 1 bước khác đã đủ dữ liệu (an toàn để bỏ qua). Đặt "true" cho MỌI bước mà kết quả của nó là bắt buộc phải có để câu trả lời cuối cùng đúng và đầy đủ — bao gồm nhưng KHÔNG giới hạn ở: ghi/tạo/thêm/sửa/xoá dữ liệu vào 1 hệ thống; kiểm tra/so sánh/đối chiếu/xác nhận để ra kết luận đúng/sai/có/không/khớp; TÍNH TOÁN/TỔNG HỢP/PHÂN LOẠI/PHÂN TÍCH dựa trên dữ liệu đã lấy (VD tính tổng, tính trung bình, nhóm theo tiêu chí); hoặc bất kỳ bước nào khác mà thiếu nó câu trả lời sẽ không trọn vẹn. Khi không chắc, LUÔN chọn "true" — bỏ sót 1 bước "true" gây câu trả lời sai/thiếu, còn thừa 1 bước "true" chỉ tốn thêm 1 lượt chạy không đáng kể.
 
 Nếu prompt có kèm "Các bước đã thực hiện trong turn này" — đó là kết quả các bước ĐÃ CHẠY ở (các) lần lập kế hoạch trước trong CÙNG 1 turn (có thể qua nhiều lần duyệt HITL), không phải lịch sử chat cũ. Đọc kỹ để quyết định đã đủ chưa, tránh lập lại kế hoạch trùng việc đã làm.
 
@@ -254,8 +255,13 @@ export const SUPERVISOR_PLAN_SCHEMA = {
         properties: {
           agent: { type: 'string' },
           task: { type: 'string' },
+          mustExecute: {
+            type: 'boolean',
+            description:
+              'false CHỈ khi bước này thuần khám phá/lấy thêm dữ liệu, có thể bỏ qua an toàn nếu bước khác đã đủ dữ liệu. true cho MỌI bước mà kết quả của nó bắt buộc phải có để câu trả lời đúng/đầy đủ (ghi/sửa/xoá dữ liệu, kiểm tra/so sánh, tính toán/tổng hợp/phân loại dựa trên dữ liệu đã lấy, ...). Khi không chắc, chọn true.',
+          },
         },
-        required: ['agent', 'task'],
+        required: ['agent', 'task', 'mustExecute'],
       },
     },
   },
@@ -288,8 +294,13 @@ export const SUPERVISOR_PLAN_SCHEMA_NO_ANSWER = {
         properties: {
           agent: { type: 'string' },
           task: { type: 'string' },
+          mustExecute: {
+            type: 'boolean',
+            description:
+              'false CHỈ khi bước này thuần khám phá/lấy thêm dữ liệu, có thể bỏ qua an toàn nếu bước khác đã đủ dữ liệu. true cho MỌI bước mà kết quả của nó bắt buộc phải có để câu trả lời đúng/đầy đủ (ghi/sửa/xoá dữ liệu, kiểm tra/so sánh, tính toán/tổng hợp/phân loại dựa trên dữ liệu đã lấy, ...). Khi không chắc, chọn true.',
+          },
         },
-        required: ['agent', 'task'],
+        required: ['agent', 'task', 'mustExecute'],
       },
     },
   },
