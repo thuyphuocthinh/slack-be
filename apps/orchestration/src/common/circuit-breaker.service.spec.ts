@@ -4,6 +4,22 @@ import { ORCHESTRATION_CONSTANTS } from '@slack/constants';
 import { CircuitBreakerService } from './circuit-breaker.service';
 import { MetricsRegistryService } from './metrics-registry.service';
 
+const VOLUME_THRESHOLD =
+  ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_VOLUME_THRESHOLD;
+
+// performance_problem.md mục 1 — số lần cần thiết để mở mạch đọc THẲNG từ
+// constant (không hardcode), để việc tinh chỉnh VOLUME_THRESHOLD sau này
+// không làm sai lệch ý nghĩa của các test này.
+async function tripCircuit(
+  service: CircuitBreakerService,
+  key: string,
+  action: jest.Mock,
+): Promise<void> {
+  for (let i = 0; i < VOLUME_THRESHOLD; i++) {
+    await expect(service.run(key, action)).rejects.toThrow();
+  }
+}
+
 describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
   let service: CircuitBreakerService;
 
@@ -33,14 +49,13 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
       .fn()
       .mockRejectedValue(new Error('connect ECONNREFUSED'));
 
-    await expect(service.run('mcp:flaky', action)).rejects.toThrow(
-      'connect ECONNREFUSED',
-    );
-    await expect(service.run('mcp:flaky', action)).rejects.toThrow(
-      'connect ECONNREFUSED',
-    );
+    for (let i = 0; i < VOLUME_THRESHOLD - 1; i++) {
+      await expect(service.run('mcp:flaky', action)).rejects.toThrow(
+        'connect ECONNREFUSED',
+      );
+    }
 
-    expect(action).toHaveBeenCalledTimes(2);
+    expect(action).toHaveBeenCalledTimes(VOLUME_THRESHOLD - 1);
   });
 
   it('opens the circuit after crossing the failure volume/percentage threshold, then fails fast WITHOUT calling the action again', async () => {
@@ -48,17 +63,9 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
       .fn()
       .mockRejectedValue(new Error('connect ECONNREFUSED'));
 
-    // CIRCUIT_BREAKER_VOLUME_THRESHOLD = 3, 100% lỗi -> mở mạch ngay sau lần thứ 3.
-    await expect(service.run('mcp:down', action)).rejects.toThrow(
-      'connect ECONNREFUSED',
-    );
-    await expect(service.run('mcp:down', action)).rejects.toThrow(
-      'connect ECONNREFUSED',
-    );
-    await expect(service.run('mcp:down', action)).rejects.toThrow(
-      'connect ECONNREFUSED',
-    );
-    expect(action).toHaveBeenCalledTimes(3);
+    // 100% lỗi -> mở mạch ngay sau đủ VOLUME_THRESHOLD lần.
+    await tripCircuit(service, 'mcp:down', action);
+    expect(action).toHaveBeenCalledTimes(VOLUME_THRESHOLD);
 
     const error = await service.run('mcp:down', action).catch((e) => e);
 
@@ -69,24 +76,23 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
         message: expect.stringContaining('key=mcp:down'),
       }),
     );
-    expect(action).toHaveBeenCalledTimes(3); // KHÔNG tăng thêm — action không được gọi khi mạch đang OPEN
+    expect(action).toHaveBeenCalledTimes(VOLUME_THRESHOLD); // KHÔNG tăng thêm — action không được gọi khi mạch đang OPEN
   });
 
   it('does not open the circuit when failures stay below the volume threshold', async () => {
     const action = jest.fn().mockRejectedValue(new Error('timeout'));
 
-    await expect(service.run('mcp:sometimes', action)).rejects.toThrow(
-      'timeout',
-    );
-    await expect(service.run('mcp:sometimes', action)).rejects.toThrow(
-      'timeout',
-    ); // 2 lần, dưới VOLUME_THRESHOLD=3
+    for (let i = 0; i < VOLUME_THRESHOLD - 1; i++) {
+      await expect(service.run('mcp:sometimes', action)).rejects.toThrow(
+        'timeout',
+      ); // dưới VOLUME_THRESHOLD, chưa đủ để mở mạch
+    }
 
     action.mockResolvedValueOnce('recovered');
     const result = await service.run('mcp:sometimes', action);
 
     expect(result).toBe('recovered');
-    expect(action).toHaveBeenCalledTimes(3);
+    expect(action).toHaveBeenCalledTimes(VOLUME_THRESHOLD);
   });
 
   it('half-opens and allows exactly one probe after resetTimeout, closing the circuit again when it succeeds', async () => {
@@ -95,13 +101,11 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
       .fn()
       .mockRejectedValue(new Error('connect ECONNREFUSED'));
 
-    await expect(service.run('mcp:recovering', action)).rejects.toThrow();
-    await expect(service.run('mcp:recovering', action)).rejects.toThrow();
-    await expect(service.run('mcp:recovering', action)).rejects.toThrow();
+    await tripCircuit(service, 'mcp:recovering', action);
     await expect(service.run('mcp:recovering', action)).rejects.toThrow(
       'CIRCUIT BREAKER OPEN',
     ); // fail fast
-    expect(action).toHaveBeenCalledTimes(3);
+    expect(action).toHaveBeenCalledTimes(VOLUME_THRESHOLD);
 
     await jest.advanceTimersByTimeAsync(
       ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_RESET_TIMEOUT_MS + 1,
@@ -111,7 +115,7 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
     const result = await service.run('mcp:recovering', action);
 
     expect(result).toBe('recovered');
-    expect(action).toHaveBeenCalledTimes(4); // probe (half-open) được cho qua
+    expect(action).toHaveBeenCalledTimes(VOLUME_THRESHOLD + 1); // probe (half-open) được cho qua
 
     // Mạch đã đóng lại — request tiếp theo chạy bình thường, không bị chặn nữa.
     action.mockResolvedValueOnce('ok again');
@@ -123,9 +127,7 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
     const brokenAction = jest.fn().mockRejectedValue(new Error('down'));
     const healthyAction = jest.fn().mockResolvedValue('ok');
 
-    await expect(service.run('mcp:broken', brokenAction)).rejects.toThrow();
-    await expect(service.run('mcp:broken', brokenAction)).rejects.toThrow();
-    await expect(service.run('mcp:broken', brokenAction)).rejects.toThrow();
+    await tripCircuit(service, 'mcp:broken', brokenAction);
     await expect(service.run('mcp:broken', brokenAction)).rejects.toThrow(
       'CIRCUIT BREAKER OPEN',
     );
@@ -149,9 +151,7 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
 
     it('reports "open" once the circuit trips', async () => {
       const action = jest.fn().mockRejectedValue(new Error('down'));
-      await expect(service.run('mcp:down', action)).rejects.toThrow();
-      await expect(service.run('mcp:down', action)).rejects.toThrow();
-      await expect(service.run('mcp:down', action)).rejects.toThrow();
+      await tripCircuit(service, 'mcp:down', action);
 
       expect(service.getStates()).toEqual({ 'mcp:down': 'open' });
     });
@@ -159,9 +159,7 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
     it('reports "halfOpen" right after resetTimeout elapses, then "closed" once the probe succeeds', async () => {
       jest.useFakeTimers();
       const action = jest.fn().mockRejectedValue(new Error('down'));
-      await expect(service.run('mcp:recovering', action)).rejects.toThrow();
-      await expect(service.run('mcp:recovering', action)).rejects.toThrow();
-      await expect(service.run('mcp:recovering', action)).rejects.toThrow();
+      await tripCircuit(service, 'mcp:recovering', action);
       expect(service.getStates()).toEqual({ 'mcp:recovering': 'open' });
 
       await jest.advanceTimersByTimeAsync(
@@ -177,9 +175,7 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
     it('keeps independent states per key', async () => {
       await service.run('mcp:healthy', jest.fn().mockResolvedValue('ok'));
       const brokenAction = jest.fn().mockRejectedValue(new Error('down'));
-      await expect(service.run('mcp:broken', brokenAction)).rejects.toThrow();
-      await expect(service.run('mcp:broken', brokenAction)).rejects.toThrow();
-      await expect(service.run('mcp:broken', brokenAction)).rejects.toThrow();
+      await tripCircuit(service, 'mcp:broken', brokenAction);
 
       expect(service.getStates()).toEqual({
         'mcp:healthy': 'closed',

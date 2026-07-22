@@ -9,7 +9,7 @@ import {
   IProcessAiTriggerJobData,
   IProcessApprovalJobData,
 } from '@slack/queue';
-import { ORCHESTRATION_ERROR } from '@slack/constants';
+import { ORCHESTRATION_CONSTANTS, ORCHESTRATION_ERROR } from '@slack/constants';
 import { MessageClientService } from '../message-client.service';
 import { AgentStreamService } from '../socket/agent-stream.service';
 import { describeExternalServiceError } from '../llm/external-service-error.util';
@@ -28,7 +28,7 @@ type AiOrchestrationJobData =
 // hiển thị kết quả) — vòng lặp Supervisor nằm ở TurnResolverService, toàn bộ
 // luồng duyệt/thực thi HITL nằm ở ApprovalFlowService.
 @Processor(EQueueName.AI_ORCHESTRATION_QUEUE, {
-  concurrency: 5,
+  concurrency: ORCHESTRATION_CONSTANTS.AI_ORCHESTRATION_QUEUE_CONCURRENCY,
   lockDuration: 60000,
   maxStalledCount: 1,
 })
@@ -66,7 +66,8 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         // hàng loạt trace lẻ (openai.sendMessage, mcp.callTool...) không liên
         // kết, thay vì đúng "1 lần duyệt = 1 trace".
         const traced = traceable(
-          (d: IProcessApprovalJobData) => this.approvalFlow.processApprovalJob(d),
+          (d: IProcessApprovalJobData) =>
+            this.approvalFlow.processApprovalJob(d),
           {
             name: 'ai-orchestration-approval',
             metadata: { checkpointId: data.checkpointId, userId: data.userId },

@@ -48,18 +48,29 @@ export const ORCHESTRATION_CONSTANTS = {
   // chối thì CheckpointCleanupService tự reject, tránh 1 checkpoint bị bỏ
   // quên treo "pending" vĩnh viễn.
   CHECKPOINT_EXPIRY_MS: 24 * 60 * 60 * 1000,
-  // Giai đoạn 4, Step 6 — circuit breaker theo từng provider (MCP)/strategy
-  // (LLM). Ý nghĩa opossum: đủ VOLUME_THRESHOLD request trong cửa sổ đang xét
-  // MÀ tỉ lệ lỗi vượt ERROR_THRESHOLD_PERCENTAGE% thì mở circuit — request MỚI
-  // fail nhanh (không chờ hết LLM_CALL_TIMEOUT_MS/MCP_CALL_TIMEOUT_MS) trong
-  // RESET_TIMEOUT_MS tới, sau đó tự thử lại 1 request (half-open).
+  // performance_problem.md mục 1 — key circuit breaker (`llm:<strategy>`,
+  // `mcp:<provider>`) dùng CHUNG cho MỌI user đồng thời, không phân theo
+  // user/turn. VOLUME_THRESHOLD=3 hợp lý ở tải THẤP nhưng ở tải CAO (hàng
+  // trăm request đồng thời), chỉ vài lỗi KHÔNG LIÊN QUAN gì tới nhau (VD
+  // timeout mạng thoáng qua) cũng đủ chạm ngưỡng 50%/3 — mở mạch OAN cho TẤT
+  // CẢ user khác trong RESET_TIMEOUT_MS, dù phần lớn request khác lẽ ra vẫn
+  // chạy ổn. Nâng lên 20 để cần 1 lượng mẫu đủ lớn mới kết luận "provider THẬT
+  // SỰ đang sập" (đúng ý nghĩa circuit breaker), giảm rủi ro trip oan do
+  // nhiễu ngẫu nhiên khi nhiều user dùng chung 1 khoá.
   CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENTAGE: 50,
-  CIRCUIT_BREAKER_VOLUME_THRESHOLD: 3,
+  CIRCUIT_BREAKER_VOLUME_THRESHOLD: 20,
   CIRCUIT_BREAKER_RESET_TIMEOUT_MS: 30_000,
+  // performance_problem.md mục 1 — worker xử lý MỌI job (trigger AI mới lẫn
+  // approval HITL) của TẤT CẢ user. Việc bên trong chủ yếu là CHỜ I/O (LLM/MCP
+  // qua mạng), không nặng CPU — nâng hẳn từ 5 lên 30 để tăng thông lượng
+  // turn/giây, backpressure THẬT (bảo vệ downstream) đã nằm ở
+  // MAX_CONCURRENT_MCP_CALLS_PER_PROVIDER + circuit breaker riêng, không phải
+  // con số này.
+  AI_ORCHESTRATION_QUEUE_CONCURRENCY: 30,
   // Backpressure/Admission control — waiting+active job của AI_ORCHESTRATION_QUEUE
   // vượt ngưỡng này thì từ chối enqueue thêm (báo "đang bận") thay vì để hàng
-  // đợi phình vô hạn (concurrency worker chỉ 5, quá tải là dồn ứ chứ không tự
-  // xử lý nhanh hơn).
+  // đợi phình vô hạn (quá tải là dồn ứ chứ không tự xử lý nhanh hơn ngay cả
+  // sau khi nâng AI_ORCHESTRATION_QUEUE_CONCURRENCY).
   MAX_ORCHESTRATION_QUEUE_DEPTH: 100,
   // Giai đoạn System, mục 4 — chặn LLM tự gọi lại CÙNG 1 tool với CÙNG tham số
   // trong 1 lượt run(). = 1 nghĩa là CHỈ CHO PHÉP ĐÚNG 1 LẦN GỌI THẬT cho mỗi
@@ -80,11 +91,14 @@ export const ORCHESTRATION_CONSTANTS = {
   MAX_TRANSIENT_TOOL_RETRY_ATTEMPTS: 2,
   TRANSIENT_RETRY_BACKOFF_MS: 500,
   // Giai đoạn System, mục 5.2 — giới hạn số request đồng thời được phép dồn
-  // vào CÙNG 1 MCP provider, độc lập với concurrency:5 (global) của BullMQ
-  // worker. Circuit breaker chỉ phản ứng SAU khi đã đủ lỗi (reactive) — giới
-  // hạn này ngăn TRƯỚC việc nhiều user tình cờ dồn tải vào 1 downstream service
-  // yếu cùng lúc.
-  MAX_CONCURRENT_MCP_CALLS_PER_PROVIDER: 3,
+  // vào CÙNG 1 MCP provider, độc lập với AI_ORCHESTRATION_QUEUE_CONCURRENCY
+  // (global) của BullMQ worker. Circuit breaker chỉ phản ứng SAU khi đã đủ lỗi
+  // (reactive) — giới hạn này ngăn TRƯỚC việc nhiều user tình cờ dồn tải vào 1
+  // downstream service yếu cùng lúc. performance_problem.md mục 1 — nâng từ 3
+  // lên 10 CÙNG LÚC với việc nâng AI_ORCHESTRATION_QUEUE_CONCURRENCY (5→30):
+  // giữ nguyên 3 sẽ biến giới hạn này thành nút thắt MỚI ngay khi có nhiều
+  // turn cùng dùng 1 provider chạy song song hơn.
+  MAX_CONCURRENT_MCP_CALLS_PER_PROVIDER: 10,
   // Giai đoạn System, mục 5.3 — client MCP không được dùng quá khoảng thời
   // gian này thì bị đóng + xoá khỏi cache (xem McpClientService.evictIdleClients),
   // tránh giữ socket/session mở vô thời hạn khi có nhiều user riêng biệt qua
