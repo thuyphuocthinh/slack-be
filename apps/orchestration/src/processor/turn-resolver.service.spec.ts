@@ -388,6 +388,57 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
     expect(result.content).toBe('Có 2 bảng: users, orders');
   });
 
+  // accuracy_problem.md mục 11 — bug thật gặp qua sử dụng: user hỏi "danh
+  // sách tên X có khớp bảng Customers không" — plan() tách thành (1) lấy dữ
+  // liệu, (2) kiểm tra/so sánh — nhưng evaluate() trả "done" ngay sau bước
+  // (1), bỏ qua hẳn bước (2) (bước THẬT SỰ đưa ra kết luận). Task của bước
+  // (2) không chứa từ khoá HÀNH ĐỘNG GHI nào (ACTION_TASK_KEYWORDS) nên lưới
+  // an toàn mục 6 (bản gốc) không bắt được — cần VERIFICATION_TASK_KEYWORDS.
+  it('accuracy_problem.md mục 11 — KHÔNG bỏ dở bước KIỂM TRA/SO SÁNH còn lại khi evaluate() trả "done" quá sớm', async () => {
+    mockSupervisor.plan.mockResolvedValue({
+      action: 'plan',
+      steps: [
+        { agent: 'sql_server', task: 'lấy tất cả dữ liệu từ bảng Customers' },
+        {
+          agent: 'sql_server',
+          task: 'kiểm tra xem có các record nào có name thuộc danh sách {A, B, C} trong bảng Customers',
+        },
+      ],
+    });
+    mockReactLoop.run
+      .mockResolvedValueOnce({
+        answer: 'Đã lấy toàn bộ 51 dòng từ bảng Customers',
+        toolCalls: [
+          { tool: 'sql_server.execute_read_only_query', status: 'success' },
+        ],
+      })
+      .mockResolvedValueOnce({
+        answer: 'Khớp: A, B — không tìm thấy: C',
+        toolCalls: [
+          { tool: 'sql_server.execute_read_only_query', status: 'success' },
+        ],
+      });
+    // Bug thật: evaluate() sai lầm trả "done" NGAY SAU bước lấy dữ liệu, dù
+    // bước "kiểm tra" vẫn còn nguyên trong `steps` — chưa hề chạy.
+    mockSupervisor.evaluate.mockResolvedValueOnce({ verdict: 'done' });
+    mockSupervisor.synthesize.mockResolvedValue(
+      'Khớp: A, B — không tìm thấy: C',
+    );
+
+    const result = await resolve();
+
+    // Bước "kiểm tra" PHẢI được thực thi — không bị bỏ dở giữa chừng.
+    expect(mockReactLoop.run).toHaveBeenCalledTimes(2);
+    expect(mockReactLoop.run).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        provider: 'sql_server',
+        prompt: expect.stringContaining('kiểm tra xem có các record nào'),
+      }),
+    );
+    expect(result.content).toBe('Khớp: A, B — không tìm thấy: C');
+  });
+
   describe('mục 3 (accuracy.v2.md) — planning-stage guardrail (chặn TRƯỚC khi thực thi 1 lựa chọn agent rành rành sai)', () => {
     const twoAgents = [
       { provider: 'sql_server', label: 'SQL Server', description: 'desc' },

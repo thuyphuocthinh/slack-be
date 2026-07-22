@@ -77,6 +77,26 @@ const ACTION_TASK_KEYWORDS = [
   'remove',
 ];
 
+// accuracy_problem.md mục 11 — bug thật gặp qua sử dụng: plan() tách 1 yêu
+// cầu "kiểm tra danh sách X có khớp bảng Y không" thành 2 bước — (1) lấy dữ
+// liệu, (2) kiểm tra/so sánh — nhưng evaluate() trả "done" ngay sau bước (1)
+// vì "đã có đủ dữ liệu để xác định", bỏ qua hẳn bước (2) — bước THẬT SỰ đưa
+// ra kết luận. ACTION_TASK_KEYWORDS ở trên không bắt được vì đây không phải
+// hành động GHI — cần 1 danh sách từ khoá RIÊNG cho việc bỏ dở bước KIỂM
+// TRA/SO SÁNH/XÁC ĐỊNH.
+const VERIFICATION_TASK_KEYWORDS = [
+  'kiểm tra',
+  'so sánh',
+  'xác định',
+  'đối chiếu',
+  'khớp',
+  'tồn tại',
+  'xác nhận',
+  'check',
+  'compare',
+  'verify',
+];
+
 // Giai đoạn 2/3 (Supervisor multi-round + HITL) — vòng lặp "Supervisor quyết
 // định respond/delegate" tách riêng khỏi AiOrchestrationProcessor (chỉ còn lo
 // vòng đời job/turn) và khỏi CheckpointPauseService (chỉ lo việc TẠO checkpoint).
@@ -543,16 +563,20 @@ export class TurnResolverService {
     );
   }
 
-  // accuracy_problem.md mục 6 — xem ghi chú ACTION_TASK_KEYWORDS ở đầu file.
-  // Chỉ nhận diện THEO TỪ KHOÁ trong `task` do CHÍNH plan() sinh ra (không phải
-  // câu hỏi gốc của user — text mơ hồ hơn nhiều, dễ false-positive) nên rủi ro
-  // sai thấp: `task` của plan() luôn là 1 câu mô tả NGẮN GỌN, TRỰC TIẾP đúng
-  // việc agent đó cần làm (xem SUPERVISOR_PLANNING_PROMPT), không phải văn bản
-  // tự do dài dòng dễ chứa từ khoá "ăn theo" tình cờ.
+  // accuracy_problem.md mục 6/11 — xem ghi chú ACTION_TASK_KEYWORDS/
+  // VERIFICATION_TASK_KEYWORDS ở đầu file. Chỉ nhận diện THEO TỪ KHOÁ trong
+  // `task` do CHÍNH plan() sinh ra (không phải câu hỏi gốc của user — text mơ
+  // hồ hơn nhiều, dễ false-positive) nên rủi ro sai thấp: `task` của plan()
+  // luôn là 1 câu mô tả NGẮN GỌN, TRỰC TIẾP đúng việc agent đó cần làm (xem
+  // SUPERVISOR_PLANNING_PROMPT), không phải văn bản tự do dài dòng dễ chứa từ
+  // khoá "ăn theo" tình cờ.
   private hasPendingActionStep(steps: DelegationDto[]): boolean {
     return steps.some((s) => {
       const taskLower = s.task.toLowerCase();
-      return ACTION_TASK_KEYWORDS.some((kw) => taskLower.includes(kw));
+      return (
+        ACTION_TASK_KEYWORDS.some((kw) => taskLower.includes(kw)) ||
+        VERIFICATION_TASK_KEYWORDS.some((kw) => taskLower.includes(kw))
+      );
     });
   }
 
@@ -576,10 +600,10 @@ export class TurnResolverService {
       if (!this.hasPendingActionStep(remainingSteps)) {
         return 'finalize';
       }
-      // Lưới an toàn rule-based (mục 6, xem ghi chú ACTION_TASK_KEYWORDS) —
-      // bác bỏ "done", coi như 'continue'.
+      // Lưới an toàn rule-based (mục 6/11, xem ghi chú ACTION_TASK_KEYWORDS/
+      // VERIFICATION_TASK_KEYWORDS) — bác bỏ "done", coi như 'continue'.
       this.logger.warn(
-        `evaluate() trả 'done' nhưng còn bước HÀNH ĐỘNG chưa chạy (${remainingSteps.map((s) => s.task).join('; ')}) — bác bỏ 'done', tiếp tục chạy nốt kế hoạch.`,
+        `evaluate() trả 'done' nhưng còn bước HÀNH ĐỘNG/KIỂM TRA chưa chạy (${remainingSteps.map((s) => s.task).join('; ')}) — bác bỏ 'done', tiếp tục chạy nốt kế hoạch.`,
       );
       return 'continue';
     }
