@@ -293,12 +293,18 @@ export class CheckpointPauseService {
     }
   }
 
-  // Ước lượng SỐ LIỆU chỉ khả thi cho sql_server.execute_write_query (đếm thử
-  // qua execute_read_only_query) — "đếm dòng ảnh hưởng" không có khái niệm
-  // tương đương cho GitHub/Google Docs/dynamic provider... Với MỌI tool khác
-  // (và cả khi ước lượng SQL thất bại), fallback KHÔNG còn là câu chung chung
-  // vô nghĩa nữa — hiện thẳng tham số THẬT sắp gửi đi (buildGenericArgsPreview),
-  // luôn có sẵn cho BẤT KỲ provider nào, không cần biết domain cụ thể.
+  // Ước lượng SỐ LIỆU chỉ khả thi cho sql_server.execute_write_query — "đếm
+  // dòng ảnh hưởng" không có khái niệm tương đương cho GitHub/Google Docs/
+  // dynamic provider... Với MỌI tool khác (và cả khi ước lượng SQL thất bại),
+  // fallback KHÔNG còn là câu chung chung vô nghĩa nữa — hiện thẳng tham số
+  // THẬT sắp gửi đi (buildGenericArgsPreview), luôn có sẵn cho BẤT KỲ provider
+  // nào, không cần biết domain cụ thể.
+  //
+  // mục 15 — 3 kind preview KHÁC NHAU (write-query-preview.util.ts):
+  // 'existing-rows' (UPDATE/DELETE) đếm THỬ qua execute_read_only_query như cũ;
+  // 'insert-rows' (INSERT ... VALUES) đếm TRỰC TIẾP từ câu lệnh, khỏi cần hỏi
+  // DB; 'whole-table-destructive' (TRUNCATE/DROP) cảnh báo THẲNG không cần đếm
+  // gì — huỷ CẢ bảng, số dòng không còn ý nghĩa.
   private async buildRiskPreview(
     pendingTool: PendingToolCall,
     userId: string,
@@ -310,7 +316,15 @@ export class CheckpointPauseService {
       const target = extractWriteQueryPreviewTarget(
         String(pendingTool.args?.query ?? ''),
       );
-      if (target) {
+      if (target?.kind === 'whole-table-destructive') {
+        const verb =
+          target.operation === 'TRUNCATE' ? 'XOÁ TOÀN BỘ DỮ LIỆU' : 'XOÁ HẲN';
+        return `⚠️ Sẽ ${verb} bảng "${target.table}" (${target.operation} — KHÔNG THỂ khôi phục).`;
+      }
+      if (target?.kind === 'insert-rows') {
+        return `Sẽ thêm ~${target.rowCount} dòng mới vào bảng "${target.table}".`;
+      }
+      if (target?.kind === 'existing-rows') {
         const count = await this.countAffectedRows(target, userId);
         if (count !== null) {
           return target.whereClause
@@ -334,7 +348,7 @@ export class CheckpointPauseService {
   }
 
   private async countAffectedRows(
-    target: WriteQueryPreviewTarget,
+    target: Extract<WriteQueryPreviewTarget, { kind: 'existing-rows' }>,
     userId: string,
   ): Promise<number | null> {
     const countQuery = target.whereClause

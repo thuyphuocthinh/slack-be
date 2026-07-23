@@ -353,9 +353,127 @@ describe('CheckpointPauseService', () => {
       );
     });
 
-    it('falls back to a generic args preview when the write query cannot be parsed (VD INSERT)', async () => {
+    // mục 15 — trước đây INSERT rơi về fallback chung ("không ước lượng
+    // được"). Giờ đếm TRỰC TIẾP số tuple trong VALUES, không cần hỏi DB.
+    it('accuracy_problem.md mục 15 — counts INSERT VALUES tuples DIRECTLY, no COUNT query needed', async () => {
       const approvalNeeded = buildApprovalNeeded({
-        args: { query: "INSERT INTO Orders (Status) VALUES ('Pending')" },
+        args: {
+          query:
+            "INSERT INTO Orders (Status) VALUES ('Pending'), ('Shipped'), ('Done')",
+        },
+      });
+
+      await service.pauseForApproval(
+        data,
+        originalPrompt,
+        [],
+        [],
+        [],
+        approvalNeeded,
+      );
+
+      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
+      expect(getPreview()).toBe('Sẽ thêm ~3 dòng mới vào bảng "Orders".');
+    });
+
+    it('accuracy_problem.md mục 15 — INSERT tuple counting respects nested parens (VD hàm NOW() lồng trong 1 tuple), không đếm nhầm', async () => {
+      const approvalNeeded = buildApprovalNeeded({
+        args: {
+          query:
+            "INSERT INTO Orders (Status, CreatedAt) VALUES ('Pending', NOW())",
+        },
+      });
+
+      await service.pauseForApproval(
+        data,
+        originalPrompt,
+        [],
+        [],
+        [],
+        approvalNeeded,
+      );
+
+      expect(getPreview()).toBe('Sẽ thêm ~1 dòng mới vào bảng "Orders".');
+    });
+
+    it('accuracy_problem.md mục 15 — UPDATE với table alias (cú pháp SQL bình thường mà regex gốc bỏ sót) vẫn ước lượng được', async () => {
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [{ type: 'text', text: '[{"affectedRows":5}]' }],
+      });
+      (extractTextFromMcpResult as jest.Mock).mockReturnValue(
+        '[{"affectedRows":5}]',
+      );
+      const approvalNeeded = buildApprovalNeeded({
+        args: {
+          query: "UPDATE Orders o SET o.Status='Completed' WHERE o.OrderId=1",
+        },
+      });
+
+      await service.pauseForApproval(
+        data,
+        originalPrompt,
+        [],
+        [],
+        [],
+        approvalNeeded,
+      );
+
+      expect(mockMcpClient.callTool).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: {
+            query:
+              'SELECT COUNT(*) AS affectedRows FROM Orders WHERE o.OrderId=1',
+          },
+        }),
+      );
+      expect(getPreview()).toBe('Sẽ ảnh hưởng ~5 dòng.');
+    });
+
+    it('accuracy_problem.md mục 15 — TRUNCATE TABLE cảnh báo THẲNG, không cần đếm gì (huỷ CẢ bảng)', async () => {
+      const approvalNeeded = buildApprovalNeeded({
+        args: { query: 'TRUNCATE TABLE Orders' },
+      });
+
+      await service.pauseForApproval(
+        data,
+        originalPrompt,
+        [],
+        [],
+        [],
+        approvalNeeded,
+      );
+
+      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
+      expect(getPreview()).toBe(
+        '⚠️ Sẽ XOÁ TOÀN BỘ DỮ LIỆU bảng "Orders" (TRUNCATE — KHÔNG THỂ khôi phục).',
+      );
+    });
+
+    it('accuracy_problem.md mục 15 — DROP TABLE cảnh báo THẲNG, không cần đếm gì', async () => {
+      const approvalNeeded = buildApprovalNeeded({
+        args: { query: 'DROP TABLE Orders' },
+      });
+
+      await service.pauseForApproval(
+        data,
+        originalPrompt,
+        [],
+        [],
+        [],
+        approvalNeeded,
+      );
+
+      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
+      expect(getPreview()).toBe(
+        '⚠️ Sẽ XOÁ HẲN bảng "Orders" (DROP — KHÔNG THỂ khôi phục).',
+      );
+    });
+
+    it('accuracy_problem.md mục 15 — nhiều câu lệnh gộp (2 statement) từ chối ước lượng, rơi về fallback AN TOÀN thay vì đoán sai', async () => {
+      const approvalNeeded = buildApprovalNeeded({
+        args: {
+          query: "UPDATE Orders SET Status='x'; DELETE FROM Users WHERE Id=1;",
+        },
       });
 
       await service.pauseForApproval(
@@ -371,7 +489,31 @@ describe('CheckpointPauseService', () => {
       expect(getPreview()).toContain(
         'Sẽ gọi "sql_server.execute_write_query" với tham số:',
       );
-      expect(getPreview()).toContain('INSERT INTO Orders');
+      expect(getPreview()).toContain(
+        'Không ước lượng được mức độ ảnh hưởng cụ thể — kiểm tra kỹ tham số trên trước khi duyệt.',
+      );
+    });
+
+    it('accuracy_problem.md mục 15 — INSERT ... SELECT (không có VALUES) vẫn CỐ Ý falls back — chưa hỗ trợ, an toàn vì vẫn bắt buộc duyệt tay', async () => {
+      const approvalNeeded = buildApprovalNeeded({
+        args: {
+          query: 'INSERT INTO Orders (Status) SELECT Status FROM OldOrders',
+        },
+      });
+
+      await service.pauseForApproval(
+        data,
+        originalPrompt,
+        [],
+        [],
+        [],
+        approvalNeeded,
+      );
+
+      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
+      expect(getPreview()).toContain(
+        'Không ước lượng được mức độ ảnh hưởng cụ thể — kiểm tra kỹ tham số trên trước khi duyệt.',
+      );
     });
   });
 
