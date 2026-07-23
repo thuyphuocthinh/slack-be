@@ -174,7 +174,22 @@ export class SupervisorService {
       .split(/\brồi\b|\bsau đó\b|\bthen\b|\bafter that\b|;/gi)
       .map((p) => p.trim())
       .filter((p) => p.length > 0);
-    return [...new Set([prompt, ...parts])];
+    const clauses = [...new Set([prompt, ...parts])];
+    // mục 16 — prompt dài lặp từ nối nhiều lần (VD "rồi" dùng như từ đệm
+    // thông thường) có thể tạo hàng chục mệnh đề, mỗi mệnh đề 1 lệnh gọi
+    // embedding song song — chặn trần, không để fan-out không giới hạn.
+    if (
+      clauses.length > ORCHESTRATION_CONSTANTS.MAX_PROMPT_CLAUSES_FOR_RANKING
+    ) {
+      this.logger.warn(
+        `splitPromptClauses() cắt ${clauses.length} mệnh đề còn ${ORCHESTRATION_CONSTANTS.MAX_PROMPT_CLAUSES_FOR_RANKING}`,
+      );
+      return clauses.slice(
+        0,
+        ORCHESTRATION_CONSTANTS.MAX_PROMPT_CLAUSES_FOR_RANKING,
+      );
+    }
+    return clauses;
   }
 
   /**

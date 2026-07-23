@@ -607,6 +607,31 @@ describe('SupervisorService', () => {
       expect(sentInstruction).toContain('notes_app (Notion)');
     });
 
+    it('accuracy_problem.md mục 16 — caps the number of clauses searched when the prompt repeats a sequencing word many times (unbounded embedding fan-out)', async () => {
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'respond',
+        answer: 'ok',
+      });
+      const lotsOfAgents = manyAgents(
+        ORCHESTRATION_CONSTANTS.MAX_AGENTS_BEFORE_RANKING + 1,
+      );
+      mockEmbeddingProvider.embed.mockImplementation(async (texts: string[]) =>
+        texts.map(() => [0, 1]),
+      );
+      const repeatedRoi = Array.from(
+        { length: 20 },
+        (_, i) => `làm việc ${i}`,
+      ).join(' rồi ');
+
+      await service.plan(repeatedRoi, lotsOfAgents);
+
+      // build() = 1 lệnh embed cho agent list, search() = ĐÚNG
+      // MAX_PROMPT_CLAUSES_FOR_RANKING lệnh (không phải 21).
+      expect(mockEmbeddingProvider.embed).toHaveBeenCalledTimes(
+        1 + ORCHESTRATION_CONSTANTS.MAX_PROMPT_CLAUSES_FOR_RANKING,
+      );
+    });
+
     it('falls back to listing every agent unranked (no throw) when the embedding provider fails', async () => {
       mockStrategy.generateStructured.mockResolvedValue({
         action: 'respond',
