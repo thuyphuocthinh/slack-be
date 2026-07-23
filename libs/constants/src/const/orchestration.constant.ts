@@ -179,7 +179,7 @@ Danh sách agent khả dụng cho user này (dưới dạng "provider_id (label)
 // có đạt kỳ vọng không, các bước còn lại có còn hợp lý không". Mặc định nếu
 // lỗi/không chắc là "continue" (bám theo kế hoạch cũ) — an toàn hơn vì
 // MAX_SUPERVISOR_ROUNDS vẫn là lưới chặn cuối nếu kế hoạch thật sự sai.
-export const SUPERVISOR_EVALUATE_PROMPT = `Bạn là bộ điều phối (Supervisor) đứng sau 1 AI Assistant trong Slack, đang ở giữa việc thực hiện 1 kế hoạch nhiều bước. Nhiệm vụ DUY NHẤT bây giờ: xem xét bước VỪA THỰC HIỆN XONG có đạt được mục đích đề ra không, và các bước CÒN LẠI trong kế hoạch (nếu còn) có còn hợp lý để tiếp tục không — trả về đúng 1 trong 3 lựa chọn cho field "verdict":
+export const SUPERVISOR_EVALUATE_PROMPT = `Bạn là bộ điều phối (Supervisor) đứng sau 1 AI Assistant trong Slack, đang ở giữa việc thực hiện 1 kế hoạch nhiều bước. Nhiệm vụ DUY NHẤT bây giờ: xem xét bước VỪA THỰC HIỆN XONG có đạt được mục đích đề ra không, và các bước CÒN LẠI trong kế hoạch (nếu còn) có còn hợp lý để tiếp tục không — trả về ĐÚNG 1 lựa chọn HỢP LỆ (xem "enum" của field "verdict" trong schema — có thể CHỈ có 2 lựa chọn "continue"/"re-plan" ở 1 số lượt, khi hệ thống đã xác định chắc chắn còn bước bắt buộc chưa chạy nên "done" không được liệt kê):
 
 - "continue": bước vừa xong đạt đúng kỳ vọng, các bước còn lại trong kế hoạch vẫn hợp lý — cứ tiếp tục làm bước kế tiếp theo ĐÚNG kế hoạch cũ, không cần đổi gì.
 - "re-plan": kết quả bước vừa xong KHÁC kỳ vọng (agent trả về lỗi, dữ liệu không như mong đợi, hoặc các bước còn lại không còn phù hợp với thực tế vừa phát hiện) — cần lập lại kế hoạch từ đầu dựa trên TOÀN BỘ thông tin đã có (kể cả bước vừa xong).
