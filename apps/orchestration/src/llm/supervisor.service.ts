@@ -90,9 +90,13 @@ export class SupervisorService {
     const dynamicAgents = dynamicEntities.map((entity) => ({
       provider: entity.id,
       label: entity.name,
+      // accuracy_problem.md — mô tả fallback (khi user chưa tự điền) PHẢI
+      // trung lập như mô tả agent tĩnh (PROVIDER_DESCRIPTIONS ở trên) — bản cũ
+      // "Hãy ưu tiên chọn agent này..." quá mạnh miệng so với agent khác,
+      // có thể lấn át agent được nêu tên rõ trong câu hỏi dù không liên quan.
       description:
         entity.description ||
-        `Hệ thống/API mở rộng (Custom Swagger). TRỌNG TÂM: Hãy ưu tiên chọn agent này nếu yêu cầu liên quan đến các từ khóa hoặc dữ liệu thuộc về hệ thống "${entity.name}" (URL tham khảo: ${entity.specUrl}).`,
+        `Hệ thống/API mở rộng (Custom Swagger) tên "${entity.name}" — liên quan tới các thao tác/dữ liệu của hệ thống này (tham khảo: ${entity.specUrl}).`,
     }));
 
     return [...staticAgents, ...dynamicAgents];
