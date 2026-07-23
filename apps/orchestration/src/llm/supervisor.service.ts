@@ -4,6 +4,7 @@ import {
   SUPERVISOR_PLANNING_PROMPT,
   SUPERVISOR_EVALUATE_PROMPT,
   SUPERVISOR_EVALUATE_SCHEMA,
+  SUPERVISOR_EVALUATE_SCHEMA_NO_DONE,
   SUPERVISOR_SYNTHESIS_PROMPT,
   SUPERVISOR_PLAN_SCHEMA,
   SUPERVISOR_PLAN_SCHEMA_NO_ANSWER,
@@ -31,6 +32,7 @@ import {
   capToolResultSize,
   resolveDataCharBudget,
 } from '../executor/tool-result-size-cap.util';
+import { hasPendingActionStep } from '../common/pending-action-step.util';
 
 // accuracy_problem.md mục 9.4 — memo CHỈ sống trong phạm vi 1 lần gọi
 // TurnResolverService.continueRounds() (caller tạo `{}` mới ở đầu hàm, KHÔNG
@@ -354,6 +356,16 @@ export class SupervisorService {
    * tiếp. Câu hỏi HẸP, rẻ hơn plan() (không suy luận lại cả nhiệm vụ). Không
    * còn bước nào trong kế hoạch (`remainingSteps` rỗng) thì khỏi cần hỏi LLM
    * — chắc chắn "done" (không có gì để "tiếp tục" hay "re-plan" nữa).
+   *
+   * accuracy_problem.md mục 14 — 2 lớp giảm tần suất evaluate() sai (chọn
+   * "done" dù còn bước bắt buộc), bổ sung cho lưới an toàn rule-based SAU khi
+   * gọi (TurnResolverService.runEvaluateAndDecide()):
+   * (a) `remainingText` giờ đánh dấu rõ `mustExecute` của TỪNG bước — trước
+   *     đây model phải TỰ ĐOÁN LẠI điều mà `plan()` (chính nó) đã biết chắc.
+   * (b) khi `hasPendingActionStep(remainingSteps)` đã biết chắc TRƯỚC khi gọi
+   *     LLM, dùng `SUPERVISOR_EVALUATE_SCHEMA_NO_DONE` — bỏ hẳn "done" khỏi
+   *     enum, model KHÔNG THỂ chọn "done" dù có muốn (structured output ép
+   *     theo enum) — chặt hơn hẳn "khuyên qua prompt rồi bác bỏ sau".
    */
   async evaluate(
     originalPrompt: string,
@@ -386,10 +398,31 @@ export class SupervisorService {
       completedStep.result,
       resolveDataCharBudget(evaluateModelId),
     );
+    // accuracy_problem.md mục 14 — trước đây evaluate() KHÔNG hề được cho biết
+    // `mustExecute` của từng bước còn lại, dù plan() (chính nó) đã tính sẵn —
+    // model phải ĐOÁN LẠI TỪ ĐẦU điều hệ thống đã biết chắc. Đánh dấu rõ ngay
+    // trong prompt để model có ĐÚNG tín hiệu này TRƯỚC KHI ra quyết định, thay
+    // vì chỉ bị rule-based bác bỏ SAU (TurnResolverService) khi đã sai.
     const remainingText = remainingSteps
-      .map((s, i) => `${i + 1}. Agent "${s.agent}": ${s.task}`)
+      .map((s, i) => {
+        const marker =
+          s.mustExecute === true
+            ? ' [BẮT BUỘC — không được bỏ qua]'
+            : s.mustExecute === false
+              ? ' [không bắt buộc — có thể bỏ qua nếu đã đủ dữ liệu]'
+              : '';
+        return `${i + 1}. Agent "${s.agent}": ${s.task}${marker}`;
+      })
       .join('\n');
-    const prompt = `Câu hỏi gốc: ${originalPrompt}\n\nBước vừa thực hiện xong — Agent "${completedStep.agent}" (yêu cầu: "${completedStep.task}") → kết quả: ${cappedResult}\n\nCác bước CÒN LẠI trong kế hoạch (chưa chạy):\n${remainingText}\n\nBước vừa xong có đạt kỳ vọng không, các bước còn lại có còn hợp lý để tiếp tục không?`;
+    // Tính TRƯỚC khi gọi LLM (dùng lại ĐÚNG rule-based check của
+    // TurnResolverService, xem pending-action-step.util.ts) — nếu chắc chắn
+    // còn bước bắt buộc, chặn HẲN "done" khỏi schema thay vì chỉ khuyên qua
+    // prompt rồi bác bỏ sau.
+    const mustFinishRemaining = hasPendingActionStep(remainingSteps);
+    const doneNotAllowedNote = mustFinishRemaining
+      ? '\n\nLƯU Ý: còn ít nhất 1 bước BẮT BUỘC (đánh dấu ở trên) chưa chạy — "done" không phải lựa chọn hợp lệ ở lượt này, chỉ được chọn "continue" hoặc "re-plan".'
+      : '';
+    const prompt = `Câu hỏi gốc: ${originalPrompt}\n\nBước vừa thực hiện xong — Agent "${completedStep.agent}" (yêu cầu: "${completedStep.task}") → kết quả: ${cappedResult}\n\nCác bước CÒN LẠI trong kế hoạch (chưa chạy):\n${remainingText}\n\nBước vừa xong có đạt kỳ vọng không, các bước còn lại có còn hợp lý để tiếp tục không?${doneNotAllowedNote}`;
 
     try {
       // Vừa bỏ shortcut rule-based (xem accuracy_problem.md mục 0) — evaluate()
@@ -407,7 +440,9 @@ export class SupervisorService {
             model,
             systemInstruction: SUPERVISOR_EVALUATE_PROMPT,
             prompt,
-            schema: SUPERVISOR_EVALUATE_SCHEMA,
+            schema: mustFinishRemaining
+              ? SUPERVISOR_EVALUATE_SCHEMA_NO_DONE
+              : SUPERVISOR_EVALUATE_SCHEMA,
           }),
           ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
           `Supervisor evaluate() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,

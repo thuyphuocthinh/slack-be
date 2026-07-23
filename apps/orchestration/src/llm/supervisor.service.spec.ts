@@ -916,6 +916,100 @@ describe('SupervisorService', () => {
       expect(verdict).toEqual({ verdict: 'continue' });
     });
 
+    // accuracy_problem.md mục 14 — 2 lớp giảm tần suất evaluate() sai.
+    describe('mục 14 — đánh dấu mustExecute trong prompt + chặn "done" khỏi schema khi còn bước bắt buộc', () => {
+      it('marks each remaining step with mustExecute in the prompt, so the LLM sees the SAME signal plan() already computed', async () => {
+        mockStrategy.generateStructured.mockResolvedValue({
+          verdict: 'continue',
+        });
+
+        await service.evaluate('câu hỏi gốc', completedStep, [
+          {
+            agent: 'sql_server',
+            task: 'tính tổng doanh số',
+            mustExecute: true,
+          },
+          {
+            agent: 'sql_server',
+            task: 'tra thêm nguồn khác cho chắc',
+            mustExecute: false,
+          },
+        ]);
+
+        const sentPrompt =
+          mockStrategy.generateStructured.mock.calls[0][0].prompt;
+        expect(sentPrompt).toContain(
+          'tính tổng doanh số [BẮT BUỘC — không được bỏ qua]',
+        );
+        expect(sentPrompt).toContain(
+          'tra thêm nguồn khác cho chắc [không bắt buộc — có thể bỏ qua nếu đã đủ dữ liệu]',
+        );
+      });
+
+      it('uses SUPERVISOR_EVALUATE_SCHEMA_NO_DONE (no "done" in enum) when a remaining step has mustExecute: true — model CANNOT choose "done" even if it wanted to', async () => {
+        mockStrategy.generateStructured.mockResolvedValue({
+          verdict: 'continue',
+        });
+
+        await service.evaluate('câu hỏi gốc', completedStep, [
+          {
+            agent: 'sql_server',
+            task: 'tính tổng doanh số',
+            mustExecute: true,
+          },
+        ]);
+
+        const sentSchema =
+          mockStrategy.generateStructured.mock.calls[0][0].schema;
+        expect(sentSchema.properties.verdict.enum).toEqual([
+          'continue',
+          're-plan',
+        ]);
+        const sentPrompt =
+          mockStrategy.generateStructured.mock.calls[0][0].prompt;
+        expect(sentPrompt).toContain('"done" không phải lựa chọn hợp lệ');
+      });
+
+      it('still uses the normal schema (with "done") when no remaining step is must-execute or keyword-matched', async () => {
+        mockStrategy.generateStructured.mockResolvedValue({
+          verdict: 'continue',
+        });
+
+        await service.evaluate('câu hỏi gốc', completedStep, [
+          {
+            agent: 'petstore',
+            task: 'xem lại nguồn dữ liệu khác',
+            mustExecute: false,
+          },
+        ]);
+
+        const sentSchema =
+          mockStrategy.generateStructured.mock.calls[0][0].schema;
+        expect(sentSchema.properties.verdict.enum).toEqual([
+          'continue',
+          're-plan',
+          'done',
+        ]);
+      });
+
+      it('also blocks "done" via keyword fallback (COMPUTE_TASK_KEYWORDS) even when mustExecute is missing/undefined on the remaining step', async () => {
+        mockStrategy.generateStructured.mockResolvedValue({
+          verdict: 'continue',
+        });
+
+        await service.evaluate('câu hỏi gốc', completedStep, [
+          { agent: 'sql_server', task: 'tính trung bình đơn hàng' },
+        ]);
+
+        const sentSchema =
+          mockStrategy.generateStructured.mock.calls[0][0].schema;
+        expect(sentSchema.properties.verdict.enum).toEqual([
+          'continue',
+          're-plan',
+        ]);
+      });
+    });
+
     it('accuracy_problem.md mục 5 — completedStep.result chưa qua capRoundResults() (chỉ áp dụng ở round SAU) nên KHÔNG được nhồi thẳng RAW không cap vào prompt evaluate() — cap theo ĐÚNG ngân sách model, không phải hằng số cứng cũ, và KHÔNG cắt case cỡ thật (500 dòng)', async () => {
       mockStrategy.generateStructured.mockResolvedValue({
         verdict: 'continue',

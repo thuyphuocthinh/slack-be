@@ -206,6 +206,31 @@ export const SUPERVISOR_EVALUATE_SCHEMA = {
   required: ['verdict'],
 };
 
+// accuracy_problem.md mục 14 — dùng thay SUPERVISOR_EVALUATE_SCHEMA CHỈ khi
+// SupervisorService.evaluate() đã tự xác định TRƯỚC (rule-based, xem
+// pending-action-step.util.ts) còn ít nhất 1 bước BẮT BUỘC (mustExecute hoặc
+// khớp từ khoá) trong `remainingSteps`. Bỏ hẳn "done" khỏi enum — model
+// KHÔNG THỂ chọn "done" ở lượt này dù có muốn (structured output ép theo
+// enum), chặt hơn hẳn việc chỉ khuyên qua prompt rồi bác bỏ SAU (rule-based
+// safety net ở TurnResolverService vẫn giữ nguyên làm phòng thủ CUỐI, phòng
+// provider nào đó không tuân enum tuyệt đối).
+export const SUPERVISOR_EVALUATE_SCHEMA_NO_DONE = {
+  type: 'object',
+  properties: {
+    verdict: {
+      type: 'string',
+      enum: ['continue', 're-plan'],
+      description:
+        '"continue" nếu bước vừa xong ổn và kế hoạch còn lại vẫn hợp lý. "re-plan" nếu kết quả khác kỳ vọng hoặc kế hoạch còn lại không còn hợp lý. KHÔNG có lựa chọn "done" ở lượt này — còn ít nhất 1 bước BẮT BUỘC (đánh dấu rõ bên dưới) trong kế hoạch chưa chạy, chưa thể dừng.',
+    },
+    reason: {
+      type: 'string',
+      description: 'Giải thích ngắn gọn (tuỳ chọn).',
+    },
+  },
+  required: ['verdict'],
+};
+
 // Dùng khi cần tổng hợp NHIỀU kết quả delegate (>1 round/agent) thành 1 câu trả
 // lời — cả khi Supervisor chủ động quyết định "đủ dữ liệu, trả lời thôi" LẪN khi
 // đã hết MAX_SUPERVISOR_ROUNDS mà vẫn chưa tự "respond" (Step 9 — trước đây làm

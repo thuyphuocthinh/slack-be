@@ -26,6 +26,7 @@ import {
   capRoundResults,
   resolveDataCharBudget,
 } from '../executor/tool-result-size-cap.util';
+import { hasPendingActionStep } from '../common/pending-action-step.util';
 import {
   AnswerResult,
   ApprovalRequiredDelegateResult,
@@ -47,81 +48,6 @@ const MIN_AGENT_LABEL_LENGTH_FOR_MISMATCH_CHECK = 3;
 // ngân sách này sinh ra để chặn.
 const GUARDRAIL_BLOCKED_MARKER = 'Bỏ qua bước này';
 const REPLAN_MARKER = '[re-plan]';
-
-// accuracy_problem.md mục 6 — hướng dẫn PROMPT (SUPERVISOR_EVALUATE_PROMPT)
-// đã dặn model không chọn "done" nếu còn bước HÀNH ĐỘNG chưa chạy, nhưng đó
-// CHỈ là hướng dẫn — không có gì đảm bảo model tuân theo 100% (LLM vẫn có thể
-// lệch tuỳ lần gọi). Đây là lưới an toàn RULE-BASED bổ sung, KHÔNG thay thế
-// prompt: nếu evaluate() trả "done" mà `steps` (từ CHÍNH plan() đã lập, chưa
-// bị sửa bởi model) còn bước nào nhắc rõ 1 hành động ghi/thay đổi dữ liệu, tự
-// động bác bỏ "done", ép tiếp tục chạy nốt — tránh việc evaluate() phán đoán
-// sai khiến kế hoạch bị bỏ dở giữa chừng (VD "lấy dữ liệu rồi CHÈN vào bảng"
-// — dừng lại sau khi lấy dữ liệu, bỏ qua hẳn bước chèn).
-const ACTION_TASK_KEYWORDS = [
-  'ghi',
-  'chèn',
-  'thêm',
-  'tạo',
-  'sửa',
-  'cập nhật',
-  'xoá',
-  'xóa',
-  'lưu',
-  'insert',
-  'update',
-  'delete',
-  'create',
-  'write',
-  'save',
-  'append',
-  'remove',
-];
-
-// accuracy_problem.md mục 11 — bug thật gặp qua sử dụng: plan() tách 1 yêu
-// cầu "kiểm tra danh sách X có khớp bảng Y không" thành 2 bước — (1) lấy dữ
-// liệu, (2) kiểm tra/so sánh — nhưng evaluate() trả "done" ngay sau bước (1)
-// vì "đã có đủ dữ liệu để xác định", bỏ qua hẳn bước (2) — bước THẬT SỰ đưa
-// ra kết luận. ACTION_TASK_KEYWORDS ở trên không bắt được vì đây không phải
-// hành động GHI — cần 1 danh sách từ khoá RIÊNG cho việc bỏ dở bước KIỂM
-// TRA/SO SÁNH/XÁC ĐỊNH.
-const VERIFICATION_TASK_KEYWORDS = [
-  'kiểm tra',
-  'so sánh',
-  'xác định',
-  'đối chiếu',
-  'khớp',
-  'tồn tại',
-  'xác nhận',
-  'check',
-  'compare',
-  'verify',
-];
-
-// accuracy_problem.md mục 13 — lớp phòng thủ MIỄN PHÍ bổ sung cho `mustExecute`
-// (DelegationDto): OR với 2 danh sách trên đã chạy VÔ ĐIỀU KIỆN trong
-// hasPendingActionStep() (không tốn gì thêm để mở rộng) — nhưng trước đây
-// KHÔNG có từ khoá nào cho đúng loại bước đã khiến mình đổi 'actionType' (enum)
-// sang 'mustExecute' (boolean): TÍNH TOÁN/TỔNG HỢP/PHÂN LOẠI dựa trên dữ liệu
-// đã lấy — không phải ghi, cũng chẳng phải so sánh đúng/sai. Nếu model lỡ gán
-// sai `mustExecute: false` cho bước loại này (vẫn có thể xảy ra, đây là phán
-// đoán ngữ nghĩa không đảm bảo 100%), danh sách này vẫn cứu được khi `task`
-// tiếng Việt/Anh còn lộ rõ động từ tính toán.
-const COMPUTE_TASK_KEYWORDS = [
-  'tính',
-  'tổng hợp',
-  'tổng',
-  'phân loại',
-  'phân tích',
-  'thống kê',
-  'trung bình',
-  'gộp',
-  'calculate',
-  'compute',
-  'aggregate',
-  'summarize',
-  'analyze',
-  'classify',
-];
 
 // Giai đoạn 2/3 (Supervisor multi-round + HITL) — vòng lặp "Supervisor quyết
 // định respond/delegate" tách riêng khỏi AiOrchestrationProcessor (chỉ còn lo
@@ -609,33 +535,6 @@ export class TurnResolverService {
     );
   }
 
-  // accuracy_problem.md mục 6/11/12. HAI lớp ĐỘC LẬP, OR với nhau — lớp nào
-  // bắt được cũng đủ ép continue, không lớp nào che lớp kia:
-  // (1) field "mustExecute" (boolean cố định do CHÍNH plan() gán tường minh,
-  //     xem DelegationDto/SUPERVISOR_PLAN_SCHEMA) — nhận diện ĐÚNG dù user hỏi
-  //     bằng ngôn ngữ bất kỳ, không bị giới hạn bởi 1 danh sách loại hành động
-  //     cố định (đã từng dùng enum 'read'|'write'|'verify' nhưng lọt bước TÍNH
-  //     TOÁN/TỔNG HỢP dựa trên dữ liệu đã lấy — không phải write cũng chẳng
-  //     phải verify).
-  // (2) từ khoá ACTION_TASK_KEYWORDS/VERIFICATION_TASK_KEYWORDS/COMPUTE_TASK_KEYWORDS
-  //     (tiếng Việt/Anh) trên CHÍNH `task` — LUÔN chạy, kể cả khi model đã điền mustExecute —
-  //     phòng trường hợp model điền SAI "mustExecute: false" cho 1 bước thật ra
-  //     PHẢI chạy (model chỉ là 1 phán đoán, có thể sai) nhưng `task` vẫn lộ rõ
-  //     từ khoá hành động. Bỏ OR này đi (chỉ dùng fallback khi field "thiếu")
-  //     sẽ làm lưới an toàn YẾU HƠN bản gốc — trước đây từ khoá luôn chạy vô
-  //     điều kiện trên MỌI step.
-  private hasPendingActionStep(steps: DelegationDto[]): boolean {
-    return steps.some((s) => {
-      if (s.mustExecute === true) return true;
-      const taskLower = s.task.toLowerCase();
-      return (
-        ACTION_TASK_KEYWORDS.some((kw) => taskLower.includes(kw)) ||
-        VERIFICATION_TASK_KEYWORDS.some((kw) => taskLower.includes(kw)) ||
-        COMPUTE_TASK_KEYWORDS.some((kw) => taskLower.includes(kw))
-      );
-    });
-  }
-
   // accuracy_problem.md mục 9.2 — dùng CHUNG cho 2 nơi: (a) sau khi
   // delegateRound() 1 bước bình thường trong vòng lặp chính, (b) ngay khi
   // resume sau khi 1 hành động vừa được duyệt+thực thi thật
@@ -653,11 +552,14 @@ export class TurnResolverService {
       remainingSteps,
     );
     if (verdict.verdict === 'done') {
-      if (!this.hasPendingActionStep(remainingSteps)) {
+      if (!hasPendingActionStep(remainingSteps)) {
         return 'finalize';
       }
-      // Lưới an toàn rule-based (mục 6/11, xem ghi chú ACTION_TASK_KEYWORDS/
-      // VERIFICATION_TASK_KEYWORDS) — bác bỏ "done", coi như 'continue'.
+      // Lưới an toàn rule-based (mục 6/11/14, xem pending-action-step.util.ts)
+      // — bác bỏ "done", coi như 'continue'. Chạy ĐỘC LẬP với evaluate(), kể
+      // cả khi SupervisorService.evaluate() đã chặn "done" khỏi schema (mục
+      // 14) — giữ lại làm phòng thủ cuối phòng model/provider không tuân
+      // schema tuyệt đối.
       this.logger.warn(
         `evaluate() trả 'done' nhưng còn bước HÀNH ĐỘNG/KIỂM TRA chưa chạy (${remainingSteps.map((s) => s.task).join('; ')}) — bác bỏ 'done', tiếp tục chạy nốt kế hoạch.`,
       );
