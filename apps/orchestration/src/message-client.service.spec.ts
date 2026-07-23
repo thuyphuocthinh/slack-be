@@ -170,11 +170,52 @@ describe('MessageClientService', () => {
         limit: 10,
       });
 
-      // đảo DESC -> ASC (cũ -> mới) rồi lọc rỗng
+      // đảo DESC -> ASC (cũ -> mới) rồi lọc rỗng. Turn "model" bị ẩn nội
+      // dung (mục 17) — xem test riêng bên dưới cho lý do.
       expect(history).toEqual([
         { role: 'user', text: 'câu hỏi trước đó' },
-        { role: 'model', text: 'AI reply mới nhất' },
+        {
+          role: 'model',
+          text: expect.stringContaining('nội dung câu trả lời cũ đã ẩn'),
+        },
       ]);
+    });
+
+    // accuracy_problem.md mục 17 — trước đây chỉ SupervisorService.buildPrompt()
+    // tự ẩn câu trả lời cũ của AI (copy riêng, cùng nội dung) — ReactLoopService
+    // nhận CÙNG mảng history này y nguyên, đưa thẳng vào lịch sử chat NATIVE
+    // của model mà không ẩn gì, khiến sub-agent thực thi 1 bước KHÔNG liên
+    // quan vẫn thấy được câu trả lời THẬT của lượt trước, dễ bị lái sang xác
+    // nhận lại chủ đề cũ. Ẩn NGAY TẠI ĐÂY để MỌI consumer của history đều
+    // được bảo vệ, không chỉ SupervisorService.
+    it('accuracy_problem.md mục 17 — redacts old AI (model role) message content so no consumer of history (ReactLoopService included) sees stale answer text', async () => {
+      mockMessageService.send.mockReturnValue(
+        of({
+          messages: [
+            {
+              content: 'Không tìm thấy tên nào khớp.',
+              sender: { isBot: true },
+            },
+            {
+              content: 'bảng customers có ai tên như ri k',
+              sender: { isBot: false },
+            },
+          ],
+        }),
+      );
+
+      const history = await service.getRecentHistory({
+        channelId: 'c1',
+        userId: 'u1',
+        beforeMessageId: 'm1',
+        limit: 10,
+      });
+
+      const modelTurn = history.find((h) => h.role === 'model');
+      expect(modelTurn?.text).not.toContain('Không tìm thấy tên nào khớp');
+      expect(modelTurn?.text).toContain('nội dung câu trả lời cũ đã ẩn');
+      const userTurn = history.find((h) => h.role === 'user');
+      expect(userTurn?.text).toBe('bảng customers có ai tên như ri k');
     });
 
     describe('Giai đoạn 4, Step 5 — tóm tắt ngữ cảnh bị cắt khi thread dài hơn CHAT_HISTORY_LIMIT', () => {

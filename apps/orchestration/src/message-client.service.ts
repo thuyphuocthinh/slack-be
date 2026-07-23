@@ -60,6 +60,15 @@ function extractContentText(content: unknown): string {
   }
 }
 
+// mục 17 — SupervisorService.buildPrompt() already redacted old AI answers
+// (own copy, same wording) but ReactLoopService passes this SAME array
+// straight into the LLM's native chat history with no redaction, so a
+// sub-agent executing an unrelated step could still see (and get sidetracked
+// re-checking) the previous turn's actual old answer content. Redact once
+// here so every consumer of getRecentHistory() gets the same guarantee.
+const REDACTED_MODEL_ANSWER_TEXT =
+  '(nội dung câu trả lời cũ đã ẩn khỏi ngữ cảnh này — KHÔNG được dùng làm dữ liệu; nếu câu hỏi hiện tại cần dữ liệu/số liệu cụ thể, PHẢI delegate lại để lấy MỚI)';
+
 @Injectable()
 export class MessageClientService {
   constructor(
@@ -110,7 +119,12 @@ export class MessageClientService {
           : 'user') as ChatHistoryTurnDto['role'],
         text: extractContentText(m.content),
       }))
-      .filter((turn) => turn.text.trim().length > 0);
+      .filter((turn) => turn.text.trim().length > 0)
+      .map((turn) =>
+        turn.role === 'model'
+          ? { ...turn, text: REDACTED_MODEL_ANSWER_TEXT }
+          : turn,
+      );
 
     if (!nextCursor) return history;
 
