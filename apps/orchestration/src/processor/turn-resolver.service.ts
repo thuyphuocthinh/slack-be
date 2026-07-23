@@ -97,6 +97,32 @@ const VERIFICATION_TASK_KEYWORDS = [
   'verify',
 ];
 
+// accuracy_problem.md mục 13 — lớp phòng thủ MIỄN PHÍ bổ sung cho `mustExecute`
+// (DelegationDto): OR với 2 danh sách trên đã chạy VÔ ĐIỀU KIỆN trong
+// hasPendingActionStep() (không tốn gì thêm để mở rộng) — nhưng trước đây
+// KHÔNG có từ khoá nào cho đúng loại bước đã khiến mình đổi 'actionType' (enum)
+// sang 'mustExecute' (boolean): TÍNH TOÁN/TỔNG HỢP/PHÂN LOẠI dựa trên dữ liệu
+// đã lấy — không phải ghi, cũng chẳng phải so sánh đúng/sai. Nếu model lỡ gán
+// sai `mustExecute: false` cho bước loại này (vẫn có thể xảy ra, đây là phán
+// đoán ngữ nghĩa không đảm bảo 100%), danh sách này vẫn cứu được khi `task`
+// tiếng Việt/Anh còn lộ rõ động từ tính toán.
+const COMPUTE_TASK_KEYWORDS = [
+  'tính',
+  'tổng hợp',
+  'tổng',
+  'phân loại',
+  'phân tích',
+  'thống kê',
+  'trung bình',
+  'gộp',
+  'calculate',
+  'compute',
+  'aggregate',
+  'summarize',
+  'analyze',
+  'classify',
+];
+
 // Giai đoạn 2/3 (Supervisor multi-round + HITL) — vòng lặp "Supervisor quyết
 // định respond/delegate" tách riêng khỏi AiOrchestrationProcessor (chỉ còn lo
 // vòng đời job/turn) và khỏi CheckpointPauseService (chỉ lo việc TẠO checkpoint).
@@ -591,8 +617,8 @@ export class TurnResolverService {
   //     cố định (đã từng dùng enum 'read'|'write'|'verify' nhưng lọt bước TÍNH
   //     TOÁN/TỔNG HỢP dựa trên dữ liệu đã lấy — không phải write cũng chẳng
   //     phải verify).
-  // (2) từ khoá ACTION_TASK_KEYWORDS/VERIFICATION_TASK_KEYWORDS (tiếng Việt/Anh)
-  //     trên CHÍNH `task` — LUÔN chạy, kể cả khi model đã điền mustExecute —
+  // (2) từ khoá ACTION_TASK_KEYWORDS/VERIFICATION_TASK_KEYWORDS/COMPUTE_TASK_KEYWORDS
+  //     (tiếng Việt/Anh) trên CHÍNH `task` — LUÔN chạy, kể cả khi model đã điền mustExecute —
   //     phòng trường hợp model điền SAI "mustExecute: false" cho 1 bước thật ra
   //     PHẢI chạy (model chỉ là 1 phán đoán, có thể sai) nhưng `task` vẫn lộ rõ
   //     từ khoá hành động. Bỏ OR này đi (chỉ dùng fallback khi field "thiếu")
@@ -604,7 +630,8 @@ export class TurnResolverService {
       const taskLower = s.task.toLowerCase();
       return (
         ACTION_TASK_KEYWORDS.some((kw) => taskLower.includes(kw)) ||
-        VERIFICATION_TASK_KEYWORDS.some((kw) => taskLower.includes(kw))
+        VERIFICATION_TASK_KEYWORDS.some((kw) => taskLower.includes(kw)) ||
+        COMPUTE_TASK_KEYWORDS.some((kw) => taskLower.includes(kw))
       );
     });
   }

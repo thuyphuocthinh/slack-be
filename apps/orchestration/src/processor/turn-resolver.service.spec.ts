@@ -551,6 +551,59 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
     expect(result.content).toBe('Tổng doanh số quý này: 1.250.000.000đ');
   });
 
+  // accuracy_problem.md mục 13 — COMPUTE_TASK_KEYWORDS: lớp phòng thủ MIỄN PHÍ
+  // (OR vô điều kiện, không tốn gì thêm) cho ĐÚNG trường hợp model LỠ GÁN SAI
+  // mustExecute (phán đoán ngữ nghĩa, không đảm bảo 100%) — mô phỏng model gán
+  // "mustExecute: false" NHẦM cho 1 bước tính toán thật ra bắt buộc phải chạy.
+  it('accuracy_problem.md mục 13 — COMPUTE_TASK_KEYWORDS cứu được khi model LỠ gán sai "mustExecute: false" cho bước TÍNH TOÁN', async () => {
+    mockSupervisor.plan.mockResolvedValue({
+      action: 'plan',
+      steps: [
+        {
+          agent: 'sql_server',
+          task: 'lấy toàn bộ đơn hàng quý này từ bảng Orders',
+          mustExecute: false,
+        },
+        {
+          agent: 'sql_server',
+          // Model gán SAI mustExecute:false — vẫn phải bị chặn nhờ từ khoá
+          // "tính trung bình" trong COMPUTE_TASK_KEYWORDS.
+          task: 'tính trung bình giá trị đơn hàng từ danh sách vừa lấy',
+          mustExecute: false,
+        },
+      ],
+    });
+    mockReactLoop.run
+      .mockResolvedValueOnce({
+        answer: 'Đã lấy 320 đơn hàng',
+        toolCalls: [
+          { tool: 'sql_server.execute_read_only_query', status: 'success' },
+        ],
+      })
+      .mockResolvedValueOnce({
+        answer: 'Trung bình đơn hàng: 3.906.250đ',
+        toolCalls: [
+          { tool: 'sql_server.execute_read_only_query', status: 'success' },
+        ],
+      });
+    mockSupervisor.evaluate.mockResolvedValueOnce({ verdict: 'done' });
+    mockSupervisor.synthesize.mockResolvedValue(
+      'Trung bình đơn hàng: 3.906.250đ',
+    );
+
+    const result = await resolve();
+
+    expect(mockReactLoop.run).toHaveBeenCalledTimes(2);
+    expect(mockReactLoop.run).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        provider: 'sql_server',
+        prompt: expect.stringContaining('tính trung bình giá trị đơn hàng'),
+      }),
+    );
+    expect(result.content).toBe('Trung bình đơn hàng: 3.906.250đ');
+  });
+
   describe('trace UI — step_start events (FE hiện trace theo từng bước, giống Claude Code)', () => {
     it('emits a step_start event with a human-readable label BEFORE reactLoop.run(), on the SAME streamKey', async () => {
       mockSupervisor.plan.mockResolvedValue({
