@@ -9,6 +9,7 @@ import {
   GetThreadRequestDto,
   SearchMessagesRequestDto,
   ToggleReactionRequestDto,
+  ToggleFeedbackRequestDto,
   UpdateMessageRequestDto,
   GetPinnedMessagesRequestDto,
   GetSurroundingMessagesRequestDto,
@@ -173,6 +174,20 @@ export class MessageService {
           }),
         ),
       'toggleReaction',
+      'MessageService',
+    );
+  }
+
+  async toggleFeedback(dto: ToggleFeedbackRequestDto) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.messageClient.send(MESSAGE_MESSAGE_PATTERNS.TOGGLE_FEEDBACK, {
+            userId: dto.userId,
+            toggleDto: { type: dto.type, messageId: dto.messageId },
+          }),
+        ),
+      'toggleFeedback',
       'MessageService',
     );
   }

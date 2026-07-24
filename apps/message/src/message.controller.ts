@@ -10,11 +10,12 @@ import {
   GetMessagesQueryDto,
   UpdateMessageDto,
   ToggleReactionDto,
+  ToggleFeedbackDto,
   GetPinnedMessagesQueryDto,
   GetSurroundingMessagesQueryDto,
   GetAttachmentsQueryDto,
   GetFullThreadQueryDto,
-  GetThreadQueryDto
+  GetThreadQueryDto,
 } from './dto';
 
 @Controller()
@@ -23,7 +24,7 @@ export class MessageController {
     private readonly messageService: MessageService,
     private readonly threadService: ThreadService,
     private readonly attachmentService: MessageAttachmentService,
-  ) { }
+  ) {}
 
   @MessagePattern(MESSAGE_MESSAGE_PATTERNS.CREATE)
   createMessage(@Payload() createMessageDto: CreateMessageDto) {
@@ -66,6 +67,13 @@ export class MessageController {
     @Payload() data: { userId: string; toggleDto: ToggleReactionDto },
   ) {
     return this.messageService.toggleReaction(data.userId, data.toggleDto);
+  }
+
+  @MessagePattern(MESSAGE_MESSAGE_PATTERNS.TOGGLE_FEEDBACK)
+  toggleFeedback(
+    @Payload() data: { userId: string; toggleDto: ToggleFeedbackDto },
+  ) {
+    return this.messageService.toggleFeedback(data.userId, data.toggleDto);
   }
 
   @MessagePattern(MESSAGE_MESSAGE_PATTERNS.TOGGLE_PIN)

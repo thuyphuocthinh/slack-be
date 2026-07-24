@@ -18,6 +18,7 @@ import {
   GetMessagesQueryApiDto,
   UpdateMessageApiDto,
   ToggleReactionApiDto,
+  ToggleFeedbackApiDto,
   SearchMessagesQueryApiDto,
   GetPinnedMessagesQueryApiDto,
   GetSurroundingMessagesQueryApiDto,
@@ -28,6 +29,7 @@ import {
   GetMessagesRequestDto,
   UpdateMessageRequestDto,
   ToggleReactionRequestDto,
+  ToggleFeedbackRequestDto,
   SearchMessagesRequestDto,
   GetPinnedMessagesRequestDto,
   GetSurroundingMessagesRequestDto,
@@ -45,7 +47,7 @@ export class MessageController {
   constructor(
     private readonly messageService: MessageService,
     private readonly billingService: BillingService,
-  ) { }
+  ) {}
 
   @Post()
   @RateLimit({ limit: 10, window: 10 })
@@ -74,16 +76,25 @@ export class MessageController {
     let afterDate: string | undefined;
     try {
       const limits = await this.billingService.getUserFeatureLimits(user.sub);
-      if (limits && (limits as { messageHistoryDays: number | null }).messageHistoryDays !== null) {
-        const days = (limits as { messageHistoryDays: number }).messageHistoryDays;
+      if (
+        limits &&
+        (limits as { messageHistoryDays: number | null }).messageHistoryDays !==
+          null
+      ) {
+        const days = (limits as { messageHistoryDays: number })
+          .messageHistoryDays;
         const cutoff = new Date();
         cutoff.setDate(cutoff.getDate() - days);
         afterDate = cutoff.toISOString();
-        this.logger.debug(`Message history limited to ${days} days for userId: ${user.sub}`);
+        this.logger.debug(
+          `Message history limited to ${days} days for userId: ${user.sub}`,
+        );
       }
     } catch {
       // Billing service unavailable — allow full history (fail open)
-      this.logger.warn(`Could not fetch billing limits for userId: ${user.sub}, allowing full history`);
+      this.logger.warn(
+        `Could not fetch billing limits for userId: ${user.sub}, allowing full history`,
+      );
     }
 
     return await this.messageService.getMessages({
@@ -165,6 +176,22 @@ export class MessageController {
     } as ToggleReactionRequestDto);
   }
 
+  @Post('item/:id/feedback')
+  @ApiOperation({ summary: 'Like/unlike an AI-generated message' })
+  async toggleFeedback(
+    @Param('workspaceId') workspaceId: string,
+    @Param('channelId') channelId: string,
+    @Param('id') messageId: string,
+    @Body() data: ToggleFeedbackApiDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return await this.messageService.toggleFeedback({
+      ...data,
+      messageId,
+      userId: user.sub,
+    } as ToggleFeedbackRequestDto);
+  }
+
   @Post('item/:id/pin')
   @ApiOperation({ summary: 'Toggle pin message' })
   async togglePin(
@@ -213,7 +240,6 @@ export class MessageController {
     @Param('workspaceId') workspaceId: string,
     @Param('channelId') channelId: string,
     @Query() query: GetAttachmentsQueryApiDto,
-    @CurrentUser() user: JwtUser,
   ) {
     return await this.messageService.getAttachments({
       channelId,

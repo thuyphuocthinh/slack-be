@@ -5,6 +5,7 @@ export * from './attachment-response.dto';
 export * from './get-messages-query.dto';
 export * from './message-response.dto';
 export * from './toggle-reaction.dto';
+export * from './toggle-feedback.dto';
 export * from './get-pinned-messages-query.dto';
 export * from './get-surrounding-messages-query.dto';
 export * from './get-full-thread-query.dto';

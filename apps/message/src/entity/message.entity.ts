@@ -10,6 +10,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { MessageReactionEntity } from './message_reaction.entity';
+import { MessageFeedbackEntity } from './message_feedback.entity';
 import { MessageMentionEntity } from './message_mention.entity';
 import { MessageAttachmentEntity } from './message_attachment.entity';
 import { ILinkPreviewMetadata } from '../types/link-preview.interface';
@@ -71,6 +72,9 @@ export class MessageEntity {
 
   @OneToMany(() => MessageReactionEntity, (reaction) => reaction.message)
   reactions: MessageReactionEntity[];
+
+  @OneToMany(() => MessageFeedbackEntity, (feedback) => feedback.message)
+  feedback: MessageFeedbackEntity[];
 
   @OneToMany(() => MessageMentionEntity, (mention) => mention.message)
   mentions: MessageMentionEntity[];

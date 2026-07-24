@@ -13,6 +13,9 @@ export enum ESocketEvent {
   // Reaction
   REACTION_UPDATED = 'reaction_updated',
 
+  // AI feedback (like/unlike)
+  MESSAGE_FEEDBACK_UPDATED = 'message_feedback_updated',
+
   // Channel Subscription
   SUBSCRIBE_CHANNEL = 'subscribe_channel',
   UNSUBSCRIBE_CHANNEL = 'unsubscribe_channel',

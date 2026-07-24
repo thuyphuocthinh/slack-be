@@ -6,6 +6,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { MessageEntity } from './entity/message.entity';
 import { MessageMentionEntity } from './entity/message_mention.entity';
 import { MessageReactionEntity } from './entity/message_reaction.entity';
+import { MessageFeedbackEntity } from './entity/message_feedback.entity';
 import { MessageAttachmentEntity } from './entity/message_attachment.entity';
 import { LinkPreviewEntity } from './entity/link-preview.entity';
 import { CachedModule } from '@slack/cached';
@@ -42,6 +43,7 @@ import { LinkPreviewProcessor } from './processor/link-preview.processor';
       MessageEntity,
       MessageMentionEntity,
       MessageReactionEntity,
+      MessageFeedbackEntity,
       MessageAttachmentEntity,
       LinkPreviewEntity,
     ]),

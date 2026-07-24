@@ -5,6 +5,7 @@ import {
   MessageResponseDto,
   GetMessagesQueryDto,
   ToggleReactionDto,
+  ToggleFeedbackDto,
   UserResponseDto,
   ReactionResponseDto,
   GetPinnedMessagesQueryDto,
@@ -24,9 +25,10 @@ import {
 } from '@slack/constants';
 import { InjectRepository } from '@nestjs/typeorm';
 import { MessageEntity } from '../entity/message.entity';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { MessageMentionEntity } from '../entity/message_mention.entity';
 import { MessageReactionEntity } from '../entity/message_reaction.entity';
+import { MessageFeedbackEntity } from '../entity/message_feedback.entity';
 import { MessageAttachmentEntity } from '../entity/message_attachment.entity';
 import { firstValueFrom } from 'rxjs';
 import { v7 as uuidv7 } from 'uuid';
@@ -486,10 +488,10 @@ export class MessageService {
       },
       // Giai đoạn 4, Step 1 — jobId tường minh, BullMQ tự chặn enqueue trùng
       // cho CÙNG messageId (VD race ở tầng gọi tạo 2 job cho 1 message).
-      { 
+      {
         jobId: `ai_trigger_${savedMessage.id}`,
-        attempts: 3, 
-        backoff: { type: 'exponential', delay: 3000 } 
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 3000 },
       },
     );
   }
@@ -742,7 +744,7 @@ export class MessageService {
       // Check membership
       await this.checkChannelExist(message.channelId, userId);
 
-      const [dto] = await this.hydrateMessages([message], manager);
+      const [dto] = await this.hydrateMessages([message], manager, userId);
       return dto;
     });
   }
@@ -1035,6 +1037,72 @@ export class MessageService {
     });
   }
 
+  /**
+   * Feedback (like/unlike) — CHỈ cho phép trên message DO BOT gửi (đo độ
+   * chính xác câu trả lời AI), khác toggleReaction() ở trên vốn cho phép
+   * react tin nhắn bất kỳ. 1 user chỉ có ĐÚNG 1 trạng thái/message (unique
+   * messageId+userId, không kèm type) — bấm lại đúng lựa chọn cũ thì bỏ vote
+   * (toggle off) thay vì cộng dồn.
+   */
+  async toggleFeedback(
+    userId: string,
+    toggleDto: ToggleFeedbackDto,
+  ): Promise<boolean> {
+    return await this.dataSource.transaction(async (manager) => {
+      const messageRepo = manager.getRepository(MessageEntity);
+      const message = await messageRepo.findOne({
+        where: { id: toggleDto.messageId },
+      });
+      if (!message) throw new RpcException(MESSAGE_ERROR.MESSAGE_NOT_FOUND);
+
+      // Check membership
+      await this.checkChannelExist(message.channelId, userId);
+
+      if (!message.userId) throw new RpcException(MESSAGE_ERROR.NOT_AI_MESSAGE);
+      const senderMap = await this.getUsersInfo([message.userId]);
+      if (!senderMap.get(message.userId)?.isBot) {
+        throw new RpcException(MESSAGE_ERROR.NOT_AI_MESSAGE);
+      }
+
+      const feedbackRepo = manager.getRepository(MessageFeedbackEntity);
+      const { messageId, type } = toggleDto;
+
+      const existing = await feedbackRepo.findOne({
+        where: { messageId, userId },
+      });
+
+      let myFeedback: 'like' | 'unlike' | null;
+      if (existing && existing.type === type) {
+        await feedbackRepo.remove(existing);
+        myFeedback = null;
+      } else if (existing) {
+        existing.type = type;
+        await feedbackRepo.save(existing);
+        myFeedback = type;
+      } else {
+        const feedback = feedbackRepo.create({ messageId, userId, type });
+        await feedbackRepo.save(feedback);
+        myFeedback = type;
+      }
+
+      // Room RIÊNG của user (không phải channel/thread như reaction) —
+      // feedback là tín hiệu private theo viewer, không phải cảm xúc công
+      // khai cho cả channel thấy. Chỉ để đồng bộ nhiều tab/thiết bị của
+      // CHÍNH người vừa bấm.
+      await this.queueService.addJob(
+        EQueueName.SOCKET_QUEUE,
+        EJobName.EMIT_EVENT,
+        {
+          event: ESocketEvent.MESSAGE_FEEDBACK_UPDATED,
+          room: [`user_${userId}`],
+          data: { messageId, myFeedback },
+        },
+      );
+
+      return true;
+    });
+  }
+
   async togglePin(id: string, userId: string): Promise<boolean> {
     return await this.dataSource.transaction(async (manager) => {
       const messageRepo = manager.getRepository(MessageEntity);
@@ -1220,13 +1288,33 @@ export class MessageService {
   }
 
   /**
-   * Helper to populate user info and metadata for a list of messages
+   * Helper to populate user info and metadata for a list of messages.
+   * `viewerUserId` — CHỈ getMessageById() truyền (dùng cho response sau khi
+   * toggle feedback) — tính myFeedback (trạng thái vote RIÊNG của viewer này,
+   * khác reactions vốn là aggregate cho mọi người). Danh sách/tìm kiếm message
+   * KHÔNG truyền, myFeedback sẽ luôn undefined ở các nơi đó (chưa cần thiết,
+   * xem message_feedback.entity.ts).
    */
   public async hydrateMessages(
     messages: MessageEntity[],
     manager?: EntityManager,
+    viewerUserId?: string,
   ): Promise<MessageResponseDto[]> {
     if (messages.length === 0) return [];
+
+    let myFeedbackMap = new Map<string, 'like' | 'unlike'>();
+    if (viewerUserId) {
+      const feedbackRepo = manager
+        ? manager.getRepository(MessageFeedbackEntity)
+        : this.dataSource.getRepository(MessageFeedbackEntity);
+      const feedbackRows = await feedbackRepo.find({
+        where: {
+          messageId: In(messages.map((m) => m.id)),
+          userId: viewerUserId,
+        },
+      });
+      myFeedbackMap = new Map(feedbackRows.map((f) => [f.messageId, f.type]));
+    }
 
     // 1. Get all user IDs involved (senders + mention users)
     const userIds = new Set<string>();
@@ -1269,6 +1357,7 @@ export class MessageService {
         m.userId ? userMap.get(m.userId) : undefined,
         reactions,
         m.mentions || [],
+        viewerUserId ? (myFeedbackMap.get(m.id) ?? null) : undefined,
       );
       dto.replyCount = replyCounts.get(m.id) || 0;
       return dto;
@@ -1303,10 +1392,12 @@ export class MessageService {
     sender?: UserResponseDto,
     reactions: ReactionResponseDto[] = [],
     mentions: any[] = [],
+    myFeedback?: 'like' | 'unlike' | null,
   ): MessageResponseDto {
     const dto = new MessageResponseDto();
     dto.id = message.id;
     dto.channelId = message.channelId;
+    dto.myFeedback = myFeedback;
     try {
       dto.content =
         typeof message.content === 'string' &&

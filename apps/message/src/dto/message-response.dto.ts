@@ -35,6 +35,11 @@ export class MessageResponseDto {
   reactions: ReactionResponseDto[] | [];
   mentions: MentionResponseDto[] | [];
   replyCount: number;
+  // Trạng thái vote CỦA RIÊNG người đang xem — khác reactions (aggregate cho
+  // mọi người thấy), feedback là tín hiệu riêng tư/theo viewer, chỉ tính được
+  // khi caller cung cấp viewerUserId cho hydrateMessages() (hiện chỉ
+  // getMessageById() làm — danh sách/tìm kiếm message không tính, để undefined).
+  myFeedback?: 'like' | 'unlike' | null;
   linkPreviews?: ILinkPreviewMetadata[] | null;
   toolCalls?: IToolCallTrace[] | null;
 }
