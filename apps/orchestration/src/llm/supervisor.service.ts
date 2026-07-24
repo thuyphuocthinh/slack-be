@@ -33,6 +33,7 @@ import {
   resolveDataCharBudget,
 } from '../executor/tool-result-size-cap.util';
 import { hasPendingActionStep } from '../common/pending-action-step.util';
+import { MetricsRegistryService } from '../common/metrics-registry.service';
 
 // accuracy_problem.md mục 9.4 — memo CHỈ sống trong phạm vi 1 lần gọi
 // TurnResolverService.continueRounds() (caller tạo `{}` mới ở đầu hàm, KHÔNG
@@ -65,6 +66,7 @@ export class SupervisorService {
     private readonly circuitBreaker: CircuitBreakerService,
     private readonly dynamicProviderDb: DynamicProviderDbService,
     private readonly embeddingProvider: OpenAiEmbeddingProvider,
+    private readonly metrics: MetricsRegistryService,
   ) {}
 
   /**
@@ -273,6 +275,7 @@ export class SupervisorService {
     this.logger.warn(
       `[ambiguous-agent-cluster] plan() chọn "${chosenProvider}" giữa ${similarOthers.length + 1} agent mô tả tương tự nhau — candidates=${[chosenProvider, ...similarOthers.map((a) => a.provider)].join(',')}`,
     );
+    this.metrics.incrementBehaviorSignal('ambiguous_cluster');
     return [chosen, ...similarOthers];
   }
 

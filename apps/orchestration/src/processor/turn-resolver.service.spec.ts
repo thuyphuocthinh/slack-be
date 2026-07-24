@@ -10,6 +10,7 @@ import { ApprovalRequiredError } from '../llm/approval-required.error';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
 import { TurnCancelledError } from '../llm/turn-cancelled.error';
 import { CheckpointPauseService } from './checkpoint-pause.service';
+import { MetricsRegistryService } from '../common/metrics-registry.service';
 
 // react-loop.service.ts / supervisor.service.ts import @slack/common ở module
 // scope — mock thẳng barrel để tránh kéo theo "nanoid" (ESM-only).
@@ -35,6 +36,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
     pauseForApproval: jest.fn(),
     pauseForClarification: jest.fn(),
   };
+  const mockMetrics = { incrementBehaviorSignal: jest.fn() };
 
   const data: IProcessAiTriggerJobData = {
     userId: 'user-1',
@@ -69,6 +71,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         { provide: AgentStreamService, useValue: mockAgentStream },
         { provide: AgentCancellationService, useValue: mockCancellation },
         { provide: CheckpointPauseService, useValue: mockCheckpointPause },
+        { provide: MetricsRegistryService, useValue: mockMetrics },
       ],
     }).compile();
 

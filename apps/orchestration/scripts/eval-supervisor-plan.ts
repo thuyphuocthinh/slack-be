@@ -52,7 +52,8 @@ function buildSupervisor(): SupervisorService {
     new AnthropicStrategy(),
     new MockStrategy(),
   );
-  const circuitBreaker = new CircuitBreakerService(new MetricsRegistryService());
+  const metrics = new MetricsRegistryService();
+  const circuitBreaker = new CircuitBreakerService(metrics);
 
   // plan() không đụng tới mcpAuthClient/dynamicProviderDb (2 cái đó chỉ phục
   // vụ getAvailableAgents(), KHÔNG dùng ở đây — dataset tự cấp sẵn `agents`) —
@@ -65,6 +66,7 @@ function buildSupervisor(): SupervisorService {
     circuitBreaker,
     {} as any,
     new OpenAiEmbeddingProvider(),
+    metrics,
   );
 }
 
@@ -142,7 +144,9 @@ async function main(): Promise<void> {
       console.log(`✅ ${testCase.name} (${passCount}/${REPEATS})`);
     } else if (passCount === 0) {
       fullyConsistentFail++;
-      console.log(`❌ ${testCase.name} (0/${REPEATS}) — sai ổn định, không phải do thiếu self-consistency`);
+      console.log(
+        `❌ ${testCase.name} (0/${REPEATS}) — sai ổn định, không phải do thiếu self-consistency`,
+      );
       failureDetails.push(
         `❌ ${testCase.name} — sai ở cả ${REPEATS} lần chạy. Lần 1: ${verdicts[0].reason}\n   raw: ${JSON.stringify(runs[0])}`,
       );
@@ -152,7 +156,9 @@ async function main(): Promise<void> {
         `⚠️  ${testCase.name} (${passCount}/${REPEATS}) — KHÔNG ỔN ĐỊNH giữa các lần chạy CÙNG 1 input (tín hiệu ủng hộ mục 5 — self-consistency)`,
       );
       runs.forEach((plan, i) => {
-        console.log(`     lần ${i + 1}: ${signatureOf(plan)} — ${verdicts[i].ok ? 'đúng' : 'sai'}`);
+        console.log(
+          `     lần ${i + 1}: ${signatureOf(plan)} — ${verdicts[i].ok ? 'đúng' : 'sai'}`,
+        );
       });
     }
   }

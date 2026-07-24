@@ -11,6 +11,7 @@ import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { DynamicProviderDbService } from '../registry/dynamic-provider-db.service';
 import { OpenAiEmbeddingProvider } from '../registry/openai-embedding.provider';
+import { MetricsRegistryService } from '../common/metrics-registry.service';
 
 // Cô lập test khỏi giá trị thật của process.env.AGENT_SQL_SERVER_URL — mock
 // thẳng registry để chủ động quyết định agent nào có/thiếu hạ tầng thật.
@@ -47,6 +48,7 @@ describe('SupervisorService', () => {
   // "agent-level Tool RAG" riêng bên dưới) — mọi test khác dùng agents ít nên
   // không bao giờ chạm tới mock này.
   const mockEmbeddingProvider = { embed: jest.fn() };
+  const mockMetrics = { incrementBehaviorSignal: jest.fn() };
 
   beforeEach(async () => {
     mockLlmFactory.resolve.mockReturnValue({
@@ -67,6 +69,7 @@ describe('SupervisorService', () => {
         { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
         { provide: DynamicProviderDbService, useValue: mockDynamicProviderDb },
         { provide: OpenAiEmbeddingProvider, useValue: mockEmbeddingProvider },
+        { provide: MetricsRegistryService, useValue: mockMetrics },
       ],
     }).compile();
 

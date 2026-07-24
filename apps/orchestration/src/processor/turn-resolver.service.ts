@@ -21,6 +21,7 @@ import { runCancellable } from '../common/cancellable-run.util';
 import { TurnCancelledError } from '../llm/turn-cancelled.error';
 import { describeExternalServiceError } from '../llm/external-service-error.util';
 import { CheckpointPauseService } from './checkpoint-pause.service';
+import { MetricsRegistryService } from '../common/metrics-registry.service';
 import { buildOnToken } from './agent-stream-token.util';
 import {
   capRoundResults,
@@ -63,6 +64,7 @@ export class TurnResolverService {
     private readonly agentStream: AgentStreamService,
     private readonly cancellation: AgentCancellationService,
     private readonly checkpointPause: CheckpointPauseService,
+    private readonly metrics: MetricsRegistryService,
   ) {}
 
   // Entry point cho turn MỚI — chuẩn bị prompt/agents/history rồi giao hết
@@ -201,6 +203,7 @@ export class TurnResolverService {
       }
       if (outcome === 'replan') {
         nonProgressRounds++;
+        this.metrics.incrementBehaviorSignal('replan');
         rounds.push({
           agent: lastRound.agent,
           task: lastRound.task,
@@ -285,6 +288,7 @@ export class TurnResolverService {
           process.env.ENABLE_CLARIFICATION_HITL === 'true' &&
           plan.ambiguousCandidates?.some((c) => c.provider === steps[0]?.agent)
         ) {
+          this.metrics.incrementBehaviorSignal('clarification_required');
           return this.checkpointPause.pauseForClarification(
             data,
             prompt,
@@ -343,6 +347,7 @@ export class TurnResolverService {
           result: `${GUARDRAIL_BLOCKED_MARKER} — kế hoạch chọn hệ thống "${step.agent}" nhưng yêu cầu nhắc rõ tới hệ thống "${misroutedTo.label}" (đã kết nối, provider "${misroutedTo.provider}") — có khả năng chọn sai agent, cần lập lại kế hoạch.`,
         });
         nonProgressRounds++;
+        this.metrics.incrementBehaviorSignal('misroute_guardrail');
         needsPlan = true;
         steps = [];
         continue;
@@ -377,6 +382,7 @@ export class TurnResolverService {
           result.toolCalls,
         );
         if (preApprovalRound) rounds.push(preApprovalRound);
+        this.metrics.incrementBehaviorSignal('approval_required');
         // accuracy_problem.md mục 9.2 — `steps` tại đây CHÍNH LÀ các bước còn
         // lại của kế hoạch gốc (đã shift() bước gây pause ra khỏi mảng ở trên)
         // — lưu lại để resume ĐÚNG theo kế hoạch cũ, không phải lập lại từ đầu.
@@ -418,6 +424,7 @@ export class TurnResolverService {
       }
       if (outcome === 'replan') {
         nonProgressRounds++;
+        this.metrics.incrementBehaviorSignal('replan');
         // Đẩy thêm 1 note "vô hình" — CÙNG cơ chế guardrail-block đã dùng
         // (đánh đổi đã biết: lọt vào input của synthesize() sau này) — không
         // có chỗ nào khác để giữ lại tín hiệu "bước này bị đánh giá không đạt"
@@ -438,6 +445,7 @@ export class TurnResolverService {
     this.logger.warn(
       `Supervisor chưa hội tụ (realSteps=${realStepsRun}/${ORCHESTRATION_CONSTANTS.MAX_REAL_STEPS_PER_TURN}, nonProgress=${nonProgressRounds}/${ORCHESTRATION_CONSTANTS.MAX_SUPERVISOR_ROUNDS}) cho user ${userId}, tổng hợp lại kết quả đã có`,
     );
+    this.metrics.incrementBehaviorSignal('non_convergence');
     await this.agentStream
       .emitStep(
         { userId, channelId, messageId: replyMessageId, channelType },
