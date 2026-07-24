@@ -25,16 +25,13 @@ import { SharedArray } from 'k6/data';
 //       AI-trigger/60s/user (CACHE.MESSAGE.KEYS.AI_TRIGGER_RATE_LIMIT) — nếu
 //       vượt, message vẫn tạo thành công (KHÔNG 429) nhưng bot chỉ trả lời
 //       "Bạn đang hỏi hơi nhanh..." — KHÔNG hề enqueue vào BullMQ.
-// Dùng CHUNG 1 token cho mọi virtual user (bug đã sửa) khiến TẤT CẢ request
-// cùng 1 rateLimitKey — dù k6 ramp tới bao nhiêu "users" cũng chỉ tối đa 5
-// request/60s THẬT SỰ chạm tới BullMQ queue, còn lại vô nghĩa. Script này đọc
-// N user THẬT từ loadtest-users.json, mỗi virtual user (__VU) dùng 1 token
-// RIÊNG (round-robin) — trần enqueue-AI hợp lệ tối đa ~ N users x 5 req/60s.
-// Với N=10 user hiện có, `sleep()` bên dưới được canh (~24-32s/vòng, ~2-3 VU
-// chia nhau 1 token) để MỖI token ở dưới CẢ 2 ngưỡng — ưu tiên đo sạch tầng
-// BullMQ/Supervisor thay vì đo tiếng ồn của rate limiter. Muốn spike THẬT
-// (VD 200 users) phải tăng N (chạy lại orchestration_full_setup_and_run.js
-// với NUM_TEST_USERS lớn hơn — tốn thêm thời gian do rate limit register/login).
+// (b) LUÔN chặt hơn (a): 5/60s ~ 5/60s < 10/10s ~ 60/60s — công thức sleep()
+// bên dưới chỉ cần canh theo (b), (a) tự động thoả mãn theo.
+//
+// Script đọc N user THẬT từ loadtest-users.json, mỗi virtual user (__VU) dùng
+// 1 token RIÊNG (round-robin) — trần enqueue-AI hợp lệ tối đa ~ N user × 5
+// req/60s. `MAX_VUS`/`MIN_SLEEP_SECONDS` bên dưới tự TÍNH LẠI theo N thật đang
+// có trong file (KHÔNG hardcode cho 1 N cụ thể) — chạy đúng dù N=10 hay N=100.
 
 const testUsers = new SharedArray('test users', function () {
   const data = JSON.parse(open('./loadtest-users.json'));
@@ -47,17 +44,35 @@ const testUsers = new SharedArray('test users', function () {
   }));
 });
 
-// ==== CẤU HÌNH LOAD TEST — canh theo N=10 user thật hiện có (xem giải thích ở trên) ====
-// Test KÉO DÀI hơn (~4 phút, không phải 60s) dù rate/user không đổi — sleep()
-// dài (24-32s/vòng) nghĩa là mỗi VU chỉ lặp được 1-2 lần trong 60s, mẫu quá ít
-// để có ý nghĩa thống kê. Rate limit tính theo TỐC ĐỘ/user, không phụ thuộc
-// TỔNG thời lượng test, nên kéo dài không vi phạm gì thêm, chỉ cho nhiều mẫu hơn.
+// ==== CẤU HÌNH LOAD TEST — TỰ TÍNH theo N user thật (đọc từ loadtest-users.json) ====
+const N = testUsers.length;
+if (N === 0) {
+  throw new Error(
+    'loadtest-users.json rỗng — chạy node loadtest/orchestration_full_setup_and_run.js trước.',
+  );
+}
+
+// Không ramp vượt quá N quá nhiều (oversubscription vẫn OK ở mức vừa phải —
+// vài VU chia sẻ 1 token là bình thường, phản ánh đúng "1 user gửi nhiều tin
+// liên tục") — cap ở 120 để tránh cấu hình vô lý nếu N sau này rất lớn.
+const MAX_VUS = Math.min(N, 120);
+const HOLD_VUS = Math.max(1, Math.floor(MAX_VUS * 0.6));
+// Đỉnh spike, mỗi token bị chia sẻ bởi tối đa ceil(MAX_VUS/N) VU cùng lúc.
+const VUS_PER_TOKEN_AT_PEAK = Math.ceil(MAX_VUS / N);
+// Rate limit (b) đòi mỗi token giãn tối thiểu 60/5=12s giữa 2 lần gọi — nhân
+// thêm số VU chia sẻ CÙNG 1 token, +20% biên an toàn (jitter/network).
+const MIN_SLEEP_SECONDS = VUS_PER_TOKEN_AT_PEAK * 12 * 1.2;
+
+// Test KÉO DÀI ~4 phút (không phải 60s) dù rate/user không đổi — sleep() dài
+// nghĩa là mỗi VU chỉ lặp được vài lần/phút, cần đủ thời lượng mới có mẫu ý
+// nghĩa thống kê. Rate limit tính theo TỐC ĐỘ/user, không phụ thuộc TỔNG thời
+// lượng test, nên kéo dài không vi phạm gì thêm, chỉ cho nhiều mẫu hơn.
 export const options = {
   stages: [
-    { duration: '15s', target: 15 }, // Ramp-up lên 15 VU (~1.5 VU/token)
-    { duration: '3m', target: 15 }, // Giữ mức 15 VU trong 3 phút — đủ mẫu để đo percentile thật
-    { duration: '30s', target: 25 }, // Spike lên 25 VU (~2.5 VU/token) để vẫn thấy chút áp lực queue
-    { duration: '15s', target: 0 }, // Ramp-down về 0
+    { duration: '20s', target: HOLD_VUS }, // Ramp-up
+    { duration: '3m', target: HOLD_VUS }, // Giữ mức — đủ mẫu để đo percentile thật
+    { duration: '30s', target: MAX_VUS }, // Spike — vẫn thấy áp lực queue
+    { duration: '20s', target: 0 }, // Ramp-down về 0
   ],
   thresholds: {
     http_req_duration: ['p(95)<1000'], // 95% request phải hoàn thành dưới 1s
@@ -100,8 +115,8 @@ export default function () {
     console.log(`Failed with status ${res.status}: ${res.body}`);
   }
 
-  // 24-32s/vòng (không phải 1-3s) — CỐ Ý chậm để MỖI token (chia sẻ bởi ~2-3
-  // VU ở đỉnh spike) vẫn ở dưới ngưỡng 5 AI-trigger/60s VÀ 10 message/10s —
-  // xem giải thích ở đầu file.
-  sleep(24 + Math.random() * 8);
+  // CỐ Ý chậm (không phải 1-3s như user thật gõ tay) — MIN_SLEEP_SECONDS tự
+  // tính theo N thật (xem đầu file) để MỖI token luôn ở dưới ngưỡng rate limit
+  // chặt nhất (AI-trigger 5/60s/user), dù N=10 hay N=100.
+  sleep(MIN_SLEEP_SECONDS + Math.random() * (MIN_SLEEP_SECONDS * 0.3));
 }

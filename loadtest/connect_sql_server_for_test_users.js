@@ -1,11 +1,16 @@
 /**
- * Re-login 10 user test (token cũ đã hết hạn TTL 30 phút) + connect agent
- * sql_server cho từng user (POST ai-providers/sql_server/submit) — để load
- * test chạm được tới ReactLoopService/MCP tool call thật, không chỉ dừng ở
- * "chưa thể xử lý yêu cầu này" như trước (do user test chưa connect agent nào).
+ * Re-login TOÀN BỘ user test trong loadtest-users.json (token cũ hết hạn TTL
+ * 30 phút — số lượng user đọc TRỰC TIẾP từ file, không hardcode, tự chạy đúng
+ * dù đang có 10 hay 100 user) + connect agent sql_server cho từng user (POST
+ * ai-providers/sql_server/submit) — để load test chạm được tới
+ * ReactLoopService/MCP tool call thật, không chỉ dừng ở "chưa thể xử lý yêu
+ * cầu này" (do user test chưa connect agent nào).
  *
  * Field credentials (host/port/user/password/database) đều 1 từ — KHÔNG dính
  * bug CamelCaseMiddleware (xem memory project-camelcase-middleware-credentials-footgun).
+ * Endpoint submit KHÔNG có @RateLimit — sleep(500) giữa mỗi user chỉ để nhẹ
+ * tay với server, không phải né rate limit như bước login (13s/user, BẮT
+ * BUỘC theo rate limit /auth/login 5/60s/IP).
  *
  * Chạy: node loadtest/connect_sql_server_for_test_users.js
  */

@@ -41,7 +41,15 @@ const path = require('path');
 const { Client } = require('pg');
 
 // ==== CẤU HÌNH — ĐIỀN LẠI TRƯỚC KHI CHẠY ====
-const NUM_TEST_USERS = 10; // 10 user x 5 req/60s = ~50 req/60s tổng — cân bằng thời gian setup (~6 phút) và mức tải đo được
+// N=100 tính theo Little's Law (concurrency = throughput × latency): muốn
+// chạm AI_ORCHESTRATION_QUEUE_CONCURRENCY=30 với latency mock ~3-4s/round-trip
+// cần throughput ~7.5 job/s -> N cần = 7.5 ÷ (5/60) = 90, làm tròn lên 100.
+// Idempotent — 10 user cũ (loadtest_1..10) đã có sẽ tự bỏ qua bước register,
+// chỉ đăng ký thêm 90 user MỚI. Lần đầu ước tính ~53 phút (register 90 user
+// mới × 21s + login 100 user × 13s, rate limit theo IP không né được) — chạy
+// NỀN, không cần canh. Các lần setup lại sau (account đã tồn tại) nhanh hơn
+// nhiều vì bỏ qua hẳn bước register.
+const NUM_TEST_USERS = 100;
 const WORKSPACE_ID = '5f5a6f59-c969-41ec-b5f2-677cb5efa30e';
 const CHANNEL_ID = '35563f7a-4857-4dfc-8a08-01aea5cbd21d';
 const ADMIN_EMAIL = 'tpt@gmail.com';
