@@ -35,8 +35,16 @@ export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
     label: 'Google Drive',
     endpoint: process.env.AGENT_GOOGLE_DRIVE_URL,
   },
+  google_calendar: {
+    label: 'Google Calendar',
+    endpoint: process.env.AGENT_GOOGLE_CALENDAR_URL,
+  },
   slack: {
     label: 'Slack',
     endpoint: process.env.AGENT_SLACK_URL,
+  },
+  notion: {
+    label: 'Notion',
+    endpoint: process.env.AGENT_NOTION_URL,
   },
 };
