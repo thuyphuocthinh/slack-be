@@ -45,6 +45,7 @@ export class McpClientService {
     CacheEntry<McpResourceDto>
   >();
   private readonly promptsCache = new Map<string, CacheEntry<McpPromptDto>>();
+  private readonly inFlightLists = new Map<string, Promise<any>>();
 
   constructor(
     private readonly circuitBreaker: CircuitBreakerService,
@@ -186,16 +187,34 @@ export class McpClientService {
       return cached.data;
     }
 
-    const data = await this.withReconnect(
-      provider,
-      undefined,
-      fetchFn,
-      3,
-      signal,
-    );
+    let cacheType = 'tools';
+    if (cacheMap === this.resourcesCache) cacheType = 'resources';
+    if (cacheMap === this.promptsCache) cacheType = 'prompts';
+    const key = `${cacheType}:${provider}`;
 
-    cacheMap.set(provider, { data, fetchedAt: Date.now() });
-    return data;
+    const existingPromise = this.inFlightLists.get(key);
+    if (existingPromise) {
+      return existingPromise;
+    }
+
+    const fetchPromise = (async () => {
+      try {
+        const data = await this.withReconnect(
+          provider,
+          undefined,
+          fetchFn,
+          3,
+          signal,
+        );
+        cacheMap.set(provider, { data, fetchedAt: Date.now() });
+        return data;
+      } finally {
+        this.inFlightLists.delete(key);
+      }
+    })();
+
+    this.inFlightLists.set(key, fetchPromise);
+    return fetchPromise;
   }
 
   async getTools(
@@ -475,6 +494,7 @@ export class McpClientService {
         `mcp:${provider}`,
         ORCHESTRATION_CONSTANTS.MAX_CONCURRENT_MCP_CALLS_PER_PROVIDER,
         () => this.callWithReconnect(provider, ownerId, fn, maxRetries, signal),
+        signal,
       ),
     );
   }

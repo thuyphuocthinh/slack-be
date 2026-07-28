@@ -74,6 +74,7 @@ export interface LlmStructuredOptions {
   prompt: string;
   /** JSON Schema chuẩn mô tả object kết quả mong muốn. */
   schema: Record<string, unknown>;
+  signal?: AbortSignal;
 }
 
 export interface LlmStrategy {

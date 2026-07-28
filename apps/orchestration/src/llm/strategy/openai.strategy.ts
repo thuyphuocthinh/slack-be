@@ -47,16 +47,23 @@ export class OpenAiStrategy implements LlmStrategy {
   constructor() {
     const apiKey = process.env.OPENAI_API_KEY;
     if (apiKey) {
-      const baseURL = process.env.AI_ROUTER_URL || 'http://slack-9router:20128/v1';
+      const baseURL =
+        process.env.AI_ROUTER_URL || 'http://slack-9router:20128/v1';
       this.client = new OpenAI({
         apiKey,
         baseURL, // Trỏ thẳng vào 9Router chạy qua Docker
         maxRetries: 3,
-        fetch: async (url: RequestInfo, init?: RequestInit): Promise<Response> => {
+        fetch: async (
+          url: RequestInfo,
+          init?: RequestInit,
+        ): Promise<Response> => {
           const response = await fetch(url, init);
 
           // Bỏ qua nếu là stream (vì stream chunk được xử lý riêng rẽ)
-          const isStream = init?.body && typeof init.body === 'string' && init.body.includes('"stream":true');
+          const isStream =
+            init?.body &&
+            typeof init.body === 'string' &&
+            init.body.includes('"stream":true');
           if (isStream) {
             return response;
           }
@@ -70,7 +77,7 @@ export class OpenAiStrategy implements LlmStrategy {
             statusText: response.statusText,
             headers: response.headers,
           });
-        }
+        },
       });
     } else {
       this.logger.warn(
@@ -98,25 +105,30 @@ export class OpenAiStrategy implements LlmStrategy {
         prompt: string;
         schema: Record<string, unknown>;
       }) => {
-        let completion = (await this.client!.chat.completions.create({
-          model: params.model,
-          messages: [
-            { role: 'system', content: params.systemInstruction },
-            { role: 'user', content: params.prompt },
-          ],
-          response_format: {
-            type: 'json_schema',
-            json_schema: { name: 'decision', schema: params.schema },
+        let completion = (await this.client!.chat.completions.create(
+          {
+            model: params.model,
+            messages: [
+              { role: 'system', content: params.systemInstruction },
+              { role: 'user', content: params.prompt },
+            ],
+            response_format: {
+              type: 'json_schema',
+              json_schema: { name: 'decision', schema: params.schema },
+            },
+            temperature: 0,
           },
-          temperature: 0,
-        })) as any;
+          { signal: opts.signal },
+        )) as any;
 
         if (typeof completion === 'string' || completion instanceof String) {
           try {
             const extractor = new JsonExtractor();
             // Dọn rác 9Router trước — "[DONE]" tự chứa dấu ngoặc nên nếu để lọt
             // vào extractor, nó đánh lừa bộ dò ngoặc và làm JSON.parse fail.
-            const cleanRaw = extractor.extract(stripNineRouterArtifacts(completion.toString()));
+            const cleanRaw = extractor.extract(
+              stripNineRouterArtifacts(completion.toString()),
+            );
             completion = JSON.parse(cleanRaw);
           } catch (e) {
             // ignore, let it fail below
@@ -244,7 +256,9 @@ class OpenAiChatSession implements LlmChatSession {
       const delta = chunk.choices?.[0]?.delta;
       if (!delta) {
         if ((chunk as any).error) {
-          throw new Error(`9Router Stream Error: ${(chunk as any).error.message || JSON.stringify((chunk as any).error)}`);
+          throw new Error(
+            `9Router Stream Error: ${(chunk as any).error.message || JSON.stringify((chunk as any).error)}`,
+          );
         }
         continue;
       }
@@ -259,10 +273,15 @@ class OpenAiChatSession implements LlmChatSession {
       if (delta.tool_calls) {
         for (const call of delta.tool_calls) {
           if (!toolCallsMap[call.index]) {
-            toolCallsMap[call.index] = { id: call.id, type: 'function', function: { name: call.function?.name || '', arguments: '' } };
+            toolCallsMap[call.index] = {
+              id: call.id,
+              type: 'function',
+              function: { name: call.function?.name || '', arguments: '' },
+            };
           }
           if (call.function?.arguments) {
-            toolCallsMap[call.index].function.arguments += call.function.arguments;
+            toolCallsMap[call.index].function.arguments +=
+              call.function.arguments;
           }
         }
       }
@@ -277,7 +296,10 @@ class OpenAiChatSession implements LlmChatSession {
     this.messages.push({
       role: 'assistant',
       content: fullText || null,
-      tool_calls: Object.values(toolCallsMap).length > 0 ? Object.values(toolCallsMap) : undefined,
+      tool_calls:
+        Object.values(toolCallsMap).length > 0
+          ? Object.values(toolCallsMap)
+          : undefined,
     } as ChatCompletionAssistantMessageParam);
 
     // Giai đoạn 4, Step 7 — gắn usage/chi phí ước lượng vào trace hiện tại, giống hệt

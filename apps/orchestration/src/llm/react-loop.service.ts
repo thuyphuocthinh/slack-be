@@ -45,7 +45,10 @@ export class ReactLoopService {
     private readonly cancellation: AgentCancellationService,
   ) {}
 
-  async run(dto: RunReactLoopRequestDto): Promise<RunReactLoopResponseDto> {
+  async run(
+    dto: RunReactLoopRequestDto,
+    parentSignal?: AbortSignal,
+  ): Promise<RunReactLoopResponseDto> {
     const toolCalls: ToolCallTraceDto[] = [];
 
     // Luôn khớp CHÍNH XÁC với những gì FE đang hiển thị (được reset đúng lúc
@@ -170,6 +173,7 @@ export class ReactLoopService {
       // dung lưu — giống ChatGPT/Claude: dừng thì giữ nguyên phần đã có,
       // không xoá sạch thay bằng 1 câu thông báo.
       () => new TurnCancelledError(confirmedText || undefined),
+      parentSignal,
     );
   }
 

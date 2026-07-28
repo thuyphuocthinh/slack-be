@@ -33,7 +33,8 @@ export class AnthropicStrategy implements LlmStrategy {
   constructor() {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (apiKey) {
-      const baseURL = process.env.AI_ROUTER_URL || 'http://slack-9router:20128/v1';
+      const baseURL =
+        process.env.AI_ROUTER_URL || 'http://slack-9router:20128/v1';
       // maxRetries: SDK tự retry lỗi tạm thời (429/5xx) với backoff, giống OpenAI.
       this.client = new Anthropic({ apiKey, baseURL, maxRetries: 3 });
     } else {
@@ -70,18 +71,21 @@ export class AnthropicStrategy implements LlmStrategy {
         systemInstruction: string;
         prompt: string;
       }) => {
-        const message = await this.client!.messages.create({
-          model: params.model,
-          max_tokens: MAX_TOKENS,
-          system: params.systemInstruction,
-          messages: [{ role: 'user', content: params.prompt }],
-          tools: [decisionTool],
-          tool_choice: { type: 'tool', name: 'decision' },
-          // Ưu tiên nhất quán routing hơn sáng tạo — giống Gemini/OpenAI
-          // (Giai đoạn 2, Step 5: giảm rủi ro Supervisor tự "sáng tạo" số
-          // liệu khi soạn task/answer từ kết quả vòng trước).
-          temperature: 0,
-        });
+        const message = await this.client!.messages.create(
+          {
+            model: params.model,
+            max_tokens: MAX_TOKENS,
+            system: params.systemInstruction,
+            messages: [{ role: 'user', content: params.prompt }],
+            tools: [decisionTool],
+            tool_choice: { type: 'tool', name: 'decision' },
+            // Ưu tiên nhất quán routing hơn sáng tạo — giống Gemini/OpenAI
+            // (Giai đoạn 2, Step 5: giảm rủi ro Supervisor tự "sáng tạo" số
+            // liệu khi soạn task/answer từ kết quả vòng trước).
+            temperature: 0,
+          },
+          { signal: opts.signal },
+        );
         // Giai đoạn 4, Step 7 — gắn usage/chi phí ước lượng vào chính trace
         // "anthropic.generateStructured" này (bên trong hàm traceable() bọc).
         if (message.usage) {
@@ -176,7 +180,7 @@ class AnthropicChatSession implements LlmChatSession {
             type: 'text',
             text: this.system,
             cache_control: { type: 'ephemeral' },
-          }
+          },
         ],
         messages: this.messages,
         tools: this.tools.length > 0 ? this.tools : undefined,

@@ -137,6 +137,59 @@ export class TurnResolverService {
     // cả, buộc phải plan() lại toàn bộ, không có gì đảm bảo bản mới không bỏ
     // sót B/C).
     remainingSteps?: DelegationDto[],
+    signal?: AbortSignal,
+  ): Promise<AnswerResult> {
+    if (signal) {
+      return this.continueRoundsInternal(
+        data,
+        replyMessageId,
+        prompt,
+        agents,
+        history,
+        rounds,
+        toolCalls,
+        forcedStep,
+        remainingSteps,
+        signal,
+      );
+    }
+
+    return runCancellable(
+      replyMessageId,
+      this.cancellation,
+      async (sig) => {
+        return this.continueRoundsInternal(
+          data,
+          replyMessageId,
+          prompt,
+          agents,
+          history,
+          rounds,
+          toolCalls,
+          forcedStep,
+          remainingSteps,
+          sig,
+        );
+      },
+      () => {
+        const partialText =
+          rounds.length > 0 ? rounds[rounds.length - 1].result : undefined;
+        return new TurnCancelledError(partialText);
+      },
+    );
+  }
+
+  private async continueRoundsInternal(
+    data: IProcessAiTriggerJobData,
+    replyMessageId: string,
+    prompt: string,
+    agents: AvailableAgentDto[],
+    history: ChatHistoryTurnDto[],
+    rounds: SupervisorRoundDto[],
+    toolCalls: ToolCallTraceDto[],
+    forcedStep?: DelegationDto,
+    remainingSteps?: DelegationDto[],
+    signal?: AbortSignal,
   ): Promise<AnswerResult> {
     const { userId, channelId, channelType } = data;
 
@@ -191,7 +244,12 @@ export class TurnResolverService {
     // khi delegateRound() chạy nó trong vòng while như 1 bước bình thường.
     if (!forcedStep && remainingSteps !== undefined && rounds.length > 0) {
       const lastRound = rounds[rounds.length - 1];
-      const outcome = await this.runEvaluateAndDecide(prompt, lastRound, steps);
+      const outcome = await this.runEvaluateAndDecide(
+        prompt,
+        lastRound,
+        steps,
+        signal,
+      );
       if (outcome === 'finalize') {
         return this.finalizeAnswer(
           data,
@@ -199,6 +257,8 @@ export class TurnResolverService {
           prompt,
           rounds,
           toolCalls,
+          undefined,
+          signal,
         );
       }
       if (outcome === 'replan') {
@@ -224,7 +284,10 @@ export class TurnResolverService {
       // bọc được AbortSignal như ReactLoop/synthesize() — kiểm tra cờ huỷ GIỮA
       // các bước là đủ, vì đây vốn đã là các lệnh gọi ngắn (JSON, không phải
       // câu trả lời dài).
-      if (await this.cancellation.isCancelled(replyMessageId)) {
+      if (
+        signal?.aborted ||
+        (await this.cancellation.isCancelled(replyMessageId))
+      ) {
         // Chưa có gì đang stream ở đúng thời điểm này (đang giữa 2 bước) —
         // giữ lại kết quả GẦN NHẤT đã có (nếu có) làm nội dung lưu, thay vì
         // xoá sạch về 1 câu thông báo chung chung.
@@ -240,6 +303,7 @@ export class TurnResolverService {
           rounds,
           history,
           agentRankingCache,
+          signal,
         );
 
         if (plan.action === 'respond') {
@@ -250,6 +314,7 @@ export class TurnResolverService {
             rounds,
             toolCalls,
             plan.answer,
+            signal,
           );
         }
 
@@ -319,6 +384,8 @@ export class TurnResolverService {
           prompt,
           rounds,
           toolCalls,
+          undefined,
+          signal,
         );
       }
 
@@ -364,6 +431,7 @@ export class TurnResolverService {
         history,
         realStepsRun,
         rounds,
+        signal,
       );
       realStepsRun++;
 
@@ -412,6 +480,7 @@ export class TurnResolverService {
         prompt,
         completedRound,
         steps,
+        signal,
       );
       if (outcome === 'finalize') {
         return this.finalizeAnswer(
@@ -420,6 +489,8 @@ export class TurnResolverService {
           prompt,
           rounds,
           toolCalls,
+          undefined,
+          signal,
         );
       }
       if (outcome === 'replan') {
@@ -460,7 +531,7 @@ export class TurnResolverService {
     const finalAnswer = await runCancellable(
       replyMessageId,
       this.cancellation,
-      (signal) =>
+      (sig) =>
         this.supervisor.synthesize(
           prompt,
           rounds,
@@ -472,9 +543,10 @@ export class TurnResolverService {
             channelType,
             fallbackAccumulator,
           ),
-          signal,
+          sig,
         ),
       () => new TurnCancelledError(fallbackAccumulator.text || undefined),
+      signal,
     );
     return buildAnswer(finalAnswer, toolCalls);
   }
@@ -498,6 +570,7 @@ export class TurnResolverService {
     rounds: SupervisorRoundDto[],
     toolCalls: ToolCallTraceDto[],
     answerHint?: string,
+    signal?: AbortSignal,
   ): Promise<AnswerResult> {
     const { userId, channelId, channelType } = data;
 
@@ -519,7 +592,7 @@ export class TurnResolverService {
       const finalAnswer = await runCancellable(
         replyMessageId,
         this.cancellation,
-        (signal) =>
+        (sig) =>
           this.supervisor.synthesize(
             prompt,
             rounds,
@@ -531,9 +604,10 @@ export class TurnResolverService {
               channelType,
               accumulator,
             ),
-            signal,
+            sig,
           ),
         () => new TurnCancelledError(accumulator.text || undefined),
+        signal,
       );
       return buildAnswer(finalAnswer, toolCalls);
     }
@@ -553,11 +627,13 @@ export class TurnResolverService {
     prompt: string,
     completedRound: SupervisorRoundDto,
     remainingSteps: DelegationDto[],
+    signal?: AbortSignal,
   ): Promise<'finalize' | 'replan' | 'continue'> {
     const verdict = await this.supervisor.evaluate(
       prompt,
       completedRound,
       remainingSteps,
+      signal,
     );
     if (verdict.verdict === 'done') {
       if (!hasPendingActionStep(remainingSteps)) {
@@ -652,6 +728,7 @@ export class TurnResolverService {
     history: ChatHistoryTurnDto[],
     round: number,
     roundsSoFar: SupervisorRoundDto[],
+    signal?: AbortSignal,
   ): Promise<DelegateRoundResult | ApprovalRequiredDelegateResult | null> {
     const { userId, channelId, workspaceId, channelType } = data;
     const targetAgent = agents.find((a) => a.provider === delegation.agent);
@@ -724,17 +801,20 @@ export class TurnResolverService {
       )
       .catch(() => {});
     try {
-      const { answer, toolCalls } = await this.reactLoop.run({
-        prompt: promptWithContext,
-        provider: targetAgent.provider,
-        userId,
-        channelId,
-        workspaceId,
-        messageId: replyMessageId,
-        channelType,
-        history,
-        streamKey,
-      });
+      const { answer, toolCalls } = await this.reactLoop.run(
+        {
+          prompt: promptWithContext,
+          provider: targetAgent.provider,
+          userId,
+          channelId,
+          workspaceId,
+          messageId: replyMessageId,
+          channelType,
+          history,
+          streamKey,
+        },
+        signal,
+      );
       return {
         round: { agent: targetAgent.provider, task, result: answer },
         toolCalls,

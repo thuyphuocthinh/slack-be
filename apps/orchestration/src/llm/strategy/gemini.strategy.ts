@@ -98,8 +98,8 @@ export class GeminiStrategy implements LlmStrategy {
     ];
 
     const requestOptions = {
-      baseUrl: process.env.AI_ROUTER_URL 
-        ? process.env.AI_ROUTER_URL.replace(/\/v1$/, '') 
+      baseUrl: process.env.AI_ROUTER_URL
+        ? process.env.AI_ROUTER_URL.replace(/\/v1$/, '')
         : 'http://slack-9router:20128',
     };
 
@@ -128,8 +128,8 @@ export class GeminiStrategy implements LlmStrategy {
     }
 
     const requestOptions = {
-      baseUrl: process.env.AI_ROUTER_URL 
-        ? process.env.AI_ROUTER_URL.replace(/\/v1$/, '') 
+      baseUrl: process.env.AI_ROUTER_URL
+        ? process.env.AI_ROUTER_URL.replace(/\/v1$/, '')
         : 'http://slack-9router:20128',
     };
 
@@ -149,8 +149,10 @@ export class GeminiStrategy implements LlmStrategy {
     const generate = traceable(
       async (prompt: string) => {
         const result = await withGeminiRetry(
-          () => model.generateContent(prompt),
+          () => model.generateContent(prompt, { signal: opts.signal }),
           this.logger,
+          3,
+          opts.signal,
         );
         // Giai đoạn 4, Step 7 — gắn usage/chi phí ước lượng vào chính trace
         // "gemini.generateStructured" này (bên trong hàm traceable() bọc).
@@ -169,7 +171,7 @@ export class GeminiStrategy implements LlmStrategy {
     const text = result.response.text();
     const extractor = new JsonExtractor();
     const cleanJson = extractor.extract(text);
-    
+
     return JSON.parse(cleanJson) as T;
   }
 
@@ -182,6 +184,7 @@ export class GeminiStrategy implements LlmStrategy {
   private toGeminiSchema(
     schema: Record<string, unknown>,
   ): FunctionDeclarationSchema {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- lấy ra để LOẠI khỏi `rest`, không cần dùng trực tiếp.
     const { $schema, additionalProperties, properties, items, ...rest } =
       schema;
     const cleaned: Record<string, unknown> = { ...rest };
@@ -290,7 +293,7 @@ class GeminiChatSession implements LlmChatSession {
       3,
       signal,
     );
-    
+
     let fullText = '';
     for await (const chunk of result.stream) {
       const chunkText = chunk.text();

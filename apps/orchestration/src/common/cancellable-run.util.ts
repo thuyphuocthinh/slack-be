@@ -21,9 +21,22 @@ export async function runCancellable<T>(
   fn: (signal: AbortSignal) => Promise<T>,
   // Cho phép nơi gọi đính kèm phần nội dung đã stream tới lúc bị huỷ (VD
   // ReactLoopService tự theo dõi confirmedText) — mặc định không có gì kèm theo.
-  buildCancelledError: () => TurnCancelledError = () => new TurnCancelledError(),
+  buildCancelledError: () => TurnCancelledError = () =>
+    new TurnCancelledError(),
+  parentSignal?: AbortSignal,
 ): Promise<T> {
   const controller = new AbortController();
+
+  if (parentSignal?.aborted) {
+    controller.abort();
+  } else if (parentSignal) {
+    const abortListener = () => controller.abort();
+    parentSignal.addEventListener('abort', abortListener);
+    // clean up listener if finished
+    controller.signal.addEventListener('abort', () => {
+      parentSignal.removeEventListener('abort', abortListener);
+    });
+  }
 
   const interval = setInterval(() => {
     cancellation

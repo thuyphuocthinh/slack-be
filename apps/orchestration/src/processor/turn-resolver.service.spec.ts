@@ -125,11 +125,13 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         messageId: replyMessageId,
         history: [],
       }),
+      expect.anything(),
     );
     expect(mockSupervisor.evaluate).toHaveBeenCalledWith(
       'có bao nhiêu bảng?',
       { agent: 'sql_server', task: 'liệt kê bảng', result: 'Có 2 bảng.' },
       [],
+      expect.any(Object),
     );
     expect(result).toEqual({
       content: 'Có 2 bảng.',
@@ -148,6 +150,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
 
     expect(mockReactLoop.run).toHaveBeenCalledWith(
       expect.objectContaining({ prompt: 'có bao nhiêu bảng?' }),
+      expect.anything(),
     );
   });
 
@@ -168,6 +171,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
 
     expect(mockReactLoop.run).toHaveBeenCalledWith(
       expect.objectContaining({ provider: 'dynamic_12345' }),
+      expect.anything(),
     );
   });
 
@@ -238,10 +242,12 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         provider: 'sql_server',
         streamKey: 'r0-sql_server',
       }),
+      expect.anything(),
     );
     expect(mockReactLoop.run).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ provider: 'github', streamKey: 'r1-github' }),
+      expect.anything(),
     );
     expect(mockSupervisor.synthesize).toHaveBeenCalledWith(
       'có bao nhiêu bảng?',
@@ -364,6 +370,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         provider: 'sql_server',
         prompt: expect.stringContaining('chèn danh sách pet vào bảng pet'),
       }),
+      expect.anything(),
     );
     expect(result.toolCalls).toEqual([
       { tool: 'petstore.findPetsByStatus', status: 'success' },
@@ -438,6 +445,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         provider: 'sql_server',
         prompt: expect.stringContaining('kiểm tra xem có các record nào'),
       }),
+      expect.anything(),
     );
     expect(result.content).toBe('Khớp: A, B — không tìm thấy: C');
   });
@@ -494,6 +502,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         provider: 'sql_server',
         prompt: expect.stringContaining('vérifier si les enregistrements'),
       }),
+      expect.anything(),
     );
     expect(result.content).toBe('Correspond: A, B — introuvable: C');
   });
@@ -550,6 +559,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         provider: 'sql_server',
         prompt: expect.stringContaining('tính tổng doanh số'),
       }),
+      expect.anything(),
     );
     expect(result.content).toBe('Tổng doanh số quý này: 1.250.000.000đ');
   });
@@ -603,6 +613,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         provider: 'sql_server',
         prompt: expect.stringContaining('tính trung bình giá trị đơn hàng'),
       }),
+      expect.anything(),
     );
     expect(result.content).toBe('Trung bình đơn hàng: 3.906.250đ');
   });
@@ -729,6 +740,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
       expect(mockReactLoop.run).toHaveBeenCalledTimes(1);
       expect(mockReactLoop.run).toHaveBeenCalledWith(
         expect.objectContaining({ provider: 'google_docs' }),
+        expect.anything(),
       );
       expect(mockSupervisor.synthesize).toHaveBeenCalledTimes(1);
       expect(result.content).toBe('Đã lưu nội dung vào Google Docs.');
@@ -773,6 +785,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
           provider: 'sql_server',
           prompt: expect.stringContaining('Đã lưu.'),
         }),
+        expect.anything(),
       );
       const secondCallPrompt = mockReactLoop.run.mock.calls[1][0].prompt;
       expect(secondCallPrompt).not.toContain('Bỏ qua bước này');
@@ -1181,11 +1194,13 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         // mỗi lần gọi, truyền xuống plan() để tái dùng ranking agent giữa các
         // lần re-plan trong CÙNG turn.
         {},
+        expect.any(Object),
       );
       // Bước MỚI (sau resume) delegate sang ĐÚNG provider cần thiết cho phần
       // còn lại (sql_server) — KHÔNG bị ép ở lại provider vừa dùng trước đó.
       expect(mockReactLoop.run).toHaveBeenCalledWith(
         expect.objectContaining({ provider: 'sql_server' }),
+        expect.anything(),
       );
       // Bug thật (xem accuracy.md bổ sung): agent thực thi bước ghi chỉ thấy
       // đúng câu "task" ngắn gọn, KHÔNG tự nhiên biết dữ liệu THẬT bước trước
@@ -1219,6 +1234,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
 
       expect(mockReactLoop.run).toHaveBeenCalledWith(
         expect.objectContaining({ prompt: 'liệt kê bảng' }),
+        expect.anything(),
       );
     });
 
@@ -1258,6 +1274,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
           result: 'Đã chèn 2 diễn viên vào bảng users.',
         },
         [],
+        expect.any(Object),
       );
     });
 
@@ -1315,11 +1332,13 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         'cập nhật đơn rồi lấy poster phim liên quan',
         existingRounds[0],
         remainingSteps,
+        expect.any(Object),
       );
       // Bước B chạy đúng agent của NÓ (dynamic_tmdb), không bị ép ở lại
       // sql_server (bug cũ: agent A không thấy tool của agent B).
       expect(mockReactLoop.run).toHaveBeenCalledWith(
         expect.objectContaining({ provider: 'dynamic_tmdb' }),
+        expect.anything(),
       );
       expect(mockSupervisor.evaluate).toHaveBeenNthCalledWith(
         2,
@@ -1330,6 +1349,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
           result: 'Đã lấy poster phim.',
         },
         [],
+        expect.any(Object),
       );
       expect(result.content).toBe(
         'Đã cập nhật đơn và lấy poster phim liên quan.',
@@ -1634,6 +1654,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
           prompt: 'lưu thông tin này lại',
           provider: 'sql_server',
         }),
+        expect.anything(),
       );
       expect(result.content).toBe('Đã lưu.');
     });
@@ -1670,11 +1691,13 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
       expect(mockReactLoop.run).toHaveBeenNthCalledWith(
         1,
         expect.objectContaining({ provider: 'google_docs' }),
+        expect.anything(),
       );
       // Bước B KHÔNG bị mất — vẫn chạy sau forcedStep, đúng agent của nó.
       expect(mockReactLoop.run).toHaveBeenNthCalledWith(
         2,
         expect.objectContaining({ provider: 'sql_server' }),
+        expect.anything(),
       );
       expect(result.content).toBe('Đã lưu và ghi log.');
     });

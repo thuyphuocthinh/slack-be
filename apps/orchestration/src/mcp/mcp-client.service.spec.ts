@@ -1075,4 +1075,47 @@ describe('McpClientService', () => {
       expect(cacheSize()).toBe(0);
     });
   });
+
+  describe('inFlightLists deduplication (Thundering Herd prevention)', () => {
+    it('deduplicates concurrent calls to getTools and resolves all of them with the same result from a single connection/fetch', async () => {
+      let callCount = 0;
+      mockListTools.mockImplementation(async () => {
+        callCount++;
+        // Simulate some async delay
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return {
+          tools: [{ name: 'test_tool', description: 'test', inputSchema: {} }],
+        };
+      });
+
+      // Fire 3 concurrent calls
+      const [r1, r2, r3] = await Promise.all([
+        service.getTools('sql_server'),
+        service.getTools('sql_server'),
+        service.getTools('sql_server'),
+      ]);
+
+      // All resolved to the same tools list
+      expect(r1).toEqual([
+        { name: 'test_tool', description: 'test', inputSchema: {} },
+      ]);
+      expect(r2).toEqual([
+        { name: 'test_tool', description: 'test', inputSchema: {} },
+      ]);
+      expect(r3).toEqual([
+        { name: 'test_tool', description: 'test', inputSchema: {} },
+      ]);
+
+      // But listTools was only called ONCE!
+      expect(callCount).toBe(1);
+
+      // Cleaned up from inFlightLists map
+      expect((service as any).inFlightLists.size).toBe(0);
+
+      // Next call goes live again because cache is now set (but if we clear cache, it will trigger listTools)
+      (service as any).toolsCache.delete('sql_server');
+      await service.getTools('sql_server');
+      expect(callCount).toBe(2);
+    });
+  });
 });

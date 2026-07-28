@@ -5,9 +5,9 @@ const mockCreate = jest.fn();
 const mockStream = jest.fn();
 
 jest.mock('@anthropic-ai/sdk', () => {
-  return jest
-    .fn()
-    .mockImplementation(() => ({ messages: { create: mockCreate, stream: mockStream } }));
+  return jest.fn().mockImplementation(() => ({
+    messages: { create: mockCreate, stream: mockStream },
+  }));
 });
 
 const mockGetCurrentRunTree = jest.fn();
@@ -125,7 +125,12 @@ describe('AnthropicStrategy', () => {
           on: jest.fn().mockReturnThis(),
           finalMessage: async () => ({
             content: [
-              { type: 'tool_use', id: 'toolu_1', name: 'get_schema', input: {} },
+              {
+                type: 'tool_use',
+                id: 'toolu_1',
+                name: 'get_schema',
+                input: {},
+              },
             ],
           }),
         })
@@ -220,6 +225,7 @@ describe('AnthropicStrategy', () => {
         expect.objectContaining({
           tool_choice: { type: 'tool', name: 'decision' },
         }),
+        expect.anything(),
       );
     });
 

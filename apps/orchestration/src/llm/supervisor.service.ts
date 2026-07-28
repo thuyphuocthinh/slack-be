@@ -358,6 +358,7 @@ export class SupervisorService {
     // accuracy_problem.md mục 9.4 — truyền bởi continueRounds() để tái dùng
     // ranking đã tính giữa các lần plan()/re-plan() trong CÙNG 1 turn.
     rankingCache?: AgentRankingCache,
+    signal?: AbortSignal,
   ): Promise<SupervisorPlanDto> {
     const { shown, omittedCount } =
       rankingCache?.current ?? (await this.rankAgentsForPrompt(prompt, agents));
@@ -410,6 +411,7 @@ export class SupervisorService {
             systemInstruction: `${SUPERVISOR_PLANNING_PROMPT}\n${agentListText}`,
             prompt: fullPrompt,
             schema: planSchema,
+            signal,
           }),
           ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
           `Supervisor plan() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
@@ -454,6 +456,7 @@ export class SupervisorService {
     originalPrompt: string,
     completedStep: SupervisorRoundDto,
     remainingSteps: DelegationDto[],
+    signal?: AbortSignal,
   ): Promise<SupervisorEvaluateDto> {
     if (remainingSteps.length === 0) {
       return { verdict: 'done' };
@@ -526,6 +529,7 @@ export class SupervisorService {
             schema: mustFinishRemaining
               ? SUPERVISOR_EVALUATE_SCHEMA_NO_DONE
               : SUPERVISOR_EVALUATE_SCHEMA,
+            signal,
           }),
           ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
           `Supervisor evaluate() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
