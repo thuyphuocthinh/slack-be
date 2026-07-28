@@ -269,6 +269,7 @@ export class SupervisorService {
    * hỏi lại user hay không (mục 1 bước 2, ENABLE_CLARIFICATION_HITL).
    */
   private findAmbiguousAgentCluster(
+    prompt: string,
     agents: AvailableAgentDto[],
     chosenProvider: string,
   ): AvailableAgentDto[] | null {
@@ -278,6 +279,15 @@ export class SupervisorService {
     const tokenize = (text: string) =>
       new Set(text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
     const chosenTokens = tokenize(chosen.description);
+    const promptTokens = tokenize(prompt);
+    const chosenLabelTokens = tokenize(chosen.label);
+
+    // 2 từ coi là "cùng nhắc tới 1 thứ" nếu giống hệt nhau HOẶC lệch đúng 1
+    // chữ "s" ở cuối (số ít/nhiều tiếng Anh, VD "sheet" người dùng gõ tắt so
+    // với label thật "Sheets") — heuristic đơn giản, đủ dùng cho tên sản phẩm
+    // (Sheets/Docs/Slides...), không cần thư viện stem đầy đủ.
+    const wordsMatch = (x: string, y: string) =>
+      x === y || `${x}s` === y || `${y}s` === x;
 
     const similarOthers = agents.filter((a) => {
       if (a.provider === chosenProvider) return false;
@@ -287,9 +297,37 @@ export class SupervisorService {
       ).length;
       const unionSize = new Set([...chosenTokens, ...otherTokens]).size;
       const jaccard = unionSize === 0 ? 0 : intersectionSize / unionSize;
-      return (
-        jaccard >= ORCHESTRATION_CONSTANTS.AMBIGUOUS_AGENT_JACCARD_THRESHOLD
+      if (jaccard < ORCHESTRATION_CONSTANTS.AMBIGUOUS_AGENT_JACCARD_THRESHOLD) {
+        return false;
+      }
+
+      // Bug thật đã gặp: hỏi rõ ràng "google sheet" vẫn bị hỏi lại "sheet hay
+      // docs" — vì Jaccard chỉ so MÔ TẢ 2 agent với NHAU, MÙ hoàn toàn với câu
+      // hỏi thật của user. Lấy từ trong LABEL (VD "Sheets" của "Google Sheets")
+      // CHỈ CÓ ở agent này mà KHÔNG có ở agent kia — nếu prompt chứa 1 từ khớp
+      // (kể cả lệch số ít/nhiều) với từ riêng của agent ĐƯỢC CHỌN nhưng KHÔNG
+      // khớp từ riêng của agent "tương tự" này, coi như user đã tự phân biệt
+      // rõ bằng chính lời văn của họ — bỏ agent này khỏi cụm mơ hồ, không hỏi
+      // lại thừa. Nếu prompt gọi tên CẢ 2 (hoặc không gọi tên rõ ràng), vẫn
+      // giữ nguyên cảnh báo mơ hồ như cũ.
+      const otherLabelTokens = tokenize(a.label);
+      const chosenOnlyWords = [...chosenLabelTokens].filter(
+        (t) =>
+          t.length >= MIN_AGENT_LABEL_LENGTH_FOR_RESCUE &&
+          !otherLabelTokens.has(t),
       );
+      const otherOnlyWords = [...otherLabelTokens].filter(
+        (t) =>
+          t.length >= MIN_AGENT_LABEL_LENGTH_FOR_RESCUE &&
+          !chosenLabelTokens.has(t),
+      );
+      const namesWord = (words: string[]) =>
+        words.some((w) => [...promptTokens].some((pt) => wordsMatch(pt, w)));
+      if (namesWord(chosenOnlyWords) && !namesWord(otherOnlyWords)) {
+        return false;
+      }
+
+      return true;
     });
 
     if (similarOthers.length === 0) return null;
@@ -380,6 +418,7 @@ export class SupervisorService {
       this.logger.log(`plan() result=${JSON.stringify(plan)}`);
       if (plan.action === 'plan' && plan.steps?.[0]) {
         const cluster = this.findAmbiguousAgentCluster(
+          prompt,
           shown,
           plan.steps[0].agent,
         );

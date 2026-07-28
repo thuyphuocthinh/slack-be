@@ -807,6 +807,69 @@ describe('SupervisorService', () => {
 
       expect(mockEmbeddingProvider.embed).not.toHaveBeenCalled();
     });
+
+    it('does NOT flag ambiguity when the user prompt explicitly names the chosen agent (and not the similar one) — bug thật đã gặp: hỏi rõ "google sheet" vẫn bị hỏi lại "sheet hay docs"', async () => {
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn');
+      const agents = [
+        {
+          provider: 'google_sheets',
+          label: 'Google Sheets',
+          description: 'Đọc và chỉnh sửa nội dung Google Sheets.',
+        },
+        {
+          provider: 'google_docs',
+          label: 'Google Docs',
+          description: 'Đọc và chỉnh sửa nội dung Google Docs.',
+        },
+      ];
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'plan',
+        steps: [{ agent: 'google_sheets', task: 'lưu thông tin vào sheet' }],
+      });
+
+      const plan = await service.plan(
+        'lưu thông tin này vào google sheet giúp tôi',
+        agents,
+      );
+
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('[ambiguous-agent-cluster]'),
+      );
+      expect(plan.ambiguousCandidates).toBeUndefined();
+    });
+
+    it('still flags ambiguity when the prompt names BOTH similar agents explicitly — user thật sự nhắc tới cả 2', async () => {
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn');
+      const agents = [
+        {
+          provider: 'google_sheets',
+          label: 'Google Sheets',
+          description: 'Đọc và chỉnh sửa nội dung Google Sheets.',
+        },
+        {
+          provider: 'google_docs',
+          label: 'Google Docs',
+          description: 'Đọc và chỉnh sửa nội dung Google Docs.',
+        },
+      ];
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'plan',
+        steps: [{ agent: 'google_sheets', task: 'lưu thông tin vào sheet' }],
+      });
+
+      const plan = await service.plan(
+        'so sánh nội dung giữa google sheet và google docs của tôi',
+        agents,
+      );
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[ambiguous-agent-cluster]'),
+      );
+      expect(plan.ambiguousCandidates?.map((c) => c.provider).sort()).toEqual([
+        'google_docs',
+        'google_sheets',
+      ]);
+    });
   });
 
   describe('plan — model tiering theo độ khó (Giai đoạn Accuracy v2, mục 4)', () => {
