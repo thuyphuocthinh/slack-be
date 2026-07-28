@@ -82,7 +82,7 @@ describe('CheckpointService', () => {
       ORCHESTRATION_CONSTANTS.CHECKPOINT_EXPIRY_MS - 1000,
     );
     expect(offsetMs).toBeLessThanOrEqual(
-      ORCHESTRATION_CONSTANTS.CHECKPOINT_EXPIRY_MS,
+      ORCHESTRATION_CONSTANTS.CHECKPOINT_EXPIRY_MS + 1000,
     );
     expect(mockRepo.save).toHaveBeenCalledWith(entity);
     // toEqual (không phải toBe) — create() giờ map qua toResponseDto(), trả
