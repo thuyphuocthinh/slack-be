@@ -55,6 +55,9 @@ export class DynamicToolExecutorService {
     ownerId?: string,
     signal?: AbortSignal,
   ): Promise<CallToolResponseDto> {
+    if (signal?.aborted) {
+      throw new Error('Aborted');
+    }
     try {
       this.logger.log(
         `Executing dynamic tool "${toolName}" for provider "${providerId}"`,
@@ -80,6 +83,9 @@ export class DynamicToolExecutorService {
         content: [{ type: 'text', text: responseText }],
       };
     } catch (error: unknown) {
+      if (signal?.aborted) {
+        throw error;
+      }
       return this.handleExecutionError(error, toolName, providerId);
     }
   }

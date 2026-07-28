@@ -161,15 +161,16 @@ describe('DynamicToolExecutorService', () => {
       return Promise.reject(cancelError);
     });
 
-    const result = await service.execute(
-      'test_provider',
-      'getUsers',
-      {},
-      'user-1',
-      controller.signal,
-    );
+    await expect(
+      service.execute(
+        'test_provider',
+        'getUsers',
+        {},
+        'user-1',
+        controller.signal,
+      ),
+    ).rejects.toThrow('canceled');
 
-    expect(result.isError).toBe(true);
     // Đúng 1 lần gọi thật — không retry sau khi đã bị huỷ, dù đây vốn là 1
     // lỗi ĐÁNG lẽ retryable (không có response, giống network error).
     expect(axios).toHaveBeenCalledTimes(1);
@@ -628,5 +629,47 @@ describe('DynamicToolExecutorService', () => {
     expect(JSON.parse(result.content![0].text!).retryable).toBe(false);
     // Initial attempt + 2 retries (maxRetries: 2), matching the configured retry policy.
     expect(axios).toHaveBeenCalledTimes(3);
+  });
+
+  it('propagates cancellation signal (AbortSignal) instead of swallowing it as a tool error', async () => {
+    const mockSpec = {
+      openapi: '3.0.0',
+      info: { title: 'Test', version: '1.0' },
+      servers: [{ url: 'https://api.test.com' }],
+      paths: {
+        '/slow-endpoint': {
+          get: { operationId: 'getSlow' },
+        },
+      },
+    } as any;
+
+    registryService.getProviderSpec.mockResolvedValue({
+      providerId: 'test_provider',
+      specUrl: 'http://test',
+      document: mockSpec,
+      tools: [],
+    });
+
+    const controller = new AbortController();
+    (axios as unknown as jest.Mock).mockImplementation((config) => {
+      return new Promise((_, reject) => {
+        config.signal?.addEventListener('abort', () => {
+          reject(new Error('canceled'));
+        });
+      });
+    });
+
+    // Abort early
+    controller.abort();
+
+    await expect(
+      service.execute(
+        'test_provider',
+        'getSlow',
+        {},
+        undefined,
+        controller.signal,
+      ),
+    ).rejects.toThrow();
   });
 });
