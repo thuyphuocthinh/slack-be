@@ -226,6 +226,24 @@ export class McpClientService {
     return error instanceof McpError && error.code === ErrorCode.MethodNotFound;
   }
 
+  // Lỗi "session chết" bên mcp_server (restart làm mất session trong RAM —
+  // xem streamable_http_standard/index.ts) — server trả về NGAY tại tầng
+  // transport/handshake, TRƯỚC KHI request thật (VD ghi SQL) từng chạy tới tool
+  // handler, nên đây là trường hợp DUY NHẤT biết chắc CHƯA thực thi, an toàn để
+  // cấp thêm 1 lần retry ngay cả với tool destructive (xem callWithReconnect()).
+  // PHẢI check theo TEXT message, không theo `error.code`: server dùng lại 2
+  // mã số -32000/-32001 với Ý NGHĨA KHÁC hẳn enum ErrorCode phía client SDK
+  // (-32000 = ConnectionClosed, -32001 = RequestTimeout) — so theo code sẽ
+  // nhầm lẫn với 2 loại lỗi đó. Giữ cả 2 message (kể cả "Server not
+  // initialized" cũ) để không phụ thuộc đúng thời điểm deploy giữa 2 repo.
+  private isStaleSessionError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return (
+      message.includes('Session not found') ||
+      message.includes('Server not initialized')
+    );
+  }
+
   // `signal` (Stop giữa turn, xem ReactLoopService.run()/runCancellable()) huỷ
   // được cả 2 nhánh — static qua SDK MCP (RequestOptions.signal) và dynamic
   // provider qua agentic-openapi-parser@1.8.0+ (ExecuteToolOptions.signal,
@@ -386,8 +404,12 @@ export class McpClientService {
     const timeoutMsg = `MCP call timeout sau ${ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS / 1000}s (${cacheKey})`;
 
     let attempt = 0;
+    // Ngân sách retry "bonus" riêng cho lỗi session-chết (xem isStaleSessionError())
+    // — CHỈ dùng được đúng 1 LẦN mỗi call, kể cả khi maxRetries thường (VD tool
+    // destructive) đã hết, vì đây là loại lỗi DUY NHẤT biết chắc chưa thực thi.
+    let staleSessionBonusUsed = false;
 
-    while (attempt < maxRetries) {
+    while (true) {
       // Stop vừa xảy ra trong lúc đang đợi backoff ở vòng lặp trước — dừng
       // NGAY, đừng cố thêm 1 round-trip mạng vô ích nữa.
       if (signal?.aborted) {
@@ -415,8 +437,20 @@ export class McpClientService {
         );
         this.clients.delete(cacheKey);
 
-        if (attempt >= maxRetries) {
+        const withinNormalBudget = attempt < maxRetries;
+        const useStaleSessionBonus =
+          !withinNormalBudget &&
+          !staleSessionBonusUsed &&
+          this.isStaleSessionError(error);
+
+        if (!withinNormalBudget && !useStaleSessionBonus) {
           throw error;
+        }
+        if (useStaleSessionBonus) {
+          staleSessionBonusUsed = true;
+          this.logger.warn(
+            `MCP call for "${cacheKey}" hit stale-session error — dùng thêm bonus retry (an toàn vì request thật chưa từng chạy)`,
+          );
         }
 
         // Exponential backoff: 500ms, 1500ms... — abortable để Stop trong lúc
@@ -425,7 +459,5 @@ export class McpClientService {
         await abortableSleep(delay, signal);
       }
     }
-
-    throw new Error('Unreachable');
   }
 }

@@ -395,6 +395,61 @@ describe('McpClientService', () => {
       expect(mockCallTool).toHaveBeenCalledTimes(1);
     });
 
+    it('DOES retry a destructive tool exactly once on a stale-session error — mcp_server restart means the request was rejected at the transport layer, before it ever reached the tool handler, so retrying is provably safe', async () => {
+      mockListTools.mockResolvedValue({
+        tools: [
+          {
+            name: 'execute_write_query',
+            description: 'desc',
+            inputSchema: {},
+            annotations: { readOnlyHint: false, destructiveHint: true },
+          },
+        ],
+      });
+      mockCallTool
+        .mockRejectedValueOnce(new McpError(-32001, 'Session not found'))
+        .mockResolvedValueOnce({ content: [] });
+
+      const result = await service.callTool({
+        provider: 'sql_server',
+        name: 'execute_write_query',
+        args: {
+          query: "INSERT INTO Products VALUES ('a'),('b'),('c'),('d'),('e')",
+        },
+        ownerId: 'user-1',
+      });
+
+      expect(result).toEqual({ content: [] });
+      expect(mockCallTool).toHaveBeenCalledTimes(2);
+    });
+
+    it('does NOT retry a destructive tool a second time even if the stale-session error keeps recurring — the bonus retry is spent exactly once per call', async () => {
+      mockListTools.mockResolvedValue({
+        tools: [
+          {
+            name: 'execute_write_query',
+            description: 'desc',
+            inputSchema: {},
+            annotations: { readOnlyHint: false, destructiveHint: true },
+          },
+        ],
+      });
+      mockCallTool.mockRejectedValue(new McpError(-32001, 'Session not found'));
+
+      await expect(
+        service.callTool({
+          provider: 'sql_server',
+          name: 'execute_write_query',
+          args: { query: 'INSERT INTO Products VALUES (1)' },
+          ownerId: 'user-1',
+        }),
+      ).rejects.toThrow('Session not found');
+
+      // maxRetries=1 (destructive) + đúng 1 bonus retry session-chết = tối đa
+      // 2 lần gọi tool thật, không lặp vô hạn dù lỗi cứ lặp lại.
+      expect(mockCallTool).toHaveBeenCalledTimes(2);
+    });
+
     it('still retries a safe (read-only) tool as before — no side effect risk', async () => {
       // Mồi thẳng cache (không qua getTools() thật — tránh tốn thêm 1 connect()
       // không liên quan tới test này), đúng như ReactLoop đã getTools() trước
