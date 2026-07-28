@@ -32,7 +32,7 @@ import {
 } from '../executor/tool-result-size-cap.util';
 import { classifyToolError } from '../executor/tool-error-classifier.util';
 
-// Root trace + "done" thuộc về AiOrchestrationProcessor, không phải ở đây.
+// Ghi chú thiết kế đầy đủ (WHY): slack-docs/Documents/Orchestration/code-notes/react-loop.service.md
 @Injectable()
 export class ReactLoopService {
   private readonly logger = new Logger(ReactLoopService.name);
@@ -51,10 +51,6 @@ export class ReactLoopService {
   ): Promise<RunReactLoopResponseDto> {
     const toolCalls: ToolCallTraceDto[] = [];
 
-    // Luôn khớp CHÍNH XÁC với những gì FE đang hiển thị (được reset đúng lúc
-    // FE cũng được báo resync) — dùng để: (a) không có tác dụng gì thêm khi
-    // turn xong bình thường (answer đã tự trả về đúng chỗ), (b) làm nội dung
-    // lưu lại khi bị Stop giữa chừng, thay vì vứt bỏ hết những gì đã stream.
     let confirmedText = '';
     const emitToken = (step: { type: 'token' | 'resync'; text: string }) => {
       this.agentStream
@@ -79,10 +75,6 @@ export class ReactLoopService {
       emitToken({ type: 'resync', text });
     };
 
-    // Bug fix — setup phase (getTools/readResource) TRƯỚC ĐÂY chạy NGOÀI
-    // runCancellable(), nên không nhận signal — bấm Stop trong lúc này không có
-    // tác dụng, bị chặn bởi MCP_CALL_TIMEOUT_MS=15s. Di chuyển vào TRONG
-    // callback để signal luôn sẵn có, kể cả ở giai đoạn setup.
     return runCancellable(
       dto.messageId,
       this.cancellation,
@@ -102,8 +94,6 @@ export class ReactLoopService {
           ),
         ]);
 
-        // Check huỷ SAU setup (trước khi bắt đầu LLM/vòng lặp chính) — nếu
-        // user vừa Stop ngay lúc getTools/readResource xong, không cần tiếp tục.
         if (signal.aborted) {
           throw new TurnCancelledError(undefined);
         }
@@ -131,7 +121,6 @@ export class ReactLoopService {
           { resultPreview: string; feedText: string }
         >();
 
-        // Wrap ở đây để nest đúng cây trace nếu processor đang có traceable() bao quanh.
         const callTool = traceable(
           (name: string, args: Record<string, unknown>) =>
             this.handleToolCall(
@@ -169,9 +158,6 @@ export class ReactLoopService {
           resync,
         );
       },
-      // Giữ lại đúng phần đã stream (đã khớp FE nhờ resync ở trên) làm nội
-      // dung lưu — giống ChatGPT/Claude: dừng thì giữ nguyên phần đã có,
-      // không xoá sạch thay bằng 1 câu thông báo.
       () => new TurnCancelledError(confirmedText || undefined),
       parentSignal,
     );
@@ -186,9 +172,6 @@ export class ReactLoopService {
     const mcpResources = await this.mcpClient.getResources(provider, signal);
     const resourceContents = await Promise.all(
       mcpResources.map(async (r) => {
-        // Abort signal truyền xuống đây để Stop có hiệu lực ngay trong lúc
-        // đang đọc resource — trước đây readResource() không nhận signal nên
-        // người dùng bấm Stop vẫn phải chờ đủ MCP_CALL_TIMEOUT_MS.
         try {
           const content = await this.mcpClient.readResource(
             provider,
@@ -240,29 +223,11 @@ export class ReactLoopService {
 
     const displayName = `${dto.provider}.${name}`;
     const signature = `${name}:${JSON.stringify(args)}`;
-    // Chỉ để user XEM/COPY trên UI (VD code Python thật của run_python, câu
-    // SQL thật) — trước đây args chỉ tồn tại thoáng qua trong 1 dòng debug
-    // log rồi mất, không tới được FE ở bất kỳ đâu trong pipeline.
     const argsPreview = this.formatArgsPreview(args);
 
-    // Mục 4 — LLM tự gọi lại CÙNG tool với CÙNG tham số nhiều lần (thường sau
-    // khi thấy lỗi mà không đổi cách) trông như 1 vòng lặp bị "kẹt" trên UI.
-    // Đây KHÁC với retry nội bộ của McpClientService (mất kết nối/session) —
-    // ở đó lỗi được xử lý và ẩn khỏi LLM; ở đây LLM chủ động quyết định gọi
-    // lại. Vượt ngưỡng thì chặn trước khi gọi tool thật, trả thẳng 1 lời nhắc
-    // để LLM tự đổi hướng thay vì lặp vô ích.
     const attempts = (callSignatureCounts.get(signature) ?? 0) + 1;
     callSignatureCounts.set(signature, attempts);
 
-    // Check cache TRƯỚC khi check ngưỡng chặn (đảo thứ tự so với bản đầu) —
-    // model tự gọi lại ĐÚNG tool đã thành công (self-check nudge nghi ngờ
-    // thừa, hoặc 1 response chứa 2 tool_call y hệt cùng lúc) luôn được phục vụ
-    // từ cache, KHÔNG BAO GIỜ bị chặn cứng dù lặp lại bao nhiêu lần — vì đây
-    // là repeat VÔ HẠI (không tốn thêm lời gọi backend thật), khác hẳn việc
-    // lặp lại sau 1 LỖI. Không cache lỗi, nên lần lặp sau 1 lần lỗi luôn rơi
-    // xuống dưới, ăn đúng ngưỡng chặn (xem MAX_SAME_TOOL_CALL_REPEATS = 1 —
-    // lỗi ứng dụng gọi lại y hệt tham số không có lý do gì ra kết quả khác;
-    // lỗi kết nối/session thật đã có retry riêng, tách biệt, ở McpClientService).
     if (attempts > 1) {
       const cached = successfulCallCache.get(signature);
       if (cached) {
@@ -291,11 +256,6 @@ export class ReactLoopService {
     }
 
     if (attempts > ORCHESTRATION_CONSTANTS.MAX_SAME_TOOL_CALL_REPEATS) {
-      // Không chỉ nói chung chung "thử cách khác" — model hay đọc xong rồi
-      // vẫn gọi lại đúng tool đọc đó thay vì chuyển sang tool HÀNH ĐỘNG. Liệt
-      // kê thẳng tên các tool KHÁC còn dùng được (nhất là tool ghi/hành động)
-      // ngay tại điểm chặn, để model có 1 bước tiếp theo cụ thể thay vì phải
-      // tự nhớ lại nguyên tắc chung trong system prompt.
       const otherToolNames = mcpTools
         .map((t) => t.name)
         .filter((n) => n !== name);
@@ -335,13 +295,6 @@ export class ReactLoopService {
     let resultPreview: string;
     let transientAttempt = 0;
 
-    // Giai đoạn System, mục 4 (nâng cấp) — lỗi ỨNG DỤNG được phân loại
-    // "retryable" (429/502/503/504 — kinh điển cho lỗi TẠM THỜI, VD dynamic
-    // provider rate-limit/quá tải đúng lúc đó) được TỰ THỬ LẠI NGAY TẠI ĐÂY,
-    // ẨN HOÀN TOÀN với LLM — không emit gì cho lần thất bại tạm thời, giống
-    // hệt cách McpClientService retry lỗi kết nối. KHÔNG đụng
-    // callSignatureCounts (bộ đếm chặn LLM TỰ Ý lặp lại) — đây là hệ thống tự
-    // lặp TRƯỚC KHI trả bất kỳ kết quả nào về cho LLM, 2 cơ chế độc lập nhau.
     while (true) {
       transientAttempt++;
       try {
@@ -355,22 +308,10 @@ export class ReactLoopService {
           signal,
         );
       } catch (error) {
-        // Bug đã sửa: Stop giữa lúc tool call đang chạy trước đây rơi thẳng
-        // vào nhánh dưới (swallow thành lỗi bình thường, feed lại cho LLM tự
-        // quyết định tiếp) — turn KHÔNG BAO GIỜ thực sự dừng, chỉ "tưởng như"
-        // dừng. Phải ném lại NGAY để bay lên tới runCancellable(), chuyển đúng
-        // thành TurnCancelledError — không emit/log gì thêm vì turn đang kết
-        // thúc, không phải 1 bước lỗi bình thường.
         if (signal?.aborted) {
           throw error;
         }
 
-        // Trước đây: exception bay thẳng qua đây, bỏ luôn bước emit tool_result
-        // bên dưới — dòng tool-call trên UI kẹt ở trạng thái "đang chạy" tới hết
-        // turn. Bắt lại ngay tại đây, emit đúng 1 lần tool_result lỗi, và trả
-        // lỗi này về CHO LLM (không throw tiếp) để nó tự quyết định bước kế.
-        // KHÔNG áp dụng transient-retry ở đây — exception nghĩa là đã hết 3
-        // lần retry kết nối riêng của McpClientService rồi, thử thêm vô ích.
         const errorMessage = (error as Error).message;
         this.logger.warn(
           `tool_result ${displayName} FAILED (exception): ${errorMessage}`,
@@ -404,8 +345,6 @@ export class ReactLoopService {
       this.logger.warn(
         `tool_result ${displayName} lỗi tạm thời (retryable) — tự thử lại lần ${transientAttempt + 1}/${ORCHESTRATION_CONSTANTS.MAX_TRANSIENT_TOOL_RETRY_ATTEMPTS}, ẩn với LLM: ${resultPreview}`,
       );
-      // abortable — Stop trong lúc đang chờ giữa 2 lần tự-thử-lại cũng phải có
-      // tác dụng ngay, không đợi hết backoff rồi mới phát hiện bị huỷ.
       await abortableSleep(
         ORCHESTRATION_CONSTANTS.TRANSIENT_RETRY_BACKOFF_MS,
         signal,
@@ -425,14 +364,6 @@ export class ReactLoopService {
       resultPreview,
     });
     toolCalls.push({ tool: displayName, status, resultPreview, argsPreview });
-    // resultPreview (trace UI) giữ NGUYÊN VĂN đầy đủ — chỉ cap phần feed
-    // NGƯỢC LẠI cho LLM, tránh 1 kết quả tool quá lớn (VD JSON lồng nhau từ
-    // dynamic provider) làm sendMessage() kế tiếp timeout vì context quá to.
-    // accuracy_problem.md mục 5 — đây là điểm dữ liệu tool RAW (VD 500 dòng
-    // SQL) lần đầu đi vào LLM, TRƯỚC CẢ khi có "round" nào để cap theo mục 4 —
-    // phải cap theo ĐÚNG model đang chạy agent này (resolveDataCharBudget),
-    // không phải hằng số cứng cũ, nếu không dữ liệu đã mất NGAY TẠI ĐÂY, dù
-    // các round sau có ngân sách lớn tới đâu cũng không cứu lại được.
     const feedText = capToolResultSize(text, resolveDataCharBudget(modelId));
     if (status === 'success') {
       successfulCallCache.set(signature, { resultPreview, feedText });
@@ -465,8 +396,6 @@ export class ReactLoopService {
             onToken,
           );
           if (selfCheckTurn.toolCalls.length > 0) {
-            // Vòng self-check tự quyết định cần tool tiếp — text nó vừa
-            // stream (nếu có) không phải câu trả lời, sẽ tiếp tục vòng lặp.
             resync('');
             turn = selfCheckTurn;
             continue;
@@ -474,12 +403,6 @@ export class ReactLoopService {
           this.logger.log(
             `run() done at step=${step} toolCalls=${toolCalls.length} (giữ câu trả lời TRƯỚC self-check)`,
           );
-          // Vòng self-check vừa stream thêm text (thường là xác nhận lại) SAU
-          // câu trả lời gốc — nhưng câu trả lời CUỐI là answerBeforeSelfCheck,
-          // không phải nội dung self-check vừa nói. Resync về đúng
-          // answerBeforeSelfCheck để FE không còn hiện phần thừa đó (nguyên
-          // tắc "stream = save": FE lúc này phải khớp CHÍNH XÁC bằng những gì
-          // cuối cùng được lưu).
           resync(
             answerBeforeSelfCheck ||
               'Xin lỗi, mình chưa có câu trả lời phù hợp.',
@@ -500,20 +423,8 @@ export class ReactLoopService {
         };
       }
 
-      // Vòng này vừa có tool-call — text vừa stream (nếu có, kiểu "Để tôi
-      // kiểm tra...") chỉ là tường thuật tạm thời, KHÔNG phải câu trả lời
-      // cuối (câu trả lời thật đến từ vòng sau, sau khi có kết quả tool).
-      // Resync để FE xoá phần này đi, tránh hiện dính vào câu trả lời thật.
       resync('');
 
-      // Chạy TUẦN TỰ, không Promise.all — chạy song song từng gây 2 vấn đề
-      // thật: (1) event tool_call/tool_result gửi cho FE chỉ mang tên tool,
-      // không có id riêng biệt, nên FE không khớp đúng được result với call
-      // khi có >1 lời gọi CÙNG tên chạy chồng lấn; (2) tool bị Risk Gate chặn
-      // (destructiveHint) throw gần như ngay lập tức trong khi tool an toàn
-      // đi cùng batch vẫn đang chạy dở — promise đó thành "mồ côi", kết quả
-      // của nó trồi lên sau khi turn đã bị cắt để chờ duyệt. Chạy tuần tự loại
-      // bỏ cả 2 vì không bao giờ có quá 1 tool đang "in-flight" cùng lúc.
       const results: LlmToolResult[] = [];
       for (const call of turn.toolCalls) {
         const content = await callTool(call.name, call.args);
@@ -526,12 +437,6 @@ export class ReactLoopService {
     this.logger.warn(
       `run() hit MAX_REACT_STEPS=${ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS} userId=${dto.userId}`,
     );
-    // accuracy_problem.md — mục 7 (hướng dẫn chủ động chia nhỏ khi ghi lượng
-    // lớn dữ liệu) tạo ra 1 rủi ro mới: nếu cần NHIỀU lần gọi tool hơn
-    // MAX_REACT_STEPS (VD 500 dòng, chia 50 dòng/lần → 10 lần gọi > 8 bước),
-    // vòng lặp dừng GIỮA CHỪNG ngay sau khi đã ghi thành công MỘT PHẦN — nếu
-    // không nói rõ, user dễ hiểu lầm "chưa ghi gì cả" rồi tự ý làm lại từ đầu,
-    // có thể ghi trùng dữ liệu đã ghi thành công trước đó.
     const partialWriteCaveat = toolCalls.some((tc) => tc.status === 'success')
       ? ' Một số hành động (đọc/ghi dữ liệu) đã thực hiện THÀNH CÔNG trước khi dừng — kiểm tra lại kết quả hiện có trước khi yêu cầu lại, tránh lặp lại đúng thao tác đã làm.'
       : '';
@@ -544,14 +449,12 @@ export class ReactLoopService {
     };
   }
 
-  /** Gộp về 1 dòng (bỏ xuống dòng/khoảng trắng thừa) để hiện gọn trong timeline FE — KHÔNG cắt bớt, trả về đầy đủ. */
+  /** Gộp về 1 dòng, không cắt bớt — xem code-notes/react-loop.service.md */
   private formatResultPreview(text: string): string {
     return text.replace(/\s+/g, ' ').trim();
   }
 
-  /** Chỉ để user XEM/COPY trên UI — 1 tham số string duy nhất (VD code Python
-   * của run_python, câu SQL) thì hiện RAW (đọc được, giữ nguyên xuống dòng),
-   * nhiều tham số thì JSON.stringify cho dễ đọc thay vì object [Object]. */
+  /** Xem code-notes/react-loop.service.md */
   private formatArgsPreview(args: Record<string, unknown>): string {
     const values = Object.values(args);
     if (values.length === 1 && typeof values[0] === 'string') {
@@ -576,11 +479,6 @@ export class ReactLoopService {
         channelId: dto.channelId,
         messageId: dto.messageId,
         channelType: dto.channelType,
-        // Bug thật — thiếu dòng này khiến MỌI tool_call/tool_result luôn rơi
-        // về streamKey mặc định ('main') bất kể đang ở bước nào, tách rời
-        // khỏi group đúng (được tạo bởi step_start, xem turn-resolver.service.ts)
-        // đã dùng ĐÚNG streamKey của bước đó — FE thấy 2 nhóm: 1 nhóm có nhãn
-        // nhưng rỗng, 1 nhóm "main" không nhãn nhưng chứa dữ liệu tool thật.
         streamKey: dto.streamKey,
       },
       step,

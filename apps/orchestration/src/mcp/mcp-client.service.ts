@@ -27,14 +27,11 @@ interface CacheEntry<T> {
 }
 
 interface ClientCacheEntry {
-  // Giai đoạn System, mục 5.1 — cache PROMISE đang connect (không phải Client
-  // đã resolve), để 2 request cùng cacheKey đến gần như đồng thời AWAIT
-  // CHUNG 1 lần connect thay vì mỗi request tự tạo 1 connection riêng (client
-  // connect trước bị mồ côi, không đóng, rò rỉ session).
   promise: Promise<Client>;
   lastUsedAt: number;
 }
 
+// Ghi chú thiết kế đầy đủ (WHY): slack-docs/Documents/Orchestration/code-notes/mcp-client.service.md
 @Injectable()
 export class McpClientService {
   private readonly logger = new Logger(McpClientService.name);
@@ -54,9 +51,6 @@ export class McpClientService {
     private readonly dynamicExecutor: DynamicToolExecutorService,
   ) {}
 
-  // Header là static per-transport (SDK không hỗ trợ header per-call) — nên
-  // cache 1 client riêng cho mỗi (provider, ownerId) khi cần gọi tool thật;
-  // client dùng để chỉ listTools() (không cần owner) cache riêng theo provider.
   private async getClient(provider: string, ownerId?: string): Promise<Client> {
     const cacheKey = `${provider}:${ownerId ?? '__anon__'}`;
     const cached = this.clients.get(cacheKey);
@@ -71,9 +65,6 @@ export class McpClientService {
       lastUsedAt: Date.now(),
     };
     this.clients.set(cacheKey, entry);
-    // Không cache 1 lần connect lỗi vĩnh viễn — xoá để lần gọi sau retry được
-    // (chỉ xoá nếu đây vẫn đúng entry của lần connect vừa lỗi, tránh đè lên 1
-    // entry mới hơn đã thay thế nó).
     connecting.catch(() => {
       if (this.clients.get(cacheKey) === entry) this.clients.delete(cacheKey);
     });
@@ -113,10 +104,6 @@ export class McpClientService {
     return client;
   }
 
-  // Giai đoạn System, mục 5.3 — client không được dùng quá MCP_CLIENT_IDLE_TTL_MS
-  // thì đóng + xoá khỏi cache, tránh giữ socket/session mở vô thời hạn khi có
-  // nhiều user riêng biệt qua suốt vòng đời process (khác toolsCache/
-  // resourcesCache/promptsCache — key theo provider nên số lượng đã bounded).
   @Cron(CronExpression.EVERY_10_MINUTES, { name: 'evict-idle-mcp-clients' })
   async evictIdleClients(): Promise<void> {
     const now = Date.now();
@@ -144,12 +131,6 @@ export class McpClientService {
     );
   }
 
-  // Bug fix (Memory Leak #3) — resourceContentCache key bao gồm uri, nên
-  // số entry tăng vô hạn theo từng URI mới bất kỳ user nào từng đọc (mỗi
-  // trang Notion/Doc khác nhau = 1 entry mới). TTL chỉ quyết định khi nào
-  // REFRESH (ghi đè), không tự xóa entry cũ. Cron sweep xóa các entry đã
-  // hết TTL (không còn ai dùng trong thời gian gần) — giữ các entry mới
-  // (còn trong TTL) để tiếp tục phuc vụ cache hit.
   @Cron(CronExpression.EVERY_10_MINUTES, {
     name: 'evict-stale-resource-cache',
   })
@@ -295,33 +276,10 @@ export class McpClientService {
     );
   }
 
-  // Giai đoạn 4 (bug "restart mcp_server làm mất hết tool cho tới khi restart
-  // orchestration") — TRƯỚC ĐÂY mọi lỗi từ listTools/listResources/listPrompts
-  // đều bị nuốt thành "coi như thành công, trả rỗng" — kể cả lỗi kết nối/session
-  // chết (VD mcp_server vừa restart, client vẫn cầm session cũ -> "Bad Request:
-  // Server not initialized"). Vì lỗi không bao giờ bay lên tới
-  // callWithReconnect(), cơ chế "xoá client cũ, reconnect, thử lại" ở đó KHÔNG
-  // BAO GIỜ chạy — cái rỗng đó còn bị cache lại (MCP_TOOLS_CACHE_TTL_MS) làm
-  // mọi request sau đó cũng thấy rỗng, cho tới khi restart orchestration (xoá
-  // sạch cache trong RAM) mới hết.
-  // CHỈ coi là "server không hỗ trợ tool/resource/prompt này" (an toàn để trả
-  // rỗng, không cần reconnect) khi đúng là lỗi JSON-RPC "Method not found" —
-  // MỌI lỗi khác (mất kết nối, session chết, timeout...) phải NÉM LẠI để
-  // callWithReconnect() xử lý đúng vai trò của nó.
   private isMethodNotSupported(error: unknown): boolean {
     return error instanceof McpError && error.code === ErrorCode.MethodNotFound;
   }
 
-  // Lỗi "session chết" bên mcp_server (restart làm mất session trong RAM —
-  // xem streamable_http_standard/index.ts) — server trả về NGAY tại tầng
-  // transport/handshake, TRƯỚC KHI request thật (VD ghi SQL) từng chạy tới tool
-  // handler, nên đây là trường hợp DUY NHẤT biết chắc CHƯA thực thi, an toàn để
-  // cấp thêm 1 lần retry ngay cả với tool destructive (xem callWithReconnect()).
-  // PHẢI check theo TEXT message, không theo `error.code`: server dùng lại 2
-  // mã số -32000/-32001 với Ý NGHĨA KHÁC hẳn enum ErrorCode phía client SDK
-  // (-32000 = ConnectionClosed, -32001 = RequestTimeout) — so theo code sẽ
-  // nhầm lẫn với 2 loại lỗi đó. Giữ cả 2 message (kể cả "Server not
-  // initialized" cũ) để không phụ thuộc đúng thời điểm deploy giữa 2 repo.
   private isStaleSessionError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return (
@@ -330,10 +288,6 @@ export class McpClientService {
     );
   }
 
-  // `signal` (Stop giữa turn, xem ReactLoopService.run()/runCancellable()) huỷ
-  // được cả 2 nhánh — static qua SDK MCP (RequestOptions.signal) và dynamic
-  // provider qua agentic-openapi-parser@1.8.0+ (ExecuteToolOptions.signal,
-  // forward thẳng vào axios + bỏ qua retry sau khi huỷ).
   async callTool(
     dto: CallToolRequestDto,
     signal?: AbortSignal,
@@ -348,17 +302,6 @@ export class McpClientService {
       );
     }
 
-    // Tool KHÔNG idempotent (destructiveHint) không được tự động retry —
-    // timeout/lỗi mạng SAU KHI tool đã thực thi thật ở server (chỉ là response
-    // bị mất/chậm) không đồng nghĩa với "chưa chạy". Retry mù ở đây có thể ghi
-    // trùng (INSERT trùng dòng, gửi email trùng, append trùng nội dung) — đặc
-    // biệt nguy hiểm với hành động ĐÃ qua HITL approval (executeApprovedToolForReal),
-    // nơi user chỉ duyệt cho ĐÚNG 1 lần thực thi. Tool đọc (an toàn, không
-    // side-effect) vẫn giữ retry để chịu được mất kết nối/session thoáng qua.
-    // Đọc THẲNG cache nội bộ (không gọi getTools() công khai) — tránh ép fetch
-    // mới/tạo thêm 1 connection riêng chỉ để tra cứu; nếu chưa có cache sẵn
-    // (VD ReactLoop luôn getTools() trước khi callTool() nên thường đã có),
-    // mặc định coi như KHÔNG chắc chắn an toàn, không retry.
     const cachedTools = this.toolsCache.get(dto.provider)?.data;
     const isDestructive = cachedTools
       ? Boolean(
@@ -384,11 +327,6 @@ export class McpClientService {
     );
   }
 
-  // Bug fix (PII #2) — static provider (SQL Server, Gmail, Sheets, Docs, Drive,
-  // Calendar, Slack, Notion, GitHub) đi qua đây, KHÔNG qua DynamicToolExecutorService
-  // — nếu không scrub riêng, toàn bộ email content/SQL rows/Notion pages sẽ
-  // được feed vào LLM context không qua bất kỳ PII filter nào. Mirror đúng
-  // cách dynamic path dùng PiiScrubProcessor trong executor pipeline.
   private scrubToolResult(result: CallToolResponseDto): CallToolResponseDto {
     if (!result.content || !Array.isArray(result.content)) return result;
     return {
@@ -403,20 +341,6 @@ export class McpClientService {
     };
   }
 
-  // accuracy_problem.md mục 9.4 — TRƯỚC ĐÂY đọc lại NỘI DUNG resource từ MCP
-  // server mỗi lần ReactLoopService.run() dựng systemInstruction, kể cả khi
-  // CÙNG 1 provider được delegate nhiều lần trong CÙNG 1 kế hoạch (VD đọc rồi
-  // ghi SQL) — lãng phí network/latency vô ích vì nội dung này thường tĩnh.
-  // Cache riêng theo (provider, ownerId, uri) — BẮT BUỘC có ownerId trong key:
-  // connectClient() gắn header X-Owner-Id RIÊNG cho từng user (xem trên) nên
-  // NỘI DUNG trả về cho CÙNG 1 uri được PHÉP khác nhau theo từng user (VD
-  // Notion/Google Docs — mỗi user 1 workspace/token riêng dù danh sách URI
-  // dùng chung 1 tên). Bỏ sót ownerId (bug thật đã tự gây ra ở lần thêm cache
-  // này) sẽ khiến User B trong cùng cửa sổ TTL nhận nhầm NGUYÊN VĂN nội dung
-  // của User A.
-  // Bug fix: vì key bao gồm uri (không chỉ provider×ownerId), Map tăng vô hạn
-  // theo từng URI mới bất kỳ user nào từng đọc — evictStaleResourceCache() cron
-  // (mỗi 10 phút) dọn các entry đã hết TTL để giới hạn memory footprint.
   private readonly resourceContentCache = new Map<
     string,
     { data: string; fetchedAt: number }
@@ -471,17 +395,6 @@ export class McpClientService {
     });
   }
 
-  /**
-   * Giai đoạn 4, Step 6 — circuit breaker theo TỪNG PROVIDER (không theo
-   * ownerId — 1 MCP server sập là lỗi hạ tầng, không phải lỗi riêng của 1
-   * user). Khi mạch OPEN, request mới fail NGAY, không đợi hết
-   * MCP_CALL_TIMEOUT_MS/thử reconnect như bình thường.
-   *
-   * Giai đoạn System, mục 5.2 — check circuit TRƯỚC (fail-fast, không tốn
-   * slot) rồi mới qua concurrency limiter (cũng theo TỪNG PROVIDER) — giới
-   * hạn số request THẬT được chạy đồng thời vào 1 provider, độc lập với
-   * concurrency:5 (global) của BullMQ worker.
-   */
   private async withReconnect<T>(
     provider: string,
     ownerId: string | undefined,
@@ -499,13 +412,6 @@ export class McpClientService {
     );
   }
 
-  /**
-   * Client cache sống lâu hơn 1 lần deploy của mcp_server — nếu mcp_server
-   * restart (session trong RAM mất sạch) mà client vẫn cầm session cũ, request
-   * sẽ lỗi ("Server not initialized"/"Server already initialized"...). Gặp lỗi
-   * là bỏ luôn client cũ, tạo kết nối mới rồi thử lại (mặc định tối đa 3 lần —
-   * `maxRetries=1` cho tool không idempotent, xem callTool()).
-   */
   private async callWithReconnect<T>(
     provider: string,
     ownerId: string | undefined,
@@ -517,14 +423,9 @@ export class McpClientService {
     const timeoutMsg = `MCP call timeout sau ${ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS / 1000}s (${cacheKey})`;
 
     let attempt = 0;
-    // Ngân sách retry "bonus" riêng cho lỗi session-chết (xem isStaleSessionError())
-    // — CHỈ dùng được đúng 1 LẦN mỗi call, kể cả khi maxRetries thường (VD tool
-    // destructive) đã hết, vì đây là loại lỗi DUY NHẤT biết chắc chưa thực thi.
     let staleSessionBonusUsed = false;
 
     while (true) {
-      // Stop vừa xảy ra trong lúc đang đợi backoff ở vòng lặp trước — dừng
-      // NGAY, đừng cố thêm 1 round-trip mạng vô ích nữa.
       if (signal?.aborted) {
         throw new Error('Aborted');
       }
@@ -538,9 +439,6 @@ export class McpClientService {
       } catch (error: any) {
         attempt++;
 
-        // Bị huỷ giữa chừng (Stop) — đây KHÔNG phải lỗi tạm thời đáng thử lại,
-        // ném thẳng lên để runCancellable() nhận diện đúng là turn bị huỷ,
-        // không lãng phí thêm 1 vòng backoff+retry vô nghĩa.
         if (signal?.aborted) {
           throw error;
         }
@@ -566,8 +464,6 @@ export class McpClientService {
           );
         }
 
-        // Exponential backoff: 500ms, 1500ms... — abortable để Stop trong lúc
-        // đang chờ giữa 2 lần retry cũng có tác dụng ngay, không phải đợi hết delay.
         const delay = 500 * Math.pow(3, attempt - 1);
         await abortableSleep(delay, signal);
       }
