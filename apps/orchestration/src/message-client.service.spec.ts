@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { NAME_SERVICE_TCP } from '@slack/constants';
 import { MessageClientService } from './message-client.service';
 
@@ -352,6 +352,34 @@ describe('MessageClientService', () => {
         expect(history[0].text.endsWith('...')).toBe(true);
         expect(history[0].text.length).toBeLessThan(longText.length);
       });
+    });
+  });
+
+  describe('tryUpdateMessage — hardening: turn/checkpoint claims never rollback, so a failing error-report update must never escape', () => {
+    it('resolves normally (does not throw) when updateMessage succeeds', async () => {
+      mockMessageService.send.mockReturnValue(of(undefined));
+
+      await expect(
+        service.tryUpdateMessage({
+          id: 'msg-1',
+          userId: 'bot-1',
+          content: 'ok',
+        }),
+      ).resolves.toBeUndefined();
+    });
+
+    it('swallows the error (does not throw) when the underlying updateMessage() call itself fails — this is the whole point of this method', async () => {
+      mockMessageService.send.mockReturnValue(
+        throwError(() => new Error('message service unreachable')),
+      );
+
+      await expect(
+        service.tryUpdateMessage({
+          id: 'msg-1',
+          userId: 'bot-1',
+          content: '⚠️ Lỗi: connect ECONNREFUSED',
+        }),
+      ).resolves.toBeUndefined();
     });
   });
 });

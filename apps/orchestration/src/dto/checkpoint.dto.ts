@@ -87,3 +87,9 @@ export class ClaimCheckpointResponseDto {
 export class ClaimCheckpointExecutionRequestDto {
   id: string;
 }
+
+// Bug fix — dọn checkpoint status=APPROVED bị kẹt sau worker crash (không dùng
+// được claim() vốn chỉ UPDATE WHERE status=PENDING).
+export class MarkStalledAsRejectedRequestDto {
+  id: string;
+}

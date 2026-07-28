@@ -869,4 +869,210 @@ describe('McpClientService', () => {
       expect(mockConnect).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('Bug fix #2 — PII scrubbing for static MCP providers (callTool)', () => {
+    it('masks email addresses in text content returned by static providers', async () => {
+      mockCallTool.mockResolvedValue({
+        content: [
+          { type: 'text', text: 'User john.doe@example.com placed an order' },
+        ],
+        isError: false,
+      });
+
+      const result = await service.callTool({
+        provider: 'sql_server',
+        name: 'execute_read_only_query',
+        args: { query: 'SELECT * FROM users' },
+        ownerId: 'user-1',
+      });
+
+      const text = (result.content?.[0] as { type: string; text: string }).text;
+      expect(text).not.toContain('john.doe@example.com');
+      // Should be masked like j***e@example.com
+      expect(text).toContain('@example.com');
+    });
+
+    it('masks credit card numbers in tool results', async () => {
+      mockCallTool.mockResolvedValue({
+        content: [
+          {
+            type: 'text',
+            text: 'Card: 4111-1111-1111-1111 charged successfully',
+          },
+        ],
+        isError: false,
+      });
+
+      const result = await service.callTool({
+        provider: 'sql_server',
+        name: 'execute_read_only_query',
+        args: { query: 'SELECT * FROM payments' },
+        ownerId: 'user-1',
+      });
+
+      const text = (result.content?.[0] as { type: string; text: string }).text;
+      expect(text).not.toContain('4111-1111-1111-1111');
+      expect(text).toContain('****-****-****-');
+    });
+
+    it('passes through non-text content items without modification', async () => {
+      const blobItem = { type: 'blob', data: 'base64data' };
+      mockCallTool.mockResolvedValue({
+        content: [blobItem],
+        isError: false,
+      });
+
+      const result = await service.callTool({
+        provider: 'sql_server',
+        name: 'execute_read_only_query',
+        args: {},
+        ownerId: 'user-1',
+      });
+
+      expect(result.content?.[0]).toEqual(blobItem);
+    });
+
+    it('preserves isError flag after scrubbing', async () => {
+      mockCallTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'error: user@example.com not found' }],
+        isError: true,
+      });
+
+      const result = await service.callTool({
+        provider: 'sql_server',
+        name: 'execute_read_only_query',
+        args: {},
+        ownerId: 'user-1',
+      });
+
+      expect(result.isError).toBe(true);
+    });
+
+    it('does not scrub dynamic provider results (those go through DynamicToolExecutorService which already has PiiScrubProcessor)', async () => {
+      const mockDynamicRegistry2 = {
+        isDynamicProvider: jest.fn().mockResolvedValue(true),
+      };
+      const mockDynamicExecutor2 = {
+        execute: jest.fn().mockResolvedValue({
+          content: [{ type: 'text', text: 'user@example.com' }],
+          isError: false,
+        }),
+      };
+      const module2: TestingModule = await Test.createTestingModule({
+        providers: [
+          McpClientService,
+          { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
+          ProviderConcurrencyLimiterService,
+          {
+            provide: DynamicToolRegistryService,
+            useValue: mockDynamicRegistry2,
+          },
+          {
+            provide: DynamicToolExecutorService,
+            useValue: mockDynamicExecutor2,
+          },
+        ],
+      }).compile();
+      const dynamicService = module2.get<McpClientService>(McpClientService);
+
+      // The executor mock is what's called for dynamic providers — we verify
+      // that the static scrubToolResult() path is NOT inserted between the
+      // executor result and the caller (executor owns its own PII scrubbing).
+      const result = await dynamicService.callTool({
+        provider: 'some_dynamic_provider',
+        name: 'some_tool',
+        args: {},
+        ownerId: 'user-1',
+      });
+
+      // Result comes straight from dynamicExecutor.execute() — not double-scrubbed.
+      expect(mockDynamicExecutor2.execute).toHaveBeenCalled();
+      expect(result?.content?.[0]).toMatchObject({ text: 'user@example.com' });
+    });
+  });
+
+  describe('Bug fix #3 — evictStaleResourceCache (memory leak fix)', () => {
+    afterEach(() => jest.useRealTimers());
+
+    it('removes entries whose fetchedAt is older than MCP_RESOURCE_CONTENT_CACHE_TTL_MS', async () => {
+      jest.useFakeTimers();
+      mockReadResource.mockResolvedValue({
+        contents: [{ text: 'old content' }],
+      });
+
+      // Populate cache with an entry
+      await service.readResource('sql_server', 'file://old-doc', 'user-1');
+      // Advance past TTL
+      jest.advanceTimersByTime(
+        ORCHESTRATION_CONSTANTS.MCP_RESOURCE_CONTENT_CACHE_TTL_MS + 1000,
+      );
+
+      service.evictStaleResourceCache();
+
+      // After eviction, the next readResource must go live (cache miss)
+      await service.readResource('sql_server', 'file://old-doc', 'user-1');
+      expect(mockReadResource).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps entries still within TTL — does not evict fresh cache', async () => {
+      jest.useFakeTimers();
+      mockReadResource.mockResolvedValue({ contents: [{ text: 'fresh' }] });
+
+      await service.readResource('sql_server', 'file://fresh-doc', 'user-1');
+      jest.advanceTimersByTime(1000); // well within TTL
+
+      service.evictStaleResourceCache();
+
+      // Cache still warm — no second read
+      await service.readResource('sql_server', 'file://fresh-doc', 'user-1');
+      expect(mockReadResource).toHaveBeenCalledTimes(1);
+    });
+
+    it('evicts only stale entries, keeping fresh ones, when cache has a mix', async () => {
+      jest.useFakeTimers();
+      mockReadResource.mockResolvedValue({ contents: [{ text: 'content' }] });
+
+      // Populate 2 entries — one for each URI
+      await service.readResource('sql_server', 'file://stale', 'user-1');
+      jest.advanceTimersByTime(
+        ORCHESTRATION_CONSTANTS.MCP_RESOURCE_CONTENT_CACHE_TTL_MS + 1000,
+      );
+      await service.readResource('sql_server', 'file://fresh', 'user-1');
+
+      // At this point: 'stale' is beyond TTL, 'fresh' is just created
+      service.evictStaleResourceCache();
+
+      // 'stale' should require a live read; 'fresh' should hit cache
+      await service.readResource('sql_server', 'file://stale', 'user-1');
+      await service.readResource('sql_server', 'file://fresh', 'user-1');
+
+      // readResource calls: 1 (stale) + 1 (fresh) + 1 (stale re-read after eviction) = 3
+      // (fresh re-read hits cache, not counted)
+      expect(mockReadResource).toHaveBeenCalledTimes(3);
+    });
+
+    it('is a no-op when the cache is empty', () => {
+      expect(() => service.evictStaleResourceCache()).not.toThrow();
+    });
+
+    it('bounds memory: each eviction cycle removes entries for URIs no longer actively used', async () => {
+      jest.useFakeTimers();
+      mockReadResource.mockResolvedValue({ contents: [{ text: 'x' }] });
+
+      // Simulate many different URIs being read
+      for (let i = 0; i < 10; i++) {
+        await service.readResource('sql_server', `file://doc-${i}`, 'user-1');
+      }
+      const cacheSize = () =>
+        (service as any).resourceContentCache.size as number;
+      expect(cacheSize()).toBe(10);
+
+      jest.advanceTimersByTime(
+        ORCHESTRATION_CONSTANTS.MCP_RESOURCE_CONTENT_CACHE_TTL_MS + 1000,
+      );
+      service.evictStaleResourceCache();
+
+      expect(cacheSize()).toBe(0);
+    });
+  });
 });

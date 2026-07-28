@@ -293,6 +293,7 @@ describe('ReactLoopService', () => {
     expect(mockMcpClient.getTools).toHaveBeenCalledWith(
       'sql_server',
       baseDto.prompt,
+      expect.any(AbortSignal),
     );
   });
 
@@ -357,11 +358,15 @@ describe('ReactLoopService', () => {
 
     await service.run(baseDto);
 
-    expect(mockMcpClient.getResources).toHaveBeenCalledWith('sql_server');
+    expect(mockMcpClient.getResources).toHaveBeenCalledWith(
+      'sql_server',
+      expect.any(AbortSignal),
+    );
     expect(mockMcpClient.readResource).toHaveBeenCalledWith(
       'sql_server',
       'resource://1',
       'user-1',
+      expect.any(AbortSignal),
     );
     expect(mockStrategy.startChat).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1164,6 +1169,71 @@ describe('ReactLoopService', () => {
       // LLM — sendMessage() chỉ được gọi đúng 1 lần (lượt tạo ra tool call),
       // KHÔNG có lượt thứ 2 nào feed "lỗi" tool này lại cho LLM.
       expect(mockSession.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    // Bug fix (Bug 2) — TRƯỚC ĐÂY getTools()/readResource() (setup phase) chạy
+    // NGOÀI runCancellable(), nên không nhận signal. Bấm Stop đúng lúc đang
+    // setup thì phải đợi MCP_CALL_TIMEOUT_MS=15s trước khi Stop có hiệu lực.
+    it('Bug fix #2 — Stop effective immediately during getTools() setup phase: signal is passed into setup so cancellation works without waiting for MCP_CALL_TIMEOUT_MS', async () => {
+      jest.useFakeTimers();
+      // Giả lập getTools() treo vô thời hạn (mô phỏng MCP server chậm)
+      mockMcpClient.getTools.mockImplementation(
+        (_provider: string, _query?: string, signal?: AbortSignal) =>
+          new Promise((_resolve, reject) => {
+            if (signal?.aborted) {
+              return reject(new Error('Aborted'));
+            }
+            signal?.addEventListener('abort', () =>
+              reject(new Error('Aborted')),
+            );
+          }),
+      );
+      mockCancellation.isCancelled.mockResolvedValue(true);
+
+      const assertion = expect(service.run(baseDto)).rejects.toMatchObject({
+        name: 'TurnCancelledError',
+      });
+      // Interval poll của runCancellable (1s) phát hiện Stop → abort signal
+      await jest.advanceTimersByTimeAsync(1100);
+      await assertion;
+
+      // sendMessage() KHÔNG được gọi vì setup bị abort trước
+      expect(mockSession.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('Bug fix #2 — Stop effective during readResource() setup: signal is forwarded to buildSystemInstruction → readResource()', async () => {
+      jest.useFakeTimers();
+      // getTools() hoàn thành ngay, nhưng readResource() treo
+      mockMcpClient.getTools.mockResolvedValue([]);
+      mockMcpClient.getResources.mockResolvedValue([
+        { uri: 'file://schema', name: 'Schema' },
+      ]);
+      let capturedSignal: AbortSignal | undefined;
+      mockMcpClient.readResource.mockImplementation(
+        (_p: string, _u: string, _o?: string, signal?: AbortSignal) => {
+          capturedSignal = signal;
+          return new Promise((_resolve, reject) => {
+            if (signal?.aborted) {
+              return reject(new Error('Aborted'));
+            }
+            signal?.addEventListener('abort', () =>
+              reject(new Error('Aborted')),
+            );
+          });
+        },
+      );
+      mockCancellation.isCancelled.mockResolvedValue(true);
+
+      const assertion = expect(service.run(baseDto)).rejects.toMatchObject({
+        name: 'TurnCancelledError',
+      });
+      await jest.advanceTimersByTimeAsync(1100);
+      await assertion;
+
+      // Quan trọng: readResource() phải NHẬN signal từ runCancellable —
+      // đây là bằng chứng signal đã được forward xuống setup phase
+      expect(capturedSignal).toBeDefined();
+      expect(capturedSignal).toBeInstanceOf(AbortSignal);
     });
   });
 });

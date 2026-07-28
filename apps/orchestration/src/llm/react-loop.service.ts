@@ -48,51 +48,6 @@ export class ReactLoopService {
   async run(dto: RunReactLoopRequestDto): Promise<RunReactLoopResponseDto> {
     const toolCalls: ToolCallTraceDto[] = [];
 
-    // accuracy_problem.md mục 5 — modelId (registry key, VD 'gpt-4o-mini')
-    // dùng để resolve NGÂN SÁCH cap dữ liệu (resolveDataCharBudget), KHÁC với
-    // `model` factory trả về bên dưới (tên SDK thật, VD 'openai/gpt-4o-mini').
-    const reactModelId =
-      dto.model ??
-      process.env.DEFAULT_REACT_MODEL ??
-      ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL;
-
-    const [mcpTools, systemInstruction] = await Promise.all([
-      this.mcpClient.getTools(dto.provider, dto.prompt),
-      this.buildSystemInstruction(dto.provider, dto.userId, reactModelId),
-    ]);
-
-    const { strategy, model } = this.llmFactory.resolve(reactModelId);
-    this.logger.log(
-      `run() userId=${dto.userId} provider=${dto.provider} model=${model} toolsAvailable=${mcpTools.length}`,
-    );
-
-    const session = strategy.startChat({
-      model,
-      systemInstruction,
-      tools: mcpTools.map((t) => ({
-        name: t.name,
-        description: t.description,
-        parameters: t.inputSchema,
-      })),
-      history: dto.history,
-      temperature: ORCHESTRATION_CONSTANTS.REACT_LOOP_TEMPERATURE,
-    });
-
-    // Đếm theo chữ ký (tool + tham số) trong PHẠM VI 1 lượt run() — chống LLM
-    // tự lặp gọi y hệt vô ích (mục 4, xem handleToolCall()).
-    const callSignatureCounts = new Map<string, number>();
-    // Cache kết quả THÀNH CÔNG theo chữ ký, cùng phạm vi 1 lượt run() — model
-    // đôi khi tự gọi lại ĐÚNG 1 tool đã thành công (do self-check nudge nghi
-    // ngờ thừa, hoặc chính 1 response chứa 2 tool_call y hệt cùng lúc). Prompt
-    // dặn "đừng gọi lại" chỉ giảm xác suất chứ không chặn được — chặn thật ở
-    // đây: gặp lại đúng chữ ký đã thành công thì trả thẳng kết quả cũ, không
-    // đánh tool thật thêm lần nào nữa. Chỉ cache khi THÀNH CÔNG — lỗi vẫn phải
-    // đi qua callSignatureCounts bên dưới (retry sau lỗi thoáng qua vẫn hợp lý).
-    const successfulCallCache = new Map<
-      string,
-      { resultPreview: string; feedText: string }
-    >();
-
     // Luôn khớp CHÍNH XÁC với những gì FE đang hiển thị (được reset đúng lúc
     // FE cũng được báo resync) — dùng để: (a) không có tác dụng gì thêm khi
     // turn xong bình thường (answer đã tự trả về đúng chỗ), (b) làm nội dung
@@ -121,18 +76,58 @@ export class ReactLoopService {
       emitToken({ type: 'resync', text });
     };
 
-    // runCancellable() poll Redis (Stop/Cancel) định kỳ, abort() ngay khi phát
-    // hiện — signal truyền xuống tận SDK provider nên huỷ được GIỮA lúc đang
-    // stream, không phải đợi hết response mới dừng. Bug đã sửa: TRƯỚC ĐÂY
-    // signal chỉ tới được sendMessage() — lúc đang chạy TOOL CALL (SQL query,
-    // API dynamic provider...) Stop hoàn toàn vô tác dụng, phải đợi tool tự
-    // xong (tới MCP_CALL_TIMEOUT_MS=15s + retry). callTool giờ tạo TRONG
-    // callback này để có sẵn `signal`, truyền tiếp xuống handleToolCall()
-    // rồi tới mcpClient.callTool().
+    // Bug fix — setup phase (getTools/readResource) TRƯỚC ĐÂY chạy NGOÀI
+    // runCancellable(), nên không nhận signal — bấm Stop trong lúc này không có
+    // tác dụng, bị chặn bởi MCP_CALL_TIMEOUT_MS=15s. Di chuyển vào TRONG
+    // callback để signal luôn sẵn có, kể cả ở giai đoạn setup.
     return runCancellable(
       dto.messageId,
       this.cancellation,
-      (signal) => {
+      async (signal) => {
+        const reactModelId =
+          dto.model ??
+          process.env.DEFAULT_REACT_MODEL ??
+          ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL;
+
+        const [mcpTools, systemInstruction] = await Promise.all([
+          this.mcpClient.getTools(dto.provider, dto.prompt, signal),
+          this.buildSystemInstruction(
+            dto.provider,
+            dto.userId,
+            reactModelId,
+            signal,
+          ),
+        ]);
+
+        // Check huỷ SAU setup (trước khi bắt đầu LLM/vòng lặp chính) — nếu
+        // user vừa Stop ngay lúc getTools/readResource xong, không cần tiếp tục.
+        if (signal.aborted) {
+          throw new TurnCancelledError(undefined);
+        }
+
+        const { strategy, model } = this.llmFactory.resolve(reactModelId);
+        this.logger.log(
+          `run() userId=${dto.userId} provider=${dto.provider} model=${model} toolsAvailable=${mcpTools.length}`,
+        );
+
+        const session = strategy.startChat({
+          model,
+          systemInstruction,
+          tools: mcpTools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            parameters: t.inputSchema,
+          })),
+          history: dto.history,
+          temperature: ORCHESTRATION_CONSTANTS.REACT_LOOP_TEMPERATURE,
+        });
+
+        const callSignatureCounts = new Map<string, number>();
+        const successfulCallCache = new Map<
+          string,
+          { resultPreview: string; feedText: string }
+        >();
+
         // Wrap ở đây để nest đúng cây trace nếu processor đang có traceable() bao quanh.
         const callTool = traceable(
           (name: string, args: Record<string, unknown>) =>
@@ -182,15 +177,20 @@ export class ReactLoopService {
     provider: string,
     userId: string,
     modelId: string,
+    signal?: AbortSignal,
   ): Promise<string> {
-    const mcpResources = await this.mcpClient.getResources(provider);
+    const mcpResources = await this.mcpClient.getResources(provider, signal);
     const resourceContents = await Promise.all(
       mcpResources.map(async (r) => {
+        // Abort signal truyền xuống đây để Stop có hiệu lực ngay trong lúc
+        // đang đọc resource — trước đây readResource() không nhận signal nên
+        // người dùng bấm Stop vẫn phải chờ đủ MCP_CALL_TIMEOUT_MS.
         try {
           const content = await this.mcpClient.readResource(
             provider,
             r.uri,
             userId,
+            signal,
           );
           return `\n--- Resource: ${r.name} ---\n${capToolResultSize(content, resolveDataCharBudget(modelId))}`;
         } catch (error) {

@@ -69,7 +69,10 @@ const COMPUTE_TASK_KEYWORDS = [
 export function hasPendingActionStep(steps: DelegationDto[]): boolean {
   return steps.some((s) => {
     if (s.mustExecute === true) return true;
-    const taskLower = s.task.toLowerCase();
+    // Bug fix — LLM đôi khi bỏ sót field `task` khỏi JSON (JSON schema output
+    // không strict tuyệt đối), gây TypeError: Cannot read properties of undefined
+    // reading 'toLowerCase' crash cả turn. Guard cứng.
+    const taskLower = (s.task ?? '').toLowerCase();
     return (
       ACTION_TASK_KEYWORDS.some((kw) => taskLower.includes(kw)) ||
       VERIFICATION_TASK_KEYWORDS.some((kw) => taskLower.includes(kw)) ||

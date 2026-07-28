@@ -8,7 +8,12 @@ import { OrchestrationCheckpointStatus } from '../entity/orchestration-checkpoin
 describe('CheckpointCleanupService', () => {
   let service: CheckpointCleanupService;
 
-  const mockCheckpoint = { findExpiredPending: jest.fn(), claim: jest.fn() };
+  const mockCheckpoint = {
+    findExpiredPending: jest.fn(),
+    findStalledExecution: jest.fn(),
+    claim: jest.fn(),
+    markStalledAsRejected: jest.fn(),
+  };
   const mockMessageClient = { updateMessage: jest.fn() };
   const mockAgentStream = { emitStep: jest.fn() };
 
@@ -33,6 +38,8 @@ describe('CheckpointCleanupService', () => {
 
     service = module.get<CheckpointCleanupService>(CheckpointCleanupService);
   });
+
+  // ─── expirePendingCheckpoints (existing behaviour, regression guard) ─────────
 
   it('does nothing when there is nothing expired', async () => {
     mockCheckpoint.findExpiredPending.mockResolvedValue([]);
@@ -95,5 +102,101 @@ describe('CheckpointCleanupService', () => {
     await service.expirePendingCheckpoints();
 
     expect(mockMessageClient.updateMessage).toHaveBeenCalledTimes(2);
+  });
+
+  // ─── recoverStalledExecutions (Bug fix — worker crash) ─────────────────────
+
+  describe('recoverStalledExecutions (Bug fix — checkpoint kẹt vô hình sau worker crash)', () => {
+    const stalledCheckpoint = {
+      id: 'stalled-1',
+      replyMessageId: 'approval-msg-stalled',
+      userId: 'user-1',
+      channelId: 'channel-1',
+      channelType: 'direct',
+    };
+
+    it('does nothing when there are no stalled checkpoints', async () => {
+      mockCheckpoint.findStalledExecution.mockResolvedValue([]);
+
+      await service.recoverStalledExecutions();
+
+      expect(mockCheckpoint.markStalledAsRejected).not.toHaveBeenCalled();
+      expect(mockMessageClient.updateMessage).not.toHaveBeenCalled();
+    });
+
+    it('marks each stalled checkpoint as REJECTED via markStalledAsRejected(), edits its message, and emits done', async () => {
+      mockCheckpoint.findStalledExecution.mockResolvedValue([
+        stalledCheckpoint,
+      ]);
+      mockCheckpoint.markStalledAsRejected.mockResolvedValue({ claimed: true });
+
+      await service.recoverStalledExecutions();
+
+      expect(mockCheckpoint.markStalledAsRejected).toHaveBeenCalledWith({
+        id: 'stalled-1',
+      });
+      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+        id: 'approval-msg-stalled',
+        userId: 'user-1',
+        content:
+          '⚠️ Hành động đã được duyệt nhưng worker gặp sự cố trong lúc thực thi. Vui lòng thử lại.',
+      });
+      expect(mockAgentStream.emitStep).toHaveBeenCalledWith(
+        {
+          userId: 'user-1',
+          channelId: 'channel-1',
+          messageId: 'approval-msg-stalled',
+          channelType: 'direct',
+        },
+        { type: 'done' },
+      );
+    });
+
+    it('skips silently when markStalledAsRejected() loses the race (claimed=false) — idempotent across concurrent cron runs', async () => {
+      mockCheckpoint.findStalledExecution.mockResolvedValue([
+        stalledCheckpoint,
+      ]);
+      mockCheckpoint.markStalledAsRejected.mockResolvedValue({
+        claimed: false,
+      });
+
+      await service.recoverStalledExecutions();
+
+      expect(mockMessageClient.updateMessage).not.toHaveBeenCalled();
+      expect(mockAgentStream.emitStep).not.toHaveBeenCalled();
+    });
+
+    it('recovers multiple stalled checkpoints independently in one cron run', async () => {
+      const second = {
+        ...stalledCheckpoint,
+        id: 'stalled-2',
+        replyMessageId: 'approval-msg-stalled-2',
+        userId: 'user-2',
+      };
+      mockCheckpoint.findStalledExecution.mockResolvedValue([
+        stalledCheckpoint,
+        second,
+      ]);
+      mockCheckpoint.markStalledAsRejected.mockResolvedValue({ claimed: true });
+
+      await service.recoverStalledExecutions();
+
+      expect(mockCheckpoint.markStalledAsRejected).toHaveBeenCalledTimes(2);
+      expect(mockMessageClient.updateMessage).toHaveBeenCalledTimes(2);
+      expect(mockAgentStream.emitStep).toHaveBeenCalledTimes(2);
+    });
+
+    it('uses markStalledAsRejected() (not claim()) — claim() only works for PENDING status', async () => {
+      mockCheckpoint.findStalledExecution.mockResolvedValue([
+        stalledCheckpoint,
+      ]);
+      mockCheckpoint.markStalledAsRejected.mockResolvedValue({ claimed: true });
+
+      await service.recoverStalledExecutions();
+
+      // recoverOne phải gọi markStalledAsRejected, không phải claim
+      expect(mockCheckpoint.markStalledAsRejected).toHaveBeenCalled();
+      expect(mockCheckpoint.claim).not.toHaveBeenCalled();
+    });
   });
 });

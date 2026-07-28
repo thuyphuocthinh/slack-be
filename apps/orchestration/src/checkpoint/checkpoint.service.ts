@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
+import { And, IsNull, LessThan, Not, Repository } from 'typeorm';
 import { ORCHESTRATION_CONSTANTS } from '@slack/constants';
 import {
   OrchestrationCheckpointEntity,
@@ -14,6 +14,7 @@ import {
   CreateCheckpointRequestDto,
   FindCheckpointByIdRequestDto,
   FindPendingCheckpointRequestDto,
+  MarkStalledAsRejectedRequestDto,
 } from '../dto/checkpoint.dto';
 
 @Injectable()
@@ -60,6 +61,25 @@ export class CheckpointService {
       where: {
         status: OrchestrationCheckpointStatus.PENDING,
         expiresAt: LessThan(new Date()),
+      },
+    });
+    return entities.map((e) => this.toResponseDto(e));
+  }
+
+  // Bug fix — checkpoint kẹt vô hình sau worker crash:
+  // status=APPROVED + execution_started_at IS NOT NULL (claimExecution() đã
+  // chạy) nhưng worker crash trước khi tool thật sự chạy xong → không ai biết,
+  // không bao giờ cleanup (findExpiredPending() chỉ quét PENDING).
+  // Quét checkpoint quá STALLED_EXECUTION_TTL_MS kể từ execution_started_at —
+  // đủ dài để không lẫn với execution đang thật sự chạy.
+  async findStalledExecution(): Promise<CheckpointResponseDto[]> {
+    const stalledBefore = new Date(
+      Date.now() - ORCHESTRATION_CONSTANTS.STALLED_EXECUTION_TTL_MS,
+    );
+    const entities = await this.repo.find({
+      where: {
+        status: OrchestrationCheckpointStatus.APPROVED,
+        executionStartedAt: And(Not(IsNull()), LessThan(stalledBefore)),
       },
     });
     return entities.map((e) => this.toResponseDto(e));
@@ -160,6 +180,23 @@ export class CheckpointService {
       .execute();
     const claimed = result.affected === 1;
     this.logger.log(`claimExecution() id=${dto.id} claimed=${claimed}`);
+    return { claimed };
+  }
+
+  // Bug fix — atomic update để dọn checkpoint kẹt sau worker crash. Khác
+  // claim() (WHERE status=PENDING): ở đây checkpoint đã APPROVED nhưng
+  // execution bị gián đoạn. WHERE status=APPROVED đảm bảo không nhầm với
+  // checkpoint đang PENDING hoặc đã REJECTED (idempotent: nếu chạy 2 lần
+  // thì lần 2 affected=0, claimed=false — an toàn).
+  async markStalledAsRejected(
+    dto: MarkStalledAsRejectedRequestDto,
+  ): Promise<ClaimCheckpointResponseDto> {
+    const result = await this.repo.update(
+      { id: dto.id, status: OrchestrationCheckpointStatus.APPROVED },
+      { status: OrchestrationCheckpointStatus.REJECTED },
+    );
+    const claimed = result.affected === 1;
+    this.logger.warn(`markStalledAsRejected() id=${dto.id} claimed=${claimed}`);
     return { claimed };
   }
 }

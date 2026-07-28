@@ -284,7 +284,7 @@ export class ApprovalFlowService {
         this.logger.log(
           `approveCheckpoint() checkpoint=${id} bị huỷ theo yêu cầu (Stop)`,
         );
-        await this.messageClient.updateMessage({
+        await this.messageClient.tryUpdateMessage({
           id: replyMessageId,
           userId: botUserId,
           content: error.partialText || '⏹️ Đã dừng theo yêu cầu.',
@@ -294,7 +294,11 @@ export class ApprovalFlowService {
           `approveCheckpoint() failed for checkpoint ${id}: ${(error as Error).message}`,
           (error as Error).stack,
         );
-        await this.tryDisplayError(replyMessageId, botUserId, error);
+        await this.messageClient.tryUpdateMessage({
+          id: replyMessageId,
+          userId: botUserId,
+          content: describeExternalServiceError(error),
+        });
       }
     } finally {
       await this.agentStream.emitStep(
@@ -374,7 +378,7 @@ export class ApprovalFlowService {
         this.logger.log(
           `resolveClarificationCheckpoint() checkpoint=${id} bị huỷ theo yêu cầu (Stop)`,
         );
-        await this.messageClient.updateMessage({
+        await this.messageClient.tryUpdateMessage({
           id: replyMessageId,
           userId: botUserId,
           content: error.partialText || '⏹️ Đã dừng theo yêu cầu.',
@@ -384,7 +388,11 @@ export class ApprovalFlowService {
           `resolveClarificationCheckpoint() failed for checkpoint ${id}: ${(error as Error).message}`,
           (error as Error).stack,
         );
-        await this.tryDisplayError(replyMessageId, botUserId, error);
+        await this.messageClient.tryUpdateMessage({
+          id: replyMessageId,
+          userId: botUserId,
+          content: describeExternalServiceError(error),
+        });
       }
     } finally {
       await this.agentStream.emitStep(
@@ -425,27 +433,5 @@ export class ApprovalFlowService {
       ),
       isError: Boolean(toolResult.isError),
     };
-  }
-
-  // Checkpoint đã claim() xong (không rollback) — nếu NGAY CẢ update báo lỗi
-  // này cũng lỗi, tuyệt đối không văng tiếp ra ngoài (bấm lại sẽ luôn ra
-  // CHECKPOINT_NOT_FOUND mà không ai biết lỗi gốc nằm đâu).
-  private async tryDisplayError(
-    replyMessageId: string,
-    botUserId: string,
-    error: unknown,
-  ): Promise<void> {
-    try {
-      await this.messageClient.updateMessage({
-        id: replyMessageId,
-        userId: botUserId,
-        content: describeExternalServiceError(error),
-      });
-    } catch (updateError) {
-      this.logger.error(
-        `tryDisplayError() also failed for message ${replyMessageId}: ${(updateError as Error).message}`,
-        (updateError as Error).stack,
-      );
-    }
   }
 }

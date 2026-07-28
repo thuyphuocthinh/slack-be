@@ -48,6 +48,14 @@ export const ORCHESTRATION_CONSTANTS = {
   // chối thì CheckpointCleanupService tự reject, tránh 1 checkpoint bị bỏ
   // quên treo "pending" vĩnh viễn.
   CHECKPOINT_EXPIRY_MS: 24 * 60 * 60 * 1000,
+  // Bug fix — checkpoint bị kẹt vô hình: sau khi claimExecution() set
+  // execution_started_at, nếu worker crash trước khi tool thật sự chạy xong,
+  // checkpoint ở trạng thái status=APPROVED + execution_started_at IS NOT NULL
+  // nhưng KHÔNG BAO GIỜ được cleanup (findExpiredPending() chỉ quét PENDING).
+  // Cron recoverStalledExecutions() quét checkpoint quá thời hạn này kể từ
+  // execution_started_at — đủ dài để không lẫn với execution thật đang chạy
+  // (MCP_CALL_TIMEOUT_MS = 15s, cả turn tối đa vài phút).
+  STALLED_EXECUTION_TTL_MS: 30 * 60 * 1000,
   // performance_problem.md mục 1 — key circuit breaker (`llm:<strategy>`,
   // `mcp:<provider>`) dùng CHUNG cho MỌI user đồng thời, không phân theo
   // user/turn. VOLUME_THRESHOLD=3 hợp lý ở tải THẤP nhưng ở tải CAO (hàng

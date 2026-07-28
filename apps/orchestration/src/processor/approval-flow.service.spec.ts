@@ -24,7 +24,10 @@ import { extractTextFromMcpResult } from '@slack/common';
 describe('ApprovalFlowService', () => {
   let service: ApprovalFlowService;
 
-  const mockMessageClient = { updateMessage: jest.fn() };
+  const mockMessageClient = {
+    updateMessage: jest.fn(),
+    tryUpdateMessage: jest.fn(),
+  };
   const mockSupervisor = { getAvailableAgents: jest.fn() };
   const mockAgentStream = { emitStep: jest.fn() };
   const mockCheckpoint = {
@@ -40,6 +43,7 @@ describe('ApprovalFlowService', () => {
 
   beforeEach(async () => {
     mockMessageClient.updateMessage.mockResolvedValue(undefined);
+    mockMessageClient.tryUpdateMessage.mockResolvedValue(undefined);
     mockAgentStream.emitStep.mockResolvedValue(undefined);
     mockCheckpoint.claim.mockResolvedValue({ claimed: true });
     mockCheckpoint.claimExecution.mockResolvedValue({ claimed: true });
@@ -461,7 +465,7 @@ describe('ApprovalFlowService', () => {
       await runApprovalJob();
 
       expect(mockTurnResolver.continueRounds).not.toHaveBeenCalled();
-      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+      expect(mockMessageClient.tryUpdateMessage).toHaveBeenCalledWith({
         id: 'approval-msg-1',
         userId: 'bot-1',
         content: '⚠️ Lỗi: connect ECONNREFUSED',
@@ -503,17 +507,19 @@ describe('ApprovalFlowService', () => {
       });
     });
 
-    it('does not throw (and still emits done) when even the error-fallback updateMessage() call itself fails', async () => {
+    it("reports the error via tryUpdateMessage() (not the throwing updateMessage()) — resilience to a double-failure is MessageClientService.tryUpdateMessage()'s own responsibility, see message-client.service.spec.ts", async () => {
       mockCheckpoint.findById.mockResolvedValue(checkpoint);
       mockMcpClient.callTool.mockRejectedValue(
         new Error('connect ECONNREFUSED'),
       );
-      mockMessageClient.updateMessage.mockRejectedValueOnce(
-        new Error('message service unreachable'),
-      );
 
       await expect(runApprovalJob()).resolves.toBeUndefined();
 
+      expect(mockMessageClient.tryUpdateMessage).toHaveBeenCalledWith({
+        id: 'approval-msg-1',
+        userId: 'bot-1',
+        content: '⚠️ Lỗi: connect ECONNREFUSED',
+      });
       expect(mockAgentStream.emitStep).toHaveBeenCalledWith(expect.anything(), {
         type: 'done',
       });
@@ -577,7 +583,7 @@ describe('ApprovalFlowService', () => {
 
       await runApprovalJob();
 
-      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+      expect(mockMessageClient.tryUpdateMessage).toHaveBeenCalledWith({
         id: checkpoint.replyMessageId,
         userId: checkpoint.botUserId,
         content: '⏹️ Đã dừng theo yêu cầu.',
@@ -736,7 +742,7 @@ describe('ApprovalFlowService', () => {
 
       await runApprovalJob();
 
-      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+      expect(mockMessageClient.tryUpdateMessage).toHaveBeenCalledWith({
         id: 'clarification-msg-1',
         userId: 'bot-1',
         content: 'phần đã có',

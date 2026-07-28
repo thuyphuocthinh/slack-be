@@ -625,7 +625,9 @@ export class TurnResolverService {
     // delegateRound() (fallback "chưa khả dụng"), không phải việc của guardrail này.
     if (!chosenAgent) return null;
 
-    const taskLower = step.task.toLowerCase();
+    // Bug fix — LLM đôi khi bỏ sót field `task` khỏi JSON, gây TypeError crash
+    // cả turn khi gọi .toLowerCase(). Guard giống hasPendingActionStep().
+    const taskLower = (step.task ?? '').toLowerCase();
     if (taskLower.includes(chosenAgent.label.toLowerCase())) return null;
 
     return (

@@ -1678,5 +1678,15 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
       );
       expect(result.content).toBe('Đã lưu và ghi log.');
     });
+
+    it('Bug fix — does not crash when a step has null or undefined task (JSON schema output is not strict)', async () => {
+      mockSupervisor.plan.mockResolvedValue({
+        action: 'plan',
+        steps: [{ agent: 'sql_server', task: null, mustExecute: true }],
+      });
+      mockReactLoop.run.mockResolvedValue({ answer: 'ok', toolCalls: [] });
+
+      await expect(resolve()).resolves.not.toThrow();
+    });
   });
 });

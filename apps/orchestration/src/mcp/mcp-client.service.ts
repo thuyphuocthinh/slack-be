@@ -19,6 +19,7 @@ import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { ProviderConcurrencyLimiterService } from '../common/provider-concurrency-limiter.service';
 import { DynamicToolRegistryService } from '../registry/dynamic-tool-registry.service';
 import { DynamicToolExecutorService } from '../executor/dynamic-tool-executor.service';
+import { PiiScrubberUtil } from '../executor/pii-scrubber.util';
 
 interface CacheEntry<T> {
   data: T[];
@@ -142,10 +143,39 @@ export class McpClientService {
     );
   }
 
+  // Bug fix (Memory Leak #3) — resourceContentCache key bao gồm uri, nên
+  // số entry tăng vô hạn theo từng URI mới bất kỳ user nào từng đọc (mỗi
+  // trang Notion/Doc khác nhau = 1 entry mới). TTL chỉ quyết định khi nào
+  // REFRESH (ghi đè), không tự xóa entry cũ. Cron sweep xóa các entry đã
+  // hết TTL (không còn ai dùng trong thời gian gần) — giữ các entry mới
+  // (còn trong TTL) để tiếp tục phuc vụ cache hit.
+  @Cron(CronExpression.EVERY_10_MINUTES, {
+    name: 'evict-stale-resource-cache',
+  })
+  evictStaleResourceCache(): void {
+    const now = Date.now();
+    let evicted = 0;
+    for (const [key, entry] of this.resourceContentCache.entries()) {
+      if (
+        now - entry.fetchedAt >
+        ORCHESTRATION_CONSTANTS.MCP_RESOURCE_CONTENT_CACHE_TTL_MS
+      ) {
+        this.resourceContentCache.delete(key);
+        evicted++;
+      }
+    }
+    if (evicted > 0) {
+      this.logger.log(
+        `evictStaleResourceCache() removed ${evicted} expired resource cache entry(s)`,
+      );
+    }
+  }
+
   private async getCachedList<T>(
     provider: string,
     cacheMap: Map<string, CacheEntry<T>>,
     fetchFn: (client: Client) => Promise<T[]>,
+    signal?: AbortSignal,
   ): Promise<T[]> {
     const cached = cacheMap.get(provider);
     if (
@@ -156,57 +186,94 @@ export class McpClientService {
       return cached.data;
     }
 
-    const data = await this.withReconnect(provider, undefined, fetchFn);
+    const data = await this.withReconnect(
+      provider,
+      undefined,
+      fetchFn,
+      3,
+      signal,
+    );
 
     cacheMap.set(provider, { data, fetchedAt: Date.now() });
     return data;
   }
 
-  async getTools(provider: string, query?: string): Promise<McpToolDto[]> {
+  async getTools(
+    provider: string,
+    query?: string,
+    signal?: AbortSignal,
+  ): Promise<McpToolDto[]> {
     if (await this.dynamicRegistry.isDynamicProvider(provider)) {
       return this.dynamicRegistry.getTools(provider, query);
     }
 
-    return this.getCachedList(provider, this.toolsCache, async (client) => {
-      const result = await client.listTools().catch((e) => {
-        if (!this.isMethodNotSupported(e)) throw e;
-        this.logger.warn(
-          `listTools not supported for ${provider}: ${e.message}`,
-        );
-        return { tools: [] };
-      });
-      return (result.tools || []) as McpToolDto[];
-    });
+    return this.getCachedList(
+      provider,
+      this.toolsCache,
+      async (client) => {
+        const result = await client
+          .listTools(undefined, { signal })
+          .catch((e) => {
+            if (!this.isMethodNotSupported(e)) throw e;
+            this.logger.warn(
+              `listTools not supported for ${provider}: ${e.message}`,
+            );
+            return { tools: [] };
+          });
+        return (result.tools || []) as McpToolDto[];
+      },
+      signal,
+    );
   }
 
-  async getResources(provider: string): Promise<McpResourceDto[]> {
+  async getResources(
+    provider: string,
+    signal?: AbortSignal,
+  ): Promise<McpResourceDto[]> {
     if (await this.dynamicRegistry.isDynamicProvider(provider)) return [];
 
-    return this.getCachedList(provider, this.resourcesCache, async (client) => {
-      const result = await client.listResources().catch((e) => {
-        if (!this.isMethodNotSupported(e)) throw e;
-        this.logger.warn(
-          `listResources not supported for ${provider}: ${e.message}`,
-        );
-        return { resources: [] };
-      });
-      return (result.resources || []) as McpResourceDto[];
-    });
+    return this.getCachedList(
+      provider,
+      this.resourcesCache,
+      async (client) => {
+        const result = await client
+          .listResources(undefined, { signal })
+          .catch((e) => {
+            if (!this.isMethodNotSupported(e)) throw e;
+            this.logger.warn(
+              `listResources not supported for ${provider}: ${e.message}`,
+            );
+            return { resources: [] };
+          });
+        return (result.resources || []) as McpResourceDto[];
+      },
+      signal,
+    );
   }
 
-  async getPrompts(provider: string): Promise<McpPromptDto[]> {
+  async getPrompts(
+    provider: string,
+    signal?: AbortSignal,
+  ): Promise<McpPromptDto[]> {
     if (await this.dynamicRegistry.isDynamicProvider(provider)) return [];
 
-    return this.getCachedList(provider, this.promptsCache, async (client) => {
-      const result = await client.listPrompts().catch((e) => {
-        if (!this.isMethodNotSupported(e)) throw e;
-        this.logger.warn(
-          `listPrompts not supported for ${provider}: ${e.message}`,
-        );
-        return { prompts: [] };
-      });
-      return (result.prompts || []) as McpPromptDto[];
-    });
+    return this.getCachedList(
+      provider,
+      this.promptsCache,
+      async (client) => {
+        const result = await client
+          .listPrompts(undefined, { signal })
+          .catch((e) => {
+            if (!this.isMethodNotSupported(e)) throw e;
+            this.logger.warn(
+              `listPrompts not supported for ${provider}: ${e.message}`,
+            );
+            return { prompts: [] };
+          });
+        return (result.prompts || []) as McpPromptDto[];
+      },
+      signal,
+    );
   }
 
   // Giai đoạn 4 (bug "restart mcp_server làm mất hết tool cho tới khi restart
@@ -285,13 +352,36 @@ export class McpClientService {
     return this.withReconnect(
       dto.provider,
       dto.ownerId,
-      (client) =>
-        client.callTool({ name: dto.name, arguments: dto.args }, undefined, {
-          signal,
-        }) as Promise<CallToolResponseDto>,
+      async (client) => {
+        const result = (await client.callTool(
+          { name: dto.name, arguments: dto.args },
+          undefined,
+          { signal },
+        )) as CallToolResponseDto;
+        return this.scrubToolResult(result);
+      },
       maxRetries,
       signal,
     );
+  }
+
+  // Bug fix (PII #2) — static provider (SQL Server, Gmail, Sheets, Docs, Drive,
+  // Calendar, Slack, Notion, GitHub) đi qua đây, KHÔNG qua DynamicToolExecutorService
+  // — nếu không scrub riêng, toàn bộ email content/SQL rows/Notion pages sẽ
+  // được feed vào LLM context không qua bất kỳ PII filter nào. Mirror đúng
+  // cách dynamic path dùng PiiScrubProcessor trong executor pipeline.
+  private scrubToolResult(result: CallToolResponseDto): CallToolResponseDto {
+    if (!result.content || !Array.isArray(result.content)) return result;
+    return {
+      ...result,
+      content: result.content.map((item) => {
+        if (item.type !== 'text' || typeof item.text !== 'string') return item;
+        return {
+          ...item,
+          text: PiiScrubberUtil.scrub(item.text) as string,
+        };
+      }),
+    };
   }
 
   // accuracy_problem.md mục 9.4 — TRƯỚC ĐÂY đọc lại NỘI DUNG resource từ MCP
@@ -304,10 +394,10 @@ export class McpClientService {
   // Notion/Google Docs — mỗi user 1 workspace/token riêng dù danh sách URI
   // dùng chung 1 tên). Bỏ sót ownerId (bug thật đã tự gây ra ở lần thêm cache
   // này) sẽ khiến User B trong cùng cửa sổ TTL nhận nhầm NGUYÊN VĂN nội dung
-  // của User A. CHỈ áp dụng cho provider TĨNH trong AGENT_REGISTRY (getResources()
-  // trả rỗng cho dynamic provider ngay từ đầu, xem trên) — số lượng key vẫn
-  // bound theo (provider × ownerId thực tế đang hoạt động), không cần cron dọn
-  // riêng vì đã có TTL ngắn tự làm mới liên tục.
+  // của User A.
+  // Bug fix: vì key bao gồm uri (không chỉ provider×ownerId), Map tăng vô hạn
+  // theo từng URI mới bất kỳ user nào từng đọc — evictStaleResourceCache() cron
+  // (mỗi 10 phút) dọn các entry đã hết TTL để giới hạn memory footprint.
   private readonly resourceContentCache = new Map<
     string,
     { data: string; fetchedAt: number }
@@ -317,6 +407,7 @@ export class McpClientService {
     provider: string,
     uri: string,
     ownerId?: string,
+    signal?: AbortSignal,
   ): Promise<string> {
     const cacheKey = `${provider}:${ownerId ?? '__anon__'}:${uri}`;
     const cached = this.resourceContentCache.get(cacheKey);
@@ -338,6 +429,8 @@ export class McpClientService {
           .filter(Boolean)
           .join('\n');
       },
+      3,
+      signal,
     );
 
     this.resourceContentCache.set(cacheKey, {

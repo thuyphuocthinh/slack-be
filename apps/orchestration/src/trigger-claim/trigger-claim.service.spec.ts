@@ -14,6 +14,7 @@ describe('TriggerClaimService (Giai đoạn 4, Step 1 — idempotency cho PROCES
   };
   const mockRepo = {
     createQueryBuilder: jest.fn(() => mockQueryBuilder),
+    delete: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -54,5 +55,17 @@ describe('TriggerClaimService (Giai đoạn 4, Step 1 — idempotency cho PROCES
     const result = await service.claim('trigger-msg-1');
 
     expect(result).toBe(false);
+  });
+
+  describe('release (hardening: undo a claim when nothing real was created yet, so a retry is safe)', () => {
+    it('deletes the claim row for the given triggerMessageId', async () => {
+      mockRepo.delete.mockResolvedValue({ affected: 1 });
+
+      await service.release('trigger-msg-1');
+
+      expect(mockRepo.delete).toHaveBeenCalledWith({
+        triggerMessageId: 'trigger-msg-1',
+      });
+    });
   });
 });

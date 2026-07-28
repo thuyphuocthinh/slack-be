@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { JsonRepair } from 'agentic-io-parser';
 import { firstValueFrom } from 'rxjs';
@@ -71,6 +71,8 @@ const REDACTED_MODEL_ANSWER_TEXT =
 
 @Injectable()
 export class MessageClientService {
+  private readonly logger = new Logger(MessageClientService.name);
+
   constructor(
     @Inject(NAME_SERVICE_TCP.MESSAGE_SERVICE)
     private readonly messageService: ClientProxy,
@@ -198,5 +200,23 @@ export class MessageClientService {
         updateDto: { content: dto.content, toolCalls: dto.toolCalls },
       }),
     );
+  }
+
+  // Dùng ở NHÁNH BÁO LỖI (catch) của các luồng turn/checkpoint — checkpoint
+  // hoặc trigger claim đã claim() xong, không rollback được, nên nếu NGAY CẢ
+  // update báo lỗi này cũng lỗi (message-service chập chờn), TUYỆT ĐỐI không
+  // để nó văng tiếp ra ngoài: bấm lại chỉ ra CHECKPOINT_NOT_FOUND/im lặng mà
+  // không ai biết lỗi gốc nằm đâu, và job bị retry vô ích (claim đã chặn).
+  async tryUpdateMessage(
+    dto: UpdateOrchestrationMessageRequestDto,
+  ): Promise<void> {
+    try {
+      await this.updateMessage(dto);
+    } catch (error) {
+      this.logger.error(
+        `tryUpdateMessage() failed for message ${dto.id}: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+    }
   }
 }
