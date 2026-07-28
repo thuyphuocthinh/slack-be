@@ -146,6 +146,7 @@ describe('ReactLoopService', () => {
         tool: 'sql_server.get_database_schema',
         status: 'success',
         resultPreview: 'result data',
+        argsPreview: '{}',
       },
     ]);
     expect(mockSession.sendMessage).toHaveBeenCalledTimes(3);
@@ -401,7 +402,11 @@ describe('ReactLoopService', () => {
           messageId: 'reply-msg-1',
           channelType: 'group',
         },
-        { type: 'tool_call', tool: 'sql_server.get_database_schema' },
+        {
+          type: 'tool_call',
+          tool: 'sql_server.get_database_schema',
+          argsPreview: '{}',
+        },
       );
       expect(mockAgentStream.emitStep).toHaveBeenNthCalledWith(
         3,
@@ -429,6 +434,48 @@ describe('ReactLoopService', () => {
         4,
         expect.anything(),
         { type: 'resync', text: 'ok' },
+      );
+    });
+
+    // UX — code Python thật của run_python (hoặc câu SQL thật) phải hiện được
+    // cho user xem/copy trên UI, không chỉ tồn tại thoáng qua trong debug log.
+    it('shows a single string argument RAW (multi-line code stays readable) instead of JSON-escaping it', async () => {
+      const pythonCode =
+        'import statistics\nprint(statistics.pstdev([1, 2, 3]))';
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [
+            { name: 'get_database_schema', args: { code: pythonCode } },
+          ],
+        })
+        .mockResolvedValueOnce({ text: 'ok', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'vẫn giữ nguyên', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.toolCalls[0].argsPreview).toBe(pythonCode);
+      expect(mockAgentStream.emitStep).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ type: 'tool_call', argsPreview: pythonCode }),
+      );
+    });
+
+    it('JSON-stringifies multi-argument tool calls instead of showing [object Object]', async () => {
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [
+            { name: 'get_database_schema', args: { repo: 'a/b', title: 'x' } },
+          ],
+        })
+        .mockResolvedValueOnce({ text: 'ok', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'vẫn giữ nguyên', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.toolCalls[0].argsPreview).toBe(
+        JSON.stringify({ repo: 'a/b', title: 'x' }, null, 2),
       );
     });
 
@@ -481,6 +528,7 @@ describe('ReactLoopService', () => {
           tool: 'github.list_issues',
           status: 'success',
           resultPreview: 'result data',
+          argsPreview: '{}',
         },
       ]);
       // Gọi MCP server thật vẫn dùng đúng tên gốc "list_issues", KHÔNG bị namespace
@@ -608,6 +656,7 @@ describe('ReactLoopService', () => {
         tool: 'sql_server.get_database_schema',
         status: 'error',
         resultPreview: 'ECONNREFUSED',
+        argsPreview: '{}',
       });
       // Call #1 = resync(''), #2 = tool_call, #3 = tool_result (error) — không
       // có lần emit "pending" nào bị bỏ dở.
@@ -670,16 +719,19 @@ describe('ReactLoopService', () => {
       // đúng 1 lần, lần thứ 2 lấy từ cache nhưng vẫn hiện đúng như 1 lần gọi
       // thành công trên trace (để UI không đổi hành vi hiển thị).
       expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
+      const expectedArgsPreview = JSON.stringify({ x: 1 }, null, 2);
       expect(result.toolCalls.slice(0, 2)).toEqual([
         {
           tool: 'sql_server.get_database_schema',
           status: 'success',
           resultPreview: 'result data',
+          argsPreview: expectedArgsPreview,
         },
         {
           tool: 'sql_server.get_database_schema',
           status: 'success',
           resultPreview: 'result data',
+          argsPreview: expectedArgsPreview,
         },
       ]);
     });
@@ -790,6 +842,7 @@ describe('ReactLoopService', () => {
         tool: 'sql_server.get_database_schema',
         status: 'success',
         resultPreview: 'result data',
+        argsPreview: '{}',
       });
     });
 
@@ -958,6 +1011,7 @@ describe('ReactLoopService', () => {
           tool: 'sql_server.get_database_schema',
           status: 'success',
           resultPreview: 'result data',
+          argsPreview: '{}',
         },
       ]);
     });

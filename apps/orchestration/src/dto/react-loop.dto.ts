@@ -35,6 +35,10 @@ export class ToolCallTraceDto {
   // Xem trước ngắn gọn kết quả tool trả về (rút gọn 1 dòng) — hiện dưới mỗi
   // bước trong timeline FE, giống Claude Code hiện "⎿ output" dưới tool call.
   resultPreview?: string;
+  // Tham số THẬT LLM đã sinh ra để gọi tool (VD code Python của run_python,
+  // câu SQL của execute_*_query) — chỉ để HIỂN THỊ/COPY cho user xem, không
+  // dùng lại ở đâu trong pipeline (khác resultPreview không feed ngược LLM).
+  argsPreview?: string;
 }
 
 export class RunReactLoopResponseDto {

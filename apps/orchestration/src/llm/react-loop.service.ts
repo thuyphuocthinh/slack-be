@@ -236,6 +236,10 @@ export class ReactLoopService {
 
     const displayName = `${dto.provider}.${name}`;
     const signature = `${name}:${JSON.stringify(args)}`;
+    // Chỉ để user XEM/COPY trên UI (VD code Python thật của run_python, câu
+    // SQL thật) — trước đây args chỉ tồn tại thoáng qua trong 1 dòng debug
+    // log rồi mất, không tới được FE ở bất kỳ đâu trong pipeline.
+    const argsPreview = this.formatArgsPreview(args);
 
     // Mục 4 — LLM tự gọi lại CÙNG tool với CÙNG tham số nhiều lần (thường sau
     // khi thấy lỗi mà không đổi cách) trông như 1 vòng lặp bị "kẹt" trên UI.
@@ -261,7 +265,11 @@ export class ReactLoopService {
         this.logger.log(
           `tool_call ${displayName} lặp lại lần ${attempts}, ĐÚNG tham số đã thành công trước đó — dùng lại kết quả cũ, không gọi tool thật lần nữa`,
         );
-        await this.emitStep(dto, { type: 'tool_call', tool: displayName });
+        await this.emitStep(dto, {
+          type: 'tool_call',
+          tool: displayName,
+          argsPreview,
+        });
         await this.emitStep(dto, {
           type: 'tool_result',
           tool: displayName,
@@ -272,6 +280,7 @@ export class ReactLoopService {
           tool: displayName,
           status: 'success',
           resultPreview: cached.resultPreview,
+          argsPreview,
         });
         return cached.feedText;
       }
@@ -300,12 +309,21 @@ export class ReactLoopService {
         status: 'error',
         resultPreview,
       });
-      toolCalls.push({ tool: displayName, status: 'error', resultPreview });
+      toolCalls.push({
+        tool: displayName,
+        status: 'error',
+        resultPreview,
+        argsPreview,
+      });
       return resultPreview;
     }
 
     this.logger.log(`tool_call ${displayName} args=${JSON.stringify(args)}`);
-    await this.emitStep(dto, { type: 'tool_call', tool: displayName });
+    await this.emitStep(dto, {
+      type: 'tool_call',
+      tool: displayName,
+      argsPreview,
+    });
 
     let result: CallToolResponseDto;
     let text: string;
@@ -363,6 +381,7 @@ export class ReactLoopService {
           tool: displayName,
           status: 'error',
           resultPreview: errorMessage,
+          argsPreview,
         });
         return capToolResultSize(errorMessage, resolveDataCharBudget(modelId));
       }
@@ -401,7 +420,7 @@ export class ReactLoopService {
       status,
       resultPreview,
     });
-    toolCalls.push({ tool: displayName, status, resultPreview });
+    toolCalls.push({ tool: displayName, status, resultPreview, argsPreview });
     // resultPreview (trace UI) giữ NGUYÊN VĂN đầy đủ — chỉ cap phần feed
     // NGƯỢC LẠI cho LLM, tránh 1 kết quả tool quá lớn (VD JSON lồng nhau từ
     // dynamic provider) làm sendMessage() kế tiếp timeout vì context quá to.
@@ -526,6 +545,17 @@ export class ReactLoopService {
     return text.replace(/\s+/g, ' ').trim();
   }
 
+  /** Chỉ để user XEM/COPY trên UI — 1 tham số string duy nhất (VD code Python
+   * của run_python, câu SQL) thì hiện RAW (đọc được, giữ nguyên xuống dòng),
+   * nhiều tham số thì JSON.stringify cho dễ đọc thay vì object [Object]. */
+  private formatArgsPreview(args: Record<string, unknown>): string {
+    const values = Object.values(args);
+    if (values.length === 1 && typeof values[0] === 'string') {
+      return values[0];
+    }
+    return JSON.stringify(args, null, 2);
+  }
+
   private emitStep(
     dto: RunReactLoopRequestDto,
     step: {
@@ -533,6 +563,7 @@ export class ReactLoopService {
       tool: string;
       status?: 'success' | 'error';
       resultPreview?: string;
+      argsPreview?: string;
     },
   ): Promise<void> {
     return this.agentStream.emitStep(

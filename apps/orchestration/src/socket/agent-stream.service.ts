@@ -38,6 +38,10 @@ export interface AgentStreamStep {
   tool?: string;
   status?: 'success' | 'error';
   resultPreview?: string;
+  // Tham số THẬT LLM sinh ra để gọi tool (VD code Python, câu SQL) — chỉ để
+  // FE hiển thị/copy, gắn kèm CẢ ở event 'tool_call' (thấy ngay khi bắt đầu
+  // chạy, không cần đợi có kết quả) lẫn ở ToolCallTraceDto khi turn xong.
+  argsPreview?: string;
   text?: string;
   // step_start — nhãn hiển thị (VD "SQL Server: kiểm tra xem có record nào...").
   label?: string;
