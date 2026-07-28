@@ -25,7 +25,7 @@ import {
 import { ChatHistoryTurnDto } from '../dto/message-client.dto';
 import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
 import { describeExternalServiceError } from './external-service-error.util';
-import { withTimeout } from './with-timeout.util';
+import { withLlmRetry } from './with-llm-retry.util';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import {
   capRoundResults,
@@ -269,16 +269,18 @@ export class SupervisorService {
         `plan() model=${model} agents=${agents.length} historyTurns=${history.length} prompt=${fullPrompt}`,
       );
       const plan = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
-        withTimeout(
-          strategy.generateStructured<SupervisorPlanDto>({
-            model,
-            systemInstruction: `${SUPERVISOR_PLANNING_PROMPT}\n${agentListText}`,
-            prompt: fullPrompt,
-            schema: planSchema,
-            signal,
-          }),
+        withLlmRetry(
+          () =>
+            strategy.generateStructured<SupervisorPlanDto>({
+              model,
+              systemInstruction: `${SUPERVISOR_PLANNING_PROMPT}\n${agentListText}`,
+              prompt: fullPrompt,
+              schema: planSchema,
+              signal,
+            }),
           ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
           `Supervisor plan() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
+          { signal },
         ),
       );
       this.logger.log(`plan() result=${JSON.stringify(plan)}`);
@@ -338,18 +340,20 @@ export class SupervisorService {
     try {
       const { strategy, model } = this.llmFactory.resolve(evaluateModelId);
       const verdict = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
-        withTimeout(
-          strategy.generateStructured<SupervisorEvaluateDto>({
-            model,
-            systemInstruction: SUPERVISOR_EVALUATE_PROMPT,
-            prompt,
-            schema: mustFinishRemaining
-              ? SUPERVISOR_EVALUATE_SCHEMA_NO_DONE
-              : SUPERVISOR_EVALUATE_SCHEMA,
-            signal,
-          }),
+        withLlmRetry(
+          () =>
+            strategy.generateStructured<SupervisorEvaluateDto>({
+              model,
+              systemInstruction: SUPERVISOR_EVALUATE_PROMPT,
+              prompt,
+              schema: mustFinishRemaining
+                ? SUPERVISOR_EVALUATE_SCHEMA_NO_DONE
+                : SUPERVISOR_EVALUATE_SCHEMA,
+              signal,
+            }),
           ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
           `Supervisor evaluate() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
+          { signal },
         ),
       );
       this.logger.log(`evaluate() result=${JSON.stringify(verdict)}`);
@@ -391,11 +395,24 @@ export class SupervisorService {
 
       const prompt = `Câu hỏi gốc: ${originalPrompt}\n\nDữ liệu đã thu thập được:\n${roundsText}\n\nHãy tổng hợp các dữ liệu trên thành một câu trả lời hoàn chỉnh cho người dùng.`;
 
+      // streamedAnything reset lại MỖI lần thử (đầu fn()) — chỉ cho retry khi
+      // lần vừa lỗi CHƯA stream ra token nào (xem ORCHESTRATION_CONSTANTS.MAX_LLM_CALL_RETRY_ATTEMPTS).
+      let streamedAnything = false;
+      const trackedOnToken = onToken
+        ? (chunk: string) => {
+            streamedAnything = true;
+            onToken(chunk);
+          }
+        : undefined;
       const result = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
-        withTimeout(
-          session.sendMessage(prompt, onToken, signal),
+        withLlmRetry(
+          () => {
+            streamedAnything = false;
+            return session.sendMessage(prompt, trackedOnToken, signal);
+          },
           ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
           `Supervisor synthesize() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
+          { signal, canRetry: () => !streamedAnything },
         ),
       );
       this.logger.log(`synthesize() result=${result.text}`);

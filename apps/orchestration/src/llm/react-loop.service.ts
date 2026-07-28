@@ -18,7 +18,7 @@ import {
   LlmTurnResult,
 } from './strategy/llm-strategy.interface';
 import { AgentStreamService } from '../socket/agent-stream.service';
-import { withTimeout } from './with-timeout.util';
+import { withLlmRetry } from './with-llm-retry.util';
 import { ApprovalRequiredError } from './approval-required.error';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { CallToolResponseDto, McpToolDto } from '../dto/mcp.dto';
@@ -137,17 +137,32 @@ export class ReactLoopService {
           { name: 'mcp.callTool' },
         );
 
+        // streamedAnything reset lại MỖI lần thử (đầu fn()) — chỉ cho retry
+        // khi lần vừa lỗi CHƯA stream ra token nào (xem
+        // ORCHESTRATION_CONSTANTS.MAX_LLM_CALL_RETRY_ATTEMPTS).
         const sendMessage = (
           input: string | LlmToolResult[],
           onTok?: (chunk: string) => void,
-        ): Promise<LlmTurnResult> =>
-          this.circuitBreaker.run(`llm:${strategy.id}`, () =>
-            withTimeout(
-              session.sendMessage(input, onTok, signal),
+        ): Promise<LlmTurnResult> => {
+          let streamedAnything = false;
+          const trackedOnTok = onTok
+            ? (chunk: string) => {
+                streamedAnything = true;
+                onTok(chunk);
+              }
+            : undefined;
+          return this.circuitBreaker.run(`llm:${strategy.id}`, () =>
+            withLlmRetry(
+              () => {
+                streamedAnything = false;
+                return session.sendMessage(input, trackedOnTok, signal);
+              },
               ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
               `ReactLoop sendMessage() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (provider=${dto.provider}, model=${model})`,
+              { signal, canRetry: () => !streamedAnything },
             ),
           );
+        };
 
         return this.executeReactLoop(
           dto,

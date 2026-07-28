@@ -1076,6 +1076,33 @@ describe('ReactLoopService', () => {
     });
   });
 
+  describe('LLM call retry on timeout/error (bug thật: 1 lần treo 30s, 0 token, 0 tool_call)', () => {
+    it('retries once and succeeds when sendMessage() fails WITHOUT having streamed any token yet — an toàn vì chưa hiện gì cho user', async () => {
+      mockSession.sendMessage
+        .mockRejectedValueOnce(new Error('stream stalled, 0 tokens'))
+        .mockResolvedValueOnce({ text: 'Xin chào!', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result).toEqual({ answer: 'Xin chào!', toolCalls: [] });
+      expect(mockSession.sendMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it('does NOT retry when the failed attempt already streamed a partial token — retry mù lúc này sẽ tạo nội dung trùng/lẫn lộn cho user', async () => {
+      mockSession.sendMessage.mockImplementationOnce(
+        (_input: unknown, onTok?: (chunk: string) => void) => {
+          onTok?.('Để tôi kiểm tra...');
+          return Promise.reject(new Error('stream stalled mid-way'));
+        },
+      );
+
+      await expect(service.run(baseDto)).rejects.toThrow(
+        'stream stalled mid-way',
+      );
+      expect(mockSession.sendMessage).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('Stop mid-stream (runCancellable + AbortSignal)', () => {
     afterEach(() => {
       jest.useRealTimers();

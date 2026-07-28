@@ -1227,6 +1227,41 @@ describe('SupervisorService', () => {
       expect(answer).toContain('provider is down');
     });
 
+    it('retries once and succeeds when the LLM call fails WITHOUT having streamed any token yet (bug thật: 1 lần treo 30s, 0 token) — an toàn vì chưa hiện gì cho user', async () => {
+      mockSession.sendMessage
+        .mockRejectedValueOnce(new Error('stream stalled, 0 tokens'))
+        .mockResolvedValueOnce({ text: 'Tổng doanh thu là 100.' });
+
+      const answer = await service.synthesize(
+        'câu hỏi gốc',
+        [{ agent: 'sql_server', task: 'tính tổng', result: '100' }],
+        jest.fn(),
+      );
+
+      expect(answer).toBe('Tổng doanh thu là 100.');
+      expect(mockSession.sendMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it('does NOT retry when the failed attempt already streamed a partial token — retry mù lúc này sẽ tạo nội dung trùng/lẫn lộn cho user', async () => {
+      mockSession.sendMessage.mockImplementationOnce(
+        (_prompt: string, onToken?: (chunk: string) => void) => {
+          onToken?.('Tổng doanh thu là');
+          return Promise.reject(new Error('stream stalled mid-way'));
+        },
+      );
+      const onToken = jest.fn();
+
+      const answer = await service.synthesize(
+        'câu hỏi gốc',
+        [{ agent: 'sql_server', task: 'tính tổng', result: '100' }],
+        onToken,
+      );
+
+      expect(answer).toContain('stream stalled mid-way');
+      expect(mockSession.sendMessage).toHaveBeenCalledTimes(1);
+      expect(onToken).toHaveBeenCalledWith('Tổng doanh thu là');
+    });
+
     it('Giai đoạn 4, Step 6 — routes the LLM call through the breaker keyed by "llm:<strategy.id>"', async () => {
       mockSession.sendMessage.mockResolvedValue({ text: 'ok' });
 

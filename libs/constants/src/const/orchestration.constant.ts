@@ -41,6 +41,20 @@ export const ORCHESTRATION_CONSTANTS = {
   // tải) làm cả turn "Đang xử lý..." vô thời hạn, không bao giờ rơi vào nhánh
   // lỗi để báo cho user.
   LLM_CALL_TIMEOUT_MS: 30_000,
+  // Bug thật đã gặp: 1 lệnh gọi LLM (plan/evaluate/synthesize/ReactLoop
+  // sendMessage) treo im lặng (0 token, 0 tool_call) đúng 30s rồi timeout, dù
+  // model vừa chạy mượt cho bước trước đó vài giây — nhiều khả năng 1 lần
+  // nghẽn mạng/API thoáng qua phía provider. Gọi LLM (chỉ hỏi model trả lời
+  // gì) KHÔNG có side-effect thật ở tầng hệ thống (side-effect chỉ tới từ
+  // TOOL mà response yêu cầu gọi, luôn chạy SAU khi có response) — nên retry
+  // khi lỗi/timeout an toàn tuyệt đối, khác hẳn tool call (xem
+  // McpClientService, phải phân biệt destructive/không). = 2 nghĩa là tổng
+  // cộng 2 lần thử THẬT (1 lần đầu + 1 lần retry). Với lệnh gọi CÓ stream
+  // (synthesize()/ReactLoop sendMessage), chỉ retry nếu attempt vừa lỗi CHƯA
+  // stream ra bất kỳ token nào — đã có token nghĩa là user đã thấy 1 phần câu
+  // trả lời, retry mù lúc này sẽ tạo nội dung trùng/lẫn lộn.
+  MAX_LLM_CALL_RETRY_ATTEMPTS: 2,
+  LLM_CALL_RETRY_BACKOFF_MS: 1000,
   // Cùng lý do LLM_CALL_TIMEOUT_MS nhưng cho lời gọi MCP server (connect,
   // listTools, callTool) — thấp hơn LLM vì tool call thường nhanh hơn nhiều.
   MCP_CALL_TIMEOUT_MS: 15_000,
