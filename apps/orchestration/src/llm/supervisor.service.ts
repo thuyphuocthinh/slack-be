@@ -70,9 +70,31 @@ export class SupervisorService {
   ) {}
 
   /**
+   * "compute" (run_python) không phải hệ thống ngoài cần user tự connect —
+   * không có credential/owner nào để lưu qua mcp-auth, nên KHÔNG được lọc
+   * theo trạng thái connect như staticAgents bên dưới (agent sẽ không bao
+   * giờ "is_connected: true" vì chẳng có gì để connect cả). Luôn đưa vào,
+   * MIỄN LÀ đã deploy thật (registry có endpoint) — cùng nguyên tắc "chưa
+   * deploy thì không đưa vào lựa chọn" như agent khác.
+   */
+  private getSystemAgents(): AvailableAgentDto[] {
+    const provider = 'compute';
+    if (!AGENT_REGISTRY[provider]?.endpoint) return [];
+    return [
+      {
+        provider,
+        label: AGENT_REGISTRY[provider].label,
+        description: PROVIDER_DESCRIPTIONS[provider] ?? '',
+      },
+    ];
+  }
+
+  /**
    * Agent "khả dụng" cho Supervisor = vừa đã connect (mcp-auth) VỪA có hạ
    * tầng thật đăng ký trong AGENT_REGISTRY — agent chưa deploy (registry
    * rỗng endpoint) không được đưa vào lựa chọn dù user có connect provider đó.
+   * Ngoại lệ: agent HỆ THỐNG (getSystemAgents(), hiện chỉ "compute") luôn có
+   * mặt, không qua bước connect.
    */
   async getAvailableAgents(userId: string): Promise<AvailableAgentDto[]> {
     const statuses = await this.mcpAuthClient.getConnectionStatus(userId);
@@ -101,7 +123,7 @@ export class SupervisorService {
         `Hệ thống/API mở rộng (Custom Swagger) tên "${entity.name}" — liên quan tới các thao tác/dữ liệu của hệ thống này (tham khảo: ${entity.specUrl}).`,
     }));
 
-    return [...staticAgents, ...dynamicAgents];
+    return [...staticAgents, ...this.getSystemAgents(), ...dynamicAgents];
   }
 
   /**

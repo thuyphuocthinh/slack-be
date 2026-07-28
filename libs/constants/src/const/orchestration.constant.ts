@@ -355,6 +355,7 @@ export const PROVIDER_LABELS: Record<string, string> = {
   sql_server: 'SQL Server',
   notion: 'Notion',
   github: 'GitHub',
+  compute: 'Python Compute',
 };
 
 // Mô tả ngắn hiển thị trong panel chi tiết provider ở FE.
@@ -368,4 +369,6 @@ export const PROVIDER_DESCRIPTIONS: Record<string, string> = {
   sql_server: 'Truy vấn schema và dữ liệu trên SQL Server của bạn.',
   notion: 'Đọc và chỉnh sửa trang/database trên Notion.',
   github: 'Truy cập repository, issue, pull request trên GitHub.',
+  compute:
+    'Chạy code Python để tính toán/xử lý dữ liệu chính xác (phần trăm, trung bình, so sánh ngày giờ...) — dùng khi phép tính có thể sai nếu tự làm bằng suy luận ngôn ngữ. Không truy cập được hệ thống/dữ liệu ngoài.',
 };

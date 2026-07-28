@@ -12,6 +12,7 @@ import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { DynamicProviderDbService } from '../registry/dynamic-provider-db.service';
 import { OpenAiEmbeddingProvider } from '../registry/openai-embedding.provider';
 import { MetricsRegistryService } from '../common/metrics-registry.service';
+import { AGENT_REGISTRY } from '../registry/agents.registry';
 
 // Cô lập test khỏi giá trị thật của process.env.AGENT_SQL_SERVER_URL — mock
 // thẳng registry để chủ động quyết định agent nào có/thiếu hạ tầng thật.
@@ -76,7 +77,12 @@ describe('SupervisorService', () => {
     service = module.get<SupervisorService>(SupervisorService);
   });
 
-  afterEach(() => jest.clearAllMocks());
+  afterEach(() => {
+    jest.clearAllMocks();
+    // 'compute' chưa tồn tại sẵn trong mock ở đầu file — vài test bên dưới tự
+    // thêm/xoá nó để test getSystemAgents(), dọn lại để không rò rỉ sang test khác.
+    delete (AGENT_REGISTRY as Record<string, unknown>).compute;
+  });
 
   describe('getAvailableAgents', () => {
     it('keeps only providers that are BOTH connected AND registered with a real agent endpoint', async () => {
@@ -112,7 +118,7 @@ describe('SupervisorService', () => {
       ]);
     });
 
-    it('returns an empty list when nothing is connected', async () => {
+    it('returns an empty list when nothing is connected and no system agent is deployed', async () => {
       mockMcpAuthClient.getConnectionStatus.mockResolvedValue([
         {
           provider_id: 'sql_server',
@@ -121,6 +127,36 @@ describe('SupervisorService', () => {
           connected_at: null,
         },
       ]);
+
+      const agents = await service.getAvailableAgents('user-1');
+
+      expect(agents).toEqual([]);
+    });
+
+    it('always includes the "compute" system agent once deployed, even with zero connected providers — it has no owner/credential to connect in the first place', async () => {
+      (AGENT_REGISTRY as Record<string, unknown>).compute = {
+        label: 'Python Compute',
+        endpoint: 'http://mcp-server/mcp/compute',
+      };
+      mockMcpAuthClient.getConnectionStatus.mockResolvedValue([]);
+
+      const agents = await service.getAvailableAgents('user-1');
+
+      expect(agents).toEqual([
+        {
+          provider: 'compute',
+          label: 'Python Compute',
+          description: expect.any(String),
+        },
+      ]);
+    });
+
+    it('omits "compute" when not yet deployed (registry has no endpoint) — same "not deployed" rule as every other agent', async () => {
+      (AGENT_REGISTRY as Record<string, unknown>).compute = {
+        label: 'Python Compute',
+        endpoint: undefined,
+      };
+      mockMcpAuthClient.getConnectionStatus.mockResolvedValue([]);
 
       const agents = await service.getAvailableAgents('user-1');
 
