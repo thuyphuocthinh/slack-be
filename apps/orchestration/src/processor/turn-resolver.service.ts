@@ -740,6 +740,9 @@ export class TurnResolverService {
         toolCalls,
       };
     } catch (error) {
+      if (error instanceof TurnCancelledError) {
+        throw error;
+      }
       if (error instanceof ApprovalRequiredError) {
         return {
           approvalRequired: error.pendingTool,

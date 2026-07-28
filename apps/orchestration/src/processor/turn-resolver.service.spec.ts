@@ -1688,5 +1688,17 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
 
       await expect(resolve()).resolves.not.toThrow();
     });
+
+    it('Bug fix — propagates TurnCancelledError without swallowing it as a generic external service error', async () => {
+      mockSupervisor.plan.mockResolvedValue({
+        action: 'plan',
+        steps: [{ agent: 'sql_server', task: 'some task', mustExecute: true }],
+      });
+      mockReactLoop.run.mockRejectedValue(
+        new TurnCancelledError('partial stream'),
+      );
+
+      await expect(resolve()).rejects.toThrow(TurnCancelledError);
+    });
   });
 });
