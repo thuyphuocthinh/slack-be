@@ -89,6 +89,7 @@ export class CheckpointPauseService {
     await this.attachPendingToolCallTrace(
       approvalMessage.id,
       botUserId,
+      channelId,
       approvalContent,
       toolCalls,
       pendingTool,
@@ -269,6 +270,7 @@ export class CheckpointPauseService {
   private async attachPendingToolCallTrace(
     approvalMessageId: string,
     botUserId: string,
+    channelId: string,
     approvalContent: Record<string, unknown>,
     toolCalls: ToolCallTraceDto[],
     pendingTool: PendingToolCall,
@@ -277,6 +279,7 @@ export class CheckpointPauseService {
       await this.messageClient.updateMessage({
         id: approvalMessageId,
         userId: botUserId,
+        channelId,
         content: approvalContent,
         toolCalls: [
           ...toolCalls,

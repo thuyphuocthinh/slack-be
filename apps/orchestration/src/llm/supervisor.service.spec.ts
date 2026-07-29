@@ -12,6 +12,7 @@ import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { DynamicProviderDbService } from '../registry/dynamic-provider-db.service';
 import { OpenAiEmbeddingProvider } from '../registry/openai-embedding.provider';
 import { MetricsRegistryService } from '../common/metrics-registry.service';
+import { ChannelMemoryService } from '../memory/channel-memory.service';
 import { AGENT_REGISTRY } from '../registry/agents.registry';
 
 // Cô lập test khỏi giá trị thật của process.env.AGENT_SQL_SERVER_URL — mock
@@ -50,6 +51,11 @@ describe('SupervisorService', () => {
   // không bao giờ chạm tới mock này.
   const mockEmbeddingProvider = { embed: jest.fn() };
   const mockMetrics = { incrementBehaviorSignal: jest.fn() };
+  // ver3.md mục 1 (dài hạn) — mặc định rỗng, giữ nguyên hành vi mọi test đã có
+  // trước channel_memory (buildPrompt() chỉ thêm section khi memories.length > 0).
+  const mockChannelMemory = {
+    getRecentMemories: jest.fn().mockResolvedValue([]),
+  };
 
   beforeEach(async () => {
     mockLlmFactory.resolve.mockReturnValue({
@@ -61,6 +67,7 @@ describe('SupervisorService', () => {
       (_key: string, action: () => Promise<unknown>) => action(),
     );
     mockDynamicProviderDb.getProvidersByUser.mockResolvedValue([]);
+    mockChannelMemory.getRecentMemories.mockResolvedValue([]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -71,6 +78,7 @@ describe('SupervisorService', () => {
         { provide: DynamicProviderDbService, useValue: mockDynamicProviderDb },
         { provide: OpenAiEmbeddingProvider, useValue: mockEmbeddingProvider },
         { provide: MetricsRegistryService, useValue: mockMetrics },
+        { provide: ChannelMemoryService, useValue: mockChannelMemory },
       ],
     }).compile();
 
@@ -347,6 +355,79 @@ describe('SupervisorService', () => {
       // Câu hỏi CỦA USER (không phải câu trả lời của AI) vẫn còn nguyên —
       // Supervisor vẫn hiểu được NGỮ CẢNH/CHỦ ĐỀ đã hỏi trước đó.
       expect(sentPrompt).toContain('User: Bảng Orders có bao nhiêu dòng?');
+    });
+
+    describe('ver3.md mục 1 (dài hạn) — channel_memory context', () => {
+      it('fetches recent channel memories by channelId and folds them into the prompt BEFORE conversation history', async () => {
+        mockChannelMemory.getRecentMemories.mockResolvedValue([
+          { content: 'notion.create_page: Page "Roadmap" (id=abc123)' },
+        ]);
+        mockStrategy.generateStructured.mockResolvedValue({
+          action: 'respond',
+          answer: 'ok',
+        });
+
+        await service.plan(
+          'chèn lại đi',
+          agents,
+          [],
+          [{ role: 'user', text: 'tạo trang Roadmap trên Notion' }],
+          undefined,
+          undefined,
+          'chan-1',
+        );
+
+        expect(mockChannelMemory.getRecentMemories).toHaveBeenCalledWith(
+          'chan-1',
+        );
+        const sentPrompt =
+          mockStrategy.generateStructured.mock.calls[0][0].prompt;
+        expect(sentPrompt).toContain('Thông tin đã xác nhận trước đó');
+        expect(sentPrompt).toContain('GỢI Ý tham khảo');
+        expect(sentPrompt).toContain(
+          'notion.create_page: Page "Roadmap" (id=abc123)',
+        );
+        // Đứng TRƯỚC lịch sử hội thoại (ver3.md yêu cầu rõ thứ tự).
+        expect(
+          sentPrompt.indexOf('Thông tin đã xác nhận trước đó'),
+        ).toBeLessThan(sentPrompt.indexOf('Lịch sử hội thoại gần đây'));
+      });
+
+      it('does not fetch memories or add the section when channelId is not provided (existing call sites unaffected)', async () => {
+        mockStrategy.generateStructured.mockResolvedValue({
+          action: 'respond',
+          answer: 'ok',
+        });
+
+        await service.plan('câu hỏi', agents);
+
+        expect(mockChannelMemory.getRecentMemories).not.toHaveBeenCalled();
+        const sentPrompt =
+          mockStrategy.generateStructured.mock.calls[0][0].prompt;
+        expect(sentPrompt).not.toContain('Thông tin đã xác nhận trước đó');
+      });
+
+      it('omits the section entirely when there are no memories for the channel', async () => {
+        mockChannelMemory.getRecentMemories.mockResolvedValue([]);
+        mockStrategy.generateStructured.mockResolvedValue({
+          action: 'respond',
+          answer: 'ok',
+        });
+
+        await service.plan(
+          'câu hỏi',
+          agents,
+          [],
+          [],
+          undefined,
+          undefined,
+          'chan-1',
+        );
+
+        const sentPrompt =
+          mockStrategy.generateStructured.mock.calls[0][0].prompt;
+        expect(sentPrompt).not.toContain('Thông tin đã xác nhận trước đó');
+      });
     });
 
     it('Giai đoạn 4, Step 6 — routes the LLM call through the breaker keyed by "llm:<strategy.id>"', async () => {

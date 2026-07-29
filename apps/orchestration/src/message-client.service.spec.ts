@@ -2,10 +2,15 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { of, throwError } from 'rxjs';
 import { NAME_SERVICE_TCP } from '@slack/constants';
 import { MessageClientService } from './message-client.service';
+import { ChannelMemoryService } from './memory/channel-memory.service';
 
 describe('MessageClientService', () => {
   let service: MessageClientService;
   const mockMessageService = { send: jest.fn() };
+  const mockChannelMemory = {
+    recordSuccessfulCreateCalls: jest.fn().mockResolvedValue(undefined),
+    getRecentMemories: jest.fn().mockResolvedValue([]),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -15,6 +20,7 @@ describe('MessageClientService', () => {
           provide: NAME_SERVICE_TCP.MESSAGE_SERVICE,
           useValue: mockMessageService,
         },
+        { provide: ChannelMemoryService, useValue: mockChannelMemory },
       ],
     }).compile();
 
@@ -218,6 +224,126 @@ describe('MessageClientService', () => {
       expect(userTurn?.text).toBe('bảng customers có ai tên như ri k');
     });
 
+    describe('ver3.md mục 1 (ngắn hạn) — recap toolCalls của các lượt bot gần nhất', () => {
+      it('appends a tool-call recap after the redaction marker for the most recent bot turn that has toolCalls', async () => {
+        mockMessageService.send.mockReturnValue(
+          of({
+            messages: [
+              {
+                content: 'câu hỏi mới',
+                sender: { isBot: false },
+              },
+              {
+                content: 'Đã tạo xong.',
+                sender: { isBot: true },
+                toolCalls: [
+                  {
+                    tool: 'notion.create_page',
+                    status: 'success',
+                    argsPreview: "title='Roadmap'",
+                    resultPreview: 'Page id=abc123',
+                  },
+                ],
+              },
+            ],
+          }),
+        );
+
+        const history = await service.getRecentHistory({
+          channelId: 'c1',
+          userId: 'u1',
+          beforeMessageId: 'm1',
+          limit: 10,
+        });
+
+        const modelTurn = history.find((h) => h.role === 'model');
+        expect(modelTurn?.text).toContain('nội dung câu trả lời cũ đã ẩn');
+        expect(modelTurn?.text).toContain('Lượt trước đã thử:');
+        expect(modelTurn?.text).toContain(
+          "notion.create_page (title='Roadmap') → THÀNH CÔNG: Page id=abc123",
+        );
+      });
+
+      it('does not add a recap when the bot turn has no toolCalls (existing behavior unchanged)', async () => {
+        mockMessageService.send.mockReturnValue(
+          of({
+            messages: [
+              { content: 'câu trả lời thường', sender: { isBot: true } },
+              { content: 'câu hỏi', sender: { isBot: false } },
+            ],
+          }),
+        );
+
+        const history = await service.getRecentHistory({
+          channelId: 'c1',
+          userId: 'u1',
+          beforeMessageId: 'm1',
+          limit: 10,
+        });
+
+        const modelTurn = history.find((h) => h.role === 'model');
+        expect(modelTurn?.text).toBe(
+          '(nội dung câu trả lời cũ đã ẩn khỏi ngữ cảnh này — KHÔNG được dùng làm dữ liệu; nếu câu hỏi hiện tại cần dữ liệu/số liệu cụ thể, PHẢI delegate lại để lấy MỚI)',
+        );
+      });
+
+      it('only recaps the TOOL_CALL_RECAP_LOOKBACK_TURNS most recent bot turns with toolCalls', async () => {
+        mockMessageService.send.mockReturnValue(
+          of({
+            messages: [
+              // DESC (mới nhất trước): 3 lượt bot có toolCalls, chỉ 2 gần nhất được recap
+              {
+                content: 'gần nhất',
+                sender: { isBot: true },
+                toolCalls: [
+                  {
+                    tool: 'notion.create_page',
+                    status: 'success',
+                    resultPreview: 'r1',
+                  },
+                ],
+              },
+              {
+                content: 'giữa',
+                sender: { isBot: true },
+                toolCalls: [
+                  {
+                    tool: 'notion.create_page',
+                    status: 'success',
+                    resultPreview: 'r2',
+                  },
+                ],
+              },
+              {
+                content: 'cũ nhất',
+                sender: { isBot: true },
+                toolCalls: [
+                  {
+                    tool: 'notion.create_page',
+                    status: 'success',
+                    resultPreview: 'r3',
+                  },
+                ],
+              },
+            ],
+          }),
+        );
+
+        const history = await service.getRecentHistory({
+          channelId: 'c1',
+          userId: 'u1',
+          beforeMessageId: 'm1',
+          limit: 10,
+        });
+
+        const modelTurns = history.filter((h) => h.role === 'model');
+        expect(modelTurns).toHaveLength(3);
+        expect(modelTurns[0].text).not.toContain('Lượt trước đã thử'); // cũ nhất — ngoài lookback
+        expect(modelTurns[1].text).toContain('r2');
+        expect(modelTurns[2].text).toContain('r1');
+      });
+    });
+
     describe('Giai đoạn 4, Step 5 — tóm tắt ngữ cảnh bị cắt khi thread dài hơn CHAT_HISTORY_LIMIT', () => {
       it('prepends a rule-based summary turn when message-service reports more history beyond the fetched window (nextCursor present)', async () => {
         mockMessageService.send
@@ -352,6 +478,61 @@ describe('MessageClientService', () => {
         expect(history[0].text.endsWith('...')).toBe(true);
         expect(history[0].text.length).toBeLessThan(longText.length);
       });
+    });
+  });
+
+  describe('updateMessage — ver3.md mục 1 (dài hạn) channel_memory write-path hook', () => {
+    it('calls ChannelMemoryService.recordSuccessfulCreateCalls when channelId and toolCalls are both present', async () => {
+      mockMessageService.send.mockReturnValue(of(undefined));
+
+      await service.updateMessage({
+        id: 'msg-1',
+        userId: 'bot-1',
+        channelId: 'chan-1',
+        content: 'Đã tạo xong.',
+        toolCalls: [
+          {
+            tool: 'notion.create_page',
+            status: 'success',
+            resultPreview: 'r1',
+          },
+        ],
+      });
+
+      expect(
+        mockChannelMemory.recordSuccessfulCreateCalls,
+      ).toHaveBeenCalledWith('chan-1', 'msg-1', [
+        { tool: 'notion.create_page', status: 'success', resultPreview: 'r1' },
+      ]);
+    });
+
+    it('does NOT call ChannelMemoryService when channelId is missing (error-branch text-only updates)', async () => {
+      mockMessageService.send.mockReturnValue(of(undefined));
+
+      await service.updateMessage({
+        id: 'msg-1',
+        userId: 'bot-1',
+        content: '⚠️ Lỗi xảy ra.',
+      });
+
+      expect(
+        mockChannelMemory.recordSuccessfulCreateCalls,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('does NOT call ChannelMemoryService when toolCalls is empty/absent even with channelId set', async () => {
+      mockMessageService.send.mockReturnValue(of(undefined));
+
+      await service.updateMessage({
+        id: 'msg-1',
+        userId: 'bot-1',
+        channelId: 'chan-1',
+        content: 'ok',
+      });
+
+      expect(
+        mockChannelMemory.recordSuccessfulCreateCalls,
+      ).not.toHaveBeenCalled();
     });
   });
 

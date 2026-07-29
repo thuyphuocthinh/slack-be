@@ -213,6 +213,7 @@ export class TurnResolverService {
           history,
           agentRankingCache,
           signal,
+          channelId,
         );
 
         if (plan.action === 'respond') {

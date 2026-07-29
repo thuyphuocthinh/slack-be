@@ -130,6 +130,7 @@ describe('AiOrchestrationProcessor', () => {
     expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
       id: 'reply-1',
       userId: jobData.botUserId,
+      channelId: jobData.channelId,
       content: 'Có 2 bảng.',
       toolCalls: [{ tool: 'get_database_schema', status: 'success' }],
     });

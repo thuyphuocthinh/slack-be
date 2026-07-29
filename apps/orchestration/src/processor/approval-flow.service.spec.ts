@@ -381,6 +381,7 @@ describe('ApprovalFlowService', () => {
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
         id: 'approval-msg-1',
         userId: 'bot-1',
+        channelId: 'channel-1',
         content: 'Đã cập nhật đơn OrderId=1 thành Completed.',
         toolCalls: [
           { tool: 'sql_server.execute_write_query', status: 'success' },
@@ -451,6 +452,7 @@ describe('ApprovalFlowService', () => {
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
         id: 'approval-msg-1',
         userId: 'bot-1',
+        channelId: 'channel-1',
         content: 'Đã cập nhật đơn OrderId=1 thành Completed.',
         toolCalls: undefined,
       });
@@ -616,6 +618,7 @@ describe('ApprovalFlowService', () => {
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
         id: checkpoint.replyMessageId,
         userId: checkpoint.botUserId,
+        channelId: checkpoint.channelId,
         content:
           '⏸️ Cần bạn duyệt 1 hành động trước khi tiếp tục — xem tin nhắn bên dưới.',
         toolCalls: undefined,
@@ -695,6 +698,7 @@ describe('ApprovalFlowService', () => {
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
         id: 'clarification-msg-1',
         userId: 'bot-1',
+        channelId: 'channel-1',
         content: 'Đã lưu vào Notion.',
         toolCalls: [],
       });

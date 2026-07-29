@@ -34,6 +34,8 @@ import {
 } from '../executor/tool-result-size-cap.util';
 import { hasPendingActionStep } from '../common/pending-action-step.util';
 import { MetricsRegistryService } from '../common/metrics-registry.service';
+import { ChannelMemoryService } from '../memory/channel-memory.service';
+import { ChannelMemoryEntity } from '../entity/channel-memory.entity';
 
 export interface AgentRankingCache {
   current?: { shown: AvailableAgentDto[]; omittedCount: number };
@@ -53,6 +55,7 @@ export class SupervisorService {
     private readonly dynamicProviderDb: DynamicProviderDbService,
     private readonly embeddingProvider: OpenAiEmbeddingProvider,
     private readonly metrics: MetricsRegistryService,
+    private readonly channelMemory: ChannelMemoryService,
   ) {}
 
   private getSystemAgents(): AvailableAgentDto[] {
@@ -237,6 +240,11 @@ export class SupervisorService {
     history: ChatHistoryTurnDto[] = [],
     rankingCache?: AgentRankingCache,
     signal?: AbortSignal,
+    // ver3.md mục 1 (dài hạn) — optional, THÊM CUỐI CÙNG có chủ đích: giữ
+    // nguyên tính tương thích vị trí (positional) của MỌI call site/test đã
+    // có từ trước (rounds/history truyền theo vị trí thứ 3/4) — không dùng
+    // channelId thì bỏ qua an toàn (memories = []).
+    channelId?: string,
   ): Promise<SupervisorPlanDto> {
     const { shown, omittedCount } =
       rankingCache?.current ?? (await this.rankAgentsForPrompt(prompt, agents));
@@ -264,7 +272,16 @@ export class SupervisorService {
         process.env.SUPERVISOR_MODEL ??
         ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL;
       const { strategy, model } = this.llmFactory.resolve(planModelId);
-      const fullPrompt = this.buildPrompt(prompt, rounds, history, planModelId);
+      const memories = channelId
+        ? await this.channelMemory.getRecentMemories(channelId)
+        : [];
+      const fullPrompt = this.buildPrompt(
+        prompt,
+        rounds,
+        history,
+        memories,
+        planModelId,
+      );
       this.logger.log(
         `plan() model=${model} agents=${agents.length} historyTurns=${history.length} prompt=${fullPrompt}`,
       );
@@ -426,14 +443,25 @@ export class SupervisorService {
     }
   }
 
-  /** Gộp lịch sử hội thoại (nếu có) + prompt gốc + các vòng delegate đã chạy (nếu có) thành 1 prompt duy nhất. */
+  /** Gộp channel_memory (nếu có) + lịch sử hội thoại (nếu có) + prompt gốc + các vòng delegate đã chạy (nếu có) thành 1 prompt duy nhất. */
   private buildPrompt(
     originalPrompt: string,
     previousRounds: SupervisorRoundDto[],
     history: ChatHistoryTurnDto[],
+    memories: ChannelMemoryEntity[],
     modelId: string,
   ): string {
     const sections: string[] = [];
+
+    // ver3.md mục 1 (dài hạn) — đứng TRƯỚC lịch sử hội thoại, framing rõ là
+    // GỢI Ý tham khảo, không phải cam kết tuyệt đối (thực thể vẫn có thể bị
+    // đổi/xoá bởi người khác sau đó).
+    if (memories.length > 0) {
+      const memoryText = memories.map((m) => `- ${m.content}`).join('\n');
+      sections.push(
+        `Thông tin đã xác nhận trước đó trong channel này (GỢI Ý tham khảo, KHÔNG phải cam kết tuyệt đối — nếu cần chắc chắn cho 1 hành động quan trọng, hãy kiểm tra lại bằng tool trước khi dùng làm căn cứ; thực thể này vẫn có thể đã bị đổi/xoá bởi người khác sau đó):\n${memoryText}`,
+      );
+    }
 
     if (history.length > 0) {
       const historyText = history

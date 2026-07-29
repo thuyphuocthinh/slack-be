@@ -143,6 +143,21 @@ export const ORCHESTRATION_CONSTANTS = {
   // bằng dữ liệu thật; nếu log ra quá nhiều/quá ít so với cảm nhận thực tế,
   // chỉnh lại con số này (không cần đổi code).
   AMBIGUOUS_AGENT_JACCARD_THRESHOLD: 0.3,
+  // ver3.md mục 1 (ngắn hạn) — REDACTED_MODEL_ANSWER_TEXT ẩn TOÀN BỘ câu trả
+  // lời cũ của AI, kể cả toolCalls đã thử ở lượt NGAY TRƯỚC, khiến pattern
+  // "chèn lại đi"/"còn thiếu cái ni" gãy vì model không còn thấy đã thử gì.
+  // toolCalls (tool/status/argsPreview/resultPreview) là bản ghi HÀNH ĐỘNG ĐÃ
+  // THỬ, không phải số liệu, nên an toàn để nhớ lại — chỉ giới hạn ở N lượt bot
+  // GẦN NHẤT có gọi tool, không phải toàn bộ lịch sử.
+  TOOL_CALL_RECAP_LOOKBACK_TURNS: 2,
+  TOOL_CALL_RECAP_MAX_CHARS_PER_TURN: 300,
+  // ver3.md mục 1 (dài hạn) — channel_memory chỉ ghi khi 1 tool CREATE-type
+  // chạy THÀNH CÔNG (bản ghi 1 THỰC THỂ ổn định vừa ra đời, ID/tên/link không
+  // tự đổi theo thời gian). Giới hạn số dòng đọc lại mỗi lần để tránh phình vô
+  // hạn (giống bài học resourceContentCache), và cắt độ dài mỗi dòng để không
+  // phình prompt.
+  CHANNEL_MEMORY_READ_LIMIT: 20,
+  CHANNEL_MEMORY_CONTENT_MAX_CHARS: 300,
 };
 
 export const ORCHESTRATION_SYSTEM_PROMPT = `Bạn là AI Assistant, 1 thành viên thật trong channel Slack này (không phải app/bot riêng biệt) — nói chuyện tự nhiên như đồng nghiệp, không xưng "tôi là 1 mô hình AI".

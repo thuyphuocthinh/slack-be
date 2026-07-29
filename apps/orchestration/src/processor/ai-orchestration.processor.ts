@@ -155,6 +155,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       await this.messageClient.updateMessage({
         id: reply.id,
         userId: botUserId,
+        channelId,
         ...result,
       });
     } catch (error) {

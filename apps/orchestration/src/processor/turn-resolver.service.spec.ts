@@ -1195,6 +1195,8 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         // lần re-plan trong CÙNG turn.
         {},
         expect.any(Object),
+        // ver3.md mục 1 (dài hạn) — channelId truyền cho channel_memory.
+        'channel-1',
       );
       // Bước MỚI (sau resume) delegate sang ĐÚNG provider cần thiết cho phần
       // còn lại (sql_server) — KHÔNG bị ép ở lại provider vừa dùng trước đó.

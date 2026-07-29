@@ -277,6 +277,7 @@ export class ApprovalFlowService {
       await this.messageClient.updateMessage({
         id: replyMessageId,
         userId: botUserId,
+        channelId,
         ...result,
       });
     } catch (error) {
@@ -371,6 +372,7 @@ export class ApprovalFlowService {
       await this.messageClient.updateMessage({
         id: replyMessageId,
         userId: botUserId,
+        channelId,
         ...result,
       });
     } catch (error) {

@@ -16,7 +16,16 @@ export class UpdateOrchestrationMessageRequestDto {
   // object — Giai đoạn 3 (HITL) cần re-send content dạng object khi update
   // message "approval_request" kèm toolCalls (xem pauseForApproval()).
   content: string | Record<string, unknown>;
-  toolCalls?: { tool: string; status: 'success' | 'error' | 'awaiting_approval'; resultPreview?: string }[];
+  toolCalls?: {
+    tool: string;
+    status: 'success' | 'error' | 'awaiting_approval';
+    resultPreview?: string;
+  }[];
+  // ver3.md mục 1 (dài hạn) — optional CÓ CHỦ ĐÍCH: chỉ cần truyền ở các call
+  // site có toolCalls thật (nơi có thể phát sinh ghi nhớ channel_memory), các
+  // nhánh lỗi chỉ update text bỏ qua an toàn (không channelId → updateMessage()
+  // tự bỏ qua bước ghi channel_memory).
+  channelId?: string;
 }
 
 export class GetMessageTextRequestDto {

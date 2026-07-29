@@ -24,6 +24,8 @@ import { AgentStreamService } from './socket/agent-stream.service';
 import { OrchestrationCheckpointEntity } from './entity/orchestration-checkpoint.entity';
 import { OrchestrationTriggerClaimEntity } from './entity/orchestration-trigger-claim.entity';
 import { DynamicProviderEntity } from './entity/dynamic-provider.entity';
+import { ChannelMemoryEntity } from './entity/channel-memory.entity';
+import { ChannelMemoryService } from './memory/channel-memory.service';
 import { CheckpointService } from './checkpoint/checkpoint.service';
 import { CheckpointCleanupService } from './checkpoint/checkpoint-cleanup.service';
 import { TriggerClaimService } from './trigger-claim/trigger-claim.service';
@@ -49,6 +51,7 @@ import { HealthCheckService } from './common/health-check.service';
       OrchestrationCheckpointEntity,
       OrchestrationTriggerClaimEntity,
       DynamicProviderEntity,
+      ChannelMemoryEntity,
     ]),
     ScheduleModule.forRoot(),
     CachedModule.forRoot(),
@@ -88,6 +91,7 @@ import { HealthCheckService } from './common/health-check.service';
     AgentStreamService,
     CheckpointService,
     CheckpointCleanupService,
+    ChannelMemoryService,
     TriggerClaimService,
     CircuitBreakerService,
     ProviderConcurrencyLimiterService,

@@ -156,6 +156,7 @@ describe('CheckpointPauseService', () => {
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
         id: 'approval-msg-1',
         userId: data.botUserId,
+        channelId: data.channelId,
         content: approvalContent,
         toolCalls: [
           ...priorToolCalls,

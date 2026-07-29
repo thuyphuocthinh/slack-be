@@ -15,10 +15,13 @@ import {
   GetRecentHistoryRequestDto,
   UpdateOrchestrationMessageRequestDto,
 } from './dto/message-client.dto';
+import { ToolCallTraceDto } from './dto/react-loop.dto';
+import { ChannelMemoryService } from './memory/channel-memory.service';
 
 interface MessageLike {
   content: unknown;
   sender?: { isBot?: boolean };
+  toolCalls?: ToolCallTraceDto[] | null;
 }
 
 // FE gửi content = JSON.stringify(editor.getJSON()) — cây rich text TipTap
@@ -76,6 +79,7 @@ export class MessageClientService {
   constructor(
     @Inject(NAME_SERVICE_TCP.MESSAGE_SERVICE)
     private readonly messageService: ClientProxy,
+    private readonly channelMemory: ChannelMemoryService,
   ) {}
 
   async getMessageText(dto: GetMessageTextRequestDto): Promise<string> {
@@ -112,21 +116,40 @@ export class MessageClientService {
       messages: MessageLike[];
       nextCursor?: string;
     };
-    const history = (messages ?? [])
-      .slice()
-      .reverse() // API trả DESC (mới nhất trước) — đảo lại thành cũ → mới
+    const reversed = (messages ?? []).slice().reverse(); // API trả DESC (mới nhất trước) — đảo lại thành cũ → mới
+
+    // ver3.md mục 1 (ngắn hạn) — recap toolCalls của N lượt BOT gần nhất có
+    // gọi tool, keyed theo object reference (không phải index) để không lệch
+    // vị trí sau bước filter(text rỗng) bên dưới.
+    const recentBotMessagesWithToolCalls = reversed
+      .filter((m) => m.sender?.isBot && (m.toolCalls?.length ?? 0) > 0)
+      .slice(-ORCHESTRATION_CONSTANTS.TOOL_CALL_RECAP_LOOKBACK_TURNS);
+    const recapByMessage = new Map(
+      recentBotMessagesWithToolCalls.map((m) => [
+        m,
+        this.buildToolCallRecap(m.toolCalls!),
+      ]),
+    );
+
+    const history = reversed
       .map((m) => ({
         role: (m.sender?.isBot
           ? 'model'
           : 'user') as ChatHistoryTurnDto['role'],
         text: extractContentText(m.content),
+        _raw: m,
       }))
       .filter((turn) => turn.text.trim().length > 0)
-      .map((turn) =>
-        turn.role === 'model'
-          ? { ...turn, text: REDACTED_MODEL_ANSWER_TEXT }
-          : turn,
-      );
+      .map((turn) => {
+        if (turn.role !== 'model') return { role: turn.role, text: turn.text };
+        const recap = recapByMessage.get(turn._raw);
+        return {
+          role: turn.role,
+          text: recap
+            ? `${REDACTED_MODEL_ANSWER_TEXT}\n${recap}`
+            : REDACTED_MODEL_ANSWER_TEXT,
+        };
+      });
 
     if (!nextCursor) return history;
 
@@ -135,6 +158,29 @@ export class MessageClientService {
       nextCursor,
     );
     return summaryTurn ? [summaryTurn, ...history] : history;
+  }
+
+  // ver3.md mục 1 (ngắn hạn) — ghi lại "đã thử làm gì, kết quả sao" (hành
+  // động, không phải số liệu), giải quyết pattern "chèn lại đi"/"còn thiếu
+  // cái ni" mà không cần user lặp lại nguyên văn prompt gốc.
+  private buildToolCallRecap(toolCalls: ToolCallTraceDto[]): string {
+    const statusLabel: Record<ToolCallTraceDto['status'], string> = {
+      success: 'THÀNH CÔNG',
+      error: 'THẤT BẠI',
+      awaiting_approval: 'ĐANG CHỜ DUYỆT',
+    };
+    const joined = toolCalls
+      .map((tc) => {
+        const args = tc.argsPreview ? ` (${tc.argsPreview})` : '';
+        const result = tc.resultPreview ? `: ${tc.resultPreview}` : '';
+        return `${tc.tool}${args} → ${statusLabel[tc.status]}${result}`;
+      })
+      .join('; ');
+
+    const maxChars = ORCHESTRATION_CONSTANTS.TOOL_CALL_RECAP_MAX_CHARS_PER_TURN;
+    const capped =
+      joined.length > maxChars ? `${joined.slice(0, maxChars)}...` : joined;
+    return `Lượt trước đã thử: ${capped}`;
   }
 
   // Lấy 1 lô nhỏ tin NGAY TRƯỚC cửa sổ CHAT_HISTORY_LIMIT, ghép text lại
@@ -200,6 +246,17 @@ export class MessageClientService {
         updateDto: { content: dto.content, toolCalls: dto.toolCalls },
       }),
     );
+
+    // ver3.md mục 1 (dài hạn) — ghi channel_memory CHỈ khi caller có channelId
+    // (call site có toolCalls thật) VÀ có toolCalls; ChannelMemoryService tự
+    // lọc CREATE-type/success và tự nuốt lỗi, không chặn update() chính.
+    if (dto.channelId && dto.toolCalls?.length) {
+      await this.channelMemory.recordSuccessfulCreateCalls(
+        dto.channelId,
+        dto.id,
+        dto.toolCalls,
+      );
+    }
   }
 
   // Dùng ở NHÁNH BÁO LỖI (catch) của các luồng turn/checkpoint — checkpoint
