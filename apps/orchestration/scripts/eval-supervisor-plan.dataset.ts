@@ -12,6 +12,9 @@ export interface SupervisorPlanEvalCase {
   history?: ChatHistoryTurnDto[];
   expectedAction: 'plan' | 'respond';
   expectedAgents?: string[];
+  // Chỉ chấm ĐÚNG AGENT (không lẫn agent khác), bỏ qua số bước/thứ tự — dùng
+  // cho case mục đích là agent-selection, không phải step-decomposition.
+  ignoreStepCount?: boolean;
   // Xem code-notes/eval-supervisor-plan.dataset.md
   diagnostic?: boolean;
 }
@@ -187,6 +190,10 @@ export const SUPERVISOR_PLAN_EVAL_CASES: SupervisorPlanEvalCase[] = [
     rounds: [],
     expectedAction: 'plan',
     expectedAgents: ['google_sheets'],
+    // Prompt không nói rõ số liệu đang có sẵn hay cần đọc trước khi ghi —
+    // model tách 1-2 bước đều hợp lý. Mục đích case là KHÔNG lẫn sang
+    // sql_server (2 agent cùng dạng "dữ liệu bảng"), không phải đúng số bước.
+    ignoreStepCount: true,
   },
   {
     name: 'ambiguous-two-similar-note-agents',

@@ -91,7 +91,9 @@ function matches(
 
   const gotAgents = (plan.steps ?? []).map((s) => s.agent);
   const wantAgents = testCase.expectedAgents ?? [];
-  const ok = JSON.stringify(gotAgents) === JSON.stringify(wantAgents);
+  const ok = testCase.ignoreStepCount
+    ? gotAgents.length > 0 && gotAgents.every((a) => wantAgents.includes(a))
+    : JSON.stringify(gotAgents) === JSON.stringify(wantAgents);
   return ok
     ? { ok: true }
     : {
