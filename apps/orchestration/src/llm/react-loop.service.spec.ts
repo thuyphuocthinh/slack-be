@@ -41,6 +41,7 @@ describe('ReactLoopService', () => {
   const mockStrategy = {
     id: 'gemini',
     startChat: jest.fn().mockReturnValue(mockSession),
+    generateStructured: jest.fn(),
   };
   const mockLlmFactory = {
     resolve: jest
@@ -88,6 +89,7 @@ describe('ReactLoopService', () => {
     // resync()/onToken() luôn gọi emitStep(...).catch(...) — cần resolve thật
     // (không phải undefined mặc định của jest.fn()) để .catch() không throw.
     mockAgentStream.emitStep.mockResolvedValue(undefined);
+    mockStrategy.generateStructured.mockResolvedValue({ requiredCount: 0 });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -198,6 +200,124 @@ describe('ReactLoopService', () => {
     expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
     // 1 initial + 1 sau tool A + 1 self-check (muốn gọi tool B) + 1 sau tool B = 4
     expect(mockSession.sendMessage).toHaveBeenCalledTimes(4);
+  });
+
+  describe('quantity check (ver3.md mục 3)', () => {
+    it('nudges to continue with a code-authored message when the required count does not match the achieved count', async () => {
+      mockStrategy.generateStructured
+        .mockResolvedValueOnce({ requiredCount: 5 })
+        .mockResolvedValueOnce({ achievedCount: 1 });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'execute_write_query', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'Đã tạo xong.', toolCalls: [] })
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'execute_write_query', args: { n: 2 } }],
+        })
+        .mockResolvedValueOnce({ text: 'Đã tạo đủ 5.', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.answer).toBe('Đã tạo đủ 5.');
+      expect(mockSession.sendMessage).toHaveBeenNthCalledWith(
+        3,
+        'Yêu cầu cần xử lý đúng 5 bản ghi, nhưng theo kết quả tool hiện tại mới có 1. Hãy tiếp tục thực hiện phần còn thiếu trước khi trả lời.',
+        expect.any(Function),
+        expect.anything(),
+      );
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
+    });
+
+    it('falls back to the answer from before the nudge when the model does not call more tools despite the mismatch', async () => {
+      mockStrategy.generateStructured
+        .mockResolvedValueOnce({ requiredCount: 5 })
+        .mockResolvedValueOnce({ achievedCount: 1 });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'execute_write_query', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'Đã tạo xong.', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'vẫn giữ nguyên', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.answer).toBe('Đã tạo xong.');
+      expect(mockSession.sendMessage).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not call the achieved-count check and falls through to the freeform self-check when the task states no explicit quantity', async () => {
+      mockStrategy.generateStructured.mockResolvedValueOnce({
+        requiredCount: 0,
+      });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'get_database_schema', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'Đây là schema.', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'đã xác nhận', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.answer).toBe('Đây là schema.');
+      expect(mockStrategy.generateStructured).toHaveBeenCalledTimes(1);
+      expect(mockSession.sendMessage).toHaveBeenNthCalledWith(
+        3,
+        ORCHESTRATION_SELF_CHECK_PROMPT,
+        expect.any(Function),
+        expect.anything(),
+      );
+    });
+
+    it('falls through to the freeform self-check when the required and achieved counts already match', async () => {
+      mockStrategy.generateStructured
+        .mockResolvedValueOnce({ requiredCount: 3 })
+        .mockResolvedValueOnce({ achievedCount: 3 });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'execute_write_query', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'Đã tạo đủ 3.', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'đã xác nhận', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.answer).toBe('Đã tạo đủ 3.');
+      expect(mockSession.sendMessage).toHaveBeenNthCalledWith(
+        3,
+        ORCHESTRATION_SELF_CHECK_PROMPT,
+        expect.any(Function),
+        expect.anything(),
+      );
+    });
+
+    it('treats a failed quantity check as not-applicable and still runs the freeform self-check', async () => {
+      mockStrategy.generateStructured.mockRejectedValueOnce(
+        new Error('provider down'),
+      );
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'get_database_schema', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'Đây là schema.', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'đã xác nhận', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.answer).toBe('Đây là schema.');
+      expect(mockSession.sendMessage).toHaveBeenNthCalledWith(
+        3,
+        ORCHESTRATION_SELF_CHECK_PROMPT,
+        expect.any(Function),
+        expect.anything(),
+      );
+    });
   });
 
   it('executes multiple tool calls in a single turn SEQUENTIALLY, never overlapping (bug fix: parallel execution raced the repeat-guard/Risk Gate and desynced tool_call/tool_result FE events for same-name calls)', async () => {

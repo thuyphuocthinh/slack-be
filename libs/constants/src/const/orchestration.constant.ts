@@ -186,9 +186,35 @@ Nguyên tắc:
 // (không chỉ prompt) ép model tự phản biện trước khi chốt câu trả lời.
 export const ORCHESTRATION_SELF_CHECK_PROMPT = `Trước khi chốt câu trả lời, tự kiểm tra lại: câu trả lời trên đã dựa vào DỮ LIỆU THỰC TẾ (kết quả tool trả về giá trị/nội dung cụ thể), hay chỉ mới dừng ở thông tin cấu trúc/metadata (VD: danh sách tên bảng, tên cột, tên trường, danh sách thư mục...)? Nếu câu hỏi gốc cần dữ liệu/giá trị cụ thể mà câu trả lời trên CHƯA có, hãy gọi tiếp tool phù hợp để lấy dữ liệu thật rồi trả lời lại đầy đủ. Nếu câu trả lời trên đã đủ dữ liệu cần thiết (hoặc câu hỏi gốc vốn không cần dữ liệu cụ thể), xác nhận lại và giữ nguyên câu trả lời đó.
 
-QUAN TRỌNG — nếu câu hỏi gốc có nêu rõ SỐ LƯỢNG cần GHI/TẠO/THÊM (VD "tạo 5 sản phẩm", "thêm 3 khách hàng"), kiểm tra thêm: số dòng/bản ghi ĐÃ GHI THẬT (theo kết quả tool trả về, VD rows affected) có khớp ĐÚNG số lượng đã nêu không? Nếu tool ghi mới chạy được 1 phần (VD chỉ 1/5 dòng), đó KHÔNG PHẢI đã xong — phải gọi tiếp tool ghi phần còn thiếu cho đủ số lượng rồi mới xác nhận hoàn tất, TUYỆT ĐỐI không dừng lại và báo cáo như thể đã làm đủ.
-
 QUAN TRỌNG — đừng nhầm "chưa chắc" với "chưa có dữ liệu": nếu 1 tool đã CHẠY THÀNH CÔNG trước đó trong lượt này và trả về đúng dữ liệu thật cần cho câu hỏi, đó ĐÃ LÀ đủ — dùng NGUYÊN kết quả đó để trả lời, TUYỆT ĐỐI không gọi lại ĐÚNG tool đó (cùng tham số hoặc tham số tương đương) thêm lần nữa chỉ để "kiểm tra cho chắc". Chỉ gọi lại khi có lý do CỤ THỂ và MỚI (VD kết quả trước ghi rõ còn thiếu dữ liệu/bị cắt bớt, hoặc câu hỏi cần lọc theo điều kiện khác hẳn chưa từng truy vấn).`;
+
+export const QUANTITY_CHECK_REQUIRED_PROMPT = `Đọc yêu cầu sau và xác định: yêu cầu có nêu rõ MỘT SỐ LƯỢNG CỤ THỂ bản ghi/đối tượng cần tạo/ghi/thêm/xử lý không (VD "tạo 5 sản phẩm", "thêm 3 khách hàng")? Nếu có, trả về đúng số đó trong "requiredCount". Nếu KHÔNG nêu rõ số lượng cụ thể, trả về 0.`;
+
+export const QUANTITY_CHECK_REQUIRED_SCHEMA = {
+  type: 'object',
+  properties: {
+    requiredCount: {
+      type: 'integer',
+      description:
+        'Số lượng bản ghi/đối tượng được nêu rõ trong yêu cầu. 0 nếu yêu cầu không nêu rõ số lượng cụ thể.',
+    },
+  },
+  required: ['requiredCount'],
+};
+
+export const QUANTITY_CHECK_ACHIEVED_PROMPT = `Đọc các kết quả tool sau (đã thực thi thật) và đếm: TỔNG CỘNG đã có bao nhiêu bản ghi/đối tượng được tạo/ghi/xử lý THÀNH CÔNG, trả về đúng số đó trong "achievedCount". Chỉ đếm những gì kết quả THẬT xác nhận, không suy đoán, không làm tròn.`;
+
+export const QUANTITY_CHECK_ACHIEVED_SCHEMA = {
+  type: 'object',
+  properties: {
+    achievedCount: {
+      type: 'integer',
+      description:
+        'Tổng số bản ghi/đối tượng đã được xác nhận tạo/ghi/xử lý thành công theo kết quả tool.',
+    },
+  },
+  required: ['achievedCount'],
+};
 
 // Giai đoạn 2 — Supervisor đọc tin nhắn user, quyết định tự trả lời (không
 // cần dữ liệu ngoài) hay LẬP KẾ HOẠCH (Plan-and-Execute, xem accuracy.md —

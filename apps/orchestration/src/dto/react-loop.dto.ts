@@ -45,3 +45,11 @@ export class RunReactLoopResponseDto {
   answer: string;
   toolCalls: ToolCallTraceDto[];
 }
+
+export class QuantityCheckRequiredDto {
+  requiredCount: number;
+}
+
+export class QuantityCheckAchievedDto {
+  achievedCount: number;
+}
