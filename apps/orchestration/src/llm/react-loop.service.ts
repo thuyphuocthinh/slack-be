@@ -4,23 +4,17 @@ import {
   ORCHESTRATION_CONSTANTS,
   ORCHESTRATION_SELF_CHECK_PROMPT,
   ORCHESTRATION_SYSTEM_PROMPT,
-  QUANTITY_CHECK_ACHIEVED_PROMPT,
-  QUANTITY_CHECK_ACHIEVED_SCHEMA,
-  QUANTITY_CHECK_REQUIRED_PROMPT,
-  QUANTITY_CHECK_REQUIRED_SCHEMA,
 } from '@slack/constants';
 import { extractTextFromMcpResult } from '@slack/common';
 import { McpClientService } from '../mcp/mcp-client.service';
 import {
-  QuantityCheckAchievedDto,
-  QuantityCheckRequiredDto,
   RunReactLoopRequestDto,
   RunReactLoopResponseDto,
   ToolCallTraceDto,
 } from '../dto/react-loop.dto';
+import { checkQuantity as checkQuantityUtil } from './quantity-check.util';
 import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
 import {
-  LlmStrategy,
   LlmToolResult,
   LlmTurnResult,
 } from './strategy/llm-strategy.interface';
@@ -172,7 +166,17 @@ export class ReactLoopService {
         };
 
         const checkQuantity = () =>
-          this.runQuantityCheck(dto.prompt, toolCalls, strategy, model, signal);
+          checkQuantityUtil(
+            dto.prompt,
+            toolCalls
+              .map((tc) => `${tc.tool}: ${tc.resultPreview ?? ''}`)
+              .join('\n'),
+            strategy,
+            model,
+            this.circuitBreaker,
+            this.logger,
+            signal,
+          );
 
         return this.executeReactLoop(
           dto,
@@ -395,66 +399,6 @@ export class ReactLoopService {
       successfulCallCache.set(signature, { resultPreview, feedText });
     }
     return feedText;
-  }
-
-  private async runQuantityCheck(
-    prompt: string,
-    toolCalls: ToolCallTraceDto[],
-    strategy: LlmStrategy,
-    model: string,
-    signal?: AbortSignal,
-  ): Promise<{ requiredCount: number; achievedCount: number }> {
-    try {
-      const required = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
-        withLlmRetry(
-          () =>
-            strategy.generateStructured<QuantityCheckRequiredDto>({
-              model,
-              systemInstruction: QUANTITY_CHECK_REQUIRED_PROMPT,
-              prompt,
-              schema: QUANTITY_CHECK_REQUIRED_SCHEMA,
-              signal,
-            }),
-          ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
-          `runQuantityCheck() required timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s`,
-          { signal },
-        ),
-      );
-      if (required.requiredCount <= 0) {
-        return { requiredCount: 0, achievedCount: 0 };
-      }
-
-      const resultsText = toolCalls
-        .map((tc) => `${tc.tool}: ${tc.resultPreview ?? ''}`)
-        .join('\n');
-      const achieved = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
-        withLlmRetry(
-          () =>
-            strategy.generateStructured<QuantityCheckAchievedDto>({
-              model,
-              systemInstruction: QUANTITY_CHECK_ACHIEVED_PROMPT,
-              prompt: resultsText,
-              schema: QUANTITY_CHECK_ACHIEVED_SCHEMA,
-              signal,
-            }),
-          ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
-          `runQuantityCheck() achieved timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s`,
-          { signal },
-        ),
-      );
-      this.logger.log(
-        `runQuantityCheck() requiredCount=${required.requiredCount} achievedCount=${achieved.achievedCount}`,
-      );
-      return {
-        requiredCount: required.requiredCount,
-        achievedCount: achieved.achievedCount,
-      };
-    } catch (error) {
-      this.logger.warn(
-        `runQuantityCheck() failed: ${(error as Error).message}`,
-      );
-      return { requiredCount: 0, achievedCount: 0 };
-    }
   }
 
   private async executeReactLoop(

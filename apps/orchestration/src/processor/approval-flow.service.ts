@@ -25,6 +25,9 @@ import {
   capToolResultSize,
   resolveDataCharBudget,
 } from '../executor/tool-result-size-cap.util';
+import { checkQuantity } from '../llm/quantity-check.util';
+import { LlmStrategyFactory } from '../llm/strategy/llm-strategy.factory';
+import { CircuitBreakerService } from '../common/circuit-breaker.service';
 
 // Giai đoạn 3 (HITL) — toàn bộ vòng đời "duyệt/từ chối 1 hành động rủi ro":
 // nhận request duyệt (resolveApproval, nhanh — chỉ claim() rồi trả về), rồi
@@ -44,6 +47,8 @@ export class ApprovalFlowService {
     private readonly queueService: QueueService,
     private readonly cancellation: AgentCancellationService,
     private readonly turnResolver: TurnResolverService,
+    private readonly llmFactory: LlmStrategyFactory,
+    private readonly circuitBreaker: CircuitBreakerService,
   ) {}
 
   // Chỉ làm phần NHANH (check quyền + claim() atomic) rồi trả về ngay —
@@ -185,7 +190,6 @@ export class ApprovalFlowService {
       pendingTool: pendingToolOrNull,
       pendingTask,
       roundsSoFar,
-      remainingSteps,
       originalPrompt,
       history,
     } = checkpoint;
@@ -241,6 +245,10 @@ export class ApprovalFlowService {
       // TurnResolverService tự pause qua CheckpointPauseService như bình
       // thường — không cần xử lý gì thêm ở đây, dù final answer hay "cần
       // duyệt tiếp" đều chỉ là 1 AnswerResult.
+      const nextRemainingSteps = await this.resolveRemainingSteps(
+        checkpoint,
+        toolResultText,
+      );
       const agents = await this.supervisor.getAvailableAgents(userId);
       const rounds = [
         ...roundsSoFar,
@@ -271,7 +279,7 @@ export class ApprovalFlowService {
         rounds,
         [],
         undefined,
-        remainingSteps,
+        nextRemainingSteps,
       );
 
       await this.messageClient.updateMessage({
@@ -307,6 +315,48 @@ export class ApprovalFlowService {
         { type: 'done' },
       );
     }
+  }
+
+  // ver3.md mục 3 — quantity-check gốc chỉ chạy trong ReactLoopService, bị bỏ
+  // qua khi 1 tool ghi cần duyệt HITL ngắt vòng lặp giữa chừng. Chạy lại đúng
+  // check đó ở đây; nếu thiếu, chèn 1 step tiếp tục thay vì coi round là xong.
+  private async resolveRemainingSteps(
+    checkpoint: CheckpointResponseDto,
+    toolResultText: string,
+  ): Promise<DelegationDto[] | undefined> {
+    const { pendingTool, pendingTask, roundsSoFar, remainingSteps } =
+      checkpoint;
+    const attempts =
+      roundsSoFar.filter((r) => r.agent === pendingTool!.provider).length + 1;
+    if (attempts >= ORCHESTRATION_CONSTANTS.MAX_QUANTITY_CONTINUATION_ROUNDS) {
+      return remainingSteps;
+    }
+
+    const { strategy, model } = this.llmFactory.resolve(
+      process.env.DEFAULT_REACT_MODEL ??
+        ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL,
+    );
+    const { requiredCount, achievedCount } = await checkQuantity(
+      pendingTask,
+      toolResultText,
+      strategy,
+      model,
+      this.circuitBreaker,
+      this.logger,
+    );
+    if (requiredCount === 0 || requiredCount === achievedCount) {
+      return remainingSteps;
+    }
+
+    this.logger.log(
+      `checkpoint=${checkpoint.id} quantity mismatch requiredCount=${requiredCount} achievedCount=${achievedCount} — nudging to continue`,
+    );
+    const continuationStep: DelegationDto = {
+      agent: pendingTool!.provider,
+      task: `${pendingTask}\n\n(Đã xử lý ${achievedCount}/${requiredCount} — làm tiếp ${requiredCount - achievedCount} phần còn thiếu, không lặp lại phần đã xong.)`,
+      mustExecute: true,
+    };
+    return [continuationStep, ...(remainingSteps ?? [])];
   }
 
   // accuracy_problem.md mục 1 — user vừa chọn xong 1 candidate cho checkpoint

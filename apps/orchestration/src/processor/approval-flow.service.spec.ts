@@ -15,6 +15,9 @@ import { OrchestrationCheckpointStatus } from '../entity/orchestration-checkpoin
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
 import { TurnCancelledError } from '../llm/turn-cancelled.error';
 import { TurnResolverService } from './turn-resolver.service';
+import { ORCHESTRATION_CONSTANTS } from '@slack/constants';
+import { LlmStrategyFactory } from '../llm/strategy/llm-strategy.factory';
+import { CircuitBreakerService } from '../common/circuit-breaker.service';
 
 // approval-flow.service.ts import @slack/common ở module scope (extractTextFromMcpResult)
 // — mock thẳng barrel để tránh kéo theo "nanoid" (ESM-only) mà jest không transform được.
@@ -40,6 +43,11 @@ describe('ApprovalFlowService', () => {
   const mockQueueService = { addJob: jest.fn() };
   const mockCancellation = { startTurn: jest.fn() };
   const mockTurnResolver = { continueRounds: jest.fn() };
+  const mockStrategy = { id: 'openai', generateStructured: jest.fn() };
+  const mockLlmFactory = { resolve: jest.fn() };
+  const mockCircuitBreaker = {
+    run: jest.fn((_key: string, action: () => Promise<unknown>) => action()),
+  };
 
   beforeEach(async () => {
     mockMessageClient.updateMessage.mockResolvedValue(undefined);
@@ -53,6 +61,13 @@ describe('ApprovalFlowService', () => {
       content: 'ok',
       toolCalls: undefined,
     });
+    mockLlmFactory.resolve.mockReturnValue({
+      strategy: mockStrategy,
+      model: 'gpt-4o-mini',
+    });
+    // Mặc định: task không nêu số lượng cụ thể — mọi test đã có từ trước
+    // (không liên quan quantity-check) không bị ảnh hưởng.
+    mockStrategy.generateStructured.mockResolvedValue({ requiredCount: 0 });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -65,6 +80,8 @@ describe('ApprovalFlowService', () => {
         { provide: QueueService, useValue: mockQueueService },
         { provide: AgentCancellationService, useValue: mockCancellation },
         { provide: TurnResolverService, useValue: mockTurnResolver },
+        { provide: LlmStrategyFactory, useValue: mockLlmFactory },
+        { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
       ],
     }).compile();
 
@@ -623,6 +640,89 @@ describe('ApprovalFlowService', () => {
           '⏸️ Cần bạn duyệt 1 hành động trước khi tiếp tục — xem tin nhắn bên dưới.',
         toolCalls: undefined,
       });
+    });
+  });
+
+  describe('quantity-check after approval (ver3.md mục 3)', () => {
+    const checkpoint = {
+      id: 'checkpoint-1',
+      replyMessageId: 'approval-msg-1',
+      userId: 'user-1',
+      botUserId: 'bot-1',
+      channelId: 'channel-1',
+      workspaceId: 'workspace-1',
+      channelType: 'direct',
+      originalPrompt: 'Tạo 5 sản phẩm ngẫu nhiên rồi chèn vào bảng Products',
+      pendingTool: {
+        provider: 'sql_server',
+        name: 'execute_write_query',
+        args: { query: "INSERT INTO Products VALUES ('A')" },
+      },
+      pendingTask: 'Tạo 5 sản phẩm ngẫu nhiên rồi chèn vào bảng Products',
+      roundsSoFar: [],
+      history: [],
+      kind: 'approval' as const,
+    };
+
+    const runApprovalJob = () =>
+      service.processApprovalJob({
+        checkpointId: 'checkpoint-1',
+        userId: 'user-1',
+      });
+
+    beforeEach(() => {
+      mockCheckpoint.findById.mockResolvedValue(checkpoint);
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'raw' }],
+      });
+      (extractTextFromMcpResult as jest.Mock).mockReturnValue('1 row inserted');
+    });
+
+    it('prepends a continuation step when the achieved count falls short', async () => {
+      mockStrategy.generateStructured
+        .mockResolvedValueOnce({ requiredCount: 5 })
+        .mockResolvedValueOnce({ achievedCount: 1 });
+
+      await runApprovalJob();
+
+      const remainingSteps = mockTurnResolver.continueRounds.mock.calls[0][8];
+      expect(remainingSteps).toHaveLength(1);
+      expect(remainingSteps[0].agent).toBe('sql_server');
+      expect(remainingSteps[0].task).toContain('Đã xử lý 1/5');
+    });
+
+    it('leaves remainingSteps untouched when the achieved count already matches', async () => {
+      mockStrategy.generateStructured
+        .mockResolvedValueOnce({ requiredCount: 5 })
+        .mockResolvedValueOnce({ achievedCount: 5 });
+
+      await runApprovalJob();
+
+      expect(mockTurnResolver.continueRounds.mock.calls[0][8]).toEqual(
+        checkpoint.remainingSteps,
+      );
+    });
+
+    it('stops nudging once MAX_QUANTITY_CONTINUATION_ROUNDS is reached, even with a persistent mismatch', async () => {
+      const priorAttempts =
+        ORCHESTRATION_CONSTANTS.MAX_QUANTITY_CONTINUATION_ROUNDS - 1;
+      const stuckCheckpoint = {
+        ...checkpoint,
+        roundsSoFar: Array.from({ length: priorAttempts }, () => ({
+          agent: 'sql_server',
+          task: 'x',
+          result: '1',
+        })),
+      };
+      mockCheckpoint.findById.mockResolvedValue(stuckCheckpoint);
+      mockStrategy.generateStructured.mockResolvedValue({ requiredCount: 5 });
+
+      await runApprovalJob();
+
+      expect(mockStrategy.generateStructured).not.toHaveBeenCalled();
+      expect(mockTurnResolver.continueRounds.mock.calls[0][8]).toEqual(
+        stuckCheckpoint.remainingSteps,
+      );
     });
   });
 

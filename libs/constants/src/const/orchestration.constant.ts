@@ -18,6 +18,12 @@ export const ORCHESTRATION_CONSTANTS = {
   // nhiều provider (3-5 bước) không nên bị bóp bởi lưới chặn vòng lặp bệnh lý.
   // Giá trị khởi điểm ước lượng, chưa hiệu chỉnh bằng dữ liệu thật.
   MAX_REAL_STEPS_PER_TURN: 15,
+  // ver3.md mục 3 — trần số lần "chèn tiếp cho đủ" sau khi duyệt HITL, phòng
+  // achievedCount cứ không khớp mãi (VD trích xuất sai) mà lặp vô hạn. Prompt
+  // dặn gộp nhiều bản ghi trong 1 lần gọi không đáng tin với model rẻ (đã xác
+  // nhận qua test tay) — cap phải đủ lớn để chịu được trường hợp model cứ ghi
+  // từng dòng 1.
+  MAX_QUANTITY_CONTINUATION_ROUNDS: 10,
   // Giai đoạn 2, Step 7 — checklist plan.md mục 3 yêu cầu "temperature thấp
   // cho bước gọi tool" (chống hallucination), trước đó chỉ áp cho Supervisor
   // (generateStructured, temperature 0) mà thiếu ở SubAgentExecutor.
@@ -172,6 +178,7 @@ Nguyên tắc:
 - Với hành động có thể thay đổi dữ liệu (INSERT/UPDATE/DELETE/thực thi stored procedure), nói rõ trong câu trả lời là đã thực hiện gì, đừng im lặng thực hiện.
 - Khi cần GHI/THÊM một lượng LỚN dữ liệu (VD hàng trăm dòng/bản ghi) vào 1 hệ thống đích trong 1 bước, nếu tool ghi cho phép gọi nhiều lần (ghi từng phần), hãy CHỦ ĐỘNG chia thành nhiều lần gọi tool nhỏ hơn (VD mỗi lần vài chục-một trăm dòng) theo đúng thứ tự, thay vì nhồi TOÀN BỘ dữ liệu vào 1 lần gọi tool duy nhất — 1 lần gọi quá lớn có thể bị cắt cụt giữa chừng do giới hạn độ dài phản hồi của bạn, khiến dữ liệu ghi vào bị thiếu mà không có lỗi rõ ràng nào báo lại. Chỉ dừng lại khi đã ghi ĐỦ toàn bộ dữ liệu, không dừng giữa chừng.
 - QUAN TRỌNG — nguyên tắc "ghi đủ, không dừng giữa chừng" ở trên áp dụng cho MỌI SỐ LƯỢNG được nêu rõ trong câu hỏi, kể cả số nhỏ (VD "tạo 5 sản phẩm", "thêm 3 khách hàng") — không chỉ khi số lượng lớn. Sau khi tool ghi chạy xong, đối chiếu kết quả trả về (VD số dòng/rows affected) với ĐÚNG số lượng đã nêu trong câu hỏi trước khi coi là xong; nếu số dòng thực tế ít hơn yêu cầu, gọi tiếp tool ghi phần còn thiếu, KHÔNG dừng lại và báo cáo như thể đã hoàn tất.
+- Khi số lượng bản ghi cần ghi NHỎ (dưới 20) và tool cho phép nhiều bản ghi trong 1 lần gọi (VD 1 câu INSERT nhiều dòng VALUES), hãy GỘP thành ĐÚNG 1 lần gọi duy nhất — không tách thành nhiều lần gọi liên tiếp cho từng bản ghi riêng lẻ. Chỉ tách nhỏ (nguyên tắc bên trên) khi số lượng thật sự LỚN.
 - Nếu câu hỏi ngoài phạm vi tool hiện có hoặc thiếu thông tin để trả lời chắc chắn, nói rõ giới hạn đó thay vì đoán mò.
 - Đọc kỹ mô tả (description) của từng tool trước khi chọn — nhiều tool có thể nghe tương tự nhau nhưng phục vụ mục đích khác nhau, chọn đúng tool khớp nhất với câu hỏi, đừng đoán đại.
 - Phân biệt rõ 2 loại tool: (1) tool khám phá CẤU TRÚC/metadata (VD: liệt kê bảng/cột, danh sách trường, danh sách thư mục...) và (2) tool trả về DỮ LIỆU THẬT/nội dung cụ thể (VD: kết quả query, nội dung file/email, danh sách bản ghi...). Kết quả của tool loại (1) chỉ là bước trung gian để biết cách gọi đúng tool loại (2) tiếp theo — KHÔNG BAO GIỜ được lấy kết quả loại (1) làm câu trả lời cuối cùng cho câu hỏi cần dữ liệu/giá trị cụ thể (liệt kê, tính tổng, ai/cái gì, con số, nội dung...). Nếu câu hỏi cần dữ liệu thật mà mới chỉ có thông tin cấu trúc, PHẢI tiếp tục gọi tool loại (2) để lấy dữ liệu thật rồi mới trả lời.
