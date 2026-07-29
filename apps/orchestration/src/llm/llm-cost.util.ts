@@ -4,6 +4,9 @@ import { LLM_MODEL_REGISTRY } from '@slack/constants';
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
+  // OpenAI trả về khi prompt cache hit (prefix giống hệt lần gọi trước) —
+  // phần này được tính giá rẻ hơn hẳn input thường. undefined/0 = không cache.
+  cachedTokens?: number;
 }
 
 // Giai đoạn 4, Step 7 — giá THAM KHẢO (USD/1 triệu token), lấy từ
@@ -17,7 +20,9 @@ export function estimateCostUsd(
   let entry = LLM_MODEL_REGISTRY[modelId];
   if (!entry) {
     // Reverse lookup cho trường hợp dùng 9Router (modelId bị gắn thêm tiền tố openai/...)
-    entry = Object.values(LLM_MODEL_REGISTRY).find((e) => e.model === modelId) as any;
+    entry = Object.values(LLM_MODEL_REGISTRY).find(
+      (e) => e.model === modelId,
+    ) as any;
   }
   if (!entry) return null;
   return (
@@ -53,6 +58,9 @@ export function attachLlmCostMetadata(
       // của họ) — model mới/ít phổ biến (VD gemini-3.5-flash) có thể chưa có
       // trong bảng giá LangSmith, số tự tính từ LLM_MODEL_REGISTRY đáng tin hơn.
       ...(totalCostUsd !== null ? { total_cost: totalCostUsd } : {}),
+      ...(usage.cachedTokens !== undefined
+        ? { cached_tokens: usage.cachedTokens }
+        : {}),
     },
   };
 }

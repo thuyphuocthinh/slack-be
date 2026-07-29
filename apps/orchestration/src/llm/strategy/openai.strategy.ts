@@ -138,10 +138,18 @@ export class OpenAiStrategy implements LlmStrategy {
 
         // Giai đoạn 4, Step 7 — gắn usage/chi phí ước lượng vào chính trace
         // "openai.generateStructured" này (bên trong hàm traceable() bọc).
+        // cached_tokens (ver3.md — prompt caching) log thẳng ra để kiểm tra
+        // nhanh qua pm2 log, không cần mở LangSmith dashboard.
         if (completion.usage) {
+          const cachedTokens =
+            completion.usage.prompt_tokens_details?.cached_tokens ?? 0;
+          this.logger.log(
+            `generateStructured() usage model=${params.model} input=${completion.usage.prompt_tokens} cached=${cachedTokens} output=${completion.usage.completion_tokens}`,
+          );
           attachLlmCostMetadata(params.model, {
             inputTokens: completion.usage.prompt_tokens,
             outputTokens: completion.usage.completion_tokens,
+            cachedTokens,
           });
         }
         return completion;
@@ -164,6 +172,7 @@ export class OpenAiStrategy implements LlmStrategy {
 }
 
 class OpenAiChatSession implements LlmChatSession {
+  private readonly logger = new Logger(OpenAiChatSession.name);
   private readonly model: string;
   private readonly temperature?: number;
   private readonly tools: ChatCompletionTool[];
@@ -246,7 +255,13 @@ class OpenAiChatSession implements LlmChatSession {
 
     let fullText = '';
     const toolCallsMap: Record<number, any> = {};
-    let usage: { prompt_tokens: number; completion_tokens: number } | undefined;
+    let usage:
+      | {
+          prompt_tokens: number;
+          completion_tokens: number;
+          prompt_tokens_details?: { cached_tokens?: number };
+        }
+      | undefined;
 
     for await (const chunk of stream) {
       if (chunk.usage) {
@@ -306,9 +321,14 @@ class OpenAiChatSession implements LlmChatSession {
     // generateStructured(). Bị rớt mất khi rawSend() chuyển sang streaming; stream_options
     // include_usage đưa usage về ở chunk cuối (choices rỗng) thay vì completion.usage.
     if (usage) {
+      const cachedTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
+      this.logger.log(
+        `sendMessage() usage model=${this.model} input=${usage.prompt_tokens} cached=${cachedTokens} output=${usage.completion_tokens}`,
+      );
       attachLlmCostMetadata(this.model, {
         inputTokens: usage.prompt_tokens,
         outputTokens: usage.completion_tokens,
+        cachedTokens,
       });
     }
 

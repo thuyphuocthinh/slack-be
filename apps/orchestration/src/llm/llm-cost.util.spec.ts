@@ -75,6 +75,35 @@ describe('attachLlmCostMetadata (Giai đoạn 4, Step 7)', () => {
     ).not.toThrow();
   });
 
+  it('includes cached_tokens (ver3.md — prompt caching) when provided', () => {
+    const runTree: {
+      metadata?: { usage_metadata: { cached_tokens?: number } };
+    } = {};
+    mockGetCurrentRunTree.mockReturnValue(runTree);
+
+    attachLlmCostMetadata('gpt-4o-mini', {
+      inputTokens: 1000,
+      outputTokens: 100,
+      cachedTokens: 800,
+    });
+
+    expect(runTree.metadata?.usage_metadata.cached_tokens).toBe(800);
+  });
+
+  it('omits cached_tokens entirely when not provided (no cache hit info from the provider)', () => {
+    const runTree: { metadata?: { usage_metadata: object } } = {};
+    mockGetCurrentRunTree.mockReturnValue(runTree);
+
+    attachLlmCostMetadata('gpt-4o-mini', {
+      inputTokens: 1000,
+      outputTokens: 100,
+    });
+
+    expect(runTree.metadata?.usage_metadata).not.toHaveProperty(
+      'cached_tokens',
+    );
+  });
+
   it('omits total_cost (instead of sending null, which LangSmith would reject) for an unregistered model — token usage itself is not lost', () => {
     const runTree: { metadata?: unknown } = {};
     mockGetCurrentRunTree.mockReturnValue(runTree);
