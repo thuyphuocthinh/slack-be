@@ -18,6 +18,7 @@ import {
   LlmTurnResult,
 } from './llm-strategy.interface';
 import { attachLlmCostMetadata } from '../llm-cost.util';
+import { toOpenAiStrictSchema } from './openai-strict-schema.util';
 
 // 9Router đôi khi gắn nhầm terminator SSE "data: [DONE]" vào cuối 1 response
 // JSON bình thường (không streaming), và đôi khi double-stringify cả body.
@@ -114,7 +115,11 @@ export class OpenAiStrategy implements LlmStrategy {
             ],
             response_format: {
               type: 'json_schema',
-              json_schema: { name: 'decision', schema: params.schema },
+              json_schema: {
+                name: 'decision',
+                schema: toOpenAiStrictSchema(params.schema),
+                strict: true,
+              },
             },
             temperature: 0,
           },
