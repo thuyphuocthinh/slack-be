@@ -283,4 +283,17 @@ export const SUPERVISOR_PLAN_EVAL_CASES: SupervisorPlanEvalCase[] = [
     rounds: [],
     expectedAction: 'plan',
   },
+
+  // --- ver3.md mục 5 — tín hiệu bực bội (regex) không được khiến Supervisor
+  // hiểu lầm thành "user chỉ đang than phiền" và trả lời "respond" thay vì
+  // vẫn thực thi đúng agent mà câu đó yêu cầu ---
+
+  {
+    name: 'ver3-muc5-frustration-prompt-still-resolves-correct-agent',
+    prompt: 'sao vẫn lỗi hoài vậy, chèn lại dữ liệu vào Google Sheet giúp tôi',
+    agents: [GOOGLE_SHEETS_AGENT, SQL_SERVER_AGENT],
+    rounds: [],
+    expectedAction: 'plan',
+    expectedAgents: ['google_sheets'],
+  },
 ];

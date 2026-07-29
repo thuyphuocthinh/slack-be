@@ -36,6 +36,7 @@ import { hasPendingActionStep } from '../common/pending-action-step.util';
 import { MetricsRegistryService } from '../common/metrics-registry.service';
 import { ChannelMemoryService } from '../memory/channel-memory.service';
 import { ChannelMemoryEntity } from '../entity/channel-memory.entity';
+import { detectFrustration } from './detect-frustration.util';
 
 export interface AgentRankingCache {
   current?: { shown: AvailableAgentDto[]; omittedCount: number };
@@ -275,6 +276,15 @@ export class SupervisorService {
       const memories = channelId
         ? await this.channelMemory.getRecentMemories(channelId)
         : [];
+      // ver3.md mục 5 — chỉ để harvest thủ công cho eval dataset sau này
+      // (grep log theo tag), KHÔNG ảnh hưởng tới prompt (đã xử lý trong
+      // buildPrompt() riêng).
+      const frustrationPattern = detectFrustration(prompt);
+      if (frustrationPattern) {
+        this.logger.warn(
+          `[frustration-signal] channelId=${channelId ?? 'unknown'} pattern="${frustrationPattern}"`,
+        );
+      }
       const fullPrompt = this.buildPrompt(
         prompt,
         rounds,
@@ -452,6 +462,15 @@ export class SupervisorService {
     modelId: string,
   ): string {
     const sections: string[] = [];
+
+    // ver3.md mục 5 — đứng ĐẦU TIÊN (trước cả channel_memory), vì đây là tín
+    // hiệu khẩn của CHÍNH lượt đang xử lý, không phải thông tin nền.
+    const frustrationPattern = detectFrustration(originalPrompt);
+    if (frustrationPattern) {
+      sections.push(
+        `⚠️ Tin nhắn hiện tại của user có dấu hiệu không hài lòng/bực bội (khớp mẫu: "${frustrationPattern}"). Xem kỹ "Các bước đã thực hiện trong turn này" hoặc lịch sử gần nhất trước khi lặp lại đúng thao tác cũ — cân nhắc cách tiếp cận khác, hoặc hỏi lại rõ hơn nếu chưa chắc chắn tại sao lần trước chưa đạt.`,
+      );
+    }
 
     // ver3.md mục 1 (dài hạn) — đứng TRƯỚC lịch sử hội thoại, framing rõ là
     // GỢI Ý tham khảo, không phải cam kết tuyệt đối (thực thể vẫn có thể bị

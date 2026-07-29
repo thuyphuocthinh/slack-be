@@ -59,7 +59,9 @@ function buildSupervisor(): SupervisorService {
   // vụ getAvailableAgents(), KHÔNG dùng ở đây — dataset tự cấp sẵn `agents`) —
   // stub rỗng, không cần DB/HTTP client thật cho eval script này. embeddingProvider
   // THẬT (mục 2, agent-level Tool RAG) — chỉ thật sự gọi API khi 1 case có
-  // agents.length > MAX_AGENTS_BEFORE_RANKING.
+  // agents.length > MAX_AGENTS_BEFORE_RANKING. channelMemory cũng stub rỗng —
+  // các case ở đây không truyền channelId, nên plan() không bao giờ đụng tới
+  // nó (channelId ? getRecentMemories() : [] — xem SupervisorService.plan()).
   return new SupervisorService(
     {} as any,
     llmFactory,
@@ -67,6 +69,7 @@ function buildSupervisor(): SupervisorService {
     {} as any,
     new OpenAiEmbeddingProvider(),
     metrics,
+    {} as any,
   );
 }
 

@@ -430,6 +430,70 @@ describe('SupervisorService', () => {
       });
     });
 
+    describe('ver3.md mục 5 — frustration detection (regex, không LLM call)', () => {
+      it('prepends a warning section, placed BEFORE channel_memory, when the current prompt matches a frustration pattern', async () => {
+        mockChannelMemory.getRecentMemories.mockResolvedValue([
+          { content: 'notion.create_page: Page "Roadmap" (id=abc123)' },
+        ]);
+        mockStrategy.generateStructured.mockResolvedValue({
+          action: 'respond',
+          answer: 'ok',
+        });
+
+        await service.plan(
+          'sai rồi, làm lại đi',
+          agents,
+          [],
+          [],
+          undefined,
+          undefined,
+          'chan-1',
+        );
+
+        const sentPrompt =
+          mockStrategy.generateStructured.mock.calls[0][0].prompt;
+        expect(sentPrompt).toContain('có dấu hiệu không hài lòng/bực bội');
+        expect(
+          sentPrompt.indexOf('có dấu hiệu không hài lòng/bực bội'),
+        ).toBeLessThan(sentPrompt.indexOf('Thông tin đã xác nhận trước đó'));
+      });
+
+      it('does not add the warning section for a neutral prompt', async () => {
+        mockStrategy.generateStructured.mockResolvedValue({
+          action: 'respond',
+          answer: 'ok',
+        });
+
+        await service.plan('tạo giúp tôi 1 trang Notion mới', agents);
+
+        const sentPrompt =
+          mockStrategy.generateStructured.mock.calls[0][0].prompt;
+        expect(sentPrompt).not.toContain('có dấu hiệu không hài lòng/bực bội');
+      });
+
+      it('logs a warning for later manual harvest, without throwing or blocking plan()', async () => {
+        mockStrategy.generateStructured.mockResolvedValue({
+          action: 'respond',
+          answer: 'ok',
+        });
+        const warnSpy = jest.spyOn(Logger.prototype, 'warn');
+
+        await service.plan(
+          'vẫn vậy hoài luôn',
+          agents,
+          [],
+          [],
+          undefined,
+          undefined,
+          'chan-1',
+        );
+
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('[frustration-signal] channelId=chan-1'),
+        );
+      });
+    });
+
     it('Giai đoạn 4, Step 6 — routes the LLM call through the breaker keyed by "llm:<strategy.id>"', async () => {
       mockStrategy.generateStructured.mockResolvedValue({
         action: 'respond',
