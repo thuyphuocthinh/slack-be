@@ -71,4 +71,55 @@ describe('withLlmRetry', () => {
       withLlmRetry(fn, 10, 'custom timeout message', { maxAttempts: 1 }),
     ).rejects.toThrow('custom timeout message');
   });
+
+  it('aborts the per-attempt signal on timeout, so the caller stops the underlying request instead of leaving it running (bug fix)', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const fn = jest.fn().mockImplementation((signal: AbortSignal) => {
+      capturedSignal = signal;
+      return new Promise(() => {}); // never resolves — simula treo tới timeout
+    });
+
+    await expect(
+      withLlmRetry(fn, 10, 'timeout', { maxAttempts: 1 }),
+    ).rejects.toThrow('timeout');
+
+    expect(capturedSignal?.aborted).toBe(true);
+  });
+
+  it('gives each retry attempt its OWN signal, not the same aborted one from the previous timed-out attempt', async () => {
+    const signals: AbortSignal[] = [];
+    const fn = jest
+      .fn()
+      .mockImplementationOnce((signal: AbortSignal) => {
+        signals.push(signal);
+        return new Promise(() => {}); // treo tới timeout ở lần thử 1
+      })
+      .mockImplementationOnce((signal: AbortSignal) => {
+        signals.push(signal);
+        return Promise.resolve('ok');
+      });
+
+    const result = await withLlmRetry(fn, 10, 'timeout');
+
+    expect(result).toBe('ok');
+    expect(signals[0].aborted).toBe(true); // lần 1 đã bị abort do timeout
+    expect(signals[1]).not.toBe(signals[0]); // lần 2 dùng signal MỚI, không kế thừa trạng thái aborted
+    expect(signals[1].aborted).toBe(false);
+  });
+
+  it('aborts the current attempt signal when the caller signal aborts mid-attempt', async () => {
+    const callerController = new AbortController();
+    let attemptSignal: AbortSignal | undefined;
+    const fn = jest.fn().mockImplementation((signal: AbortSignal) => {
+      attemptSignal = signal;
+      callerController.abort();
+      return new Promise(() => {});
+    });
+
+    await expect(
+      withLlmRetry(fn, 50, 'timeout', { signal: callerController.signal }),
+    ).rejects.toThrow();
+
+    expect(attemptSignal?.aborted).toBe(true);
+  });
 });

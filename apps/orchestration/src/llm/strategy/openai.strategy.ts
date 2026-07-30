@@ -182,6 +182,9 @@ class OpenAiChatSession implements LlmChatSession {
   private readonly temperature?: number;
   private readonly tools: ChatCompletionTool[];
   private readonly messages: ChatCompletionMessageParam[];
+  // withLlmRetry gọi lại rawSend() với CÙNG input khi retry — track để không
+  // đẩy trùng message vào history mỗi lần thử lại.
+  private pendingInput: string | LlmToolResult[] | null = null;
   private readonly tracedSend: (
     input: string | LlmToolResult[],
     onToken?: (chunk: string) => void,
@@ -234,15 +237,18 @@ class OpenAiChatSession implements LlmChatSession {
     onToken?: (chunk: string) => void,
     signal?: AbortSignal,
   ): Promise<LlmTurnResult> {
-    if (typeof input === 'string') {
-      this.messages.push({ role: 'user', content: input });
-    } else {
-      for (const result of input) {
-        this.messages.push({
-          role: 'tool',
-          tool_call_id: result.id ?? result.name,
-          content: result.content,
-        });
+    if (input !== this.pendingInput) {
+      this.pendingInput = input;
+      if (typeof input === 'string') {
+        this.messages.push({ role: 'user', content: input });
+      } else {
+        for (const result of input) {
+          this.messages.push({
+            role: 'tool',
+            tool_call_id: result.id ?? result.name,
+            content: result.content,
+          });
+        }
       }
     }
 
@@ -313,6 +319,7 @@ class OpenAiChatSession implements LlmChatSession {
       args: this.safeParseArgs(call.function.arguments),
     }));
 
+    this.pendingInput = null;
     this.messages.push({
       role: 'assistant',
       content: fullText || null,

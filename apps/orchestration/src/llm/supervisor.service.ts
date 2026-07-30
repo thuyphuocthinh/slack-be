@@ -297,13 +297,13 @@ export class SupervisorService {
       );
       const plan = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
         withLlmRetry(
-          () =>
+          (attemptSignal) =>
             strategy.generateStructured<SupervisorPlanDto>({
               model,
               systemInstruction: `${SUPERVISOR_PLANNING_PROMPT}\n${agentListText}`,
               prompt: fullPrompt,
               schema: planSchema,
-              signal,
+              signal: attemptSignal,
             }),
           ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
           `Supervisor plan() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
@@ -363,13 +363,13 @@ export class SupervisorService {
         `llm:${strategy.id}`,
         () =>
           withLlmRetry(
-            () =>
+            (attemptSignal) =>
               strategy.generateStructured<SupervisorPlanDto>({
                 model,
                 systemInstruction: `${SUPERVISOR_PLANNING_PROMPT}\n${agentListText}`,
                 prompt: fullPrompt,
                 schema,
-                signal,
+                signal: attemptSignal,
               }),
             ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
             `Supervisor plan() escalation timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
@@ -436,7 +436,7 @@ export class SupervisorService {
       const { strategy, model } = this.llmFactory.resolve(evaluateModelId);
       const verdict = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
         withLlmRetry(
-          () =>
+          (attemptSignal) =>
             strategy.generateStructured<SupervisorEvaluateDto>({
               model,
               systemInstruction: SUPERVISOR_EVALUATE_PROMPT,
@@ -444,7 +444,7 @@ export class SupervisorService {
               schema: mustFinishRemaining
                 ? SUPERVISOR_EVALUATE_SCHEMA_NO_DONE
                 : SUPERVISOR_EVALUATE_SCHEMA,
-              signal,
+              signal: attemptSignal,
             }),
           ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
           `Supervisor evaluate() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
@@ -501,9 +501,9 @@ export class SupervisorService {
         : undefined;
       const result = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
         withLlmRetry(
-          () => {
+          (attemptSignal) => {
             streamedAnything = false;
-            return session.sendMessage(prompt, trackedOnToken, signal);
+            return session.sendMessage(prompt, trackedOnToken, attemptSignal);
           },
           ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
           `Supervisor synthesize() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,

@@ -113,6 +113,10 @@ class AnthropicChatSession implements LlmChatSession {
   private readonly tools: Tool[];
   private readonly system: string;
   private readonly messages: MessageParam[];
+  // withLlmRetry gọi lại rawSend() với CÙNG input khi retry — track để không
+  // đẩy trùng message vào history mỗi lần thử lại (2 tool_result cùng
+  // tool_use_id sẽ vi phạm ràng buộc role-alternation của Anthropic).
+  private pendingInput: string | LlmToolResult[] | null = null;
   private readonly tracedSend: (
     input: string | LlmToolResult[],
     onToken?: (chunk: string) => void,
@@ -158,17 +162,20 @@ class AnthropicChatSession implements LlmChatSession {
     onToken?: (chunk: string) => void,
     signal?: AbortSignal,
   ): Promise<LlmTurnResult> {
-    if (typeof input === 'string') {
-      this.messages.push({ role: 'user', content: input });
-    } else {
-      this.messages.push({
-        role: 'user',
-        content: input.map((r) => ({
-          type: 'tool_result' as const,
-          tool_use_id: r.id ?? r.name,
-          content: r.content,
-        })),
-      });
+    if (input !== this.pendingInput) {
+      this.pendingInput = input;
+      if (typeof input === 'string') {
+        this.messages.push({ role: 'user', content: input });
+      } else {
+        this.messages.push({
+          role: 'user',
+          content: input.map((r) => ({
+            type: 'tool_result' as const,
+            tool_use_id: r.id ?? r.name,
+            content: r.content,
+          })),
+        });
+      }
     }
 
     const stream = this.client.messages.stream(
@@ -205,6 +212,7 @@ class AnthropicChatSession implements LlmChatSession {
     // Lưu lại đúng content block Claude vừa trả (text + tool_use) làm turn
     // "assistant" — bắt buộc phải có trong history thì tool_result gửi ở
     // lượt sau mới khớp đúng tool_use_id tương ứng.
+    this.pendingInput = null;
     this.messages.push({
       role: 'assistant',
       content: message.content as ContentBlockParam[],

@@ -259,6 +259,53 @@ describe('OpenAiStrategy', () => {
         }),
       );
     });
+
+    it('does not push the same input twice into history when the SAME logical call is retried (bug fix — retry after a failed attempt used to duplicate the user/tool message)', async () => {
+      mockCreate
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValueOnce(
+          mockStream([{ choices: [{ delta: { content: 'ok' } }] }]),
+        );
+
+      const session = strategy.startChat({
+        model: 'gpt-4o-mini',
+        systemInstruction: '',
+        tools: [],
+        history: [],
+      });
+
+      const input = 'hi';
+      await expect(session.sendMessage(input)).rejects.toThrow('boom');
+      await session.sendMessage(input); // retry với CÙNG reference input
+
+      const secondCallMessages = mockCreate.mock.calls[1][0].messages;
+      const userMessagesForInput = secondCallMessages.filter(
+        (m: any) => m.role === 'user' && m.content === input,
+      );
+      expect(userMessagesForInput).toHaveLength(1);
+    });
+
+    it('pushes the input again for a genuinely NEW call after a previous one succeeded', async () => {
+      mockCreate.mockResolvedValue(
+        mockStream([{ choices: [{ delta: { content: 'ok' } }] }]),
+      );
+
+      const session = strategy.startChat({
+        model: 'gpt-4o-mini',
+        systemInstruction: '',
+        tools: [],
+        history: [],
+      });
+
+      await session.sendMessage('first');
+      await session.sendMessage('second');
+
+      const secondCallMessages = mockCreate.mock.calls[1][0].messages;
+      expect(secondCallMessages.filter((m: any) => m.role === 'user')).toEqual([
+        { role: 'user', content: 'first' },
+        { role: 'user', content: 'second' },
+      ]);
+    });
   });
 
   describe('generateStructured', () => {

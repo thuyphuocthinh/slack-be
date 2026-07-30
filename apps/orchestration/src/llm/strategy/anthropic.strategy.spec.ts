@@ -119,6 +119,39 @@ describe('AnthropicStrategy', () => {
       );
     });
 
+    it('does not push the same input twice into history when the SAME logical call is retried (bug fix — 2 duplicate tool_result blocks with the same tool_use_id would violate role-alternation)', async () => {
+      mockStream
+        .mockReturnValueOnce({
+          on: jest.fn().mockReturnThis(),
+          finalMessage: async () => {
+            throw new Error('boom');
+          },
+        })
+        .mockReturnValueOnce({
+          on: jest.fn().mockReturnThis(),
+          finalMessage: async () => ({
+            content: [{ type: 'text', text: 'ok' }],
+          }),
+        });
+
+      const session = strategy.startChat({
+        model: 'claude-haiku',
+        systemInstruction: '',
+        tools: [],
+        history: [],
+      });
+
+      const input = 'hi';
+      await expect(session.sendMessage(input)).rejects.toThrow('boom');
+      await session.sendMessage(input); // retry với CÙNG reference input
+
+      const secondCallMessages = mockStream.mock.calls[1][0].messages;
+      const userMessagesForInput = secondCallMessages.filter(
+        (m: any) => m.role === 'user' && m.content === input,
+      );
+      expect(userMessagesForInput).toHaveLength(1);
+    });
+
     it('sends tool results back as a user turn with tool_result blocks, correlated by tool_use_id', async () => {
       mockStream
         .mockReturnValueOnce({

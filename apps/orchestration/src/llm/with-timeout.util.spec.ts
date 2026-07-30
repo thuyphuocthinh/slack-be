@@ -10,7 +10,11 @@ describe('withTimeout', () => {
   });
 
   it('rejects with the original error when the promise rejects before the deadline', async () => {
-    const promise = withTimeout(Promise.reject(new Error('boom')), 1000, 'timeout');
+    const promise = withTimeout(
+      Promise.reject(new Error('boom')),
+      1000,
+      'timeout',
+    );
     await expect(promise).rejects.toThrow('boom');
   });
 
@@ -21,5 +25,24 @@ describe('withTimeout', () => {
     const assertion = expect(promise).rejects.toThrow('gave up after 1s');
     jest.advanceTimersByTime(1000);
     await assertion;
+  });
+
+  it('aborts the given controller on timeout — the in-flight request must actually stop, not just be ignored', async () => {
+    const controller = new AbortController();
+    const neverResolves = new Promise(() => {});
+    const promise = withTimeout(neverResolves, 1000, 'timeout', controller);
+
+    const assertion = expect(promise).rejects.toThrow('timeout');
+    jest.advanceTimersByTime(1000);
+    await assertion;
+
+    expect(controller.signal.aborted).toBe(true);
+  });
+
+  it('does not abort the controller when the promise settles before the deadline', async () => {
+    const controller = new AbortController();
+    await withTimeout(Promise.resolve('ok'), 1000, 'timeout', controller);
+
+    expect(controller.signal.aborted).toBe(false);
   });
 });

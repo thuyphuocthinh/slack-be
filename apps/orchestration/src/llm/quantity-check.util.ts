@@ -36,13 +36,13 @@ export async function checkQuantity(
   ) =>
     circuitBreaker.run(`llm:${strategy.id}`, () =>
       withLlmRetry(
-        () =>
+        (attemptSignal) =>
           strategy.generateStructured<T>({
             model,
             systemInstruction,
             prompt,
             schema,
-            signal,
+            signal: attemptSignal,
           }),
         ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
         `checkQuantity() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s`,
