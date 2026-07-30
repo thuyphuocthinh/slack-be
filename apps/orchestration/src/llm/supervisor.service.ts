@@ -226,11 +226,6 @@ export class SupervisorService {
     });
 
     if (similarOthers.length === 0) return null;
-
-    this.logger.warn(
-      `[ambiguous-agent-cluster] plan() chọn "${chosenProvider}" giữa ${similarOthers.length + 1} agent mô tả tương tự nhau — candidates=${[chosenProvider, ...similarOthers.map((a) => a.provider)].join(',')}`,
-    );
-    this.metrics.incrementBehaviorSignal('ambiguous_cluster');
     return [chosen, ...similarOthers];
   }
 
@@ -318,6 +313,10 @@ export class SupervisorService {
           plan.steps[0].agent,
         );
         if (cluster) {
+          this.logger.warn(
+            `[ambiguous-agent-cluster] plan() chọn "${plan.steps[0].agent}" giữa ${cluster.length} agent mô tả tương tự nhau — candidates=${cluster.map((a) => a.provider).join(',')}`,
+          );
+          this.metrics.incrementBehaviorSignal('ambiguous_cluster');
           plan.ambiguousCandidates = cluster;
           return this.escalateIfAmbiguous(
             plan,

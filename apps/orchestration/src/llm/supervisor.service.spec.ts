@@ -1072,6 +1072,18 @@ describe('SupervisorService', () => {
       expect(mockMetrics.incrementBehaviorSignal).toHaveBeenCalledWith(
         'model_escalation',
       );
+      // bug fix — cluster mơ hồ được tính lại SAU escalation (để cập nhật
+      // ambiguousCandidates) nhưng đây vẫn là ĐÚNG 1 quyết định planning, chỉ
+      // nên đếm 'ambiguous_cluster' 1 lần, không phải 2.
+      expect(
+        mockMetrics.incrementBehaviorSignal.mock.calls.filter(
+          (call) => call[0] === 'ambiguous_cluster',
+        ),
+      ).toHaveLength(1);
+      expect(plan.ambiguousCandidates?.map((c) => c.provider).sort()).toEqual([
+        'google_docs',
+        'notion',
+      ]);
     });
 
     it('falls back to the original (cheap-model) plan when the escalation call itself fails', async () => {
