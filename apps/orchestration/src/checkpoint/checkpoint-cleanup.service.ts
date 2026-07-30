@@ -87,7 +87,12 @@ export class CheckpointCleanupService {
   private async recoverOne(
     checkpoint: Pick<
       CheckpointResponseDto,
-      'id' | 'replyMessageId' | 'userId' | 'channelId' | 'channelType'
+      | 'id'
+      | 'replyMessageId'
+      | 'userId'
+      | 'channelId'
+      | 'channelType'
+      | 'toolExecutedAt'
     >,
   ): Promise<void> {
     const { claimed } = await this.checkpoint.markStalledAsRejected({
@@ -104,11 +109,15 @@ export class CheckpointCleanupService {
       `recoverOne() checkpoint ${checkpoint.id} marked REJECTED after stalled execution — notifying user`,
     );
 
+    // toolExecutedAt đã set = hành động THẬT đã chạy xong, worker chỉ crash
+    // lúc tổng hợp câu trả lời sau đó — báo "thử lại" ở đây sẽ ghi trùng.
+    const content = checkpoint.toolExecutedAt
+      ? '⚠️ Hành động đã được duyệt và THỰC THI THÀNH CÔNG, nhưng worker gặp sự cố ngay sau đó khi tổng hợp câu trả lời. Kết quả đã được ghi — không cần thực hiện lại hành động này.'
+      : '⚠️ Hành động đã được duyệt nhưng worker gặp sự cố trong lúc thực thi. Vui lòng thử lại.';
     await this.messageClient.updateMessage({
       id: checkpoint.replyMessageId,
       userId: checkpoint.userId,
-      content:
-        '⚠️ Hành động đã được duyệt nhưng worker gặp sự cố trong lúc thực thi. Vui lòng thử lại.',
+      content,
     });
     await this.agentStream.emitStep(
       {

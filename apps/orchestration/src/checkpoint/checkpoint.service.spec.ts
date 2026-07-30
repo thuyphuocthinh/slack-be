@@ -275,6 +275,19 @@ describe('CheckpointService', () => {
     });
   });
 
+  describe('markToolExecuted (bug fix — phân biệt worker crash trước/sau khi tool chạy)', () => {
+    it('sets tool_executed_at for the given checkpoint id', async () => {
+      mockQueryBuilder.execute.mockResolvedValue({ affected: 1 });
+
+      await service.markToolExecuted({ id: 'checkpoint-1' });
+
+      expect(mockRepo.createQueryBuilder).toHaveBeenCalled();
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id = :id', {
+        id: 'checkpoint-1',
+      });
+    });
+  });
+
   describe('findStalledExecution (Bug fix — checkpoint kẹt sau worker crash)', () => {
     it('queries APPROVED checkpoints whose execution_started_at is older than STALLED_EXECUTION_TTL_MS', async () => {
       mockRepo.find.mockResolvedValue([{ id: 'stalled-1' }]);

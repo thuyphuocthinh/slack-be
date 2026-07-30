@@ -139,6 +139,14 @@ export class OrchestrationCheckpointEntity {
   @Column({ type: 'timestamptz', name: 'execution_started_at', nullable: true })
   executionStartedAt: Date | null;
 
+  // Set NGAY SAU KHI mcpClient.callTool() thật sự chạy xong thành công —
+  // khác executionStartedAt (set TRƯỚC khi gọi). Phân biệt "worker crash
+  // trước khi tool chạy" (null) với "tool đã chạy xong, crash lúc tổng hợp
+  // câu trả lời" (có giá trị) — CheckpointCleanupService cần biết để không
+  // bảo user "thử lại" 1 hành động ghi đã thực thi thành công rồi.
+  @Column({ type: 'timestamptz', name: 'tool_executed_at', nullable: true })
+  toolExecutedAt: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt: Date;
 

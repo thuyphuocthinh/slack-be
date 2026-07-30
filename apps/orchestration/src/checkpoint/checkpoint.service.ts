@@ -15,6 +15,7 @@ import {
   FindCheckpointByIdRequestDto,
   FindPendingCheckpointRequestDto,
   MarkStalledAsRejectedRequestDto,
+  MarkToolExecutedRequestDto,
 } from '../dto/checkpoint.dto';
 
 @Injectable()
@@ -117,6 +118,7 @@ export class CheckpointService {
       clarificationCandidates,
       selectedProvider,
       expiresAt,
+      toolExecutedAt,
       createdAt,
       updatedAt,
     } = entity;
@@ -140,6 +142,7 @@ export class CheckpointService {
       clarificationCandidates,
       selectedProvider,
       expiresAt,
+      toolExecutedAt,
       createdAt,
       updatedAt,
     };
@@ -188,6 +191,17 @@ export class CheckpointService {
   // execution bị gián đoạn. WHERE status=APPROVED đảm bảo không nhầm với
   // checkpoint đang PENDING hoặc đã REJECTED (idempotent: nếu chạy 2 lần
   // thì lần 2 affected=0, claimed=false — an toàn).
+  // Bug fix — set ngay sau khi mcpClient.callTool() thật đã chạy xong thành
+  // công. Không cần atomic/conditional (chỉ ghi 1 lần, không tranh chấp).
+  async markToolExecuted(dto: MarkToolExecutedRequestDto): Promise<void> {
+    await this.repo
+      .createQueryBuilder()
+      .update(OrchestrationCheckpointEntity)
+      .set({ toolExecutedAt: () => 'now()' })
+      .where('id = :id', { id: dto.id })
+      .execute();
+  }
+
   async markStalledAsRejected(
     dto: MarkStalledAsRejectedRequestDto,
   ): Promise<ClaimCheckpointResponseDto> {

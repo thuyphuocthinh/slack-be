@@ -152,6 +152,21 @@ describe('CheckpointCleanupService', () => {
       );
     });
 
+    it('warns that the action already succeeded (no retry needed) when toolExecutedAt is set — worker crashed after the write, not before it', async () => {
+      mockCheckpoint.findStalledExecution.mockResolvedValue([
+        { ...stalledCheckpoint, toolExecutedAt: new Date('2026-01-01') },
+      ]);
+      mockCheckpoint.markStalledAsRejected.mockResolvedValue({ claimed: true });
+
+      await service.recoverStalledExecutions();
+
+      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+        id: 'approval-msg-stalled',
+        userId: 'user-1',
+        content: expect.stringContaining('THỰC THI THÀNH CÔNG'),
+      });
+    });
+
     it('skips silently when markStalledAsRejected() loses the race (claimed=false) — idempotent across concurrent cron runs', async () => {
       mockCheckpoint.findStalledExecution.mockResolvedValue([
         stalledCheckpoint,

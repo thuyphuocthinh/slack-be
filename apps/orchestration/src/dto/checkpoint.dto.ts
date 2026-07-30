@@ -50,6 +50,7 @@ export class CheckpointResponseDto {
   clarificationCandidates: AmbiguousAgentCandidate[] | null;
   selectedProvider: string | null;
   expiresAt: Date;
+  toolExecutedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -91,5 +92,12 @@ export class ClaimCheckpointExecutionRequestDto {
 // Bug fix — dọn checkpoint status=APPROVED bị kẹt sau worker crash (không dùng
 // được claim() vốn chỉ UPDATE WHERE status=PENDING).
 export class MarkStalledAsRejectedRequestDto {
+  id: string;
+}
+
+// Bug fix — set NGAY SAU KHI tool thật chạy xong thành công, để
+// recoverStalledExecutions() phân biệt được "chưa chạy" với "đã chạy, crash
+// lúc tổng hợp câu trả lời".
+export class MarkToolExecutedRequestDto {
   id: string;
 }

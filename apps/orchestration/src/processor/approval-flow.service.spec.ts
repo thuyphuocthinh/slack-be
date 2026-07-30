@@ -38,6 +38,7 @@ describe('ApprovalFlowService', () => {
     findById: jest.fn(),
     claim: jest.fn(),
     claimExecution: jest.fn(),
+    markToolExecuted: jest.fn(),
   };
   const mockMcpClient = { callTool: jest.fn() };
   const mockQueueService = { addJob: jest.fn() };
@@ -55,6 +56,7 @@ describe('ApprovalFlowService', () => {
     mockAgentStream.emitStep.mockResolvedValue(undefined);
     mockCheckpoint.claim.mockResolvedValue({ claimed: true });
     mockCheckpoint.claimExecution.mockResolvedValue({ claimed: true });
+    mockCheckpoint.markToolExecuted.mockResolvedValue(undefined);
     mockQueueService.addJob.mockResolvedValue({ id: 'job-1' });
     mockSupervisor.getAvailableAgents.mockResolvedValue([]);
     mockTurnResolver.continueRounds.mockResolvedValue({
@@ -407,6 +409,9 @@ describe('ApprovalFlowService', () => {
       expect(mockAgentStream.emitStep).toHaveBeenCalledWith(expect.anything(), {
         type: 'done',
       });
+      expect(mockCheckpoint.markToolExecuted).toHaveBeenCalledWith({
+        id: 'checkpoint-1',
+      });
     });
 
     it('caps an oversized tool result before folding it into the rounds passed to the Supervisor loop', async () => {
@@ -524,6 +529,7 @@ describe('ApprovalFlowService', () => {
       expect(mockAgentStream.emitStep).toHaveBeenCalledWith(expect.anything(), {
         type: 'done',
       });
+      expect(mockCheckpoint.markToolExecuted).not.toHaveBeenCalled();
     });
 
     it("reports the error via tryUpdateMessage() (not the throwing updateMessage()) — resilience to a double-failure is MessageClientService.tryUpdateMessage()'s own responsibility, see message-client.service.spec.ts", async () => {

@@ -222,6 +222,7 @@ export class ApprovalFlowService {
         });
         return;
       }
+      await this.checkpoint.markToolExecuted({ id });
 
       // Chuyển Message UI từ ApprovalRequestCard về text để hiện Markdown
       await this.messageClient.updateMessage({
