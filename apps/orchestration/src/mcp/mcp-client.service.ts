@@ -302,12 +302,11 @@ export class McpClientService {
       );
     }
 
-    const cachedTools = this.toolsCache.get(dto.provider)?.data;
-    const isDestructive = cachedTools
-      ? Boolean(
-          cachedTools.find((t) => t.name === dto.name)?.annotations
-            ?.destructiveHint,
-        )
+    const cachedTool = this.toolsCache
+      .get(dto.provider)
+      ?.data.find((t) => t.name === dto.name);
+    const isDestructive = cachedTool
+      ? Boolean(cachedTool.annotations?.destructiveHint)
       : true;
     const maxRetries = isDestructive ? 1 : 3;
 

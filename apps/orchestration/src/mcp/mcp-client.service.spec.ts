@@ -395,6 +395,27 @@ describe('McpClientService', () => {
       expect(mockCallTool).toHaveBeenCalledTimes(1);
     });
 
+    it('treats a tool as destructive when the cache exists but does not contain that tool (renamed/schema-drift) — fail-safe, not fail-open', async () => {
+      (service as any).toolsCache.set('sql_server', {
+        data: [
+          { name: 'get_database_schema', description: '', inputSchema: {} },
+        ],
+        fetchedAt: Date.now(),
+      });
+      mockCallTool.mockRejectedValue(new Error('ETIMEDOUT'));
+
+      await expect(
+        service.callTool({
+          provider: 'sql_server',
+          name: 'execute_write_query',
+          args: { query: 'DELETE FROM Orders' },
+          ownerId: 'user-1',
+        }),
+      ).rejects.toThrow('ETIMEDOUT');
+
+      expect(mockCallTool).toHaveBeenCalledTimes(1);
+    });
+
     it('DOES retry a destructive tool exactly once on a stale-session error — mcp_server restart means the request was rejected at the transport layer, before it ever reached the tool handler, so retrying is provably safe', async () => {
       mockListTools.mockResolvedValue({
         tools: [
@@ -761,7 +782,7 @@ describe('McpClientService', () => {
 
     it('does not cache a failed connect() forever — the next call retries instead of reusing a rejected promise', async () => {
       (service as any).toolsCache.set('sql_server', {
-        data: [],
+        data: [{ name: 'x', description: '', inputSchema: {} }],
         fetchedAt: Date.now(),
       });
       mockConnect
