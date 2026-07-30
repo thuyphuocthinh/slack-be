@@ -703,7 +703,7 @@ describe('ApprovalFlowService', () => {
       );
     });
 
-    it('stops nudging once MAX_QUANTITY_CONTINUATION_ROUNDS is reached, even with a persistent mismatch', async () => {
+    it('stops nudging once MAX_QUANTITY_CONTINUATION_ROUNDS is reached, but still warns instead of silently claiming done', async () => {
       const priorAttempts =
         ORCHESTRATION_CONSTANTS.MAX_QUANTITY_CONTINUATION_ROUNDS - 1;
       const stuckCheckpoint = {
@@ -715,11 +715,16 @@ describe('ApprovalFlowService', () => {
         })),
       };
       mockCheckpoint.findById.mockResolvedValue(stuckCheckpoint);
-      mockStrategy.generateStructured.mockResolvedValue({ requiredCount: 5 });
+      mockStrategy.generateStructured
+        .mockResolvedValueOnce({ requiredCount: 5 })
+        .mockResolvedValueOnce({ achievedCount: 1 });
 
       await runApprovalJob();
 
-      expect(mockStrategy.generateStructured).not.toHaveBeenCalled();
+      const roundsArg = mockTurnResolver.continueRounds.mock.calls[0][5];
+      expect(roundsArg[roundsArg.length - 1].result).toContain(
+        `mới xử lý được 1 sau ${ORCHESTRATION_CONSTANTS.MAX_QUANTITY_CONTINUATION_ROUNDS} lần thử`,
+      );
       expect(mockTurnResolver.continueRounds.mock.calls[0][8]).toEqual(
         stuckCheckpoint.remainingSteps,
       );

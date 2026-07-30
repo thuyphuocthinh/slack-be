@@ -245,17 +245,15 @@ export class ApprovalFlowService {
       // TurnResolverService tự pause qua CheckpointPauseService như bình
       // thường — không cần xử lý gì thêm ở đây, dù final answer hay "cần
       // duyệt tiếp" đều chỉ là 1 AnswerResult.
-      const nextRemainingSteps = await this.resolveRemainingSteps(
-        checkpoint,
-        toolResultText,
-      );
+      const { remainingSteps: nextRemainingSteps, resultText } =
+        await this.resolveRemainingSteps(checkpoint, toolResultText);
       const agents = await this.supervisor.getAvailableAgents(userId);
       const rounds = [
         ...roundsSoFar,
         {
           agent: pendingTool.provider,
           task: pendingTask,
-          result: toolResultText,
+          result: resultText,
         },
       ];
       const data = {
@@ -323,14 +321,16 @@ export class ApprovalFlowService {
   private async resolveRemainingSteps(
     checkpoint: CheckpointResponseDto,
     toolResultText: string,
-  ): Promise<DelegationDto[] | undefined> {
+  ): Promise<{
+    remainingSteps: DelegationDto[] | undefined;
+    resultText: string;
+  }> {
     const { pendingTool, pendingTask, roundsSoFar, remainingSteps } =
       checkpoint;
     const attempts =
       roundsSoFar.filter((r) => r.agent === pendingTool!.provider).length + 1;
-    if (attempts >= ORCHESTRATION_CONSTANTS.MAX_QUANTITY_CONTINUATION_ROUNDS) {
-      return remainingSteps;
-    }
+    const capReached =
+      attempts >= ORCHESTRATION_CONSTANTS.MAX_QUANTITY_CONTINUATION_ROUNDS;
 
     const { strategy, model } = this.llmFactory.resolve(
       process.env.DEFAULT_REACT_MODEL ??
@@ -345,7 +345,20 @@ export class ApprovalFlowService {
       this.logger,
     );
     if (requiredCount === 0 || requiredCount === achievedCount) {
-      return remainingSteps;
+      return { remainingSteps, resultText: toolResultText };
+    }
+
+    // Chạm cap dù vẫn còn thiếu — KHÔNG được coi là "xong" trong im lặng.
+    // Gắn cảnh báo NGAY VÀO kết quả round này, để synthesize() (đã dặn dùng
+    // đúng nguyên văn dữ liệu, nói rõ phần thiếu) tự phản ánh lại cho user.
+    if (capReached) {
+      this.logger.warn(
+        `checkpoint=${checkpoint.id} quantity vẫn thiếu (requiredCount=${requiredCount} achievedCount=${achievedCount}) sau ${attempts} lần thử — dừng lại, báo rõ cho user`,
+      );
+      return {
+        remainingSteps,
+        resultText: `${toolResultText}\n\n[Lưu ý: yêu cầu cần ${requiredCount}, mới xử lý được ${achievedCount} sau ${attempts} lần thử — đã dừng lại, KHÔNG tự động thử thêm.]`,
+      };
     }
 
     this.logger.log(
@@ -356,7 +369,10 @@ export class ApprovalFlowService {
       task: `${pendingTask}\n\n(Đã xử lý ${achievedCount}/${requiredCount} — làm tiếp ${requiredCount - achievedCount} phần còn thiếu, không lặp lại phần đã xong.)`,
       mustExecute: true,
     };
-    return [continuationStep, ...(remainingSteps ?? [])];
+    return {
+      remainingSteps: [continuationStep, ...(remainingSteps ?? [])],
+      resultText: toolResultText,
+    };
   }
 
   // accuracy_problem.md mục 1 — user vừa chọn xong 1 candidate cho checkpoint
