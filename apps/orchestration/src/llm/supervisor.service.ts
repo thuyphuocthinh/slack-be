@@ -331,6 +331,9 @@ export class SupervisorService {
       }
       return plan;
     } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
       this.logger.error(
         `Supervisor plan() failed: ${(error as Error).message}`,
         (error as Error).stack,
@@ -389,6 +392,9 @@ export class SupervisorService {
       }
       return escalated;
     } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
       this.logger.warn(
         `plan() escalation thất bại, giữ nguyên kết quả gốc: ${(error as Error).message}`,
       );
@@ -453,6 +459,9 @@ export class SupervisorService {
       this.logger.log(`evaluate() result=${JSON.stringify(verdict)}`);
       return verdict;
     } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
       this.logger.error(
         `Supervisor evaluate() failed: ${(error as Error).message}`,
         (error as Error).stack,
@@ -512,6 +521,11 @@ export class SupervisorService {
       this.logger.log(`synthesize() result=${result.text}`);
       return result.text;
     } catch (error) {
+      // Bị Stop giữa chừng — đẩy lên cho runCancellable() hiện "Đã dừng theo
+      // yêu cầu", không log ERROR/trả fallback answer như lỗi provider thật.
+      if (signal?.aborted) {
+        throw error;
+      }
       this.logger.error(
         `Supervisor synthesize() failed: ${(error as Error).message}`,
         (error as Error).stack,

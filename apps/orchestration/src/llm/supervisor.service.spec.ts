@@ -258,6 +258,16 @@ describe('SupervisorService', () => {
       expect(plan.answer).toEqual(expect.any(String));
     });
 
+    it('re-throws instead of falling back when the caller signal was already aborted (Stop bug fix — must surface as "đã dừng", not a fake plan)', async () => {
+      mockStrategy.generateStructured.mockRejectedValue(new Error('boom'));
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(
+        service.plan('hỏi gì đó', agents, [], [], undefined, controller.signal),
+      ).rejects.toThrow();
+    });
+
     it('sends just the labeled original prompt when there is no history and no previous rounds', async () => {
       mockStrategy.generateStructured.mockResolvedValue({
         action: 'respond',
@@ -1204,6 +1214,21 @@ describe('SupervisorService', () => {
       expect(mockStrategy.generateStructured).not.toHaveBeenCalled();
     });
 
+    it('re-throws instead of falling back to "continue" when the caller signal was already aborted (Stop bug fix)', async () => {
+      mockStrategy.generateStructured.mockRejectedValue(new Error('boom'));
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(
+        service.evaluate(
+          'câu hỏi gốc',
+          completedStep,
+          [{ agent: 'sql_server', task: 'chèn vào bảng users' }],
+          controller.signal,
+        ),
+      ).rejects.toThrow();
+    });
+
     it('accuracy_problem.md — still calls the LLM even when the completed step looks clearly successful (no rule-based "continue" shortcut anymore — "not an obvious error" is not proof the result is relevant to originalPrompt)', async () => {
       mockStrategy.generateStructured.mockResolvedValue({
         verdict: 'continue',
@@ -1472,6 +1497,21 @@ describe('SupervisorService', () => {
       ]);
 
       expect(answer).toContain('provider is down');
+    });
+
+    it('re-throws instead of returning a fallback answer when the caller signal was already aborted (Stop bug fix — must surface as "đã dừng", not "Lỗi")', async () => {
+      mockSession.sendMessage.mockRejectedValue(new Error('boom'));
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(
+        service.synthesize(
+          'câu hỏi gốc',
+          [{ agent: 'sql_server', task: 'đếm bảng', result: 'A có 5 bảng' }],
+          undefined,
+          controller.signal,
+        ),
+      ).rejects.toThrow();
     });
 
     it('retries once and succeeds when the LLM call fails WITHOUT having streamed any token yet (bug thật: 1 lần treo 30s, 0 token) — an toàn vì chưa hiện gì cho user', async () => {
