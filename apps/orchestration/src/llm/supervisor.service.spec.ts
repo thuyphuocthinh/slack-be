@@ -1017,6 +1017,96 @@ describe('SupervisorService', () => {
     });
   });
 
+  describe('plan — escalate lên model mạnh hơn khi cluster mơ hồ (ver3.md)', () => {
+    const agents = [
+      {
+        provider: 'google_docs',
+        label: 'Google Docs',
+        description: 'Đọc và chỉnh sửa nội dung Google Docs.',
+      },
+      {
+        provider: 'notion',
+        label: 'Notion',
+        description: 'Đọc và chỉnh sửa trang/database trên Notion.',
+      },
+    ];
+    const originalEscalationModel = process.env.SUPERVISOR_ESCALATION_MODEL;
+
+    afterEach(() => {
+      if (originalEscalationModel === undefined) {
+        delete process.env.SUPERVISOR_ESCALATION_MODEL;
+      } else {
+        process.env.SUPERVISOR_ESCALATION_MODEL = originalEscalationModel;
+      }
+    });
+
+    it('does not call the LLM a second time when SUPERVISOR_ESCALATION_MODEL is not set', async () => {
+      delete process.env.SUPERVISOR_ESCALATION_MODEL;
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'plan',
+        steps: [{ agent: 'google_docs', task: 'lưu thông tin này lại' }],
+      });
+
+      await service.plan('lưu thông tin này lại', agents);
+
+      expect(mockStrategy.generateStructured).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-asks with the escalation model and uses ITS answer when a cluster is detected', async () => {
+      process.env.SUPERVISOR_ESCALATION_MODEL = 'gpt-4o';
+      mockStrategy.generateStructured
+        .mockResolvedValueOnce({
+          action: 'plan',
+          steps: [{ agent: 'google_docs', task: 'lưu thông tin này lại' }],
+        })
+        .mockResolvedValueOnce({
+          action: 'plan',
+          steps: [{ agent: 'notion', task: 'lưu thông tin này lại' }],
+        });
+
+      const plan = await service.plan('lưu thông tin này lại', agents);
+
+      expect(mockLlmFactory.resolve).toHaveBeenCalledWith('gpt-4o');
+      expect(mockStrategy.generateStructured).toHaveBeenCalledTimes(2);
+      expect(plan.steps?.[0].agent).toBe('notion');
+      expect(mockMetrics.incrementBehaviorSignal).toHaveBeenCalledWith(
+        'model_escalation',
+      );
+    });
+
+    it('falls back to the original (cheap-model) plan when the escalation call itself fails', async () => {
+      process.env.SUPERVISOR_ESCALATION_MODEL = 'gpt-4o';
+      mockStrategy.generateStructured
+        .mockResolvedValueOnce({
+          action: 'plan',
+          steps: [{ agent: 'google_docs', task: 'lưu thông tin này lại' }],
+        })
+        .mockRejectedValueOnce(new Error('provider down'));
+
+      const plan = await service.plan('lưu thông tin này lại', agents);
+
+      expect(plan.steps?.[0].agent).toBe('google_docs');
+    });
+
+    it('does not escalate when no ambiguous cluster is detected, even with SUPERVISOR_ESCALATION_MODEL set', async () => {
+      process.env.SUPERVISOR_ESCALATION_MODEL = 'gpt-4o';
+      mockStrategy.generateStructured.mockResolvedValue({
+        action: 'plan',
+        steps: [{ agent: 'sql_server', task: 'liệt kê bảng' }],
+      });
+
+      await service.plan('liệt kê bảng trong SQL Server', [
+        {
+          provider: 'sql_server',
+          label: 'SQL Server',
+          description: 'Truy vấn schema và dữ liệu trên SQL Server của bạn.',
+        },
+      ]);
+
+      expect(mockStrategy.generateStructured).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('plan — model tiering theo độ khó (Giai đoạn Accuracy v2, mục 4)', () => {
     const agents = [
       {

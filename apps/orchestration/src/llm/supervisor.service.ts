@@ -317,7 +317,18 @@ export class SupervisorService {
           shown,
           plan.steps[0].agent,
         );
-        if (cluster) plan.ambiguousCandidates = cluster;
+        if (cluster) {
+          plan.ambiguousCandidates = cluster;
+          return this.escalateIfAmbiguous(
+            plan,
+            fullPrompt,
+            agentListText,
+            planSchema,
+            shown,
+            prompt,
+            signal,
+          );
+        }
       }
       return plan;
     } catch (error) {
@@ -326,6 +337,63 @@ export class SupervisorService {
         (error as Error).stack,
       );
       return { action: 'respond', answer: describeExternalServiceError(error) };
+    }
+  }
+
+  // ver3.md — model rẻ bị bias theo vị trí khi 2 agent mô tả giống nhau (đo
+  // được qua eval-supervisor-plan.ts); model mạnh hơn không còn bias này. Chỉ
+  // escalate ĐÚNG lúc cluster mơ hồ bị phát hiện (hiếm) — không tràn lan.
+  // Off theo mặc định (SUPERVISOR_ESCALATION_MODEL không set = bỏ qua), để
+  // không tự ý tốn thêm tiền khi chưa ai bật.
+  private async escalateIfAmbiguous(
+    plan: SupervisorPlanDto,
+    fullPrompt: string,
+    agentListText: string,
+    schema: Record<string, unknown>,
+    shown: AvailableAgentDto[],
+    prompt: string,
+    signal?: AbortSignal,
+  ): Promise<SupervisorPlanDto> {
+    const escalationModelId = process.env.SUPERVISOR_ESCALATION_MODEL;
+    if (!escalationModelId) return plan;
+
+    try {
+      const { strategy, model } = this.llmFactory.resolve(escalationModelId);
+      const escalated = await this.circuitBreaker.run(
+        `llm:${strategy.id}`,
+        () =>
+          withLlmRetry(
+            () =>
+              strategy.generateStructured<SupervisorPlanDto>({
+                model,
+                systemInstruction: `${SUPERVISOR_PLANNING_PROMPT}\n${agentListText}`,
+                prompt: fullPrompt,
+                schema,
+                signal,
+              }),
+            ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
+            `Supervisor plan() escalation timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
+            { signal },
+          ),
+      );
+      this.metrics.incrementBehaviorSignal('model_escalation');
+      this.logger.log(
+        `plan() escalated to ${model} do cluster mơ hồ — result=${JSON.stringify(escalated)}`,
+      );
+      if (escalated.action === 'plan' && escalated.steps?.[0]) {
+        escalated.ambiguousCandidates =
+          this.findAmbiguousAgentCluster(
+            prompt,
+            shown,
+            escalated.steps[0].agent,
+          ) ?? undefined;
+      }
+      return escalated;
+    } catch (error) {
+      this.logger.warn(
+        `plan() escalation thất bại, giữ nguyên kết quả gốc: ${(error as Error).message}`,
+      );
+      return plan;
     }
   }
 

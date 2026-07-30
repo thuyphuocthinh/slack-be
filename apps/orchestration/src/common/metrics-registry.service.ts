@@ -33,7 +33,7 @@ export class MetricsRegistryService {
   private readonly behaviorSignalCounter = new Counter({
     name: 'orchestration_behavior_signal_total',
     help: 'Số lần các tín hiệu hành vi rule-based xảy ra, theo loại',
-    labelNames: ['type'], // 'misroute_guardrail' | 'ambiguous_cluster' | 'replan' | 'non_convergence' | 'approval_required' | 'clarification_required'
+    labelNames: ['type'], // 'misroute_guardrail' | 'ambiguous_cluster' | 'replan' | 'non_convergence' | 'approval_required' | 'clarification_required' | 'model_escalation'
     registers: [this.registry],
   });
 
@@ -55,7 +55,8 @@ export class MetricsRegistryService {
       | 'replan'
       | 'non_convergence'
       | 'approval_required'
-      | 'clarification_required',
+      | 'clarification_required'
+      | 'model_escalation',
   ): void {
     this.behaviorSignalCounter.inc({ type });
   }
