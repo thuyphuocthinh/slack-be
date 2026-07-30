@@ -209,6 +209,13 @@ class AnthropicChatSession implements LlmChatSession {
       });
     }
 
+    // abort() ở timeout không đảm bảo request cũ dừng NGAY — nếu nó vẫn tự
+    // hoàn tất sau khi đã bị bỏ (lần retry khác đang chạy), KHÔNG được ghi
+    // vào this.messages nữa, sẽ chen ngang phá thứ tự assistant/tool_result.
+    if (signal?.aborted) {
+      throw new Error('Aborted — request cũ đã bị bỏ do timeout/retry');
+    }
+
     // Lưu lại đúng content block Claude vừa trả (text + tool_use) làm turn
     // "assistant" — bắt buộc phải có trong history thì tool_result gửi ở
     // lượt sau mới khớp đúng tool_use_id tương ứng.

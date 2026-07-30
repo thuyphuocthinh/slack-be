@@ -319,6 +319,13 @@ class OpenAiChatSession implements LlmChatSession {
       args: this.safeParseArgs(call.function.arguments),
     }));
 
+    // abort() ở timeout không đảm bảo request cũ dừng NGAY — nếu nó vẫn tự
+    // hoàn tất sau khi đã bị bỏ (lần retry khác đang chạy), KHÔNG được ghi
+    // vào this.messages nữa, sẽ chen ngang phá thứ tự assistant/tool.
+    if (signal?.aborted) {
+      throw new Error('Aborted — request cũ đã bị bỏ do timeout/retry');
+    }
+
     this.pendingInput = null;
     this.messages.push({
       role: 'assistant',

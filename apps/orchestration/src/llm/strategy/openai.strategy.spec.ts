@@ -285,6 +285,36 @@ describe('OpenAiStrategy', () => {
       expect(userMessagesForInput).toHaveLength(1);
     });
 
+    it('does not write the assistant reply to history when its own attempt was already aborted (zombie-attempt bug fix)', async () => {
+      mockCreate.mockResolvedValueOnce(
+        mockStream([{ choices: [{ delta: { content: 'stale answer' } }] }]),
+      );
+
+      const session = strategy.startChat({
+        model: 'gpt-4o-mini',
+        systemInstruction: '',
+        tools: [],
+        history: [],
+      });
+
+      const controller = new AbortController();
+      controller.abort();
+      await expect(
+        session.sendMessage('hi', undefined, controller.signal),
+      ).rejects.toThrow('Aborted');
+
+      mockCreate.mockResolvedValueOnce(
+        mockStream([{ choices: [{ delta: { content: 'real answer' } }] }]),
+      );
+      const result = await session.sendMessage('hi again');
+
+      expect(result.text).toBe('real answer');
+      const secondCallMessages = mockCreate.mock.calls[1][0].messages;
+      expect(
+        secondCallMessages.some((m: any) => m.content === 'stale answer'),
+      ).toBe(false);
+    });
+
     it('pushes the input again for a genuinely NEW call after a previous one succeeded', async () => {
       mockCreate.mockResolvedValue(
         mockStream([{ choices: [{ delta: { content: 'ok' } }] }]),

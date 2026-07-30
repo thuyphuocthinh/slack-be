@@ -152,6 +152,46 @@ describe('AnthropicStrategy', () => {
       expect(userMessagesForInput).toHaveLength(1);
     });
 
+    it('does not write the assistant reply to history when its own attempt was already aborted (zombie-attempt bug fix)', async () => {
+      mockStream.mockReturnValueOnce({
+        on: jest.fn().mockReturnThis(),
+        finalMessage: async () => ({
+          content: [{ type: 'text', text: 'stale answer' }],
+        }),
+      });
+
+      const session = strategy.startChat({
+        model: 'claude-haiku',
+        systemInstruction: '',
+        tools: [],
+        history: [],
+      });
+
+      const controller = new AbortController();
+      controller.abort();
+      await expect(
+        session.sendMessage('hi', undefined, controller.signal),
+      ).rejects.toThrow('Aborted');
+
+      mockStream.mockReturnValueOnce({
+        on: jest.fn().mockReturnThis(),
+        finalMessage: async () => ({
+          content: [{ type: 'text', text: 'real answer' }],
+        }),
+      });
+      const result = await session.sendMessage('hi again');
+
+      expect(result.text).toBe('real answer');
+      const secondCallMessages = mockStream.mock.calls[1][0].messages;
+      expect(
+        secondCallMessages.some(
+          (m: any) =>
+            JSON.stringify(m.content) ===
+            JSON.stringify([{ type: 'text', text: 'stale answer' }]),
+        ),
+      ).toBe(false);
+    });
+
     it('sends tool results back as a user turn with tool_result blocks, correlated by tool_use_id', async () => {
       mockStream
         .mockReturnValueOnce({
