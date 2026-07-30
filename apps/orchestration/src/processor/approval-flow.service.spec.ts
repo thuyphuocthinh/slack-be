@@ -709,6 +709,31 @@ describe('ApprovalFlowService', () => {
       );
     });
 
+    it('does not count an UNRELATED earlier round using the same agent toward the continuation cap (bug fix)', async () => {
+      const checkpointWithUnrelatedRound = {
+        ...checkpoint,
+        roundsSoFar: [
+          {
+            agent: 'sql_server',
+            task: 'kiểm tra số lượng khách hàng inactive',
+            result: '120 khách hàng',
+          },
+        ],
+      };
+      mockCheckpoint.findById.mockResolvedValue(checkpointWithUnrelatedRound);
+      mockStrategy.generateStructured
+        .mockResolvedValueOnce({ requiredCount: 5 })
+        .mockResolvedValueOnce({ achievedCount: 1 });
+
+      await runApprovalJob();
+
+      // Round không liên quan (task khác hẳn) KHÔNG được tính vào "đã thử mấy
+      // lần" — vẫn còn dư budget để chèn tiếp, không chạm cap ngay lập tức.
+      const remainingSteps = mockTurnResolver.continueRounds.mock.calls[0][8];
+      expect(remainingSteps).toHaveLength(1);
+      expect(remainingSteps[0].task).toContain('Đã xử lý 1/5');
+    });
+
     it('stops nudging once MAX_QUANTITY_CONTINUATION_ROUNDS is reached, but still warns instead of silently claiming done', async () => {
       const priorAttempts =
         ORCHESTRATION_CONSTANTS.MAX_QUANTITY_CONTINUATION_ROUNDS - 1;
@@ -716,7 +741,7 @@ describe('ApprovalFlowService', () => {
         ...checkpoint,
         roundsSoFar: Array.from({ length: priorAttempts }, () => ({
           agent: 'sql_server',
-          task: 'x',
+          task: checkpoint.pendingTask,
           result: '1',
         })),
       };

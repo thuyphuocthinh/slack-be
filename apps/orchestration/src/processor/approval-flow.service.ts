@@ -328,8 +328,16 @@ export class ApprovalFlowService {
   }> {
     const { pendingTool, pendingTask, roundsSoFar, remainingSteps } =
       checkpoint;
+    // roundsSoFar chứa CẢ round không liên quan (VD 1 lần đọc dữ liệu khác
+    // dùng cùng agent trước đó) — chỉ đếm round CÙNG chuỗi tiếp tục (task gốc
+    // giống nhau, bỏ qua phần "(Đã xử lý...)" tự thêm vào ở mỗi lần lặp).
+    const rootTask = (task: string) => task.split('\n\n(Đã xử lý')[0];
     const attempts =
-      roundsSoFar.filter((r) => r.agent === pendingTool!.provider).length + 1;
+      roundsSoFar.filter(
+        (r) =>
+          r.agent === pendingTool!.provider &&
+          rootTask(r.task) === rootTask(pendingTask),
+      ).length + 1;
     const capReached =
       attempts >= ORCHESTRATION_CONSTANTS.MAX_QUANTITY_CONTINUATION_ROUNDS;
 
