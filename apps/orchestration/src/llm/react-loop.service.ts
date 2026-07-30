@@ -154,9 +154,9 @@ export class ReactLoopService {
             : undefined;
           return this.circuitBreaker.run(`llm:${strategy.id}`, () =>
             withLlmRetry(
-              () => {
+              (attemptSignal) => {
                 streamedAnything = false;
-                return session.sendMessage(input, trackedOnTok, signal);
+                return session.sendMessage(input, trackedOnTok, attemptSignal);
               },
               ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
               `ReactLoop sendMessage() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (provider=${dto.provider}, model=${model})`,
@@ -421,7 +421,10 @@ export class ReactLoopService {
 
     for (let step = 0; step < ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS; step++) {
       if (turn.toolCalls.length === 0) {
-        if (!selfChecked && toolCalls.length > 0) {
+        // Cần chừa 1 bước để xử lý tool call do nudge sinh ra, không thì mất luôn.
+        const hasBudgetForSelfCheck =
+          step < ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS - 1;
+        if (!selfChecked && toolCalls.length > 0 && hasBudgetForSelfCheck) {
           selfChecked = true;
           const answerBeforeSelfCheck = turn.text;
 

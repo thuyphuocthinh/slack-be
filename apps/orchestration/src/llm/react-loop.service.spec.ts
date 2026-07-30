@@ -318,6 +318,27 @@ describe('ReactLoopService', () => {
         expect.anything(),
       );
     });
+
+    it('skips self-check on the last step instead of losing the answer already in hand', async () => {
+      let call = 0;
+      mockSession.sendMessage.mockImplementation(() => {
+        call++;
+        if (call < ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS) {
+          return Promise.resolve({
+            text: '',
+            toolCalls: [{ name: 'get_database_schema', args: { call } }],
+          });
+        }
+        return Promise.resolve({ text: 'good answer', toolCalls: [] });
+      });
+
+      const result = await service.run(baseDto);
+
+      expect(result.answer).toBe('good answer');
+      expect(mockSession.sendMessage).toHaveBeenCalledTimes(
+        ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS,
+      );
+    });
   });
 
   it('executes multiple tool calls in a single turn SEQUENTIALLY, never overlapping (bug fix: parallel execution raced the repeat-guard/Risk Gate and desynced tool_call/tool_result FE events for same-name calls)', async () => {
