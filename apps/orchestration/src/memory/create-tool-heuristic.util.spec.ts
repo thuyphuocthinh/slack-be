@@ -55,6 +55,21 @@ describe('isLikelyCreateToolCall', () => {
     expect(isLikelyCreateToolCall({ tool: 'notion.delete_page' })).toBe(false);
   });
 
+  it('does not match a verb-like substring buried inside an unrelated word (bug fix — "add" inside "addresses"/"additional")', () => {
+    expect(
+      isLikelyCreateToolCall({ tool: 'hubspot.get_contact_addresses' }),
+    ).toBe(false);
+    expect(isLikelyCreateToolCall({ tool: 'crm.list_additional_fields' })).toBe(
+      false,
+    );
+  });
+
+  it('still matches camelCase tool names where the verb is a whole word segment', () => {
+    expect(isLikelyCreateToolCall({ tool: 'createUser' })).toBe(true);
+    expect(isLikelyCreateToolCall({ tool: 'addContact' })).toBe(true);
+    expect(isLikelyCreateToolCall({ tool: 'additionalFields' })).toBe(false);
+  });
+
   it('handles missing argsPreview safely', () => {
     expect(
       isLikelyCreateToolCall({ tool: 'sql_server.execute_write_query' }),
