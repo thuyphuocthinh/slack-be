@@ -68,4 +68,22 @@ describe('TriggerClaimService (Giai đoạn 4, Step 1 — idempotency cho PROCES
       });
     });
   });
+
+  describe('reapStaleClaims (TTL reaper: unblocks a claim orphaned by a hard worker crash)', () => {
+    it('deletes claims older than the TTL', async () => {
+      mockRepo.delete.mockResolvedValue({ affected: 2 });
+
+      await service.reapStaleClaims();
+
+      expect(mockRepo.delete).toHaveBeenCalledWith({
+        createdAt: expect.anything(),
+      });
+    });
+
+    it('does not warn when nothing was stale', async () => {
+      mockRepo.delete.mockResolvedValue({ affected: 0 });
+
+      await service.reapStaleClaims();
+    });
+  });
 });

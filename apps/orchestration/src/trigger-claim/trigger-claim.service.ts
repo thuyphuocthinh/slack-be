@@ -1,7 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { LessThan, Repository } from 'typeorm';
 import { OrchestrationTriggerClaimEntity } from '../entity/orchestration-trigger-claim.entity';
+
+// BullMQ retry window cho PROCESS_AI_TRIGGER (lockDuration 60s + attempts:3 backoff ngắn)
+// luôn xong trong vài phút — quá mốc này mà claim vẫn còn nghĩa là turn đã chết (worker
+// crash cứng giữa chừng), không còn gì đang xử lý thật để tôn trọng nữa.
+const CLAIM_TTL_MS = 10 * 60 * 1000;
 
 @Injectable()
 export class TriggerClaimService {
@@ -42,5 +48,22 @@ export class TriggerClaimService {
     this.logger.warn(
       `release() triggerMessageId=${triggerMessageId} — xoá claim để lần retry kế tiếp không bị chặn oan (chưa có gì thật được tạo)`,
     );
+  }
+
+  // Reaper — không có cách nào release() một claim mà worker giữ nó đã crash cứng
+  // (SIGKILL/OOM giữa claim() và createMessage(), không catch nào chạy được). Nếu
+  // không dọn, claim đó khoá messageId này vĩnh viễn, turn mất tích không dấu vết.
+  // TTL dài hơn NHIỀU so với toàn bộ retry window thật (xem CLAIM_TTL_MS) nên không
+  // bao giờ xoá nhầm 1 claim đang được xử lý hợp lệ.
+  @Cron(CronExpression.EVERY_10_MINUTES, { name: 'reap-stale-trigger-claims' })
+  async reapStaleClaims(): Promise<void> {
+    const result = await this.repo.delete({
+      createdAt: LessThan(new Date(Date.now() - CLAIM_TTL_MS)),
+    });
+    if (result.affected) {
+      this.logger.warn(
+        `reapStaleClaims() removed ${result.affected} stale claim(s) older than ${CLAIM_TTL_MS}ms`,
+      );
+    }
   }
 }
