@@ -18,7 +18,9 @@ function mockStream(chunks: any[]): AsyncIterable<any> {
       let i = 0;
       return {
         next: async () =>
-          i < chunks.length ? { value: chunks[i++], done: false } : { value: undefined, done: true },
+          i < chunks.length
+            ? { value: chunks[i++], done: false }
+            : { value: undefined, done: true },
       };
     },
   };
