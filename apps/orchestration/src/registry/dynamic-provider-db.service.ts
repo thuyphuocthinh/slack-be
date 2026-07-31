@@ -16,7 +16,11 @@ import { EDynamicProviderAuthType } from '../entity/dynamic-provider.entity';
 import { RpcException } from '@nestjs/microservices';
 import { ORCHESTRATION_ERROR } from '@slack/constants';
 import { v4 as uuidv4 } from 'uuid';
-import { Oauth2RefreshTokenRefresher } from '../common/agentic-openapi-parser';
+import {
+  OAuth2RefreshRequestFormat,
+  OAuth2TokenState,
+  Oauth2RefreshTokenRefresher,
+} from '../common/agentic-openapi-parser';
 import { inferOAuth2RefreshFormat } from '../common/oauth2-refresh-format.util';
 
 export interface CreateDynamicProviderParams {
@@ -68,32 +72,19 @@ export class DynamicProviderDbService {
     // refreshToken + tokenUrl, refresh ngay 1 lần lúc đăng ký: vừa lấy được expires_in thật từ
     // chính provider (không cần hỏi user), vừa xác nhận sớm bộ refresh credential có hoạt động
     // không thay vì để tới lúc access token hết hạn mới phát hiện là refresh không tự chạy được.
-    if (dto.refreshToken && dto.tokenUrl) {
-      const refresher = new Oauth2RefreshTokenRefresher({
-        logger: this.logger,
-        requestFormat: refreshRequestFormat,
-        responseAccessTokenPath: dto.responseAccessTokenPath,
-        responseRefreshTokenPath: dto.responseRefreshTokenPath,
-        responseExpiresInPath: dto.responseExpiresInPath,
-        defaultExpiresInSecs: dto.defaultExpiresInSecs,
-      });
-      const refreshed = await refresher.refreshIfNeeded({
-        accessToken: dto.accessToken ?? '',
-        refreshToken: dto.refreshToken,
-        tokenExpiresAt: new Date(0), // luôn coi như đã hết hạn để ép refresh ngay, bất kể accessToken user paste còn hạn hay không
-        tokenUrl: dto.tokenUrl,
-        clientId: dto.clientId,
-        clientSecret: dto.clientSecret,
-      });
-
-      if (!refreshed) {
-        throw new RpcException({
-          ...ORCHESTRATION_ERROR.OAUTH2_REFRESH_FAILED,
-          details:
-            'Could not obtain an access token using the provided refreshToken/tokenUrl/clientId/clientSecret. Please double check these values.',
-        });
-      }
-
+    const refreshed = await this.refreshOAuth2IfConfigured({
+      accessToken: dto.accessToken,
+      refreshToken: dto.refreshToken,
+      tokenUrl: dto.tokenUrl,
+      clientId: dto.clientId,
+      clientSecret: dto.clientSecret,
+      refreshRequestFormat,
+      responseAccessTokenPath: dto.responseAccessTokenPath,
+      responseRefreshTokenPath: dto.responseRefreshTokenPath,
+      responseExpiresInPath: dto.responseExpiresInPath,
+      defaultExpiresInSecs: dto.defaultExpiresInSecs,
+    });
+    if (refreshed) {
       accessToken = refreshed.accessToken;
       refreshToken = refreshed.refreshToken;
       tokenExpiresAt = refreshed.tokenExpiresAt;
@@ -172,32 +163,19 @@ export class DynamicProviderDbService {
     const defaultExpiresInSecs =
       dto.defaultExpiresInSecs ?? entity.authConfig?.defaultExpiresInSecs;
 
-    if (refreshToken && tokenUrl) {
-      const refresher = new Oauth2RefreshTokenRefresher({
-        logger: this.logger,
-        requestFormat: refreshRequestFormat,
-        responseAccessTokenPath,
-        responseRefreshTokenPath,
-        responseExpiresInPath,
-        defaultExpiresInSecs,
-      });
-      const refreshed = await refresher.refreshIfNeeded({
-        accessToken: accessToken ?? '',
-        refreshToken,
-        tokenExpiresAt: new Date(0),
-        tokenUrl,
-        clientId,
-        clientSecret,
-      });
-
-      if (!refreshed) {
-        throw new RpcException({
-          ...ORCHESTRATION_ERROR.OAUTH2_REFRESH_FAILED,
-          details:
-            'Could not obtain an access token using the provided refreshToken/tokenUrl/clientId/clientSecret. Please double check these values.',
-        });
-      }
-
+    const refreshed = await this.refreshOAuth2IfConfigured({
+      accessToken,
+      refreshToken,
+      tokenUrl,
+      clientId,
+      clientSecret,
+      refreshRequestFormat,
+      responseAccessTokenPath,
+      responseRefreshTokenPath,
+      responseExpiresInPath,
+      defaultExpiresInSecs,
+    });
+    if (refreshed) {
       accessToken = refreshed.accessToken;
       refreshToken = refreshed.refreshToken;
       tokenExpiresAt = refreshed.tokenExpiresAt;
@@ -366,6 +344,53 @@ export class DynamicProviderDbService {
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
     };
+  }
+
+  /**
+   * Dùng chung cho registerProvider()/updateProvider() — refresh ngay 1 lần nếu có đủ
+   * refreshToken+tokenUrl, trả null nếu thiếu (không refresh, giữ nguyên giá trị cũ ở nơi gọi).
+   * Ném OAUTH2_REFRESH_FAILED nếu ĐÃ thử refresh mà thất bại.
+   */
+  private async refreshOAuth2IfConfigured(params: {
+    accessToken?: string;
+    refreshToken?: string;
+    tokenUrl?: string;
+    clientId?: string;
+    clientSecret?: string;
+    refreshRequestFormat?: OAuth2RefreshRequestFormat;
+    responseAccessTokenPath?: string;
+    responseRefreshTokenPath?: string;
+    responseExpiresInPath?: string;
+    defaultExpiresInSecs?: number;
+  }): Promise<OAuth2TokenState | null> {
+    if (!params.refreshToken || !params.tokenUrl) return null;
+
+    const refresher = new Oauth2RefreshTokenRefresher({
+      logger: this.logger,
+      requestFormat: params.refreshRequestFormat,
+      responseAccessTokenPath: params.responseAccessTokenPath,
+      responseRefreshTokenPath: params.responseRefreshTokenPath,
+      responseExpiresInPath: params.responseExpiresInPath,
+      defaultExpiresInSecs: params.defaultExpiresInSecs,
+    });
+    const refreshed = await refresher.refreshIfNeeded({
+      accessToken: params.accessToken ?? '',
+      refreshToken: params.refreshToken,
+      tokenExpiresAt: new Date(0), // luôn coi như đã hết hạn để ép refresh ngay
+      tokenUrl: params.tokenUrl,
+      clientId: params.clientId,
+      clientSecret: params.clientSecret,
+    });
+
+    if (!refreshed) {
+      throw new RpcException({
+        ...ORCHESTRATION_ERROR.OAUTH2_REFRESH_FAILED,
+        details:
+          'Could not obtain an access token using the provided refreshToken/tokenUrl/clientId/clientSecret. Please double check these values.',
+      });
+    }
+
+    return refreshed;
   }
 
   /**
