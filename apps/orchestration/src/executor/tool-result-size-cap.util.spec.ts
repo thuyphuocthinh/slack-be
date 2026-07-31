@@ -1,6 +1,19 @@
-import { capToolResultSize } from './tool-result-size-cap.util';
+import {
+  capRoundResults,
+  capToolResultSize,
+} from './tool-result-size-cap.util';
 
 describe('capToolResultSize', () => {
+  it('falls back to a flat truncate when maxChars is too small to fit head+tail+marker (bug fix — used to return ONLY the marker, dropping all real content)', () => {
+    const text = 'a'.repeat(200);
+
+    expect(capToolResultSize(text, 30)).toBe('a'.repeat(30));
+  });
+
+  it('never returns a negative-length result when maxChars is 0', () => {
+    expect(capToolResultSize('a'.repeat(200), 0)).toBe('');
+  });
+
   it('returns the text unchanged when it is at or under the limit', () => {
     const text = 'a'.repeat(100);
     expect(capToolResultSize(text)).toBe(text);
@@ -60,5 +73,21 @@ describe('capToolResultSize', () => {
     // Only the outer safety net's own marker should appear, no leftover
     // per-field ContextCapper markers nested inside it.
     expect((result.match(/\[truncated \d+ chars\]/g) ?? []).length).toBe(1);
+  });
+});
+
+describe('capRoundResults', () => {
+  it('keeps some real content per round even when many rounds shrink the per-round budget below the marker overhead (bug fix)', () => {
+    const rounds = Array.from({ length: 300 }, (_, i) => ({
+      agent: 'sql_server',
+      task: `round ${i}`,
+      result: 'x'.repeat(200),
+    }));
+
+    const capped = capRoundResults(rounds, 6000); // 20 chars/round — below the 40-char marker overhead
+
+    for (const round of capped) {
+      expect(round.result).toBe('x'.repeat(20));
+    }
   });
 });

@@ -36,6 +36,14 @@ export function capToolResultSize(
   text: string,
   maxChars: number = MAX_TOOL_RESULT_CHARS,
 ): string {
+  // maxChars quá nhỏ (VD chia đều ngân sách cho quá nhiều round) — không đủ
+  // chỗ cho cả head/tail LẪN marker "...[truncated N chars]...". ContextCapper
+  // tự nó cũng vỡ theo cách tương tự ở ngưỡng này (trả marker rỗng ruột) nên
+  // phải chặn TRƯỚC KHI vào pipeline minify/compress/capper, cắt phẳng luôn.
+  if (maxChars <= TRUNCATION_MARKER_OVERHEAD_RESERVE) {
+    return text.length > maxChars ? text.slice(0, Math.max(0, maxChars)) : text;
+  }
+
   let input: unknown = text;
 
   // Cố gắng parse JSON để có thể minify cấu trúc Array/Object bên trong
