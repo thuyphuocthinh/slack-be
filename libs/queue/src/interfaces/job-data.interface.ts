@@ -190,6 +190,10 @@ export interface IUpdateDynamicProviderTokenJobData {
   accessToken?: string;
   refreshToken?: string;
   tokenExpiresAt?: Date;
+  // Refresh token consumed to obtain the new one above — lets the processor apply this
+  // update only if nobody else already rotated past it (optional for in-flight jobs
+  // enqueued before this field existed).
+  previousRefreshToken?: string;
 }
 
 export type TJobData = {

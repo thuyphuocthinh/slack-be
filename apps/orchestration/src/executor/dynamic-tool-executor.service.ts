@@ -205,6 +205,7 @@ export class DynamicToolExecutorService {
               accessToken: newState.accessToken,
               refreshToken: newState.refreshToken,
               tokenExpiresAt: newState.tokenExpiresAt,
+              previousRefreshToken: providerSpec.refreshToken,
             },
             {
               attempts: 3,

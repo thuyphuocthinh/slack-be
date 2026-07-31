@@ -41,7 +41,7 @@ describe('DynamicProviderProcessor', () => {
   });
 
   describe('process', () => {
-    it('should handle UPDATE_DYNAMIC_PROVIDER_TOKEN job successfully', async () => {
+    it('should handle UPDATE_DYNAMIC_PROVIDER_TOKEN job successfully without previousRefreshToken (legacy job)', async () => {
       const jobData = {
         providerId: 'test-provider-id',
         accessToken: 'new-access-token',
@@ -64,8 +64,59 @@ describe('DynamicProviderProcessor', () => {
         tokenExpiresAt: jobData.tokenExpiresAt,
       });
       expect(processor.logger.log).toHaveBeenCalledWith(
-        'Successfully persisted token for provider test-provider-id via Queue.'
+        'Successfully persisted token for provider test-provider-id via Queue.',
       );
+    });
+
+    it('should scope the update to previousRefreshToken when present (CAS)', async () => {
+      const jobData = {
+        providerId: 'test-provider-id',
+        accessToken: 'new-access-token',
+        refreshToken: 'new-refresh-token',
+        tokenExpiresAt: new Date('2030-01-01T00:00:00.000Z'),
+        previousRefreshToken: 'old-refresh-token',
+      };
+
+      const job = {
+        name: EJobName.UPDATE_DYNAMIC_PROVIDER_TOKEN,
+        data: jobData,
+      } as Job;
+
+      mockRepo.update.mockResolvedValue({ affected: 1 });
+
+      await processor.process(job);
+
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'test-provider-id', refreshToken: 'old-refresh-token' },
+        {
+          accessToken: 'new-access-token',
+          refreshToken: 'new-refresh-token',
+          tokenExpiresAt: jobData.tokenExpiresAt,
+        },
+      );
+    });
+
+    it('should skip (not throw) when previousRefreshToken no longer matches — token already rotated by a newer job', async () => {
+      const jobData = {
+        providerId: 'test-provider-id',
+        accessToken: 'stale-access-token',
+        refreshToken: 'stale-refresh-token',
+        previousRefreshToken: 'old-refresh-token',
+      };
+
+      const job = {
+        name: EJobName.UPDATE_DYNAMIC_PROVIDER_TOKEN,
+        data: jobData,
+      } as Job;
+
+      mockRepo.update.mockResolvedValue({ affected: 0 });
+
+      await expect(processor.process(job)).resolves.not.toThrow();
+
+      expect(processor.logger.warn).toHaveBeenCalledWith(
+        'Skipped stale token write for provider test-provider-id — refreshToken already rotated by a newer update.',
+      );
+      expect(processor.logger.log).not.toHaveBeenCalled();
     });
 
     it('should throw an error if update fails, so BullMQ can retry', async () => {
@@ -82,7 +133,9 @@ describe('DynamicProviderProcessor', () => {
       const dbError = new Error('Database connection failed');
       mockRepo.update.mockRejectedValue(dbError);
 
-      await expect(processor.process(job)).rejects.toThrow('Database connection failed');
+      await expect(processor.process(job)).rejects.toThrow(
+        'Database connection failed',
+      );
 
       expect(mockRepo.update).toHaveBeenCalledWith('test-provider-id', {
         accessToken: 'new-access-token',
@@ -91,7 +144,7 @@ describe('DynamicProviderProcessor', () => {
       });
       expect(processor.logger.error).toHaveBeenCalledWith(
         'Failed to persist token for provider test-provider-id via Queue: Database connection failed',
-        expect.any(String)
+        expect.any(String),
       );
     });
 
@@ -103,7 +156,9 @@ describe('DynamicProviderProcessor', () => {
 
       await processor.process(job);
 
-      expect(processor.logger.warn).toHaveBeenCalledWith('Unknown job name: UNKNOWN_JOB_NAME');
+      expect(processor.logger.warn).toHaveBeenCalledWith(
+        'Unknown job name: UNKNOWN_JOB_NAME',
+      );
       expect(mockRepo.update).not.toHaveBeenCalled();
     });
   });
