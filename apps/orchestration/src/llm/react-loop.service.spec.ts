@@ -1094,6 +1094,112 @@ describe('ReactLoopService', () => {
       );
     });
 
+    it('blocks BEFORE the approval gate and asks the model to rewrite when an INSERT has fewer rows than the task requires (manual_test_bank.md V1/V2)', async () => {
+      mockMcpClient.getTools.mockResolvedValue([
+        {
+          name: 'execute_write_query',
+          description: 'desc',
+          inputSchema: {},
+          annotations: { readOnlyHint: false, destructiveHint: true },
+        },
+      ]);
+      mockStrategy.generateStructured.mockResolvedValueOnce({
+        requiredCount: 20,
+      });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [
+            {
+              name: 'execute_write_query',
+              args: {
+                query: "INSERT INTO Customers (Email) VALUES ('a@mail.com')",
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ text: 'đã gộp đủ 20 dòng', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'vẫn giữ nguyên', toolCalls: [] });
+
+      const result = await service.run({
+        ...baseDto,
+        prompt: 'Tạo 20 khách hàng ngẫu nhiên rồi chèn vào bảng Customers',
+      });
+
+      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
+      expect(result.toolCalls[0]).toEqual(
+        expect.objectContaining({
+          tool: 'sql_server.execute_write_query',
+          status: 'error',
+          resultPreview: expect.stringContaining('1/20'),
+        }),
+      );
+    });
+
+    it('lets the tool call through to the approval gate when the INSERT already covers the full required count', async () => {
+      mockMcpClient.getTools.mockResolvedValue([
+        {
+          name: 'execute_write_query',
+          description: 'desc',
+          inputSchema: {},
+          annotations: { readOnlyHint: false, destructiveHint: true },
+        },
+      ]);
+      mockStrategy.generateStructured.mockResolvedValueOnce({
+        requiredCount: 3,
+      });
+      const values = [
+        "('a@mail.com')",
+        "('b@mail.com')",
+        "('c@mail.com')",
+      ].join(', ');
+      mockSession.sendMessage.mockResolvedValueOnce({
+        text: '',
+        toolCalls: [
+          {
+            name: 'execute_write_query',
+            args: { query: `INSERT INTO Customers (Email) VALUES ${values}` },
+          },
+        ],
+      });
+
+      await expect(
+        service.run({
+          ...baseDto,
+          prompt: 'Tạo 3 khách hàng ngẫu nhiên rồi chèn vào bảng Customers',
+        }),
+      ).rejects.toThrow(ApprovalRequiredError);
+    });
+
+    it('does not block an INSERT when the task states no explicit quantity (requiredCount=0)', async () => {
+      mockMcpClient.getTools.mockResolvedValue([
+        {
+          name: 'execute_write_query',
+          description: 'desc',
+          inputSchema: {},
+          annotations: { readOnlyHint: false, destructiveHint: true },
+        },
+      ]);
+      mockStrategy.generateStructured.mockResolvedValueOnce({
+        requiredCount: 0,
+      });
+      mockSession.sendMessage.mockResolvedValueOnce({
+        text: '',
+        toolCalls: [
+          {
+            name: 'execute_write_query',
+            args: {
+              query: "INSERT INTO Customers (Email) VALUES ('a@mail.com')",
+            },
+          },
+        ],
+      });
+
+      await expect(
+        service.run({ ...baseDto, prompt: 'Thêm 1 khách hàng mới' }),
+      ).rejects.toThrow(ApprovalRequiredError);
+    });
+
     it('carries {provider, name, args} on the thrown error so the checkpoint can be built from it', async () => {
       mockMcpClient.getTools.mockResolvedValue([
         {

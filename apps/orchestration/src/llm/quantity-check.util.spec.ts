@@ -1,5 +1,46 @@
 import { Logger } from '@nestjs/common';
-import { checkQuantity } from './quantity-check.util';
+import { checkQuantity, extractRequiredCount } from './quantity-check.util';
+
+describe('extractRequiredCount', () => {
+  const mockStrategy = { id: 'openai', generateStructured: jest.fn() };
+  const mockCircuitBreaker = {
+    run: jest.fn((_key: string, action: () => Promise<unknown>) => action()),
+  };
+  const logger = new Logger('test');
+
+  afterEach(() => jest.clearAllMocks());
+
+  it('returns the required count with a SINGLE LLM call (no achieved-count call)', async () => {
+    mockStrategy.generateStructured.mockResolvedValueOnce({
+      requiredCount: 20,
+    });
+
+    const result = await extractRequiredCount(
+      'tạo 20 khách hàng ngẫu nhiên',
+      mockStrategy,
+      'gpt-4o-mini',
+      mockCircuitBreaker as any,
+      logger,
+    );
+
+    expect(result).toBe(20);
+    expect(mockStrategy.generateStructured).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 0 on LLM failure instead of throwing', async () => {
+    mockStrategy.generateStructured.mockRejectedValueOnce(new Error('down'));
+
+    const result = await extractRequiredCount(
+      'tạo 20 khách hàng ngẫu nhiên',
+      mockStrategy,
+      'gpt-4o-mini',
+      mockCircuitBreaker as any,
+      logger,
+    );
+
+    expect(result).toBe(0);
+  });
+});
 
 describe('checkQuantity', () => {
   const mockStrategy = { id: 'openai', generateStructured: jest.fn() };
