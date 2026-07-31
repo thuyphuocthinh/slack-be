@@ -19,11 +19,13 @@ export class OpenApiParserService {
   async loadSpec(urlOrPath: string): Promise<OpenAPI.Document> {
     try {
       this.logger.debug(`Loading and parsing OpenAPI spec from: ${urlOrPath}`);
-      // dereference() reads the spec and replaces all $refs with actual objects.
-      // Override the built-in HTTP resolver's `read` so every request — including
-      // redirect hops SwaggerParser follows internally — goes through readUrlSafely's
-      // DNS-level SSRF guard, instead of only the initial URL being checked.
-      const api = await SwaggerParser.dereference(urlOrPath, {
+      // validate() dereferences all $refs AND checks the result against the Swagger/OpenAPI
+      // schema + spec rules. dereference() alone skips both checks, so a malformed spec (e.g.
+      // an operation missing `responses`, or a path param never declared in `parameters`)
+      // would silently "succeed" and later turn into a tool with no real input constraints.
+      // Override the built-in HTTP resolver's `read` so every request — including redirect
+      // hops SwaggerParser follows internally — goes through readUrlSafely's DNS-level SSRF guard.
+      const api = await SwaggerParser.validate(urlOrPath, {
         resolve: { http: { read: (file) => readUrlSafely(file.url) } },
       });
       this.logger.log(
