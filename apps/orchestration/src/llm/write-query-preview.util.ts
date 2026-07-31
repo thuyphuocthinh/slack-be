@@ -13,10 +13,25 @@ export type WriteQueryPreviewTarget =
       operation: 'TRUNCATE' | 'DROP';
     };
 
+function isWhereKeywordAt(text: string, index: number): boolean {
+  if (text.slice(index, index + 5).toUpperCase() !== 'WHERE') return false;
+  const isWordChar = (c: string | undefined) => !!c && /\w/.test(c);
+  return !isWordChar(text[index - 1]) && !isWordChar(text[index + 5]);
+}
+
+// Chỉ nhận WHERE ở độ sâu ngoặc 0 — UPDATE Orders SET total = (SELECT ... WHERE ...)
+// WHERE status = 'pending' có 2 chữ WHERE, cái đầu nằm TRONG subquery của SET. Bản cũ
+// dùng match không global nên luôn ăn phải cái đầu tiên (sai bảng WHERE thật).
 function splitAtWhere(text: string): string | null {
-  const match = text.match(/\bWHERE\b/i);
-  if (!match || match.index === undefined) return null;
-  return text.slice(match.index + match[0].length).trim() || null;
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '(') depth++;
+    else if (text[i] === ')') depth--;
+    else if (depth === 0 && isWhereKeywordAt(text, i)) {
+      return text.slice(i + 5).trim() || null;
+    }
+  }
+  return null;
 }
 
 // Đếm số tuple TOP-LEVEL trong mệnh đề VALUES (...), (...), ... — tôn trọng

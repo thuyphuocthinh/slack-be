@@ -76,6 +76,18 @@ describe('extractWriteQueryPreviewTarget', () => {
     });
   });
 
+  it('parses UPDATE whose SET clause contains a subquery with its own WHERE, without confusing it for the outer WHERE', () => {
+    const result = extractWriteQueryPreviewTarget(
+      "UPDATE Orders SET total = (SELECT SUM(x) FROM Items WHERE order_id=Orders.id) WHERE status='pending'",
+    );
+
+    expect(result).toEqual({
+      kind: 'existing-rows',
+      table: 'Orders',
+      whereClause: "status='pending'",
+    });
+  });
+
   // accuracy_problem.md mục 15 — trước đây INSERT luôn null. Giờ đếm TRỰC TIẾP
   // số tuple trong VALUES — không cần đếm thử qua DB.
   it('counts INSERT ... VALUES tuples directly', () => {
