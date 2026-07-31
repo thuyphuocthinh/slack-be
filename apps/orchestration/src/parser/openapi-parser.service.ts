@@ -3,6 +3,7 @@ import SwaggerParser from '@apidevtools/swagger-parser';
 import { OpenAPI } from 'openapi-types';
 import { RpcException } from '@nestjs/microservices';
 import { ORCHESTRATION_ERROR } from '@slack/constants';
+import { readUrlSafely } from './ssrf-safe-http-reader.util';
 
 @Injectable()
 export class OpenApiParserService {
@@ -18,8 +19,13 @@ export class OpenApiParserService {
   async loadSpec(urlOrPath: string): Promise<OpenAPI.Document> {
     try {
       this.logger.debug(`Loading and parsing OpenAPI spec from: ${urlOrPath}`);
-      // dereference() reads the spec and replaces all $refs with actual objects
-      const api = await SwaggerParser.dereference(urlOrPath);
+      // dereference() reads the spec and replaces all $refs with actual objects.
+      // Override the built-in HTTP resolver's `read` so every request — including
+      // redirect hops SwaggerParser follows internally — goes through readUrlSafely's
+      // DNS-level SSRF guard, instead of only the initial URL being checked.
+      const api = await SwaggerParser.dereference(urlOrPath, {
+        resolve: { http: { read: (file) => readUrlSafely(file.url) } },
+      });
       this.logger.log(
         `Successfully parsed OpenAPI spec: ${api.info?.title || 'Unknown Title'} (Version: ${api.info?.version || 'Unknown'})`,
       );

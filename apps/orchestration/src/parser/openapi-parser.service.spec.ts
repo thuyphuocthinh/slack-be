@@ -40,7 +40,12 @@ describe('OpenApiParserService', () => {
       const url = 'http://example.com/swagger.json';
       const result = await service.loadSpec(url);
 
-      expect(SwaggerParser.dereference).toHaveBeenCalledWith(url);
+      expect(SwaggerParser.dereference).toHaveBeenCalledWith(
+        url,
+        expect.objectContaining({
+          resolve: { http: { read: expect.any(Function) } },
+        }),
+      );
       expect(result).toEqual(mockSpec);
     });
 
@@ -56,7 +61,7 @@ describe('OpenApiParserService', () => {
       await expect(service.loadSpec(url)).rejects.toMatchObject({
         error: expect.objectContaining({
           code: ORCHESTRATION_ERROR.INVALID_OPENAPI_SPEC.code,
-        })
+        }),
       });
     });
   });
