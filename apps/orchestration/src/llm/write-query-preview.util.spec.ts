@@ -156,6 +156,42 @@ describe('extractWriteQueryPreviewTarget', () => {
     });
   });
 
+  it('flags TRUNCATE TABLE ... CASCADE as whole-table-destructive (not a generic fallback)', () => {
+    const result = extractWriteQueryPreviewTarget(
+      'TRUNCATE TABLE Orders CASCADE',
+    );
+
+    expect(result).toEqual({
+      kind: 'whole-table-destructive',
+      table: 'Orders',
+      operation: 'TRUNCATE',
+    });
+  });
+
+  it('flags a multi-table TRUNCATE as whole-table-destructive, listing every table', () => {
+    const result = extractWriteQueryPreviewTarget(
+      'TRUNCATE TABLE Orders, Items CASCADE',
+    );
+
+    expect(result).toEqual({
+      kind: 'whole-table-destructive',
+      table: 'Orders, Items',
+      operation: 'TRUNCATE',
+    });
+  });
+
+  it('flags DROP TABLE IF EXISTS ... CASCADE as whole-table-destructive', () => {
+    const result = extractWriteQueryPreviewTarget(
+      'DROP TABLE IF EXISTS Orders CASCADE',
+    );
+
+    expect(result).toEqual({
+      kind: 'whole-table-destructive',
+      table: 'Orders',
+      operation: 'DROP',
+    });
+  });
+
   // accuracy_problem.md mục 15 — nhiều statement gộp có thể lẫn ranh giới
   // WHERE giữa 2 câu lệnh — từ chối thẳng thay vì ước lượng sai mà tưởng đúng.
   it('returns null for multiple statements batched together (risk of cross-statement bleed)', () => {

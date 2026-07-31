@@ -13,6 +13,19 @@ export type WriteQueryPreviewTarget =
       operation: 'TRUNCATE' | 'DROP';
     };
 
+// TRUNCATE/DROP cho phép "CASCADE"/"RESTRICT" ở cuối và nhiều bảng cách nhau bởi dấu
+// phẩy — trước đây regex đòi khớp NGUYÊN dòng với đúng 1 tên bảng nên cả 2 dạng này
+// rớt xuống fallback preview chung chung, MẤT cảnh báo "huỷ cả bảng" ở đúng case
+// nguy hiểm nhất (CASCADE kéo theo bảng phụ thuộc).
+function parseTableList(tableListText: string): string {
+  return tableListText
+    .replace(/\s+(?:CASCADE|RESTRICT)\s*$/i, '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .join(', ');
+}
+
 function isWhereKeywordAt(text: string, index: number): boolean {
   if (text.slice(index, index + 5).toUpperCase() !== 'WHERE') return false;
   const isWordChar = (c: string | undefined) => !!c && /\w/.test(c);
@@ -81,20 +94,22 @@ export function extractWriteQueryPreviewTarget(
   // lượng được" còn hơn ước lượng sai mà tưởng đúng.
   if (trimmed.includes(';')) return null;
 
-  const truncateMatch = trimmed.match(/^TRUNCATE\s+TABLE\s+(\S+)$/i);
+  const truncateMatch = trimmed.match(/^TRUNCATE\s+TABLE\s+([\s\S]+)$/i);
   if (truncateMatch) {
     return {
       kind: 'whole-table-destructive',
-      table: truncateMatch[1],
+      table: parseTableList(truncateMatch[1]),
       operation: 'TRUNCATE',
     };
   }
 
-  const dropMatch = trimmed.match(/^DROP\s+TABLE\s+(\S+)$/i);
+  const dropMatch = trimmed.match(
+    /^DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([\s\S]+)$/i,
+  );
   if (dropMatch) {
     return {
       kind: 'whole-table-destructive',
-      table: dropMatch[1],
+      table: parseTableList(dropMatch[1]),
       operation: 'DROP',
     };
   }
