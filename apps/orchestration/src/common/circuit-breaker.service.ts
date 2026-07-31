@@ -4,6 +4,16 @@ import CircuitBreaker from 'opossum';
 import { ORCHESTRATION_CONSTANTS, ORCHESTRATION_ERROR } from '@slack/constants';
 import { MetricsRegistryService } from './metrics-registry.service';
 
+// Đánh dấu lỗi phát sinh do CHÍNH signal của lượt gọi này bị abort (user bấm
+// Stop) — breaker dùng CHUNG cho mọi user theo key, nếu tính cả cancel là 1
+// lỗi thật thì vài user bấm Stop cùng lúc có thể tự trip mạch, chặn nhầm
+// user khác đang gọi bình thường.
+const ABORTED_BY_CALLER = Symbol('circuit-breaker-aborted-by-caller');
+
+interface TaggableError {
+  [ABORTED_BY_CALLER]?: true;
+}
+
 /**
  * Giai đoạn 4, Step 6 — 1 breaker riêng cho mỗi `key` (VD `mcp:sql_server`,
  * `llm:gemini`), lazy tạo lần đầu gặp key đó. Cùng thư viện `opossum` đã dùng
@@ -24,7 +34,11 @@ export class CircuitBreakerService {
 
   constructor(private readonly metrics: MetricsRegistryService) {}
 
-  async run<T>(key: string, action: () => Promise<T>): Promise<T> {
+  async run<T>(
+    key: string,
+    action: () => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
     const breaker = this.getOrCreateBreaker(key);
 
     // Check TRƯỚC khi fire() (không phải bắt lỗi rồi mới suy ra) — chính xác
@@ -39,7 +53,25 @@ export class CircuitBreakerService {
       });
     }
 
-    return (await breaker.fire(action)) as T;
+    return (await breaker.fire(() => this.runTagged(action, signal))) as T;
+  }
+
+  // Gắn dấu lên lỗi NẾU signal của chính lượt gọi này đã abort — errorFilter
+  // của breaker đọc dấu này để không tính vào thống kê lỗi. Gắn theo từng
+  // lượt gọi (closure riêng), không phải state chung của breaker, nên nhiều
+  // request cùng key chạy song song không giẫm lên nhau.
+  private async runTagged<T>(
+    action: () => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    try {
+      return await action();
+    } catch (error) {
+      if (signal?.aborted) {
+        (error as TaggableError)[ABORTED_BY_CALLER] = true;
+      }
+      throw error;
+    }
   }
 
   // Backpressure/Admission control — trạng thái hiện tại của mọi breaker đã
@@ -72,6 +104,8 @@ export class CircuitBreakerService {
         volumeThreshold:
           ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_VOLUME_THRESHOLD,
         resetTimeout: ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_RESET_TIMEOUT_MS,
+        errorFilter: (error: TaggableError) =>
+          error?.[ABORTED_BY_CALLER] === true,
       },
     );
 

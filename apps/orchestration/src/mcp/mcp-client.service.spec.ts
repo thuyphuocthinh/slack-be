@@ -533,6 +533,7 @@ describe('McpClientService', () => {
       expect(mockCircuitBreaker.run).toHaveBeenCalledWith(
         'mcp:sql_server',
         expect.any(Function),
+        undefined,
       );
     });
 
@@ -544,6 +545,7 @@ describe('McpClientService', () => {
       expect(mockCircuitBreaker.run).toHaveBeenCalledWith(
         'mcp:sql_server',
         expect.any(Function),
+        undefined,
       );
     });
 

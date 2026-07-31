@@ -264,16 +264,19 @@ export class ReactLoopRun {
           onTok(chunk);
         }
       : undefined;
-    return this.circuitBreaker.run(`llm:${this.strategy.id}`, () =>
-      withLlmRetry(
-        (attemptSignal) => {
-          streamedAnything = false;
-          return this.session.sendMessage(input, trackedOnTok, attemptSignal);
-        },
-        ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
-        `ReactLoop sendMessage() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (provider=${this.dto.provider}, model=${this.model})`,
-        { signal: this.signal, canRetry: () => !streamedAnything },
-      ),
+    return this.circuitBreaker.run(
+      `llm:${this.strategy.id}`,
+      () =>
+        withLlmRetry(
+          (attemptSignal) => {
+            streamedAnything = false;
+            return this.session.sendMessage(input, trackedOnTok, attemptSignal);
+          },
+          ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
+          `ReactLoop sendMessage() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (provider=${this.dto.provider}, model=${this.model})`,
+          { signal: this.signal, canRetry: () => !streamedAnything },
+        ),
+      this.signal,
     );
   }
 

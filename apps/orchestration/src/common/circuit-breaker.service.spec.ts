@@ -138,6 +138,37 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
     expect(healthyAction).toHaveBeenCalledTimes(1);
   });
 
+  describe('cancellation (bug fix — Stop giữa chừng không được tính là lỗi provider thật)', () => {
+    it('does not open the circuit when every failure was caused by the caller aborting its own signal', async () => {
+      const controller = new AbortController();
+      controller.abort();
+      const action = jest.fn().mockRejectedValue(new Error('Aborted'));
+
+      for (let i = 0; i < VOLUME_THRESHOLD; i++) {
+        await expect(
+          service.run('llm:gemini', action, controller.signal),
+        ).rejects.toThrow('Aborted');
+      }
+
+      expect(service.getStates()).toEqual({ 'llm:gemini': 'closed' });
+    });
+
+    it('still opens the circuit for a real failure even when a (non-aborted) signal is passed', async () => {
+      const controller = new AbortController();
+      const action = jest
+        .fn()
+        .mockRejectedValue(new Error('connect ECONNREFUSED'));
+
+      for (let i = 0; i < VOLUME_THRESHOLD; i++) {
+        await expect(
+          service.run('llm:gemini', action, controller.signal),
+        ).rejects.toThrow('connect ECONNREFUSED');
+      }
+
+      expect(service.getStates()).toEqual({ 'llm:gemini': 'open' });
+    });
+  });
+
   describe('getStates (Backpressure/Admission control)', () => {
     it('returns an empty object before any breaker has been created', () => {
       expect(service.getStates()).toEqual({});

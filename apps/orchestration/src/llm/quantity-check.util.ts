@@ -29,20 +29,23 @@ function generate<T>(
   signal: AbortSignal | undefined,
   timeoutLabel: string,
 ): Promise<T> {
-  return circuitBreaker.run(`llm:${strategy.id}`, () =>
-    withLlmRetry(
-      (attemptSignal) =>
-        strategy.generateStructured<T>({
-          model,
-          systemInstruction,
-          prompt,
-          schema,
-          signal: attemptSignal,
-        }),
-      ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
-      `${timeoutLabel} timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s`,
-      { signal },
-    ),
+  return circuitBreaker.run(
+    `llm:${strategy.id}`,
+    () =>
+      withLlmRetry(
+        (attemptSignal) =>
+          strategy.generateStructured<T>({
+            model,
+            systemInstruction,
+            prompt,
+            schema,
+            signal: attemptSignal,
+          }),
+        ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
+        `${timeoutLabel} timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s`,
+        { signal },
+      ),
+    signal,
   );
 }
 

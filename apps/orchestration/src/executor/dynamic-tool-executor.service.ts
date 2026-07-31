@@ -35,6 +35,12 @@ export class DynamicToolExecutorService {
     this.securityInjector,
     this.logger,
   );
+  // 2 tool call cùng provider cùng gặp 401 gần như đồng thời sẽ đọc cùng 1
+  // refreshToken CŨ trước khi cái nào kịp cập nhật — nếu provider rotate
+  // refreshToken sau mỗi lần dùng, lần refresh thứ 2 sẽ fail vì token đã bị
+  // cái đầu vô hiệu hoá. Gộp lại thành 1 lần refresh DUY NHẤT cho mỗi provider,
+  // các lệnh gọi đến sau dùng chung kết quả thay vì tự refresh lại.
+  private readonly pendingOAuth2Refreshes = new Map<string, Promise<boolean>>();
 
   constructor(
     private readonly registry: DynamicToolRegistryService,
@@ -146,7 +152,22 @@ export class DynamicToolExecutorService {
     return error instanceof ToolExecutionError && error.statusCode === 401;
   }
 
-  private async tryRenewOAuth2Token(
+  private tryRenewOAuth2Token(
+    providerId: string,
+    providerSpec: DynamicProviderSpec,
+  ): Promise<boolean> {
+    const pending = this.pendingOAuth2Refreshes.get(providerId);
+    if (pending) return pending;
+
+    const refreshing = this.refreshOAuth2Token(
+      providerId,
+      providerSpec,
+    ).finally(() => this.pendingOAuth2Refreshes.delete(providerId));
+    this.pendingOAuth2Refreshes.set(providerId, refreshing);
+    return refreshing;
+  }
+
+  private async refreshOAuth2Token(
     providerId: string,
     providerSpec: DynamicProviderSpec,
   ): Promise<boolean> {

@@ -384,6 +384,51 @@ describe('DynamicToolExecutorService', () => {
       expect(axios).toHaveBeenCalledTimes(2);
     });
 
+    it('de-duplicates 2 concurrent 401s for the SAME provider into a single token refresh (bug fix — race lets the 2nd refresh use an already-rotated refreshToken)', async () => {
+      registryService.getProviderSpec.mockResolvedValue({
+        providerId: 'spotify_provider',
+        specUrl: 'http://test',
+        document: mockSpec,
+        tools: [],
+        authType: EDynamicProviderAuthType.OAUTH2,
+        accessToken: 'stale-access-token',
+        refreshToken: 'refresh-token',
+        authConfig: {
+          tokenUrl: 'https://accounts.spotify.com/api/token',
+          clientId: 'cid',
+          clientSecret: 'csecret',
+        },
+      } as any);
+
+      (axios as unknown as jest.Mock)
+        .mockRejectedValueOnce({
+          response: { status: 401, data: 'Unauthorized' },
+          config: {},
+        })
+        .mockRejectedValueOnce({
+          response: { status: 401, data: 'Unauthorized' },
+          config: {},
+        })
+        .mockResolvedValueOnce({ data: { ok: 1 } })
+        .mockResolvedValueOnce({ data: { ok: 2 } });
+      (axios.post as jest.Mock).mockResolvedValue({
+        data: {
+          access_token: 'fresh-access-token',
+          refresh_token: 'rotated-refresh-token',
+          expires_in: 3600,
+        },
+      });
+
+      const [first, second] = await Promise.all([
+        service.execute('spotify_provider', 'getMe', {}),
+        service.execute('spotify_provider', 'getMe', {}),
+      ]);
+
+      expect(first.isError).toBe(false);
+      expect(second.isError).toBe(false);
+      expect(axios.post).toHaveBeenCalledTimes(1);
+    });
+
     it("routes the refresher's internal logs through the app's NestJS Logger instead of the library's default — regression test for a missing `logger` option", async () => {
       registryService.getProviderSpec.mockResolvedValue({
         providerId: 'spotify_provider',

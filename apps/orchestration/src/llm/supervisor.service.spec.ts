@@ -515,6 +515,7 @@ describe('SupervisorService', () => {
       expect(mockCircuitBreaker.run).toHaveBeenCalledWith(
         'llm:gemini',
         expect.any(Function),
+        undefined,
       );
     });
 
@@ -1468,6 +1469,7 @@ describe('SupervisorService', () => {
       expect(mockCircuitBreaker.run).toHaveBeenCalledWith(
         'llm:gemini',
         expect.any(Function),
+        undefined,
       );
     });
   });
@@ -1557,6 +1559,7 @@ describe('SupervisorService', () => {
       expect(mockCircuitBreaker.run).toHaveBeenCalledWith(
         'llm:gemini',
         expect.any(Function),
+        undefined,
       );
     });
 

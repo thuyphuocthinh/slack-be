@@ -401,13 +401,17 @@ export class McpClientService {
     maxRetries = 3,
     signal?: AbortSignal,
   ): Promise<T> {
-    return this.circuitBreaker.run(`mcp:${provider}`, () =>
-      this.concurrencyLimiter.run(
-        `mcp:${provider}`,
-        ORCHESTRATION_CONSTANTS.MAX_CONCURRENT_MCP_CALLS_PER_PROVIDER,
-        () => this.callWithReconnect(provider, ownerId, fn, maxRetries, signal),
-        signal,
-      ),
+    return this.circuitBreaker.run(
+      `mcp:${provider}`,
+      () =>
+        this.concurrencyLimiter.run(
+          `mcp:${provider}`,
+          ORCHESTRATION_CONSTANTS.MAX_CONCURRENT_MCP_CALLS_PER_PROVIDER,
+          () =>
+            this.callWithReconnect(provider, ownerId, fn, maxRetries, signal),
+          signal,
+        ),
+      signal,
     );
   }
 

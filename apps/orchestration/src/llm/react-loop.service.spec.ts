@@ -1306,6 +1306,7 @@ describe('ReactLoopService', () => {
       expect(mockCircuitBreaker.run).toHaveBeenCalledWith(
         'llm:gemini',
         expect.any(Function),
+        expect.anything(),
       );
     });
 

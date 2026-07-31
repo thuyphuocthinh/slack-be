@@ -290,20 +290,23 @@ export class SupervisorService {
       this.logger.log(
         `plan() model=${model} agents=${agents.length} historyTurns=${history.length} prompt=${fullPrompt}`,
       );
-      const plan = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
-        withLlmRetry(
-          (attemptSignal) =>
-            strategy.generateStructured<SupervisorPlanDto>({
-              model,
-              systemInstruction: `${SUPERVISOR_PLANNING_PROMPT}\n${agentListText}`,
-              prompt: fullPrompt,
-              schema: planSchema,
-              signal: attemptSignal,
-            }),
-          ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
-          `Supervisor plan() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
-          { signal },
-        ),
+      const plan = await this.circuitBreaker.run(
+        `llm:${strategy.id}`,
+        () =>
+          withLlmRetry(
+            (attemptSignal) =>
+              strategy.generateStructured<SupervisorPlanDto>({
+                model,
+                systemInstruction: `${SUPERVISOR_PLANNING_PROMPT}\n${agentListText}`,
+                prompt: fullPrompt,
+                schema: planSchema,
+                signal: attemptSignal,
+              }),
+            ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
+            `Supervisor plan() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
+            { signal },
+          ),
+        signal,
       );
       this.logger.log(`plan() result=${JSON.stringify(plan)}`);
       if (plan.action === 'plan' && plan.steps?.[0]) {
@@ -377,6 +380,7 @@ export class SupervisorService {
             `Supervisor plan() escalation timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
             { signal },
           ),
+        signal,
       );
       this.metrics.incrementBehaviorSignal('model_escalation');
       this.logger.log(
@@ -439,22 +443,25 @@ export class SupervisorService {
 
     try {
       const { strategy, model } = this.llmFactory.resolve(evaluateModelId);
-      const verdict = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
-        withLlmRetry(
-          (attemptSignal) =>
-            strategy.generateStructured<SupervisorEvaluateDto>({
-              model,
-              systemInstruction: SUPERVISOR_EVALUATE_PROMPT,
-              prompt,
-              schema: mustFinishRemaining
-                ? SUPERVISOR_EVALUATE_SCHEMA_NO_DONE
-                : SUPERVISOR_EVALUATE_SCHEMA,
-              signal: attemptSignal,
-            }),
-          ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
-          `Supervisor evaluate() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
-          { signal },
-        ),
+      const verdict = await this.circuitBreaker.run(
+        `llm:${strategy.id}`,
+        () =>
+          withLlmRetry(
+            (attemptSignal) =>
+              strategy.generateStructured<SupervisorEvaluateDto>({
+                model,
+                systemInstruction: SUPERVISOR_EVALUATE_PROMPT,
+                prompt,
+                schema: mustFinishRemaining
+                  ? SUPERVISOR_EVALUATE_SCHEMA_NO_DONE
+                  : SUPERVISOR_EVALUATE_SCHEMA,
+                signal: attemptSignal,
+              }),
+            ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
+            `Supervisor evaluate() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
+            { signal },
+          ),
+        signal,
       );
       this.logger.log(`evaluate() result=${JSON.stringify(verdict)}`);
       return verdict;
@@ -507,16 +514,19 @@ export class SupervisorService {
             onToken(chunk);
           }
         : undefined;
-      const result = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
-        withLlmRetry(
-          (attemptSignal) => {
-            streamedAnything = false;
-            return session.sendMessage(prompt, trackedOnToken, attemptSignal);
-          },
-          ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
-          `Supervisor synthesize() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
-          { signal, canRetry: () => !streamedAnything },
-        ),
+      const result = await this.circuitBreaker.run(
+        `llm:${strategy.id}`,
+        () =>
+          withLlmRetry(
+            (attemptSignal) => {
+              streamedAnything = false;
+              return session.sendMessage(prompt, trackedOnToken, attemptSignal);
+            },
+            ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
+            `Supervisor synthesize() timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
+            { signal, canRetry: () => !streamedAnything },
+          ),
+        signal,
       );
       this.logger.log(`synthesize() result=${result.text}`);
       return result.text;
