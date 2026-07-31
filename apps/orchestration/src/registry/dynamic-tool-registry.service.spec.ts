@@ -6,6 +6,9 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DynamicProviderEntity } from '../entity/dynamic-provider.entity';
 import { OpenAPI } from 'openapi-types';
 import { RpcException } from '@nestjs/microservices';
+import { buildTTL } from '@slack/common';
+
+const CACHE_TTL_MS = buildTTL('HOUR', 1);
 
 /** A spec with `operationCount` GET operations — operation 0 is about "refund", the rest are
  *  generic filler — enough to exercise the >128-tool semantic-search path deterministically. */
@@ -82,6 +85,10 @@ describe('DynamicToolRegistryService', () => {
     parserService = module.get(OpenApiParserService);
   });
 
+  // Service tự set 1 interval dọn cache (constructor) — không clear thì Jest
+  // treo lại sau khi hết test vì còn handle đang mở.
+  afterEach(() => service.onModuleDestroy());
+
   it('should lazy load spec from DB and parse tools correctly', async () => {
     const mockDoc = {
       openapi: '3.0.0',
@@ -147,6 +154,38 @@ describe('DynamicToolRegistryService', () => {
     // RAM cleared, but if db count still > 0, isDynamicProvider returns true
     mockRepo.count.mockResolvedValue(0);
     expect(await service.isDynamicProvider('p1')).toBe(false);
+  });
+
+  describe('cache TTL (bug fix — 1 instance refresh OAuth2 token cho provider, các instance khác cần tự đọc lại DB)', () => {
+    afterEach(() => jest.useRealTimers());
+
+    it('re-reads DB once the cache TTL elapses, even though the entry was accessed the whole time (lastAccessed alone must not defer reload forever)', async () => {
+      jest.useFakeTimers();
+      mockRepo.findOne.mockResolvedValue({
+        specUrl: 'http://example.com/spec.json',
+        isActive: true,
+      });
+      parserService.loadSpec.mockResolvedValue({
+        openapi: '3.0.0',
+        info: { title: 'Test', version: '1.0' },
+        paths: {},
+      } as unknown as OpenAPI.Document);
+
+      await service.getSpec('p1');
+      expect(mockRepo.findOne).toHaveBeenCalledTimes(1);
+
+      // Truy cập liên tục TRƯỚC khi hết TTL — không được đọc lại DB.
+      await jest.advanceTimersByTimeAsync(CACHE_TTL_MS / 2);
+      await service.getSpec('p1');
+      await jest.advanceTimersByTimeAsync(CACHE_TTL_MS / 2 - 1000);
+      await service.getSpec('p1');
+      expect(mockRepo.findOne).toHaveBeenCalledTimes(1);
+
+      // Qua khỏi TTL tính từ lúc LOAD (không phải từ lần truy cập gần nhất) — phải đọc lại DB.
+      await jest.advanceTimersByTimeAsync(2000);
+      await service.getSpec('p1');
+      expect(mockRepo.findOne).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('semantic tool search (Giai đoạn 4 — Tool RAG, >128 tools)', () => {
