@@ -8,6 +8,7 @@ import {
   AmbiguousAgentCandidate,
   PendingToolCall,
 } from '../entity/orchestration-checkpoint.entity';
+import { CreateCheckpointRequestDto } from '../dto/checkpoint.dto';
 import {
   AvailableAgentDto,
   DelegationDto,
@@ -76,15 +77,18 @@ export class CheckpointPauseService {
       content: approvalContent,
     });
 
-    await this.persistCheckpoint(
-      approvalMessage.id,
+    await this.createCheckpointSafely(
       data,
-      originalPrompt,
-      pendingTool,
-      pendingTask,
-      rounds,
-      history,
-      remainingSteps,
+      approvalMessage.id,
+      {
+        originalPrompt,
+        pendingTool,
+        pendingTask,
+        roundsSoFar: rounds,
+        remainingSteps,
+        history,
+      },
+      '⚠️ Không thể tạo yêu cầu duyệt, vui lòng hỏi lại.',
     );
     await this.attachPendingToolCallTrace(
       approvalMessage.id,
@@ -104,44 +108,44 @@ export class CheckpointPauseService {
     );
   }
 
-  // createMessage() (message service, TCP) và checkpoint.create() (Postgres
-  // riêng) không bọc chung transaction được — lỗi ở đây để lại message mồ côi
-  // (không checkpoint để resolve) nên sửa NGAY message đó thành lỗi rõ ràng.
-  private async persistCheckpoint(
-    approvalMessageId: string,
+  // Dùng chung cho pauseForApproval()/pauseForClarification() — createMessage()
+  // (message service, TCP) và checkpoint.create() (Postgres riêng) không bọc
+  // chung transaction được — lỗi ở đây để lại message mồ côi (không checkpoint
+  // để resolve) nên sửa NGAY message đó thành lỗi rõ ràng.
+  private async createCheckpointSafely(
     data: IProcessAiTriggerJobData,
-    originalPrompt: string,
-    pendingTool: PendingToolCall,
-    pendingTask: string,
-    rounds: SupervisorRoundDto[],
-    history: ChatHistoryTurnDto[],
-    remainingSteps: DelegationDto[],
+    replyMessageId: string,
+    fields: Omit<
+      CreateCheckpointRequestDto,
+      | 'replyMessageId'
+      | 'userId'
+      | 'botUserId'
+      | 'channelId'
+      | 'workspaceId'
+      | 'channelType'
+    >,
+    failureMessage: string,
   ): Promise<void> {
     const { userId, botUserId, channelId, workspaceId, channelType } = data;
     try {
       await this.checkpoint.create({
-        replyMessageId: approvalMessageId,
+        replyMessageId,
         userId,
         botUserId,
         channelId,
         workspaceId,
         channelType,
-        originalPrompt,
-        pendingTool,
-        pendingTask,
-        roundsSoFar: rounds,
-        remainingSteps,
-        history,
+        ...fields,
       });
     } catch (error) {
       this.logger.error(
-        `persistCheckpoint() failed for message ${approvalMessageId}: ${(error as Error).message}`,
+        `createCheckpointSafely() failed for message ${replyMessageId}: ${(error as Error).message}`,
         (error as Error).stack,
       );
       await this.messageClient.updateMessage({
-        id: approvalMessageId,
+        id: replyMessageId,
         userId: botUserId,
-        content: '⚠️ Không thể tạo yêu cầu duyệt, vui lòng hỏi lại.',
+        content: failureMessage,
       });
       throw error;
     }
@@ -185,53 +189,10 @@ export class CheckpointPauseService {
       content: clarificationContent,
     });
 
-    await this.persistClarificationCheckpoint(
-      clarificationMessage.id,
+    await this.createCheckpointSafely(
       data,
-      originalPrompt,
-      task,
-      candidates,
-      rounds,
-      history,
-      remainingSteps,
-    );
-
-    this.logger.log(
-      `pauseForClarification() candidates=${candidates.map((c) => c.provider).join(',')} clarificationMessageId=${clarificationMessage.id}`,
-    );
-    return buildAnswer(
-      '⏸️ Cần bạn làm rõ trước khi tiếp tục — xem tin nhắn bên dưới.',
-      toolCalls,
-    );
-  }
-
-  private buildClarificationQuestion(
-    task: string,
-    candidates: AvailableAgentDto[],
-  ): string {
-    const labels = candidates.map((c) => `"${c.label}"`).join(' hay ');
-    return `Bạn muốn dùng ${labels} cho việc: "${task}"?`;
-  }
-
-  private async persistClarificationCheckpoint(
-    clarificationMessageId: string,
-    data: IProcessAiTriggerJobData,
-    originalPrompt: string,
-    task: string,
-    candidates: AvailableAgentDto[],
-    rounds: SupervisorRoundDto[],
-    history: ChatHistoryTurnDto[],
-    remainingSteps: DelegationDto[],
-  ): Promise<void> {
-    const { userId, botUserId, channelId, workspaceId, channelType } = data;
-    try {
-      await this.checkpoint.create({
-        replyMessageId: clarificationMessageId,
-        userId,
-        botUserId,
-        channelId,
-        workspaceId,
-        channelType,
+      clarificationMessage.id,
+      {
         originalPrompt,
         pendingTool: null,
         pendingTask: task,
@@ -249,19 +210,25 @@ export class CheckpointPauseService {
             label: c.label,
           }),
         ),
-      });
-    } catch (error) {
-      this.logger.error(
-        `persistClarificationCheckpoint() failed for message ${clarificationMessageId}: ${(error as Error).message}`,
-        (error as Error).stack,
-      );
-      await this.messageClient.updateMessage({
-        id: clarificationMessageId,
-        userId: botUserId,
-        content: '⚠️ Không thể tạo yêu cầu làm rõ, vui lòng hỏi lại.',
-      });
-      throw error;
-    }
+      },
+      '⚠️ Không thể tạo yêu cầu làm rõ, vui lòng hỏi lại.',
+    );
+
+    this.logger.log(
+      `pauseForClarification() candidates=${candidates.map((c) => c.provider).join(',')} clarificationMessageId=${clarificationMessage.id}`,
+    );
+    return buildAnswer(
+      '⏸️ Cần bạn làm rõ trước khi tiếp tục — xem tin nhắn bên dưới.',
+      toolCalls,
+    );
+  }
+
+  private buildClarificationQuestion(
+    task: string,
+    candidates: AvailableAgentDto[],
+  ): string {
+    const labels = candidates.map((c) => `"${c.label}"`).join(' hay ');
+    return `Bạn muốn dùng ${labels} cho việc: "${task}"?`;
   }
 
   // createMessage() (message service) chưa hỗ trợ toolCalls lúc tạo — gắn
