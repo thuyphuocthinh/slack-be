@@ -697,6 +697,19 @@ describe('ApprovalFlowService', () => {
       expect(remainingSteps[0].task).toContain('Đã xử lý 1/5');
     });
 
+    it('tells the model to batch the remaining rows into a single tool call (manual_test_bank.md V1/V2 — avoid 1 approval round per row)', async () => {
+      mockStrategy.generateStructured
+        .mockResolvedValueOnce({ requiredCount: 20 })
+        .mockResolvedValueOnce({ achievedCount: 1 });
+
+      await runApprovalJob();
+
+      const remainingSteps = mockTurnResolver.continueRounds.mock.calls[0][8];
+      expect(remainingSteps[0].task).toContain(
+        'gộp TOÀN BỘ 19 phần còn thiếu vào ĐÚNG 1 lần gọi tool duy nhất',
+      );
+    });
+
     it('leaves remainingSteps untouched when the achieved count already matches', async () => {
       mockStrategy.generateStructured
         .mockResolvedValueOnce({ requiredCount: 5 })

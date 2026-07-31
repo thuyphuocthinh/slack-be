@@ -375,7 +375,7 @@ export class ApprovalFlowService {
     );
     const continuationStep: DelegationDto = {
       agent: pendingTool!.provider,
-      task: `${pendingTask}\n\n(Đã xử lý ${achievedCount}/${requiredCount} — làm tiếp ${requiredCount - achievedCount} phần còn thiếu, không lặp lại phần đã xong.)`,
+      task: `${pendingTask}\n\n(Đã xử lý ${achievedCount}/${requiredCount} — làm tiếp ${requiredCount - achievedCount} phần còn thiếu, không lặp lại phần đã xong. Nếu tool cho phép nhiều bản ghi trong 1 lần gọi, hãy gộp TOÀN BỘ ${requiredCount - achievedCount} phần còn thiếu vào ĐÚNG 1 lần gọi tool duy nhất — mỗi lần cần duyệt lại tốn thêm 1 vòng chờ user, không chia nhỏ thêm nữa.)`,
       mustExecute: true,
     };
     return {
