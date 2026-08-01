@@ -250,6 +250,19 @@ describe('CheckpointService', () => {
     });
   });
 
+  describe('revertApprovedClaim (bug fix — undo claim() when the enqueue right after it fails)', () => {
+    it('atomically reverts status back to pending only WHERE it is still approved', async () => {
+      mockRepo.update.mockResolvedValue({ affected: 1 });
+
+      await service.revertApprovedClaim({ id: 'checkpoint-1' });
+
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'checkpoint-1', status: OrchestrationCheckpointStatus.APPROVED },
+        { status: OrchestrationCheckpointStatus.PENDING },
+      );
+    });
+  });
+
   describe('claimExecution (Giai đoạn 4, Step 1 — idempotency cho processApprovalJob)', () => {
     it('atomically sets execution_started_at only WHERE it is still NULL, and reports claimed=true on success', async () => {
       mockQueryBuilder.execute.mockResolvedValue({ affected: 1 });

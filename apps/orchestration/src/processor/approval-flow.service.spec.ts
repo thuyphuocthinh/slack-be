@@ -39,6 +39,7 @@ describe('ApprovalFlowService', () => {
     claim: jest.fn(),
     claimExecution: jest.fn(),
     markToolExecuted: jest.fn(),
+    revertApprovedClaim: jest.fn(),
   };
   const mockMcpClient = { callTool: jest.fn() };
   const mockQueueService = { addJob: jest.fn() };
@@ -57,6 +58,7 @@ describe('ApprovalFlowService', () => {
     mockCheckpoint.claim.mockResolvedValue({ claimed: true });
     mockCheckpoint.claimExecution.mockResolvedValue({ claimed: true });
     mockCheckpoint.markToolExecuted.mockResolvedValue(undefined);
+    mockCheckpoint.revertApprovedClaim.mockResolvedValue(undefined);
     mockQueueService.addJob.mockResolvedValue({ id: 'job-1' });
     mockSupervisor.getAvailableAgents.mockResolvedValue([]);
     mockTurnResolver.continueRounds.mockResolvedValue({
@@ -171,6 +173,24 @@ describe('ApprovalFlowService', () => {
       );
       expect(mockMcpClient.callTool).not.toHaveBeenCalled();
       expect(mockMessageClient.updateMessage).not.toHaveBeenCalled();
+    });
+
+    it('approve: reverts the claim back to PENDING when enqueueing the job fails, instead of leaving it stuck APPROVED forever', async () => {
+      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(checkpoint);
+      mockQueueService.addJob.mockRejectedValue(new Error('redis unreachable'));
+
+      await expect(
+        service.resolveApproval({
+          userId: 'user-1',
+          messageId: 'approval-msg-1',
+          action: 'approve',
+        }),
+      ).rejects.toThrow();
+
+      expect(mockCheckpoint.revertApprovedClaim).toHaveBeenCalledWith({
+        id: 'checkpoint-1',
+      });
+      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
     });
 
     it('throws CHECKPOINT_NOT_FOUND when there is no pending checkpoint for this message', async () => {

@@ -202,6 +202,18 @@ export class CheckpointService {
       .execute();
   }
 
+  // Đảo ngược claim() 'approved' khi bước enqueue job NGAY SAU nó lại thất bại — không
+  // revert thì checkpoint kẹt vĩnh viễn ở APPROVED mà chưa job nào từng được tạo:
+  // findExpiredPending() chỉ quét PENDING, findStalledExecution() cần execution_started_at
+  // (chỉ set BÊN TRONG job không tồn tại đó). WHERE status='approved' đảm bảo chỉ tự sửa
+  // đúng claim của chính request này.
+  async revertApprovedClaim(dto: { id: string }): Promise<void> {
+    await this.repo.update(
+      { id: dto.id, status: OrchestrationCheckpointStatus.APPROVED },
+      { status: OrchestrationCheckpointStatus.PENDING },
+    );
+  }
+
   async markStalledAsRejected(
     dto: MarkStalledAsRejectedRequestDto,
   ): Promise<ClaimCheckpointResponseDto> {

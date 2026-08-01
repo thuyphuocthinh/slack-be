@@ -91,16 +91,29 @@ export class ApprovalFlowService {
       return;
     }
 
-    // attempts:1 — mcpClient.callTool() không idempotent (VD UPDATE, tạo
-    // issue thật), auto-retry mặc định của queue sẽ chạy lại tool THẬT lần 2.
-    // "clarify" không gọi tool nào, nhưng vẫn qua CÙNG job (resume continueRounds()
-    // có thể mất vài giây tới vài chục giây, cùng lý do đẩy nền như "approve").
-    await this.queueService.addJob(
-      EQueueName.AI_ORCHESTRATION_QUEUE,
-      EJobName.PROCESS_APPROVAL,
-      { checkpointId: checkpoint.id, userId: dto.userId },
-      { attempts: 1 },
-    );
+    try {
+      // attempts:1 — mcpClient.callTool() không idempotent (VD UPDATE, tạo
+      // issue thật), auto-retry mặc định của queue sẽ chạy lại tool THẬT lần 2.
+      // "clarify" không gọi tool nào, nhưng vẫn qua CÙNG job (resume continueRounds()
+      // có thể mất vài giây tới vài chục giây, cùng lý do đẩy nền như "approve").
+      await this.queueService.addJob(
+        EQueueName.AI_ORCHESTRATION_QUEUE,
+        EJobName.PROCESS_APPROVAL,
+        { checkpointId: checkpoint.id, userId: dto.userId },
+        { attempts: 1 },
+      );
+    } catch (error) {
+      // claim() ở trên đã chốt APPROVED — nếu enqueue thất bại mà không revert,
+      // checkpoint kẹt vĩnh viễn ở APPROVED không job nào từng chạy, không cron nào
+      // cứu được. Trả về PENDING để user bấm Approve lại là đủ tự phục hồi ngay.
+      this.logger.error(
+        `resolveApproval() failed to enqueue PROCESS_APPROVAL for checkpoint ${checkpoint.id}, reverting claim: ${(error as Error).message}`,
+      );
+      await this.checkpoint.revertApprovedClaim({ id: checkpoint.id });
+      throw new RpcException(
+        ORCHESTRATION_ERROR.CHECKPOINT_APPROVAL_ENQUEUE_FAILED,
+      );
+    }
   }
 
   // Checkpoint đã claim() 'approved' TRƯỚC khi job này chạy (xem
