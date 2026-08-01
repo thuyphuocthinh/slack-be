@@ -188,6 +188,90 @@ describe('DynamicToolRegistryService', () => {
     });
   });
 
+  describe('markTokenRefreshed (bug fix — TTL reload racing a reactive OAuth2 refresh not yet persisted)', () => {
+    afterEach(() => jest.useRealTimers());
+
+    const T0 = new Date('2026-01-01T00:00:00.000Z');
+
+    it('keeps the RAM token on a TTL reload when it was mutated AFTER the DB row was last written (persist job has not landed yet)', async () => {
+      jest.useFakeTimers({ now: T0 });
+      parserService.loadSpec.mockResolvedValue({
+        openapi: '3.0.0',
+        info: { title: 'Test', version: '1.0' },
+        paths: {},
+      } as unknown as OpenAPI.Document);
+      mockRepo.findOne.mockResolvedValueOnce({
+        specUrl: 'http://example.com/spec.json',
+        isActive: true,
+        accessToken: 'original-access-token',
+        refreshToken: 'original-refresh-token',
+        updatedAt: T0,
+      });
+
+      const spec = await service.getProviderSpec('p1');
+
+      // 401 → reactive renew, 5s sau lần load: mutate RAM trực tiếp rồi báo lại cho
+      // registry, giống hệt DynamicToolExecutorService.refreshOAuth2Token().
+      await jest.advanceTimersByTimeAsync(5000);
+      spec.accessToken = 'fresh-access-token';
+      spec.refreshToken = 'fresh-refresh-token';
+      service.markTokenRefreshed('p1'); // tokenMutatedAt = T0 + 5s
+
+      // Hết TTL → ensureLoaded() phải đọc lại DB. mockRepo vẫn trả về đúng bản GHI TỪ
+      // TRƯỚC lúc mutate (updatedAt=T0, job persist token mới chưa kịp chạy xong) —
+      // RAM (T0+5s) mới hơn nên phải thắng.
+      mockRepo.findOne.mockResolvedValueOnce({
+        specUrl: 'http://example.com/spec.json',
+        isActive: true,
+        accessToken: 'original-access-token',
+        refreshToken: 'original-refresh-token',
+        updatedAt: T0,
+      });
+      await jest.advanceTimersByTimeAsync(CACHE_TTL_MS + 1000);
+
+      const reloaded = await service.getProviderSpec('p1');
+      expect(reloaded.accessToken).toBe('fresh-access-token');
+      expect(reloaded.refreshToken).toBe('fresh-refresh-token');
+    });
+
+    it('adopts the DB token on a TTL reload when it is newer than the last RAM mutation (persist job already landed)', async () => {
+      jest.useFakeTimers({ now: T0 });
+      parserService.loadSpec.mockResolvedValue({
+        openapi: '3.0.0',
+        info: { title: 'Test', version: '1.0' },
+        paths: {},
+      } as unknown as OpenAPI.Document);
+      mockRepo.findOne.mockResolvedValueOnce({
+        specUrl: 'http://example.com/spec.json',
+        isActive: true,
+        accessToken: 'original-access-token',
+        refreshToken: 'original-refresh-token',
+        updatedAt: T0,
+      });
+
+      const spec = await service.getProviderSpec('p1');
+      await jest.advanceTimersByTimeAsync(5000);
+      spec.accessToken = 'fresh-access-token';
+      spec.refreshToken = 'fresh-refresh-token';
+      service.markTokenRefreshed('p1'); // tokenMutatedAt = T0 + 5s
+
+      // Job persist chạy xong ngay sau đó (T0 + 5.5s) — TRƯỚC khi TTL hết hạn.
+      const persistedAt = new Date(T0.getTime() + 5500);
+      await jest.advanceTimersByTimeAsync(CACHE_TTL_MS + 1000);
+      mockRepo.findOne.mockResolvedValueOnce({
+        specUrl: 'http://example.com/spec.json',
+        isActive: true,
+        accessToken: 'persisted-access-token',
+        refreshToken: 'persisted-refresh-token',
+        updatedAt: persistedAt,
+      });
+
+      const reloaded = await service.getProviderSpec('p1');
+      expect(reloaded.accessToken).toBe('persisted-access-token');
+      expect(reloaded.refreshToken).toBe('persisted-refresh-token');
+    });
+  });
+
   describe('semantic tool search (Giai đoạn 4 — Tool RAG, >128 tools)', () => {
     beforeEach(() => {
       mockRepo.findOne.mockResolvedValue({
