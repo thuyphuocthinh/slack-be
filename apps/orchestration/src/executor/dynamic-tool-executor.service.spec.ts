@@ -27,6 +27,7 @@ describe('DynamicToolExecutorService', () => {
   beforeEach(async () => {
     const mockRegistryService = {
       getProviderSpec: jest.fn(),
+      markTokenRefreshed: jest.fn(),
     };
 
     const mockRepo = {
@@ -317,7 +318,7 @@ describe('DynamicToolExecutorService', () => {
       providerId: 'test_provider',
       specUrl: 'http://test',
       document: mockSpec,
-      tools: [],
+      tools: [{ name: 'getFlaky', annotations: { readOnlyHint: true } }] as any,
     });
     (axios as unknown as jest.Mock)
       .mockRejectedValueOnce({
@@ -331,6 +332,42 @@ describe('DynamicToolExecutorService', () => {
     expect(result.isError).toBe(false);
     expect(result.content![0].text).toContain('"ok": true');
     expect(axios).toHaveBeenCalledTimes(2);
+  });
+
+  it('does NOT retry a non-idempotent (write) tool on a transient failure — the server may have already processed it', async () => {
+    const mockSpec: OpenAPIV3.Document = {
+      openapi: '3.0.0',
+      info: { title: 'Test', version: '1.0' },
+      servers: [{ url: 'https://api.test.com' }],
+      paths: {
+        '/orders': {
+          post: { operationId: 'createOrder' } as any,
+        },
+      },
+    };
+
+    registryService.getProviderSpec.mockResolvedValue({
+      providerId: 'test_provider',
+      specUrl: 'http://test',
+      document: mockSpec,
+      tools: [
+        {
+          name: 'createOrder',
+          annotations: { readOnlyHint: false, destructiveHint: true },
+        },
+      ] as any,
+    });
+    (axios as unknown as jest.Mock).mockRejectedValue({
+      response: { status: 503, data: 'Service Unavailable' },
+      config: {},
+    });
+
+    const result = await service.execute('test_provider', 'createOrder', {});
+
+    expect(result.isError).toBe(true);
+    // Không có readOnlyHint — chỉ 1 lần gọi thật, không retry mù lên 1 side-effect
+    // có thể đã xử lý xong phía server.
+    expect(axios).toHaveBeenCalledTimes(1);
   });
 
   describe('reactive OAuth2 renew on 401', () => {
@@ -654,7 +691,9 @@ describe('DynamicToolExecutorService', () => {
       providerId: 'test_provider',
       specUrl: 'http://test',
       document: mockSpec,
-      tools: [],
+      tools: [
+        { name: 'getAlwaysDown', annotations: { readOnlyHint: true } },
+      ] as any,
     });
     (axios as unknown as jest.Mock).mockRejectedValue({
       response: { status: 503, data: 'Service Unavailable' },

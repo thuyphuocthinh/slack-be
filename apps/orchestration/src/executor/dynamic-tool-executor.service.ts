@@ -105,6 +105,22 @@ export class DynamicToolExecutorService {
     };
   }
 
+  // Retry chỉ an toàn cho tool ĐỌC (readOnlyHint, tức GET/HEAD/OPTIONS — xem
+  // deriveMethodAnnotations). Tool GHI (POST/PUT/DELETE...) có thể đã xử lý xong ở
+  // phía server trước khi network error xảy ra (timeout/mất kết nối, không có response
+  // để biết được) — retry mù sẽ chạy lại 1 side-effect không idempotent lần nữa mà
+  // không ai hay biết. Không tìm thấy tool trong danh sách (không nên xảy ra) cũng coi
+  // như không an toàn — mặc định thận trọng.
+  private isRetrySafe(
+    providerSpec: DynamicProviderSpec,
+    toolName: string,
+  ): boolean {
+    return (
+      providerSpec.tools.find((t) => t.name === toolName)?.annotations
+        ?.readOnlyHint === true
+    );
+  }
+
   private callTool(
     spec: Record<string, unknown>,
     toolName: string,
@@ -112,12 +128,13 @@ export class DynamicToolExecutorService {
     providerSpec: DynamicProviderSpec,
     signal?: AbortSignal,
   ): Promise<unknown> {
+    const maxRetries = this.isRetrySafe(providerSpec, toolName) ? 2 : 0;
     return this.libExecutor.execute(spec, toolName, args, {
       accessToken: providerSpec.accessToken,
       authType: providerSpec.authType as unknown as ELibAuthType,
       timeout: 15000,
       responseProcessors: this.responseProcessors,
-      retry: { maxRetries: 2 },
+      retry: { maxRetries },
       hooks: this.buildHooks(),
       signal,
     });
@@ -238,6 +255,10 @@ export class DynamicToolExecutorService {
     providerSpec.accessToken = newState.accessToken;
     providerSpec.refreshToken = newState.refreshToken;
     providerSpec.tokenExpiresAt = newState.tokenExpiresAt;
+    // Đánh dấu mốc mutate này lại — nếu loadIntoCache() (TTL) chạy gần như đồng thời
+    // và đọc lại DB TRƯỚC KHI job persist ở trên xong, nó cần biết để KHÔNG đè token
+    // vừa refresh bằng bản DB cũ (xem DynamicToolRegistryService.markTokenRefreshed).
+    this.registry.markTokenRefreshed(providerId);
     this.logger.log(
       `Successfully renewed OAuth2 token for "${providerId}" after a 401`,
     );
