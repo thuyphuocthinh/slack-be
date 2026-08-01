@@ -111,9 +111,15 @@ export class CheckpointCleanupService {
 
     // toolExecutedAt đã set = hành động THẬT đã chạy xong, worker chỉ crash
     // lúc tổng hợp câu trả lời sau đó — báo "thử lại" ở đây sẽ ghi trùng.
+    //
+    // toolExecutedAt CHƯA set thì KHÔNG có nghĩa là chưa chạy — approveCheckpoint()
+    // gọi tool thật RỒI MỚI markToolExecuted(), nên worker crash đúng giữa 2 bước đó
+    // vẫn để lại toolExecutedAt=null dù hành động (không idempotent) đã chạy xong.
+    // Không thể phân biệt 2 case này chỉ bằng dữ liệu đang có — báo "thử lại" một cách
+    // chắc nịch ở đây là nguy hiểm (có thể khiến hành động chạy trùng lần 2).
     const content = checkpoint.toolExecutedAt
       ? '⚠️ Hành động đã được duyệt và THỰC THI THÀNH CÔNG, nhưng worker gặp sự cố ngay sau đó khi tổng hợp câu trả lời. Kết quả đã được ghi — không cần thực hiện lại hành động này.'
-      : '⚠️ Hành động đã được duyệt nhưng worker gặp sự cố trong lúc thực thi. Vui lòng thử lại.';
+      : '⚠️ Hành động đã được duyệt nhưng worker gặp sự cố trong lúc thực thi — CHƯA THỂ XÁC ĐỊNH hành động đã thực sự chạy hay chưa. Vui lòng tự kiểm tra kết quả (VD trong hệ thống/ứng dụng đích) TRƯỚC KHI yêu cầu lại, để tránh thực hiện trùng.';
     await this.messageClient.updateMessage({
       id: checkpoint.replyMessageId,
       userId: checkpoint.userId,

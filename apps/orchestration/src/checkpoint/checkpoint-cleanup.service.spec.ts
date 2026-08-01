@@ -135,11 +135,14 @@ describe('CheckpointCleanupService', () => {
       expect(mockCheckpoint.markStalledAsRejected).toHaveBeenCalledWith({
         id: 'stalled-1',
       });
+      // toolExecutedAt=null KHÔNG chắc là "chưa chạy" — approveCheckpoint() gọi tool
+      // thật RỒI MỚI markToolExecuted(), nên message không được confidently bảo "thử
+      // lại" (rủi ro chạy trùng 1 hành động không idempotent).
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
         id: 'approval-msg-stalled',
         userId: 'user-1',
         content:
-          '⚠️ Hành động đã được duyệt nhưng worker gặp sự cố trong lúc thực thi. Vui lòng thử lại.',
+          '⚠️ Hành động đã được duyệt nhưng worker gặp sự cố trong lúc thực thi — CHƯA THỂ XÁC ĐỊNH hành động đã thực sự chạy hay chưa. Vui lòng tự kiểm tra kết quả (VD trong hệ thống/ứng dụng đích) TRƯỚC KHI yêu cầu lại, để tránh thực hiện trùng.',
       });
       expect(mockAgentStream.emitStep).toHaveBeenCalledWith(
         {
