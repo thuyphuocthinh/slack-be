@@ -416,6 +416,33 @@ describe('McpClientService', () => {
       expect(mockCallTool).toHaveBeenCalledTimes(1);
     });
 
+    it('bug fix — treats a tool as destructive when the cached annotation is older than the TTL, instead of trusting a stale "safe" snapshot', async () => {
+      (service as any).toolsCache.set('sql_server', {
+        data: [
+          {
+            name: 'execute_write_query',
+            description: '',
+            inputSchema: {},
+            annotations: { readOnlyHint: false, destructiveHint: false },
+          },
+        ],
+        fetchedAt:
+          Date.now() - ORCHESTRATION_CONSTANTS.MCP_TOOLS_CACHE_TTL_MS - 1000,
+      });
+      mockCallTool.mockRejectedValue(new Error('ETIMEDOUT'));
+
+      await expect(
+        service.callTool({
+          provider: 'sql_server',
+          name: 'execute_write_query',
+          args: { query: 'DELETE FROM Orders' },
+          ownerId: 'user-1',
+        }),
+      ).rejects.toThrow('ETIMEDOUT');
+
+      expect(mockCallTool).toHaveBeenCalledTimes(1);
+    });
+
     it('DOES retry a destructive tool exactly once on a stale-session error — mcp_server restart means the request was rejected at the transport layer, before it ever reached the tool handler, so retrying is provably safe', async () => {
       mockListTools.mockResolvedValue({
         tools: [

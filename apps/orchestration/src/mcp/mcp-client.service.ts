@@ -118,6 +118,16 @@ export class McpClientService {
     );
     await Promise.all(
       idleEntries.map(async ([cacheKey, entry]) => {
+        // Re-check danh tính + độ mới ngay trước khi xoá, giống cách getClient() tự dọn
+        // dẹp — tránh xoá nhầm 1 entry MỚI đã thay thế entry cũ tại cùng cacheKey.
+        if (
+          Date.now() - entry.lastUsedAt <=
+          ORCHESTRATION_CONSTANTS.MCP_CLIENT_IDLE_TTL_MS
+        ) {
+          return;
+        }
+        if (this.clients.get(cacheKey) !== entry) return;
+
         this.clients.delete(cacheKey);
         try {
           const client = await entry.promise;
@@ -196,6 +206,24 @@ export class McpClientService {
 
     this.inFlightLists.set(key, fetchPromise);
     return fetchPromise;
+  }
+
+  // callTool() dùng annotations của tool này để quyết định số lần retry an toàn
+  // (isDestructive) — chỉ tin cache còn trong TTL, cache cũ có thể không còn khớp
+  // với tool thật (VD provider vừa đổi 1 tool từ an toàn sang destructive).
+  private getFreshCachedTool(
+    provider: string,
+    toolName: string,
+  ): McpToolDto | undefined {
+    const cached = this.toolsCache.get(provider);
+    if (
+      !cached ||
+      Date.now() - cached.fetchedAt >=
+        ORCHESTRATION_CONSTANTS.MCP_TOOLS_CACHE_TTL_MS
+    ) {
+      return undefined;
+    }
+    return cached.data.find((t) => t.name === toolName);
   }
 
   async getTools(
@@ -302,9 +330,7 @@ export class McpClientService {
       );
     }
 
-    const cachedTool = this.toolsCache
-      .get(dto.provider)
-      ?.data.find((t) => t.name === dto.name);
+    const cachedTool = this.getFreshCachedTool(dto.provider, dto.name);
     const isDestructive = cachedTool
       ? Boolean(cachedTool.annotations?.destructiveHint)
       : true;
