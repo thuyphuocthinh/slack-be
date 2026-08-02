@@ -5,6 +5,7 @@ import { ORCHESTRATION_CONSTANTS } from '@slack/constants';
 import { ChannelMemoryEntity } from '../entity/channel-memory.entity';
 import { ToolCallTraceDto } from '../dto/react-loop.dto';
 import { isLikelyCreateToolCall } from './create-tool-heuristic.util';
+import { looksLikeInjection } from './memory-injection-heuristic.util';
 
 // ver3.md mục 1 (dài hạn) — ghi nhớ THỰC THỂ ổn định vừa được tạo thành công
 // trong 1 channel, đọc lại làm gợi ý ngữ cảnh cho SupervisorService.plan().
@@ -43,6 +44,13 @@ export class ChannelMemoryService {
               ? `${joined.slice(0, maxChars)}...`
               : joined,
         };
+      })
+      .filter((row) => {
+        if (!looksLikeInjection(row.content)) return true;
+        this.logger.warn(
+          `recordSuccessfulCreateCalls() skipped a suspicious memory for channel ${channelId} (looks like a prompt injection attempt)`,
+        );
+        return false;
       });
 
     if (rows.length === 0) return;
