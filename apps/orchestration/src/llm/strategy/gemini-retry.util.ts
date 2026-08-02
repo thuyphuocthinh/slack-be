@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { abortableSleep } from '../../common/abortable-sleep.util';
 
 /**
  * Gemini API thỉnh thoảng trả 429 (quota) hoặc 503 (server quá tải) — đều
@@ -37,7 +38,7 @@ export async function withGeminiRetry<T>(
       logger.warn(
         `Gemini call failed (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs}ms: ${(error as Error).message}`,
       );
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      await abortableSleep(delayMs, signal);
     }
   }
   throw new Error('withGeminiRetry: unreachable');
