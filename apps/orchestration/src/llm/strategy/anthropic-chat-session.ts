@@ -128,6 +128,15 @@ export class AnthropicChatSession implements LlmChatSession {
       throw new Error('Aborted — request cũ đã bị bỏ do timeout/retry');
     }
 
+    if (
+      message.stop_reason === 'max_tokens' &&
+      message.content.some((block) => block.type === 'tool_use')
+    ) {
+      throw new Error(
+        'Anthropic response truncated (max_tokens) while generating a tool call — arguments may be incomplete',
+      );
+    }
+
     // Lưu lại đúng content block Claude vừa trả (text + tool_use) làm turn
     // "assistant" — bắt buộc phải có trong history thì tool_result gửi ở
     // lượt sau mới khớp đúng tool_use_id tương ứng.

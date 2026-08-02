@@ -98,6 +98,32 @@ describe('AnthropicStrategy', () => {
       ]);
     });
 
+    it('throws instead of returning a tool call with possibly-truncated arguments when stop_reason is "max_tokens"', async () => {
+      mockStream.mockReturnValue({
+        on: jest.fn().mockReturnThis(),
+        finalMessage: async () => ({
+          stop_reason: 'max_tokens',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'toolu_1',
+              name: 'get_schema',
+              input: { table: 'Ord' },
+            },
+          ],
+        }),
+      });
+
+      const session = strategy.startChat({
+        model: 'claude-haiku',
+        systemInstruction: '',
+        tools: [],
+        history: [],
+      });
+
+      await expect(session.sendMessage('hi')).rejects.toThrow('truncated');
+    });
+
     it('passes opts.temperature through to every messages.stream call (Step 7)', async () => {
       mockStream.mockReturnValue({
         on: jest.fn().mockReturnThis(),

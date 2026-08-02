@@ -104,6 +104,7 @@ export class OpenAiChatSession implements LlmChatSession {
     );
 
     let fullText = '';
+    let finishReason: string | null = null;
     const toolCallsMap: Record<number, any> = {};
     let usage:
       | {
@@ -117,6 +118,8 @@ export class OpenAiChatSession implements LlmChatSession {
       if (chunk.usage) {
         usage = chunk.usage;
       }
+
+      finishReason = chunk.choices?.[0]?.finish_reason ?? finishReason;
 
       const delta = chunk.choices?.[0]?.delta;
       if (!delta) {
@@ -157,6 +160,12 @@ export class OpenAiChatSession implements LlmChatSession {
       name: call.function.name,
       args: this.safeParseArgs(call.function.arguments),
     }));
+
+    if (finishReason === 'length' && toolCalls.length > 0) {
+      throw new Error(
+        'OpenAI response truncated (max_tokens) while generating a tool call — arguments may be incomplete',
+      );
+    }
 
     // abort() ở timeout không đảm bảo request cũ dừng NGAY — nếu nó vẫn tự
     // hoàn tất sau khi đã bị bỏ (lần retry khác đang chạy), KHÔNG được ghi

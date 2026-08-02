@@ -225,6 +225,39 @@ describe('OpenAiStrategy', () => {
       expect(result.toolCalls[0].args).toEqual({});
     });
 
+    it('throws instead of returning a tool call with possibly-truncated arguments when finish_reason is "length"', async () => {
+      mockCreate.mockResolvedValue(
+        mockStream([
+          {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: 'call_1',
+                      type: 'function',
+                      function: { name: 'x', arguments: '{"a":1' },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          { choices: [{ delta: {}, finish_reason: 'length' }] },
+        ]),
+      );
+
+      const session = strategy.startChat({
+        model: 'gpt-4o-mini',
+        systemInstruction: '',
+        tools: [],
+        history: [],
+      });
+
+      await expect(session.sendMessage('hi')).rejects.toThrow('truncated');
+    });
+
     it('Giai đoạn 4, Step 7 — attaches token usage from completion.usage onto the current trace', async () => {
       const runTree: { metadata?: unknown } = {};
       mockGetCurrentRunTree.mockReturnValue(runTree);
