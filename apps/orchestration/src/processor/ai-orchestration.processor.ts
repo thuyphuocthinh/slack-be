@@ -191,10 +191,16 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       }
     } finally {
       // Luôn báo "done" — FE dựa vào đây để tắt icon "đang chạy tool...".
-      await this.agentStream.emitStep(
-        { userId, channelId, messageId: reply.id, channelType },
-        { type: 'done' },
-      );
+      await this.agentStream
+        .emitStep(
+          { userId, channelId, messageId: reply.id, channelType },
+          { type: 'done' },
+        )
+        .catch((error) =>
+          this.logger.warn(
+            `emitStep('done') failed: ${(error as Error).message}`,
+          ),
+        );
     }
   }
 

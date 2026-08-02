@@ -170,6 +170,21 @@ export class ApprovalFlowService {
     return checkpoint;
   }
 
+  private async emitDone(context: {
+    userId: string;
+    channelId: string;
+    messageId: string;
+    channelType: string;
+  }): Promise<void> {
+    await this.agentStream
+      .emitStep(context, { type: 'done' })
+      .catch((error) =>
+        this.logger.warn(
+          `emitStep('done') failed: ${(error as Error).message}`,
+        ),
+      );
+  }
+
   private async rejectCheckpoint(
     checkpoint: CheckpointResponseDto,
     userId: string,
@@ -180,10 +195,12 @@ export class ApprovalFlowService {
       userId: botUserId,
       content: '❌ Đã huỷ theo yêu cầu.',
     });
-    await this.agentStream.emitStep(
-      { userId, channelId, messageId: replyMessageId, channelType },
-      { type: 'done' },
-    );
+    await this.emitDone({
+      userId,
+      channelId,
+      messageId: replyMessageId,
+      channelType,
+    });
   }
 
   private async approveCheckpoint(
@@ -322,10 +339,12 @@ export class ApprovalFlowService {
         });
       }
     } finally {
-      await this.agentStream.emitStep(
-        { userId, channelId, messageId: replyMessageId, channelType },
-        { type: 'done' },
-      );
+      await this.emitDone({
+        userId,
+        channelId,
+        messageId: replyMessageId,
+        channelType,
+      });
     }
   }
 
@@ -485,10 +504,12 @@ export class ApprovalFlowService {
         });
       }
     } finally {
-      await this.agentStream.emitStep(
-        { userId, channelId, messageId: replyMessageId, channelType },
-        { type: 'done' },
-      );
+      await this.emitDone({
+        userId,
+        channelId,
+        messageId: replyMessageId,
+        channelType,
+      });
     }
   }
 
