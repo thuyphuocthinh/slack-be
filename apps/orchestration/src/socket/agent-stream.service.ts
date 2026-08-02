@@ -87,6 +87,12 @@ interface PendingTokenBatch {
   timer: NodeJS.Timeout;
 }
 
+interface EmitPayload {
+  event: string;
+  room: string;
+  data: Record<string, unknown>;
+}
+
 /**
  * Tách riêng khỏi ReactLoopService — "done" (kết thúc turn) giờ do tầng
  * orchestrator ngoài cùng (AiOrchestrationProcessor) phát ra, bao trùm cả
@@ -127,19 +133,20 @@ export class AgentStreamService implements OnModuleDestroy {
       return;
     }
 
-    // Bất kỳ step nào KHÁC 'token' phải thấy đúng phần token đã gộp TRƯỚC nó —
-    // xả ngay (đồng bộ với emit thật, không phải chỉ xoá buffer) rồi mới emit.
-    await this.flush(key);
-    await this.emitNow(key, context, step);
+    // seq gán ĐỒNG BỘ ở đây (trước khi addJob() bất đồng bộ) — nếu không, 1 caller
+    // không await emitStep() có thể bị 1 lệnh gọi SAU nhưng có await giành seq trước.
+    const pending = this.drainPendingBatch(key);
+    const payload = this.buildEmitPayload(context, step, key);
+    if (pending) await this.sendPayload(pending);
+    await this.sendPayload(payload);
   }
 
   async onModuleDestroy(): Promise<void> {
     clearInterval(this.sweepTimer);
-    // Tắt app giữa lúc đang stream — xả nốt phần token còn dở thay vì mất
-    // trắng đoạn cuối cùng chưa kịp tới ngưỡng flush.
-    await Promise.all(
-      [...this.pendingTokenBatches.keys()].map((key) => this.flush(key)),
-    );
+    const payloads = [...this.pendingTokenBatches.keys()]
+      .map((key) => this.drainPendingBatch(key))
+      .filter((p): p is EmitPayload => p !== null);
+    await Promise.all(payloads.map((p) => this.sendPayload(p)));
   }
 
   private batchKey(context: AgentStreamContext): string {
@@ -157,21 +164,28 @@ export class AgentStreamService implements OnModuleDestroy {
       return;
     }
     const timer = setTimeout(() => {
-      this.flush(key).catch((error) =>
-        this.logger.error(
-          `flush() failed for ${key}: ${(error as Error).message}`,
-        ),
-      );
+      const payload = this.drainPendingBatch(key);
+      if (payload) {
+        this.sendPayload(payload).catch((error) =>
+          this.logger.error(
+            `flush() failed for ${key}: ${(error as Error).message}`,
+          ),
+        );
+      }
     }, TOKEN_BATCH_FLUSH_MS);
     this.pendingTokenBatches.set(key, { text, context, timer });
   }
 
-  private async flush(key: string): Promise<void> {
+  private drainPendingBatch(key: string): EmitPayload | null {
     const batch = this.pendingTokenBatches.get(key);
-    if (!batch) return;
+    if (!batch) return null;
     clearTimeout(batch.timer);
     this.pendingTokenBatches.delete(key);
-    await this.emitNow(key, batch.context, { type: 'token', text: batch.text });
+    return this.buildEmitPayload(
+      batch.context,
+      { type: 'token', text: batch.text },
+      key,
+    );
   }
 
   private nextSeq(key: string): number {
@@ -192,31 +206,33 @@ export class AgentStreamService implements OnModuleDestroy {
     }
   }
 
-  private async emitNow(
-    key: string,
+  private buildEmitPayload(
     context: AgentStreamContext,
     step: AgentStreamStep,
-  ): Promise<void> {
+    key: string,
+  ): EmitPayload {
     const seq = this.nextSeq(key);
     if (step.type === 'done') {
-      // Kết thúc turn — không còn event nào cho key này nữa, dọn ngay thay vì
-      // đợi sweep định kỳ.
       this.sequenceStates.delete(key);
     }
+    return {
+      event: ESocketEvent.AGENT_STREAM,
+      room: `user_${context.userId}`,
+      data: {
+        ...step,
+        channelId: context.channelId,
+        messageId: context.messageId,
+        streamKey: context.streamKey ?? DEFAULT_STREAM_KEY,
+        seq,
+      },
+    };
+  }
+
+  private async sendPayload(payload: EmitPayload): Promise<void> {
     await this.queueService.addJob(
       EQueueName.SOCKET_QUEUE,
       EJobName.EMIT_EVENT,
-      {
-        event: ESocketEvent.AGENT_STREAM,
-        room: `user_${context.userId}`,
-        data: {
-          ...step,
-          channelId: context.channelId,
-          messageId: context.messageId,
-          streamKey: context.streamKey ?? DEFAULT_STREAM_KEY,
-          seq,
-        },
-      },
+      payload,
     );
   }
 }

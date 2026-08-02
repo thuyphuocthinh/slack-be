@@ -318,5 +318,27 @@ describe('AgentStreamService', () => {
 
       expect(mockQueueService.addJob.mock.calls[2][2].data.seq).toBe(1);
     });
+
+    it('bug fix — resync (không await) vẫn giữ seq nhỏ hơn 1 tool_call gọi SAU nhưng CÓ await, kể cả khi addJob() của resync chậm', async () => {
+      mockQueueService.addJob.mockImplementation(
+        () => new Promise((resolve) => setTimeout(resolve, 20)),
+      );
+      await service.emitStep(ctx, { type: 'token', text: 'hello' });
+
+      const resyncPromise = service
+        .emitStep(ctx, { type: 'resync', text: '' })
+        .catch(() => {});
+      await service.emitStep(ctx, { type: 'tool_call', tool: 'x' });
+      await resyncPromise;
+
+      const seqByType = Object.fromEntries(
+        mockQueueService.addJob.mock.calls.map((call) => [
+          call[2].data.type,
+          call[2].data.seq,
+        ]),
+      );
+      expect(seqByType.token).toBeLessThan(seqByType.resync);
+      expect(seqByType.resync).toBeLessThan(seqByType.tool_call);
+    });
   });
 });
