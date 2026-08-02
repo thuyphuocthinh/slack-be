@@ -104,6 +104,27 @@ describe('CheckpointCleanupService', () => {
     expect(mockMessageClient.updateMessage).toHaveBeenCalledTimes(2);
   });
 
+  it('bug fix — 1 checkpoint failing does not stop the others in the same batch from being processed', async () => {
+    const second = {
+      ...expiredCheckpoint,
+      id: 'checkpoint-2',
+      replyMessageId: 'approval-msg-2',
+      userId: 'user-2',
+    };
+    mockCheckpoint.findExpiredPending.mockResolvedValue([
+      expiredCheckpoint,
+      second,
+    ]);
+    mockCheckpoint.claim.mockResolvedValue({ claimed: true });
+    mockMessageClient.updateMessage
+      .mockRejectedValueOnce(new Error('message service unreachable'))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(service.expirePendingCheckpoints()).resolves.not.toThrow();
+
+    expect(mockMessageClient.updateMessage).toHaveBeenCalledTimes(2);
+  });
+
   // ─── recoverStalledExecutions (Bug fix — worker crash) ─────────────────────
 
   describe('recoverStalledExecutions (Bug fix — checkpoint kẹt vô hình sau worker crash)', () => {

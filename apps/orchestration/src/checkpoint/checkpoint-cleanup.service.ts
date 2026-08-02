@@ -30,7 +30,11 @@ export class CheckpointCleanupService {
       `expirePendingCheckpoints() found ${expired.length} expired checkpoint(s)`,
     );
 
-    await Promise.all(expired.map((checkpoint) => this.expireOne(checkpoint)));
+    await this.settleAll(
+      expired,
+      (checkpoint) => this.expireOne(checkpoint),
+      'expireOne()',
+    );
   }
 
   // Bug fix — checkpoint kẹt vô hình sau worker crash: status=APPROVED +
@@ -48,7 +52,26 @@ export class CheckpointCleanupService {
       `recoverStalledExecutions() found ${stalled.length} stalled checkpoint(s) — likely caused by a worker crash during tool execution`,
     );
 
-    await Promise.all(stalled.map((checkpoint) => this.recoverOne(checkpoint)));
+    await this.settleAll(
+      stalled,
+      (checkpoint) => this.recoverOne(checkpoint),
+      'recoverOne()',
+    );
+  }
+
+  private async settleAll<T extends { id: string }>(
+    items: T[],
+    run: (item: T) => Promise<void>,
+    label: string,
+  ): Promise<void> {
+    const results = await Promise.allSettled(items.map(run));
+    results.forEach((result, i) => {
+      if (result.status === 'rejected') {
+        this.logger.error(
+          `${label} failed for checkpoint ${items[i].id}: ${result.reason}`,
+        );
+      }
+    });
   }
 
   // dùng chung claim() atomic (Step 5) — nếu user vừa bấm Approve/Reject
