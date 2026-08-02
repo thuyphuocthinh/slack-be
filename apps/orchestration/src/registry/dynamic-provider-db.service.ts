@@ -141,6 +141,7 @@ export class DynamicProviderDbService {
       });
     }
 
+    const originalRefreshToken = entity.refreshToken;
     const authType = dto.authType ?? entity.authType;
     let accessToken = dto.accessToken || entity.accessToken;
     let refreshToken = dto.refreshToken || entity.refreshToken;
@@ -210,13 +211,34 @@ export class DynamicProviderDbService {
         }
       : undefined;
 
-    let saved: DynamicProviderEntity;
+    // CAS theo refreshToken đọc lúc findOne() — nếu 1 reactive-refresh (401) khác đã xoay
+    // refreshToken trong lúc hàm này chạy, affected=0 và bản cập nhật này KHÔNG được đè lên.
+    const saved = entity;
     try {
-      saved = await this.providerRepo.save(entity);
+      const result = await this.providerRepo.update(
+        { id: entity.id, refreshToken: originalRefreshToken },
+        {
+          name: entity.name,
+          specUrl: entity.specUrl,
+          description: entity.description,
+          authType: entity.authType,
+          accessToken: entity.accessToken,
+          refreshToken: entity.refreshToken,
+          tokenExpiresAt: entity.tokenExpiresAt,
+          authConfig: entity.authConfig as any,
+        },
+      );
+      if (result.affected === 0) {
+        throw new RpcException({
+          ...ORCHESTRATION_ERROR.DYNAMIC_PROVIDER_CONCURRENT_UPDATE,
+          details: `Dynamic provider ${entity.id} was modified concurrently — please retry.`,
+        });
+      }
       this.logger.log(
         `Updated dynamic provider "${saved.name}" with ID "${saved.id}"`,
       );
     } catch (dbError: any) {
+      if (dbError instanceof RpcException) throw dbError;
       this.logger.error(`Failed to update provider in DB: ${dbError.message}`);
       throw new RpcException({
         ...ORCHESTRATION_ERROR.DATABASE_OPERATION_FAILED,
