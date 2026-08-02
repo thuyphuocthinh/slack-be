@@ -32,7 +32,7 @@ import {
   resolveDataCharBudget,
 } from '../executor/tool-result-size-cap.util';
 import { classifyToolError } from '../executor/tool-error-classifier.util';
-import { countSqlInsertRows } from '../executor/count-sql-insert-rows.util';
+import { parseInsertValues } from '../executor/parse-insert-values.util';
 import { isLikelyCreateToolCall } from '../memory/create-tool-heuristic.util';
 
 /** Gộp về 1 dòng, không cắt bớt — xem code-notes/react-loop.service.md */
@@ -96,6 +96,12 @@ export class ReactLoopRun {
   // khi thật sự cần (tool ghi dạng create bị chặn approval), không tốn cho
   // các round chỉ đọc dữ liệu.
   private requiredCountPromise: Promise<number> | null = null;
+
+  // Tích luỹ tuple INSERT qua nhiều lần gọi (khoá theo table+cột) — xem checkBulkInsertShortfall().
+  private readonly insertAccumulator = new Map<
+    string,
+    { insertPrefix: string; tuples: Set<string> }
+  >();
 
   // handleToolCall() bind + traceable() 1 LẦN ở constructor — gọi trực tiếp
   // this.handleToolCall(...) trong execute() sẽ KHÔNG lên trace LangSmith.
@@ -308,9 +314,26 @@ export class ReactLoopRun {
     return this.requiredCountPromise;
   }
 
-  // manual_test_bank.md V1/V2 — model ghi thiếu dòng so với yêu cầu (VD "tạo
-  // 20 khách hàng" nhưng chỉ INSERT 1 dòng). Trả về câu nhắc sửa lại nếu phát
-  // hiện thiếu, null nếu không áp dụng được/đã đủ.
+  // Dedupe theo text tuple — phòng model gửi lại y hệt dòng đã gửi ở lần trước.
+  private accumulateInsertTuples(parsed: {
+    insertPrefix: string;
+    tableSignature: string;
+    tuples: string[];
+  }): { insertPrefix: string; tuples: string[] } {
+    const entry = this.insertAccumulator.get(parsed.tableSignature) ?? {
+      insertPrefix: parsed.insertPrefix,
+      tuples: new Set<string>(),
+    };
+    parsed.tuples.forEach((t) => entry.tuples.add(t));
+    this.insertAccumulator.set(parsed.tableSignature, entry);
+    return {
+      insertPrefix: entry.insertPrefix,
+      tuples: Array.from(entry.tuples),
+    };
+  }
+
+  // Model ghi thiếu dòng so với yêu cầu, kể cả rải ra nhiều lần gọi 1-dòng-1-lần —
+  // gộp tuple tích luỹ được thành 1 câu INSERT duy nhất, ghi đè args.query.
   private async checkBulkInsertShortfall(
     displayName: string,
     argsPreview: string,
@@ -322,9 +345,15 @@ export class ReactLoopRun {
     }
     const requiredCount = await this.getRequiredCount();
     if (requiredCount <= 0) return null;
-    const rowsInQuery = countSqlInsertRows(query);
-    if (rowsInQuery === null || rowsInQuery >= requiredCount) return null;
-    return `Câu lệnh này mới ghi ${rowsInQuery}/${requiredCount} dòng yêu cầu. Viết lại CÙNG 1 câu ghi, gồm ĐỦ ${requiredCount} dòng trong 1 lần gọi tool duy nhất, rồi gọi lại — không dừng lại khi chưa đủ.`;
+    const parsed = parseInsertValues(query);
+    if (!parsed) return null;
+
+    const { insertPrefix, tuples } = this.accumulateInsertTuples(parsed);
+    if (tuples.length >= requiredCount) {
+      args.query = `${insertPrefix} ${tuples.join(', ')}`;
+      return null;
+    }
+    return `Đã ghi nhận ${tuples.length}/${requiredCount} dòng yêu cầu (cộng dồn qua các lần gọi trước nếu có). Viết tiếp các dòng CÒN THIẾU (không lặp lại dòng đã gửi) trong 1 câu ghi duy nhất, rồi gọi lại.`;
   }
 
   private async handleToolCall(

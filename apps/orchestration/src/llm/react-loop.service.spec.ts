@@ -1136,6 +1136,48 @@ describe('ReactLoopService', () => {
       );
     });
 
+    it('merges rows dribbled across multiple single-row INSERTs into ONE approval instead of ever executing a partial write', async () => {
+      mockMcpClient.getTools.mockResolvedValue([
+        {
+          name: 'execute_write_query',
+          description: 'desc',
+          inputSchema: {},
+          annotations: { readOnlyHint: false, destructiveHint: true },
+        },
+      ]);
+      mockStrategy.generateStructured.mockResolvedValueOnce({
+        requiredCount: 5,
+      });
+      for (let i = 1; i <= 5; i++) {
+        mockSession.sendMessage.mockResolvedValueOnce({
+          text: '',
+          toolCalls: [
+            {
+              name: 'execute_write_query',
+              args: {
+                query: `INSERT INTO Products (Name, Price) VALUES ('Sản phẩm ${i}', ${i * 100})`,
+              },
+            },
+          ],
+        });
+      }
+
+      const error = await service
+        .run({
+          ...baseDto,
+          prompt: 'Tạo 5 sản phẩm ngẫu nhiên chèn vào bảng Products',
+        })
+        .catch((e) => e);
+
+      expect(error).toBeInstanceOf(ApprovalRequiredError);
+      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
+      const mergedQuery = error.pendingTool.args.query as string;
+      expect(mergedQuery.match(/INSERT INTO/gi)).toHaveLength(1);
+      for (let i = 1; i <= 5; i++) {
+        expect(mergedQuery).toContain(`'Sản phẩm ${i}'`);
+      }
+    });
+
     it('lets the tool call through to the approval gate when the INSERT already covers the full required count', async () => {
       mockMcpClient.getTools.mockResolvedValue([
         {
