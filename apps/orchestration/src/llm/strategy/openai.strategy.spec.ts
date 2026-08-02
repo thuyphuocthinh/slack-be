@@ -365,6 +365,24 @@ describe('OpenAiStrategy', () => {
       );
     });
 
+    it('throws when the model refuses instead of silently returning an empty object', async () => {
+      mockCreate.mockResolvedValue({
+        choices: [{ message: { refusal: "can't help with that" } }],
+      });
+
+      await expect(
+        strategy.generateStructured({
+          model: 'gpt-4o-mini',
+          systemInstruction: 'system',
+          prompt: 'chào bạn',
+          schema: {
+            type: 'object',
+            properties: { action: { type: 'string' } },
+          },
+        }),
+      ).rejects.toThrow("can't help with that");
+    });
+
     it('Giai đoạn 4, Step 7 — attaches token usage from completion.usage onto the current trace', async () => {
       const runTree: { metadata?: unknown } = {};
       mockGetCurrentRunTree.mockReturnValue(runTree);

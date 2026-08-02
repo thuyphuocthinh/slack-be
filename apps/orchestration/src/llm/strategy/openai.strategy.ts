@@ -162,7 +162,14 @@ export class OpenAiStrategy implements LlmStrategy {
       throw new Error(`9Router/OpenAI Error: ${JSON.stringify(completion)}`);
     }
 
-    const text = completion.choices[0]?.message?.content ?? '{}';
+    const message = completion.choices[0]?.message;
+    if (message?.refusal) {
+      throw new Error(
+        `OpenAI refused to generate structured output: ${message.refusal}`,
+      );
+    }
+
+    const text = message?.content ?? '{}';
     const extractor = new JsonExtractor();
     const cleanJson = extractor.extract(text);
 
