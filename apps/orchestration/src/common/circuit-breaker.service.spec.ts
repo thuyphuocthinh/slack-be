@@ -123,6 +123,32 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
     expect(result2).toBe('ok again');
   });
 
+  it('bug fix — wraps the raw opossum error into RpcException when a 2nd call races the half-open probe', async () => {
+    jest.useFakeTimers();
+    const failing = jest
+      .fn()
+      .mockRejectedValue(new Error('connect ECONNREFUSED'));
+    await tripCircuit(service, 'mcp:racing', failing);
+    await jest.advanceTimersByTimeAsync(
+      ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_RESET_TIMEOUT_MS + 1,
+    );
+
+    const probe = jest.fn(
+      () => new Promise((resolve) => setTimeout(() => resolve('probe ok'), 10)),
+    );
+    const first = service.run('mcp:racing', probe);
+    const second = service.run('mcp:racing', probe).catch((e) => e);
+
+    const secondError = await second;
+    expect(secondError).toBeInstanceOf(RpcException);
+    expect((secondError as RpcException).getError()).toEqual(
+      expect.objectContaining({ code: 'ERR.ORCHESTRATION.0109' }),
+    );
+
+    await jest.advanceTimersByTimeAsync(10);
+    await expect(first).resolves.toBe('probe ok');
+  });
+
   it('keeps independent circuits per key — a broken provider does not block a different provider/strategy', async () => {
     const brokenAction = jest.fn().mockRejectedValue(new Error('down'));
     const healthyAction = jest.fn().mockResolvedValue('ok');

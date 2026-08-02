@@ -45,15 +45,28 @@ export class CircuitBreakerService {
     // 100% đây là fail-fast do mạch đang mở, không lẫn với 1 lỗi thật vừa
     // khớp làm mạch mở ngay tại request đó.
     if (breaker.opened) {
-      const message = `${ORCHESTRATION_ERROR.CIRCUIT_BREAKER_OPEN.message} (key=${key})`;
-      this.logger.warn(`run() key=${key} bị chặn — circuit đang OPEN`);
-      throw new RpcException({
-        ...ORCHESTRATION_ERROR.CIRCUIT_BREAKER_OPEN,
-        message,
-      });
+      throw this.buildOpenError(key);
     }
 
-    return (await breaker.fire(() => this.runTagged(action, signal))) as T;
+    try {
+      return (await breaker.fire(() => this.runTagged(action, signal))) as T;
+    } catch (error) {
+      // Cửa sổ HALF_OPEN: opossum chỉ cho ĐÚNG 1 request "thăm dò" qua fire(), request
+      // đồng thời khác tự bị chính opossum reject bằng lỗi thô EOPENBREAKER (không phải
+      // RpcException) — bọc lại cho nhất quán với nhánh breaker.opened ở trên.
+      if ((error as { code?: string })?.code === 'EOPENBREAKER') {
+        throw this.buildOpenError(key);
+      }
+      throw error;
+    }
+  }
+
+  private buildOpenError(key: string): RpcException {
+    this.logger.warn(`run() key=${key} bị chặn — circuit đang OPEN`);
+    return new RpcException({
+      ...ORCHESTRATION_ERROR.CIRCUIT_BREAKER_OPEN,
+      message: `${ORCHESTRATION_ERROR.CIRCUIT_BREAKER_OPEN.message} (key=${key})`,
+    });
   }
 
   // Gắn dấu lên lỗi NẾU signal của chính lượt gọi này đã abort — errorFilter
