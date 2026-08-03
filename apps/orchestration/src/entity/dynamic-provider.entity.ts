@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
+import { ERefreshFormat } from '@slack/constants';
 
 export interface DynamicProviderAuthConfig {
   clientId?: string;
@@ -17,7 +18,7 @@ export interface DynamicProviderAuthConfig {
    *  auth.atlassian.com, used by Jira/Confluence) require JSON instead. Resolved once at
    *  registration time (auto-detected from tokenUrl, or explicitly overridden) and reused as-is
    *  by the reactive renew on a 401 — never re-inferred later. */
-  refreshRequestFormat?: 'form' | 'json';
+  refreshRequestFormat?: ERefreshFormat;
   /** Escape hatch for refresh_token response shapes the built-in auto-detection (snake_case,
    *  camelCase, 1-level "data"/"result" envelope) can't cover — dot-path into the response
    *  (e.g. "payload.token.accessToken"). Only needed for fully custom internal auth endpoints. */

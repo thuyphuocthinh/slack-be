@@ -3,13 +3,104 @@ import { RpcException } from '@nestjs/microservices';
 import { ORCHESTRATION_CONSTANTS } from '@slack/constants';
 import { CircuitBreakerService } from './circuit-breaker.service';
 import { MetricsRegistryService } from './metrics-registry.service';
+import { CIRCUIT_BREAKER_REPORT_SCRIPT } from './circuit-breaker.lua';
 
 const VOLUME_THRESHOLD =
   ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_VOLUME_THRESHOLD;
 
-// performance_problem.md mục 1 — số lần cần thiết để mở mạch đọc THẲNG từ
-// constant (không hardcode), để việc tinh chỉnh VOLUME_THRESHOLD sau này
-// không làm sai lệch ý nghĩa của các test này.
+class FakeRedis {
+  private store = new Map<string, { value: string; expiresAt: number | null }>();
+
+  private isExpired(key: string): boolean {
+    const entry = this.store.get(key);
+    if (!entry) return true;
+    if (entry.expiresAt !== null && Date.now() >= entry.expiresAt) {
+      this.store.delete(key);
+      return true;
+    }
+    return false;
+  }
+
+  async get(key: string): Promise<string | null> {
+    if (this.isExpired(key)) return null;
+    return this.store.get(key)!.value;
+  }
+
+  async set(key: string, value: unknown, ...args: unknown[]): Promise<string | null> {
+    let px: number | null = null;
+    let nx = false;
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === 'PX') px = Number(args[i + 1]);
+      if (args[i] === 'NX') nx = true;
+    }
+    if (nx && !this.isExpired(key)) return null;
+    this.store.set(key, {
+      value: String(value),
+      expiresAt: px !== null ? Date.now() + px : null,
+    });
+    return 'OK';
+  }
+
+  async del(...keys: string[]): Promise<number> {
+    let count = 0;
+    for (const key of keys) {
+      if (this.store.delete(key)) count++;
+    }
+    return count;
+  }
+
+  async eval(script: string, numKeys: number, ...rest: unknown[]): Promise<string> {
+    const keys = rest.slice(0, numKeys) as string[];
+    const argv = rest.slice(numKeys) as string[];
+
+    if (script !== CIRCUIT_BREAKER_REPORT_SCRIPT) {
+      throw new Error('unknown script');
+    }
+
+    const [totalKey, failuresKey, stateKey, openedAtKey] = keys;
+    const [windowSec, isFailure, volumeThreshold, errorThresholdPct, now] = argv;
+
+    const total = this.rawIncr(totalKey);
+    if (total === 1) this.rawExpire(totalKey, Number(windowSec));
+
+    if (isFailure === '1') {
+      const failures = this.rawIncr(failuresKey);
+      if (failures === 1) this.rawExpire(failuresKey, Number(windowSec));
+
+      if (
+        total >= Number(volumeThreshold) &&
+        (failures * 100) / total >= Number(errorThresholdPct)
+      ) {
+        this.rawSet(stateKey, 'open');
+        this.rawSet(openedAtKey, now);
+        this.store.delete(totalKey);
+        this.store.delete(failuresKey);
+        return 'open';
+      }
+    }
+
+    return 'closed';
+  }
+
+  private rawIncr(key: string): number {
+    this.isExpired(key);
+    const entry = this.store.get(key);
+    const next = (entry ? Number(entry.value) : 0) + 1;
+    this.store.set(key, { value: String(next), expiresAt: entry?.expiresAt ?? null });
+    return next;
+  }
+
+  private rawExpire(key: string, sec: number): void {
+    const entry = this.store.get(key);
+    if (entry) entry.expiresAt = Date.now() + sec * 1000;
+  }
+
+  private rawSet(key: string, value: unknown): void {
+    const entry = this.store.get(key);
+    this.store.set(key, { value: String(value), expiresAt: entry?.expiresAt ?? null });
+  }
+}
+
 async function tripCircuit(
   service: CircuitBreakerService,
   key: string,
@@ -20,12 +111,16 @@ async function tripCircuit(
   }
 }
 
-describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
+describe('CircuitBreakerService', () => {
   let service: CircuitBreakerService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [CircuitBreakerService, MetricsRegistryService],
+      providers: [
+        CircuitBreakerService,
+        MetricsRegistryService,
+        { provide: 'REDIS_CLIENT', useValue: new FakeRedis() },
+      ],
     }).compile();
 
     service = module.get<CircuitBreakerService>(CircuitBreakerService);
@@ -63,7 +158,6 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
       .fn()
       .mockRejectedValue(new Error('connect ECONNREFUSED'));
 
-    // 100% lỗi -> mở mạch ngay sau đủ VOLUME_THRESHOLD lần.
     await tripCircuit(service, 'mcp:down', action);
     expect(action).toHaveBeenCalledTimes(VOLUME_THRESHOLD);
 
@@ -76,7 +170,7 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
         message: expect.stringContaining('key=mcp:down'),
       }),
     );
-    expect(action).toHaveBeenCalledTimes(VOLUME_THRESHOLD); // KHÔNG tăng thêm — action không được gọi khi mạch đang OPEN
+    expect(action).toHaveBeenCalledTimes(VOLUME_THRESHOLD);
   });
 
   it('does not open the circuit when failures stay below the volume threshold', async () => {
@@ -85,7 +179,7 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
     for (let i = 0; i < VOLUME_THRESHOLD - 1; i++) {
       await expect(service.run('mcp:sometimes', action)).rejects.toThrow(
         'timeout',
-      ); // dưới VOLUME_THRESHOLD, chưa đủ để mở mạch
+      );
     }
 
     action.mockResolvedValueOnce('recovered');
@@ -104,7 +198,7 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
     await tripCircuit(service, 'mcp:recovering', action);
     await expect(service.run('mcp:recovering', action)).rejects.toThrow(
       'CIRCUIT BREAKER OPEN',
-    ); // fail fast
+    );
     expect(action).toHaveBeenCalledTimes(VOLUME_THRESHOLD);
 
     await jest.advanceTimersByTimeAsync(
@@ -115,15 +209,14 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
     const result = await service.run('mcp:recovering', action);
 
     expect(result).toBe('recovered');
-    expect(action).toHaveBeenCalledTimes(VOLUME_THRESHOLD + 1); // probe (half-open) được cho qua
+    expect(action).toHaveBeenCalledTimes(VOLUME_THRESHOLD + 1);
 
-    // Mạch đã đóng lại — request tiếp theo chạy bình thường, không bị chặn nữa.
     action.mockResolvedValueOnce('ok again');
     const result2 = await service.run('mcp:recovering', action);
     expect(result2).toBe('ok again');
   });
 
-  it('bug fix — wraps the raw opossum error into RpcException when a 2nd call races the half-open probe', async () => {
+  it('only lets ONE instance through as the half-open probe when 2 requests race the same key', async () => {
     jest.useFakeTimers();
     const failing = jest
       .fn()
@@ -164,7 +257,7 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
     expect(healthyAction).toHaveBeenCalledTimes(1);
   });
 
-  describe('cancellation (bug fix — Stop giữa chừng không được tính là lỗi provider thật)', () => {
+  describe('cancellation (Stop giữa chừng không được tính là lỗi provider thật)', () => {
     it('does not open the circuit when every failure was caused by the caller aborting its own signal', async () => {
       const controller = new AbortController();
       controller.abort();
@@ -176,7 +269,9 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
         ).rejects.toThrow('Aborted');
       }
 
-      expect(service.getStates()).toEqual({ 'llm:gemini': 'closed' });
+      await expect(service.getStates()).resolves.toEqual({
+        'llm:gemini': 'closed',
+      });
     });
 
     it('still opens the circuit for a real failure even when a (non-aborted) signal is passed', async () => {
@@ -191,42 +286,61 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
         ).rejects.toThrow('connect ECONNREFUSED');
       }
 
-      expect(service.getStates()).toEqual({ 'llm:gemini': 'open' });
+      await expect(service.getStates()).resolves.toEqual({
+        'llm:gemini': 'open',
+      });
     });
   });
 
   describe('getStates (Backpressure/Admission control)', () => {
-    it('returns an empty object before any breaker has been created', () => {
-      expect(service.getStates()).toEqual({});
+    it('returns an empty object before any breaker has been created', async () => {
+      await expect(service.getStates()).resolves.toEqual({});
     });
 
     it('reports "closed" for a breaker that has only succeeded', async () => {
       await service.run('mcp:sql_server', jest.fn().mockResolvedValue('ok'));
 
-      expect(service.getStates()).toEqual({ 'mcp:sql_server': 'closed' });
+      await expect(service.getStates()).resolves.toEqual({
+        'mcp:sql_server': 'closed',
+      });
     });
 
     it('reports "open" once the circuit trips', async () => {
       const action = jest.fn().mockRejectedValue(new Error('down'));
       await tripCircuit(service, 'mcp:down', action);
 
-      expect(service.getStates()).toEqual({ 'mcp:down': 'open' });
+      await expect(service.getStates()).resolves.toEqual({
+        'mcp:down': 'open',
+      });
     });
 
     it('reports "halfOpen" right after resetTimeout elapses, then "closed" once the probe succeeds', async () => {
       jest.useFakeTimers();
       const action = jest.fn().mockRejectedValue(new Error('down'));
       await tripCircuit(service, 'mcp:recovering', action);
-      expect(service.getStates()).toEqual({ 'mcp:recovering': 'open' });
+      await expect(service.getStates()).resolves.toEqual({
+        'mcp:recovering': 'open',
+      });
 
       await jest.advanceTimersByTimeAsync(
         ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_RESET_TIMEOUT_MS + 1,
       );
-      expect(service.getStates()).toEqual({ 'mcp:recovering': 'halfOpen' });
 
-      action.mockResolvedValueOnce('recovered');
-      await service.run('mcp:recovering', action);
-      expect(service.getStates()).toEqual({ 'mcp:recovering': 'closed' });
+      const probe = jest.fn(
+        () => new Promise((resolve) => setTimeout(() => resolve('recovered'), 10)),
+      );
+      const runPromise = service.run('mcp:recovering', probe);
+
+      await jest.advanceTimersByTimeAsync(0);
+      await expect(service.getStates()).resolves.toEqual({
+        'mcp:recovering': 'halfOpen',
+      });
+
+      await jest.advanceTimersByTimeAsync(10);
+      await expect(runPromise).resolves.toBe('recovered');
+      await expect(service.getStates()).resolves.toEqual({
+        'mcp:recovering': 'closed',
+      });
     });
 
     it('keeps independent states per key', async () => {
@@ -234,7 +348,7 @@ describe('CircuitBreakerService (Giai đoạn 4, Step 6)', () => {
       const brokenAction = jest.fn().mockRejectedValue(new Error('down'));
       await tripCircuit(service, 'mcp:broken', brokenAction);
 
-      expect(service.getStates()).toEqual({
+      await expect(service.getStates()).resolves.toEqual({
         'mcp:healthy': 'closed',
         'mcp:broken': 'open',
       });

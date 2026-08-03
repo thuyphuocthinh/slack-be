@@ -9,6 +9,7 @@ import {
   SUPERVISOR_PLAN_SCHEMA,
   SUPERVISOR_PLAN_SCHEMA_NO_ANSWER,
   PROVIDER_DESCRIPTIONS,
+  ESupervisorVerdict,
 } from '@slack/constants';
 import { McpAuthClientService } from '../mcp-auth/mcp-auth-client.service';
 import { AGENT_REGISTRY } from '../registry/agents.registry';
@@ -57,7 +58,7 @@ export class SupervisorService {
     private readonly embeddingProvider: OpenAiEmbeddingProvider,
     private readonly metrics: MetricsRegistryService,
     private readonly channelMemory: ChannelMemoryService,
-  ) {}
+  ) { }
 
   private getSystemAgents(): AvailableAgentDto[] {
     const provider = 'compute';
@@ -250,11 +251,11 @@ export class SupervisorService {
     const agentListText =
       shown.length > 0
         ? shown
-            .map((a) => `- ${a.provider} (${a.label}): ${a.description}`)
-            .join('\n') +
-          (omittedCount > 0
-            ? `\n(Còn ${omittedCount} hệ thống khác đã kết nối nhưng không liên quan tới câu hỏi này, đã ẩn bớt khỏi danh sách trên.)`
-            : '')
+          .map((a) => `- ${a.provider} (${a.label}): ${a.description}`)
+          .join('\n') +
+        (omittedCount > 0
+          ? `\n(Còn ${omittedCount} hệ thống khác đã kết nối nhưng không liên quan tới câu hỏi này, đã ẩn bớt khỏi danh sách trên.)`
+          : '')
         : '(Người dùng chưa kết nối agent nào — nếu câu hỏi cần dữ liệu, trả lời "respond" và nhắc user vào Settings để kết nối.)';
 
     const planSchema =
@@ -413,7 +414,7 @@ export class SupervisorService {
     signal?: AbortSignal,
   ): Promise<SupervisorEvaluateDto> {
     if (remainingSteps.length === 0) {
-      return { verdict: 'done' };
+      return { verdict: ESupervisorVerdict.DONE };
     }
 
     const evaluateModelId =
@@ -473,7 +474,7 @@ export class SupervisorService {
         `Supervisor evaluate() failed: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      return { verdict: 'continue' };
+      return { verdict: ESupervisorVerdict.CONTINUE };
     }
   }
 
@@ -510,9 +511,9 @@ export class SupervisorService {
       let streamedAnything = false;
       const trackedOnToken = onToken
         ? (chunk: string) => {
-            streamedAnything = true;
-            onToken(chunk);
-          }
+          streamedAnything = true;
+          onToken(chunk);
+        }
         : undefined;
       const result = await this.circuitBreaker.run(
         `llm:${strategy.id}`,

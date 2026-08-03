@@ -99,6 +99,13 @@ export class MessageEntity {
   })
   toolCalls?: IToolCallTrace[] | null;
 
+  @Column({
+    type: 'int',
+    nullable: true,
+    name: 'execution_time_ms',
+  })
+  executionTimeMs?: number | null;
+
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt: Date;
 

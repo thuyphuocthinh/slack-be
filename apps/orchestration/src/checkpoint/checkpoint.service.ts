@@ -25,7 +25,7 @@ export class CheckpointService {
   constructor(
     @InjectRepository(OrchestrationCheckpointEntity)
     private readonly repo: Repository<OrchestrationCheckpointEntity>,
-  ) {}
+  ) { }
 
   async create(
     dto: CreateCheckpointRequestDto,
@@ -151,14 +151,19 @@ export class CheckpointService {
   async claim(
     dto: ClaimCheckpointRequestDto,
   ): Promise<ClaimCheckpointResponseDto> {
+    const updatePayload: Parameters<typeof this.repo.update>[1] = {
+      status: dto.toStatus,
+    };
+    if (dto.selectedProvider !== undefined) {
+      updatePayload.selectedProvider = dto.selectedProvider;
+    }
+    if (dto.updatedPendingTool !== undefined) {
+      Object.assign(updatePayload, { pendingTool: dto.updatedPendingTool });
+    }
+
     const result = await this.repo.update(
       { id: dto.id, status: OrchestrationCheckpointStatus.PENDING },
-      {
-        status: dto.toStatus,
-        ...(dto.selectedProvider !== undefined && {
-          selectedProvider: dto.selectedProvider,
-        }),
-      },
+      updatePayload,
     );
     const claimed = result.affected === 1;
     this.logger.log(

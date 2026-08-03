@@ -7,6 +7,7 @@ import {
   IsString,
   Min,
 } from 'class-validator';
+import { ERefreshFormat } from '@slack/constants';
 
 export class RegisterDynamicProviderDto {
   @ApiProperty()
@@ -58,7 +59,7 @@ export class RegisterDynamicProviderDto {
   @ApiProperty({ required: false, enum: ['form', 'json'] })
   @IsOptional()
   @IsIn(['form', 'json'])
-  refreshRequestFormat?: 'form' | 'json';
+  refreshRequestFormat?: ERefreshFormat;
 
   // Escape hatch — chỉ cần khi response làm mới token của hệ thống nội bộ quá khác biệt so với
   // chuẩn (server đã tự thử snake_case/camelCase/envelope 1 lớp trước khi cần tới các field này).

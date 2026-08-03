@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { IProcessAiTriggerJobData } from '@slack/queue';
-import { ORCHESTRATION_CONSTANTS } from '@slack/constants';
+import { ORCHESTRATION_CONSTANTS, ESupervisorVerdict } from '@slack/constants';
 import { ReactLoopService } from '../llm/react-loop.service';
 import {
   AgentRankingCache,
@@ -71,7 +71,7 @@ type PlanOutcome =
   | { done: true; answer: AnswerResult }
   | { done: false; steps: DelegationDto[] };
 
-type EvaluateOutcome = 'finalize' | 'replan' | 'continue';
+type EvaluateOutcome = ESupervisorVerdict;
 
 /**
  * State + logic của 1 lượt "Plan → delegate → evaluate → synthesize" (1 turn
@@ -241,7 +241,7 @@ export class TurnResolverRun {
           a.provider === safeAgent ||
           a.label.toLowerCase() === safeAgent.toLowerCase() ||
           a.label.toLowerCase().replace(/[^a-z0-9]/g, '') ===
-            safeAgent.toLowerCase().replace(/[^a-z0-9]/g, ''),
+          safeAgent.toLowerCase().replace(/[^a-z0-9]/g, ''),
       );
       if (matchedAgent && matchedAgent.provider !== s.agent) {
         s.agent = matchedAgent.provider;
@@ -254,7 +254,7 @@ export class TurnResolverRun {
         done: true,
         answer: buildAnswer(
           plan.answer ||
-            `Mình chưa thể xử lý yêu cầu này với các kết nối hiện có (Tên hệ thống mà AI đang cố gọi: "${attemptedAgents}" - Vui lòng đổi tên hoặc viết đúng tên). Vào Settings để kết nối agent phù hợp nhé.`,
+          `Mình chưa thể xử lý yêu cầu này với các kết nối hiện có (Tên hệ thống mà AI đang cố gọi: "${attemptedAgents}" - Vui lòng đổi tên hoặc viết đúng tên). Vào Settings để kết nối agent phù hợp nhé.`,
           this.toolCalls,
         ),
       };
@@ -335,11 +335,11 @@ export class TurnResolverRun {
     const completedRound: SupervisorRoundDto = result
       ? result.round
       : {
-          agent: step.agent,
-          task: step.task,
-          result:
-            'Agent này chưa khả dụng (chưa kết nối hoặc chưa có hạ tầng) — bỏ qua, không thực hiện được phần việc này.',
-        };
+        agent: step.agent,
+        task: step.task,
+        result:
+          'Agent này chưa khả dụng (chưa kết nối hoặc chưa có hạ tầng) — bỏ qua, không thực hiện được phần việc này.',
+      };
     this.rounds.push(completedRound);
     if (result) this.toolCalls.push(...result.toolCalls);
 
@@ -378,7 +378,7 @@ export class TurnResolverRun {
           kind: 'synthesize',
         },
       )
-      .catch(() => {});
+      .catch(() => { });
     const fallbackAccumulator = { text: '' };
     const finalAnswer = await runCancellable(
       this.replyMessageId,
@@ -419,7 +419,7 @@ export class TurnResolverRun {
             kind: 'synthesize',
           },
         )
-        .catch(() => {});
+        .catch(() => { });
       const accumulator = { text: '' };
       const finalAnswer = await runCancellable(
         this.replyMessageId,
@@ -459,19 +459,19 @@ export class TurnResolverRun {
       remainingSteps,
       this.signal,
     );
-    if (verdict.verdict === 'done') {
+    if (verdict.verdict === ESupervisorVerdict.DONE) {
       if (!hasPendingActionStep(remainingSteps)) {
-        return 'finalize';
+        return ESupervisorVerdict.FINALIZE;
       }
       this.logger.warn(
         `evaluate() trả 'done' nhưng còn bước HÀNH ĐỘNG/KIỂM TRA chưa chạy (${remainingSteps.map((s) => s.task).join('; ')}) — bác bỏ 'done', tiếp tục chạy nốt kế hoạch.`,
       );
-      return 'continue';
+      return ESupervisorVerdict.CONTINUE;
     }
-    if (verdict.verdict === 're-plan') {
-      return 'replan';
+    if (verdict.verdict === ESupervisorVerdict.REPLAN) {
+      return ESupervisorVerdict.REPLAN;
     }
-    return 'continue';
+    return ESupervisorVerdict.CONTINUE;
   }
 
   private buildPreApprovalRound(
@@ -536,14 +536,14 @@ export class TurnResolverRun {
     const promptWithContext =
       realRoundsSoFar.length > 0
         ? `${task}\n\nDữ liệu THẬT đã thu thập được từ (các) bước trước trong CÙNG yêu cầu này (PHẢI dùng ĐÚNG NGUYÊN VĂN, không tự bịa/diễn giải lại số liệu):\n${capRoundResults(
-            realRoundsSoFar,
-            resolveDataCharBudget(reactModelId),
+          realRoundsSoFar,
+          resolveDataCharBudget(reactModelId),
+        )
+          .map(
+            (r, i) =>
+              `${i + 1}. Agent "${r.agent}" (yêu cầu: "${r.task}") → kết quả: ${r.result}`,
           )
-            .map(
-              (r, i) =>
-                `${i + 1}. Agent "${r.agent}" (yêu cầu: "${r.task}") → kết quả: ${r.result}`,
-            )
-            .join('\n')}`
+          .join('\n')}`
         : task;
     const streamKey = `r${round}-${targetAgent.provider}`;
     await this.agentStream
@@ -557,7 +557,7 @@ export class TurnResolverRun {
         },
         { type: 'step_start', label: `${targetAgent.label}: ${task}` },
       )
-      .catch(() => {});
+      .catch(() => { });
     try {
       const { answer, toolCalls } = await this.reactLoop.run(
         {

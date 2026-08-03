@@ -28,10 +28,6 @@ import {
 } from './orchestration-answer.types';
 import { capToolResultSize } from '../executor/tool-result-size-cap.util';
 
-// Giai đoạn 3 (HITL) — tách riêng khỏi TurnResolverService/ApprovalFlowService
-// vì "đi vào trạng thái chờ duyệt" là 1 hành vi độc lập được gọi từ CẢ 2 nơi:
-// lần dừng ĐẦU TIÊN (TurnResolverService.resolveAnswer) và lần dừng TIẾP THEO
-// nếu vòng resume lại gặp thêm 1 tool rủi ro khác (ApprovalFlowService.approveCheckpoint).
 @Injectable()
 export class CheckpointPauseService {
   private readonly logger = new Logger(CheckpointPauseService.name);
@@ -40,7 +36,7 @@ export class CheckpointPauseService {
     private readonly messageClient: MessageClientService,
     private readonly checkpoint: CheckpointService,
     private readonly mcpClient: McpClientService,
-  ) {}
+  ) { }
 
   // Dừng turn khi gặp tool rủi ro: tạo message MỚI "approval_request" (không
   // update message "Đang xử lý..."), lưu checkpoint để resume (Step 5), rồi
@@ -151,12 +147,6 @@ export class CheckpointPauseService {
     }
   }
 
-  // accuracy_problem.md mục 1 — dừng turn khi plan() mơ hồ giữa 2+ agent
-  // (findAmbiguousAgentCluster, SupervisorService). Song song pauseForApproval()
-  // ở trên nhưng KHÔNG gắn với 1 tool call cụ thể nào — câu hỏi dựng bằng
-  // template từ chính candidates đã phát hiện, KHÔNG gọi thêm LLM (thực nghiệm
-  // mục 6 accuracy.v2.md đã cho thấy hỏi LLM tự đánh giá "có chắc không" không
-  // đáng tin trong đúng tình huống này).
   async pauseForClarification(
     data: IProcessAiTriggerJobData,
     originalPrompt: string,
@@ -165,10 +155,6 @@ export class CheckpointPauseService {
     history: ChatHistoryTurnDto[],
     task: string,
     candidates: AvailableAgentDto[],
-    // accuracy_problem.md mục 9.2 — các bước CÒN LẠI SAU bước đang mơ hồ (B, C
-    // của kế hoạch [A(mơ hồ), B, C]) — lưu lại để resolveClarificationCheckpoint()
-    // phục hồi ĐÚNG theo kế hoạch gốc thay vì làm mất trắng B/C (bug thật đã
-    // gặp, xem turn-resolver.service.ts).
     remainingSteps: DelegationDto[],
   ): Promise<AnswerResult> {
     const { userId, channelId, botUserId } = data;

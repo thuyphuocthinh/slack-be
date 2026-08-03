@@ -248,6 +248,21 @@ describe('CheckpointService', () => {
         { status: OrchestrationCheckpointStatus.APPROVED },
       );
     });
+
+    it('passes updatedPendingTool to Object.assign when edit_and_approve is used', async () => {
+      mockRepo.update.mockResolvedValue({ affected: 1 });
+
+      await service.claim({
+        id: 'checkpoint-1',
+        toStatus: OrchestrationCheckpointStatus.APPROVED,
+        updatedPendingTool: { provider: 'sql', name: 'query', args: { q: '1' } },
+      });
+
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'checkpoint-1', status: OrchestrationCheckpointStatus.PENDING },
+        { status: OrchestrationCheckpointStatus.APPROVED, pendingTool: { provider: 'sql', name: 'query', args: { q: '1' } } },
+      );
+    });
   });
 
   describe('revertApprovedClaim (bug fix — undo claim() when the enqueue right after it fails)', () => {

@@ -5,6 +5,7 @@ import {
 } from '../entity/orchestration-checkpoint.entity';
 import { DelegationDto, SupervisorRoundDto } from './supervisor.dto';
 import { ChatHistoryTurnDto } from './message-client.dto';
+import { ECheckpointKind } from '@slack/constants';
 
 export class CreateCheckpointRequestDto {
   replyMessageId: string;
@@ -14,17 +15,13 @@ export class CreateCheckpointRequestDto {
   workspaceId: string;
   channelType: string;
   originalPrompt: string;
-  // accuracy_problem.md mục 1 — null khi kind='clarification' (chưa gắn với
-  // tool call cụ thể nào).
   pendingTool: PendingToolCall | null;
   pendingTask: string;
   roundsSoFar: SupervisorRoundDto[];
   history: ChatHistoryTurnDto[];
-  kind?: 'approval' | 'clarification';
+  kind?: ECheckpointKind;
   clarificationQuestion?: string | null;
   clarificationCandidates?: AmbiguousAgentCandidate[] | null;
-  // accuracy_problem.md mục 9.2 — mặc định [] nếu không truyền (checkpoint
-  // 'clarification' hiện chưa dùng field này).
   remainingSteps?: DelegationDto[];
 }
 
@@ -45,7 +42,7 @@ export class CheckpointResponseDto {
   remainingSteps: DelegationDto[];
   history: ChatHistoryTurnDto[];
   status: OrchestrationCheckpointStatus;
-  kind: 'approval' | 'clarification';
+  kind: ECheckpointKind;
   clarificationQuestion: string | null;
   clarificationCandidates: AmbiguousAgentCandidate[] | null;
   selectedProvider: string | null;
@@ -72,9 +69,8 @@ export class FindCheckpointByIdRequestDto {
 export class ClaimCheckpointRequestDto {
   id: string;
   toStatus: OrchestrationCheckpointStatus;
-  // accuracy_problem.md mục 1 — set khi resolve checkpoint 'clarification'
-  // (user vừa chọn 1 candidate), cùng 1 lượt atomic update với claim status.
   selectedProvider?: string;
+  updatedPendingTool?: PendingToolCall | null;
 }
 
 export class ClaimCheckpointResponseDto {

@@ -1,9 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { traceable } from 'langsmith/traceable';
-import {
-  ORCHESTRATION_CONSTANTS,
-  ORCHESTRATION_SELF_CHECK_PROMPT,
-} from '@slack/constants';
+import { ORCHESTRATION_CONSTANTS, ORCHESTRATION_SELF_CHECK_PROMPT, EStepExecutionStatus } from '@slack/constants';
 import { extractTextFromMcpResult } from '@slack/common';
 import { McpClientService } from '../mcp/mcp-client.service';
 import {
@@ -157,11 +154,12 @@ export class ReactLoopRun {
 
       resync('');
 
-      const results: LlmToolResult[] = [];
-      for (const call of turn.toolCalls) {
-        const content = await this.tracedHandleToolCall(call.name, call.args);
-        results.push({ id: call.id, name: call.name, content });
-      }
+      const results: LlmToolResult[] = await Promise.all(
+        turn.toolCalls.map(async (call) => {
+          const content = await this.tracedHandleToolCall(call.name, call.args);
+          return { id: call.id, name: call.name, content };
+        })
+      );
 
       turn = await this.sendMessage(results, onToken);
     }
@@ -266,9 +264,9 @@ export class ReactLoopRun {
     let streamedAnything = false;
     const trackedOnTok = onTok
       ? (chunk: string) => {
-          streamedAnything = true;
-          onTok(chunk);
-        }
+        streamedAnything = true;
+        onTok(chunk);
+      }
       : undefined;
     return this.circuitBreaker.run(
       `llm:${this.strategy.id}`,
@@ -412,12 +410,12 @@ export class ReactLoopRun {
       await this.emitStep({
         type: 'tool_result',
         tool: displayName,
-        status: 'error',
+        status: EStepExecutionStatus.ERROR,
         resultPreview: shortfallMessage,
       });
       this.toolCalls.push({
         tool: displayName,
-        status: 'error',
+        status: EStepExecutionStatus.ERROR,
         resultPreview: shortfallMessage,
         argsPreview,
       });
@@ -446,12 +444,12 @@ export class ReactLoopRun {
     await this.emitStep({
       type: 'tool_result',
       tool: displayName,
-      status: 'success',
+      status: EStepExecutionStatus.SUCCESS,
       resultPreview: cached.resultPreview,
     });
     this.toolCalls.push({
       tool: displayName,
-      status: 'success',
+      status: EStepExecutionStatus.SUCCESS,
       resultPreview: cached.resultPreview,
       argsPreview,
     });
@@ -478,12 +476,12 @@ export class ReactLoopRun {
     await this.emitStep({
       type: 'tool_result',
       tool: displayName,
-      status: 'error',
+      status: EStepExecutionStatus.ERROR,
       resultPreview,
     });
     this.toolCalls.push({
       tool: displayName,
-      status: 'error',
+      status: EStepExecutionStatus.ERROR,
       resultPreview,
       argsPreview,
     });
@@ -502,7 +500,7 @@ export class ReactLoopRun {
 
     let result: CallToolResponseDto;
     let text: string;
-    let status: 'success' | 'error';
+    let status: EStepExecutionStatus;
     let resultPreview: string;
     let transientAttempt = 0;
 
@@ -525,12 +523,12 @@ export class ReactLoopRun {
         await this.emitStep({
           type: 'tool_result',
           tool: displayName,
-          status: 'error',
+          status: EStepExecutionStatus.ERROR,
           resultPreview: errorMessage,
         });
         this.toolCalls.push({
           tool: displayName,
-          status: 'error',
+          status: EStepExecutionStatus.ERROR,
           resultPreview: errorMessage,
           argsPreview,
         });
@@ -541,13 +539,13 @@ export class ReactLoopRun {
       }
 
       text = extractTextFromMcpResult(result);
-      status = result.isError ? 'error' : 'success';
+      status = result.isError ? EStepExecutionStatus.ERROR : EStepExecutionStatus.SUCCESS;
       resultPreview = formatResultPreview(text);
 
       const shouldRetryTransiently =
-        status === 'error' &&
+        status === EStepExecutionStatus.ERROR &&
         transientAttempt <
-          ORCHESTRATION_CONSTANTS.MAX_TRANSIENT_TOOL_RETRY_ATTEMPTS &&
+        ORCHESTRATION_CONSTANTS.MAX_TRANSIENT_TOOL_RETRY_ATTEMPTS &&
         classifyToolError(resultPreview) === 'retryable';
       if (!shouldRetryTransiently) break;
 
@@ -591,7 +589,7 @@ export class ReactLoopRun {
   private emitStep(step: {
     type: 'tool_call' | 'tool_result';
     tool: string;
-    status?: 'success' | 'error';
+    status?: EStepExecutionStatus;
     resultPreview?: string;
     argsPreview?: string;
   }): Promise<void> {

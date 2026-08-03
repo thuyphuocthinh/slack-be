@@ -150,6 +150,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       },
     );
 
+    const startTimeMs = Date.now();
     try {
       const result = await traced(data, reply.id);
       await this.messageClient.updateMessage({
@@ -157,6 +158,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         userId: botUserId,
         channelId,
         ...result,
+        executionTimeMs: Date.now() - startTimeMs,
       });
     } catch (error) {
       // Checkpoint/claim đã chốt (không rollback) — reply message đã tồn tại

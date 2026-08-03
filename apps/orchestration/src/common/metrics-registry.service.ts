@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ECircuitBreaker } from '@slack/constants';
 import { Counter, Gauge, Registry } from 'prom-client';
 
 // Giai đoạn 4 (Backpressure/Admission control), mục 3/4 — orchestration là
@@ -37,8 +38,8 @@ export class MetricsRegistryService {
     registers: [this.registry],
   });
 
-  setBreakerState(key: string, state: 'open' | 'halfOpen' | 'closed'): void {
-    const value = state === 'open' ? 2 : state === 'halfOpen' ? 1 : 0;
+  setBreakerState(key: string, state: ECircuitBreaker): void {
+    const value = state === ECircuitBreaker.OPEN ? 2 : state === ECircuitBreaker.HALF_OPEN ? 1 : 0;
     this.breakerStateGauge.set({ key }, value);
   }
 

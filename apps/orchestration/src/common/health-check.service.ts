@@ -20,10 +20,11 @@ export class HealthCheckService {
   ) {}
 
   async check(): Promise<HealthCheckResponseDto> {
-    const [redis, database, queueDepth] = await Promise.all([
+    const [redis, database, queueDepth, circuitBreakers] = await Promise.all([
       this.cached.ping(),
       this.databaseHealth.isAlive(),
       this.queueService.getJobCounts(EQueueName.AI_ORCHESTRATION_QUEUE),
+      this.circuitBreaker.getStates(),
     ]);
 
     // Nhân tiện cập nhật gauge queue depth ngay tại đây — không cần 1 cron
@@ -35,7 +36,7 @@ export class HealthCheckService {
       status: redis && database ? 'ok' : 'degraded',
       redis,
       database,
-      circuitBreakers: this.circuitBreaker.getStates(),
+      circuitBreakers,
       queueDepth,
     };
   }

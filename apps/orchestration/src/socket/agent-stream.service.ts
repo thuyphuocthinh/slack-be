@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { ESocketEvent } from '@slack/constants';
+import { ESocketEvent, EStepExecutionStatus } from '@slack/constants';
 import { EJobName, EQueueName, QueueService } from '@slack/queue';
 
 // Nhiều ReactLoopService.run() có thể chạy SONG SONG cùng 1 messageId (Supervisor
@@ -36,7 +36,7 @@ export interface AgentStreamStep {
     | 'resync'
     | 'step_start';
   tool?: string;
-  status?: 'success' | 'error';
+  status?: EStepExecutionStatus;
   resultPreview?: string;
   // Tham số THẬT LLM sinh ra để gọi tool (VD code Python, câu SQL) — chỉ để
   // FE hiển thị/copy, gắn kèm CẢ ở event 'tool_call' (thấy ngay khi bắt đầu

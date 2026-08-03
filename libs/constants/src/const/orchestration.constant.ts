@@ -88,6 +88,8 @@ export const ORCHESTRATION_CONSTANTS = {
   CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENTAGE: 50,
   CIRCUIT_BREAKER_VOLUME_THRESHOLD: 20,
   CIRCUIT_BREAKER_RESET_TIMEOUT_MS: 30_000,
+  CIRCUIT_BREAKER_VOLUME_WINDOW_SEC: 10,
+  CIRCUIT_BREAKER_PROBE_LOCK_TTL_MS: 60_000,
   // performance_problem.md mục 1 — worker xử lý MỌI job (trigger AI mới lẫn
   // approval HITL) của TẤT CẢ user. Việc bên trong chủ yếu là CHỜ I/O (LLM/MCP
   // qua mạng), không nặng CPU — nâng hẳn từ 5 lên 30 để tăng thông lượng

@@ -1,3 +1,4 @@
+import { ESupervisorVerdict } from '@slack/constants';
 export class AvailableAgentDto {
   provider: string;
   label: string;
@@ -34,7 +35,7 @@ export class SupervisorPlanDto {
   ambiguousCandidates?: AvailableAgentDto[];
 }
 
-export type SupervisorEvaluateVerdict = 'continue' | 're-plan' | 'done';
+export type SupervisorEvaluateVerdict = ESupervisorVerdict;
 
 // Trả về SAU MỖI bước trong kế hoạch — quyết định có bám theo kế hoạch cũ
 // (continue), lập lại kế hoạch (re-plan), hay dừng vì đã đủ dữ liệu (done).

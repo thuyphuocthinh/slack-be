@@ -1,3 +1,4 @@
+import { EMessageRole } from '@slack/constants';
 /**
  * Lớp trừu tượng chung cho mọi nhà cung cấp LLM (Gemini/OpenAI/Anthropic...)
  * — Strategy Pattern. `ReactLoopService`/`SupervisorService` chỉ biết tới
@@ -37,7 +38,7 @@ export interface LlmTurnResult {
 }
 
 export interface LlmHistoryTurn {
-  role: 'user' | 'model';
+  role: EMessageRole;
   text: string;
 }
 

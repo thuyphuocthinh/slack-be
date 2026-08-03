@@ -14,7 +14,7 @@ import { McpClientService } from '../mcp/mcp-client.service';
 import { AgentStreamService } from '../socket/agent-stream.service';
 import { describeExternalServiceError } from '../llm/external-service-error.util';
 import { CheckpointService } from '../checkpoint/checkpoint.service';
-import { OrchestrationCheckpointStatus } from '../entity/orchestration-checkpoint.entity';
+import { OrchestrationCheckpointStatus, PendingToolCall } from '../entity/orchestration-checkpoint.entity';
 import { DelegationDto } from '../dto/supervisor.dto';
 import { CheckpointResponseDto } from '../dto/checkpoint.dto';
 import { ResolveApprovalRequestDto } from '../dto/orchestration.dto';
@@ -49,7 +49,7 @@ export class ApprovalFlowService {
     private readonly turnResolver: TurnResolverService,
     private readonly llmFactory: LlmStrategyFactory,
     private readonly circuitBreaker: CircuitBreakerService,
-  ) {}
+  ) { }
 
   // Chỉ làm phần NHANH (check quyền + claim() atomic) rồi trả về ngay —
   // "approve" thật (gọi tool + resume Supervisor loop, nhiều lượt LLM nối
@@ -58,21 +58,17 @@ export class ApprovalFlowService {
   async resolveApproval(dto: ResolveApprovalRequestDto): Promise<void> {
     const checkpoint = await this.loadOwnedCheckpoint(dto);
 
-    // accuracy_problem.md mục 1 — action="clarify" chỉ hợp lệ cho checkpoint
-    // 'clarification' kèm selectedProvider; ngược lại (VD bấm approve nhầm 1
-    // checkpoint clarification) là lỗi rõ ràng, không âm thầm cho qua.
-    const kindMatchesAction =
-      dto.action === 'clarify'
-        ? checkpoint.kind === 'clarification' && Boolean(dto.selectedProvider)
-        : checkpoint.kind === 'approval';
-    if (!kindMatchesAction) {
-      throw new RpcException(ORCHESTRATION_ERROR.CHECKPOINT_ACTION_MISMATCH);
-    }
+    this.validateActionAndKind(dto, checkpoint);
 
     const toStatus =
       dto.action === 'reject'
         ? OrchestrationCheckpointStatus.REJECTED
         : OrchestrationCheckpointStatus.APPROVED;
+
+    let updatedPendingTool: PendingToolCall | undefined = undefined;
+    if (dto.action === 'edit_and_approve') {
+      updatedPendingTool = this.validateAndApplyEditedArgs(dto, checkpoint);
+    }
 
     // Atomic UPDATE (WHERE status='pending') trước khi làm gì khác — double-click/2 tab chỉ 1 request "thắng".
     const { claimed } = await this.checkpoint.claim({
@@ -81,6 +77,7 @@ export class ApprovalFlowService {
       ...(dto.action === 'clarify' && {
         selectedProvider: dto.selectedProvider,
       }),
+      ...(updatedPendingTool && { updatedPendingTool }),
     });
     if (!claimed) {
       throw new RpcException(ORCHESTRATION_ERROR.CHECKPOINT_ALREADY_RESOLVED);
@@ -92,10 +89,6 @@ export class ApprovalFlowService {
     }
 
     try {
-      // attempts:1 — mcpClient.callTool() không idempotent (VD UPDATE, tạo
-      // issue thật), auto-retry mặc định của queue sẽ chạy lại tool THẬT lần 2.
-      // "clarify" không gọi tool nào, nhưng vẫn qua CÙNG job (resume continueRounds()
-      // có thể mất vài giây tới vài chục giây, cùng lý do đẩy nền như "approve").
       await this.queueService.addJob(
         EQueueName.AI_ORCHESTRATION_QUEUE,
         EJobName.PROCESS_APPROVAL,
@@ -114,6 +107,59 @@ export class ApprovalFlowService {
         ORCHESTRATION_ERROR.CHECKPOINT_APPROVAL_ENQUEUE_FAILED,
       );
     }
+  }
+
+  private validateActionAndKind(
+    dto: ResolveApprovalRequestDto,
+    checkpoint: CheckpointResponseDto,
+  ): void {
+    const kindMatchesAction =
+      dto.action === 'clarify'
+        ? checkpoint.kind === 'clarification' && Boolean(dto.selectedProvider)
+        : checkpoint.kind === 'approval';
+    if (!kindMatchesAction) {
+      throw new RpcException(ORCHESTRATION_ERROR.CHECKPOINT_ACTION_MISMATCH);
+    }
+  }
+
+  private validateAndApplyEditedArgs(
+    dto: ResolveApprovalRequestDto,
+    checkpoint: CheckpointResponseDto,
+  ) {
+    if (!checkpoint.pendingTool || !dto.editedArgs) {
+      throw new RpcException(ORCHESTRATION_ERROR.CHECKPOINT_ACTION_MISMATCH);
+    }
+
+    const originalArgs = checkpoint.pendingTool.args || {};
+    const editedArgs = dto.editedArgs;
+
+    for (const [key, value] of Object.entries(editedArgs)) {
+      if (!(key in originalArgs)) {
+        throw new RpcException(ORCHESTRATION_ERROR.CHECKPOINT_ACTION_MISMATCH);
+      }
+    }
+
+    const FORBIDDEN_KEYS = ['id', 'name'];
+    if (Object.keys(editedArgs).some((key) => FORBIDDEN_KEYS.includes(key))) {
+      throw new RpcException(ORCHESTRATION_ERROR.CHECKPOINT_ACTION_MISMATCH);
+    }
+
+    const FORBIDDEN_VALUES = ['', null, undefined];
+    if (
+      Object.values(editedArgs).some((value) =>
+        FORBIDDEN_VALUES.includes(value as any),
+      )
+    ) {
+      throw new RpcException(ORCHESTRATION_ERROR.CHECKPOINT_ACTION_MISMATCH);
+    }
+
+    return {
+      ...checkpoint.pendingTool,
+      args: {
+        ...originalArgs,
+        ...editedArgs,
+      },
+    };
   }
 
   // Checkpoint đã claim() 'approved' TRƯỚC khi job này chạy (xem
@@ -375,7 +421,7 @@ export class ApprovalFlowService {
 
     const { strategy, model } = this.llmFactory.resolve(
       process.env.DEFAULT_REACT_MODEL ??
-        ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL,
+      ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL,
     );
     const { requiredCount, achievedCount } = await checkQuantity(
       pendingTask,

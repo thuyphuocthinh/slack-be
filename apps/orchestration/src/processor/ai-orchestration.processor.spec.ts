@@ -133,6 +133,7 @@ describe('AiOrchestrationProcessor', () => {
       channelId: jobData.channelId,
       content: 'Có 2 bảng.',
       toolCalls: [{ tool: 'get_database_schema', status: 'success' }],
+      executionTimeMs: expect.any(Number),
     });
     // "done" phải bắn luôn, dù trả lời thành công — FE dựa vào đây để tắt icon "đang chạy tool...".
     expect(mockAgentStream.emitStep).toHaveBeenCalledWith(

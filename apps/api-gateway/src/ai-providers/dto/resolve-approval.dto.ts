@@ -1,13 +1,15 @@
 import { IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { EApprovalAction } from '@slack/constants';
 
 export class ResolveApprovalDto {
-  // accuracy_problem.md mục 1 — 'clarify' dùng cho checkpoint kind='clarification'
-  // (user vừa chọn 1 candidate agent), kèm selectedProvider bắt buộc khi đó.
-  @IsIn(['approve', 'reject', 'clarify'])
+  @IsIn(['approve', 'reject', 'clarify', 'edit_and_approve'])
   @IsNotEmpty()
-  action: 'approve' | 'reject' | 'clarify';
+  action: EApprovalAction;
 
   @IsOptional()
   @IsString()
   selectedProvider?: string;
+
+  @IsOptional()
+  editedArgs?: Record<string, any>;
 }

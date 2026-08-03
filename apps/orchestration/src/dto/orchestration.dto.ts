@@ -1,5 +1,6 @@
 import { McpToolDto, McpResourceDto, McpPromptDto } from './mcp.dto';
 import { EDynamicProviderAuthType } from '../entity/dynamic-provider.entity';
+import { EApprovalAction, ERefreshFormat } from '@slack/constants';
 
 export class GetProvidersRequestDto {
   userId: string;
@@ -45,15 +46,12 @@ export class DisconnectProviderResponseDto {
   success: boolean;
 }
 
-// Giai đoạn 3 (HITL) — messageId là message "approval_request"/"clarification_request"
-// FE đang hiện nút trên đó, KHÔNG phải messageId gốc user hỏi ban đầu.
-// accuracy_problem.md mục 1 — 'clarify' dùng cho checkpoint kind='clarification'
-// (user vừa chọn 1 candidate agent), kèm `selectedProvider` bắt buộc khi đó.
 export class ResolveApprovalRequestDto {
   userId: string;
   messageId: string;
-  action: 'approve' | 'reject' | 'clarify';
+  action: EApprovalAction;
   selectedProvider?: string;
+  editedArgs?: Record<string, any>;
 }
 
 export class ResolveApprovalResponseDto {
@@ -120,7 +118,7 @@ export class RegisterDynamicProviderRequestDto {
   clientSecret?: string;
   /** Ghi đè thủ công định dạng body khi gọi refresh_token grant — để trống thì server tự suy ra
    *  từ tokenUrl (VD: auth.atlassian.com -> 'json'), mặc định 'form' cho các trường hợp còn lại. */
-  refreshRequestFormat?: 'form' | 'json';
+  refreshRequestFormat?: ERefreshFormat;
 
   // Escape hatch — chỉ cần khi hệ thống refresh trả về response quá khác biệt mà auto-detection
   // (snake_case/camelCase/envelope 1 lớp) không đoán ra được. Để trống ở tuyệt đại đa số trường hợp.
@@ -150,7 +148,7 @@ export class UpdateDynamicProviderRequestDto {
   tokenUrl?: string;
   clientId?: string;
   clientSecret?: string;
-  refreshRequestFormat?: 'form' | 'json';
+  refreshRequestFormat?: ERefreshFormat;
   responseAccessTokenPath?: string;
   responseRefreshTokenPath?: string;
   responseExpiresInPath?: string;

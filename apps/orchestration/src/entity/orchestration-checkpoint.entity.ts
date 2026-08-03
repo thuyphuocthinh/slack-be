@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { DelegationDto, SupervisorRoundDto } from '../dto/supervisor.dto';
 import { ChatHistoryTurnDto } from '../dto/message-client.dto';
+import { ECheckpointKind } from '@slack/constants';
 
 export enum OrchestrationCheckpointStatus {
   PENDING = 'pending',
@@ -21,8 +22,6 @@ export interface PendingToolCall {
   args: Record<string, unknown>;
 }
 
-// accuracy_problem.md mục 1 — 1 candidate agent trong cụm mơ hồ mà
-// findAmbiguousAgentCluster() (supervisor.service.ts) phát hiện được.
 export interface AmbiguousAgentCandidate {
   provider: string;
   label: string;
@@ -51,12 +50,6 @@ export class OrchestrationCheckpointEntity {
   @Index()
   userId: string;
 
-  // Người GỬI message "approval_request" (luôn là bot, KHÁC `userId` — người
-  // TRIGGER/duyệt) — cần lưu lại vì `resolveApproval()` phải update ĐÚNG
-  // message này bằng danh nghĩa người đã tạo ra nó (message service chặn
-  // update nếu `userId` truyền vào khác `message.userId`/sender thật —
-  // ERR.MESSAGE.0103). Nullable vì cột thêm sau, checkpoint tạo TRƯỚC migration
-  // này sẽ không có giá trị (coi là dữ liệu cũ, không dùng lại được).
   @Column({ type: 'uuid', name: 'bot_user_id', nullable: true })
   botUserId: string;
 
@@ -81,12 +74,8 @@ export class OrchestrationCheckpointEntity {
   @Column({ type: 'text', name: 'pending_task' })
   pendingTask: string;
 
-  // accuracy_problem.md mục 1 — 'approval' (hành vi cũ, mặc định — chờ duyệt
-  // 1 tool destructiveHint) hay 'clarification' (chờ user chọn agent đúng khi
-  // plan() mơ hồ giữa 2+ lựa chọn, xem findAmbiguousAgentCluster()). Checkpoint
-  // cũ (tạo trước migration này) mặc định 'approval', vẫn đúng hành vi.
-  @Column({ type: 'varchar', default: 'approval' })
-  kind: 'approval' | 'clarification';
+  @Column({ type: 'varchar', default: ECheckpointKind.APPROVAL })
+  kind: ECheckpointKind;
 
   @Column({ type: 'text', name: 'clarification_question', nullable: true })
   clarificationQuestion: string | null;

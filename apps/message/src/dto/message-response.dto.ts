@@ -42,6 +42,7 @@ export class MessageResponseDto {
   myFeedback?: 'like' | 'unlike' | null;
   linkPreviews?: ILinkPreviewMetadata[] | null;
   toolCalls?: IToolCallTrace[] | null;
+  executionTimeMs?: number | null;
 }
 
 export class ThreadResponseDto {

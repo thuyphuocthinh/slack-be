@@ -3,6 +3,7 @@ import { ClientProxy } from '@nestjs/microservices';
 import { JsonRepair } from 'agentic-io-parser';
 import { firstValueFrom } from 'rxjs';
 import {
+  EMessageRole,
   MESSAGE_MESSAGE_PATTERNS,
   NAME_SERVICE_TCP,
   ORCHESTRATION_CONSTANTS,
@@ -24,14 +25,6 @@ interface MessageLike {
   toolCalls?: ToolCallTraceDto[] | null;
 }
 
-// FE gửi content = JSON.stringify(editor.getJSON()) — cây rich text TipTap
-// dạng {type:'doc', content:[{type:'paragraph', content:[{type:'text', text:'...'}]}]}
-// ĐÃ STRINGIFY, nên content nhận được ở đây là 1 STRING chứa JSON, không phải
-// object thuần. Bug cũ chỉ trả thẳng string đó (return content) — với message
-// do bot tự tạo (plain string thật, JSON.parse sẽ throw) thì đúng, nhưng với
-// message user gõ thật qua FE thì trả nguyên văn chuỗi JSON thay vì lời văn
-// thật, khiến prompt gửi cho Supervisor rỗng/vô nghĩa. Cùng logic đệ quy với
-// NotificationService.extractPlainHistoryText (đã chạy đúng trong production).
 function extractContentText(content: unknown): string {
   const traverseTiptapNodes = (node: unknown): string => {
     const texts: string[] = [];
@@ -63,12 +56,6 @@ function extractContentText(content: unknown): string {
   }
 }
 
-// mục 17 — SupervisorService.buildPrompt() already redacted old AI answers
-// (own copy, same wording) but ReactLoopService passes this SAME array
-// straight into the LLM's native chat history with no redaction, so a
-// sub-agent executing an unrelated step could still see (and get sidetracked
-// re-checking) the previous turn's actual old answer content. Redact once
-// here so every consumer of getRecentHistory() gets the same guarantee.
 const REDACTED_MODEL_ANSWER_TEXT =
   '(nội dung câu trả lời cũ đã ẩn khỏi ngữ cảnh này — KHÔNG được dùng làm dữ liệu; nếu câu hỏi hiện tại cần dữ liệu/số liệu cụ thể, PHẢI delegate lại để lấy MỚI)';
 
@@ -80,7 +67,7 @@ export class MessageClientService {
     @Inject(NAME_SERVICE_TCP.MESSAGE_SERVICE)
     private readonly messageService: ClientProxy,
     private readonly channelMemory: ChannelMemoryService,
-  ) {}
+  ) { }
 
   async getMessageText(dto: GetMessageTextRequestDto): Promise<string> {
     const message = await firstValueFrom(
@@ -216,7 +203,7 @@ export class MessageClientService {
         joined.length > maxChars ? `${joined.slice(0, maxChars)}...` : joined;
 
       return {
-        role: 'user',
+        role: EMessageRole.USER,
         text: `(Tóm tắt ngữ cảnh cũ hơn, KHÔNG phải câu hỏi mới) Trước đó, cuộc trò chuyện đã đề cập: ${summaryText}`,
       };
     } catch {
@@ -243,7 +230,11 @@ export class MessageClientService {
       this.messageService.send(MESSAGE_MESSAGE_PATTERNS.UPDATE, {
         id: dto.id,
         userId: dto.userId,
-        updateDto: { content: dto.content, toolCalls: dto.toolCalls },
+        updateDto: {
+          content: dto.content,
+          toolCalls: dto.toolCalls,
+          executionTimeMs: dto.executionTimeMs
+        },
       }),
     );
 

@@ -50,4 +50,5 @@ export * from './socket/socket.enum';
 export * from './errors/billing.error';
 export * from './errors/calendar.error';
 export * from './tcp/message_pattern/calendar_msg_pattern.constant';
-export * from './tcp/message_pattern/orchestration_msg_pattern.constant';
+export * from './tcp/message_pattern/orchestration_msg_pattern.constant';
+export * from './types/orchestration.enum';

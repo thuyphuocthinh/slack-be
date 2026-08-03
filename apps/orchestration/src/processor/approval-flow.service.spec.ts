@@ -175,6 +175,58 @@ describe('ApprovalFlowService', () => {
       expect(mockMessageClient.updateMessage).not.toHaveBeenCalled();
     });
 
+    it('edit_and_approve: correctly validates and passes updated pending tool to claim()', async () => {
+      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(checkpoint);
+
+      await service.resolveApproval({
+        userId: 'user-1',
+        messageId: 'approval-msg-1',
+        action: 'edit_and_approve',
+        editedArgs: { query: "UPDATE Orders SET Status='Shipped' WHERE OrderId=1" },
+      });
+
+      expect(mockCheckpoint.claim).toHaveBeenCalledWith({
+        id: 'checkpoint-1',
+        toStatus: OrchestrationCheckpointStatus.APPROVED,
+        updatedPendingTool: {
+          provider: 'sql_server',
+          name: 'execute_write_query',
+          args: { query: "UPDATE Orders SET Status='Shipped' WHERE OrderId=1" },
+        },
+      });
+      expect(mockQueueService.addJob).toHaveBeenCalled();
+    });
+
+    it('edit_and_approve: rejects if attempting to add new unknown keys to args', async () => {
+      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(checkpoint);
+
+      await expect(
+        service.resolveApproval({
+          userId: 'user-1',
+          messageId: 'approval-msg-1',
+          action: 'edit_and_approve',
+          editedArgs: { query: "UPDATE Orders SET Status='Shipped' WHERE OrderId=1", malicious_new_key: 'hacked' },
+        }),
+      ).rejects.toThrow();
+
+      expect(mockCheckpoint.claim).not.toHaveBeenCalled();
+    });
+
+    it('edit_and_approve: rejects if attempting to inject forbidden values', async () => {
+      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(checkpoint);
+
+      await expect(
+        service.resolveApproval({
+          userId: 'user-1',
+          messageId: 'approval-msg-1',
+          action: 'edit_and_approve',
+          editedArgs: { query: "" }, // empty string is forbidden in validation
+        }),
+      ).rejects.toThrow();
+
+      expect(mockCheckpoint.claim).not.toHaveBeenCalled();
+    });
+
     it('approve: reverts the claim back to PENDING when enqueueing the job fails, instead of leaving it stuck APPROVED forever', async () => {
       mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(checkpoint);
       mockQueueService.addJob.mockRejectedValue(new Error('redis unreachable'));

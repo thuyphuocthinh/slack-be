@@ -1,3 +1,4 @@
+import { EStepExecutionStatus, EMessageRole } from '@slack/constants';
 export class CreateOrchestrationMessageRequestDto {
   channelId: string;
   senderId: string;
@@ -18,7 +19,7 @@ export class UpdateOrchestrationMessageRequestDto {
   content: string | Record<string, unknown>;
   toolCalls?: {
     tool: string;
-    status: 'success' | 'error' | 'awaiting_approval';
+    status: EStepExecutionStatus;
     resultPreview?: string;
   }[];
   // ver3.md mục 1 (dài hạn) — optional CÓ CHỦ ĐÍCH: chỉ cần truyền ở các call
@@ -26,6 +27,7 @@ export class UpdateOrchestrationMessageRequestDto {
   // nhánh lỗi chỉ update text bỏ qua an toàn (không channelId → updateMessage()
   // tự bỏ qua bước ghi channel_memory).
   channelId?: string;
+  executionTimeMs?: number;
 }
 
 export class GetMessageTextRequestDto {
@@ -42,6 +44,6 @@ export class GetRecentHistoryRequestDto {
 }
 
 export class ChatHistoryTurnDto {
-  role: 'user' | 'model';
+  role: EMessageRole;
   text: string;
 }
