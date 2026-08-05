@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { IProcessAiTriggerJobData } from '@slack/queue';
-import { ECheckpointRiskLevel } from '@slack/constants';
+import {
+  ECheckpointKind,
+  ECheckpointRiskLevel,
+  EStepExecutionStatus,
+} from '@slack/constants';
 import { extractTextFromMcpResult } from '@slack/common';
 import { MessageClientService } from '../message-client.service';
 import { McpClientService } from '../mcp/mcp-client.service';
@@ -190,7 +194,7 @@ export class CheckpointPauseService {
         roundsSoFar: rounds,
         remainingSteps,
         history,
-        kind: 'clarification',
+        kind: ECheckpointKind.CLARIFICATION,
         clarificationQuestion: this.buildClarificationQuestion(
           task,
           candidates,
@@ -243,7 +247,7 @@ export class CheckpointPauseService {
           ...toolCalls,
           {
             tool: `${pendingTool.provider}.${pendingTool.name}`,
-            status: 'awaiting_approval',
+            status: EStepExecutionStatus.AWAITING_APPROVAL,
           },
         ],
       });
