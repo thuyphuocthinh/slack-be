@@ -104,3 +104,10 @@ export const LLM_MODEL_REGISTRY: Record<string, LlmModelRegistryEntry> = {
     contextWindowTokens: 200_000,
   },
 };
+
+// Model embedding KHÔNG phải chat model (không có output tokens, không đi
+// qua LlmStrategyFactory) — tách khỏi LLM_MODEL_REGISTRY, chỉ giữ giá
+// tham khảo (USD/1 triệu token) để ước lượng chi phí (xem estimateEmbeddingCostUsd).
+export const EMBEDDING_MODEL_PRICING: Record<string, number> = {
+  'text-embedding-3-small': 0.02,
+};

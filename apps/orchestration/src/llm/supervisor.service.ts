@@ -32,6 +32,7 @@ import {
   capRoundResults,
   capToolResultSize,
   resolveDataCharBudget,
+  resolveMemoryCharBudget,
 } from '../executor/tool-result-size-cap.util';
 import { hasPendingActionStep } from '../common/pending-action-step.util';
 import { MetricsRegistryService } from '../common/metrics-registry.service';
@@ -58,7 +59,7 @@ export class SupervisorService {
     private readonly embeddingProvider: OpenAiEmbeddingProvider,
     private readonly metrics: MetricsRegistryService,
     private readonly channelMemory: ChannelMemoryService,
-  ) { }
+  ) {}
 
   private getSystemAgents(): AvailableAgentDto[] {
     const provider = 'compute';
@@ -251,11 +252,11 @@ export class SupervisorService {
     const agentListText =
       shown.length > 0
         ? shown
-          .map((a) => `- ${a.provider} (${a.label}): ${a.description}`)
-          .join('\n') +
-        (omittedCount > 0
-          ? `\n(Còn ${omittedCount} hệ thống khác đã kết nối nhưng không liên quan tới câu hỏi này, đã ẩn bớt khỏi danh sách trên.)`
-          : '')
+            .map((a) => `- ${a.provider} (${a.label}): ${a.description}`)
+            .join('\n') +
+          (omittedCount > 0
+            ? `\n(Còn ${omittedCount} hệ thống khác đã kết nối nhưng không liên quan tới câu hỏi này, đã ẩn bớt khỏi danh sách trên.)`
+            : '')
         : '(Người dùng chưa kết nối agent nào — nếu câu hỏi cần dữ liệu, trả lời "respond" và nhắc user vào Settings để kết nối.)';
 
     const planSchema =
@@ -270,7 +271,11 @@ export class SupervisorService {
         ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL;
       const { strategy, model } = this.llmFactory.resolve(planModelId);
       const memories = channelId
-        ? await this.channelMemory.getRecentMemories(channelId)
+        ? await this.channelMemory.getRecentMemories(
+            channelId,
+            resolveMemoryCharBudget(planModelId),
+            prompt,
+          )
         : [];
       // ver3.md mục 5 — chỉ để harvest thủ công cho eval dataset sau này
       // (grep log theo tag), KHÔNG ảnh hưởng tới prompt (đã xử lý trong
@@ -511,9 +516,9 @@ export class SupervisorService {
       let streamedAnything = false;
       const trackedOnToken = onToken
         ? (chunk: string) => {
-          streamedAnything = true;
-          onToken(chunk);
-        }
+            streamedAnything = true;
+            onToken(chunk);
+          }
         : undefined;
       const result = await this.circuitBreaker.run(
         `llm:${strategy.id}`,

@@ -26,6 +26,7 @@ import { OrchestrationTriggerClaimEntity } from './entity/orchestration-trigger-
 import { DynamicProviderEntity } from './entity/dynamic-provider.entity';
 import { ChannelMemoryEntity } from './entity/channel-memory.entity';
 import { ChannelMemoryService } from './memory/channel-memory.service';
+import { ChannelMemoryCleanupService } from './memory/channel-memory-cleanup.service';
 import { CheckpointService } from './checkpoint/checkpoint.service';
 import { CheckpointCleanupService } from './checkpoint/checkpoint-cleanup.service';
 import { TriggerClaimService } from './trigger-claim/trigger-claim.service';
@@ -92,6 +93,7 @@ import { HealthCheckService } from './common/health-check.service';
     CheckpointService,
     CheckpointCleanupService,
     ChannelMemoryService,
+    ChannelMemoryCleanupService,
     TriggerClaimService,
     CircuitBreakerService,
     ProviderConcurrencyLimiterService,

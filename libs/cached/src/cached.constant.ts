@@ -295,6 +295,11 @@ export const CACHE = {
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:orchestration:v1:circuit_breaker:total:${key}`,
       CIRCUIT_BREAKER_FAILURES: (key: string): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:orchestration:v1:circuit_breaker:failures:${key}`,
+      // Fair queueing — đếm số lần workspace trigger AI trong 1 cửa sổ trượt,
+      // dùng làm priority cho job (workspace trigger dồn dập bị đẩy priority
+      // tệ dần, không chặn hẳn — xem AiTriggerPriorityService).
+      WORKSPACE_TRIGGER_COUNT: (workspaceId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:orchestration:v1:workspace_trigger_count:${workspaceId}`,
     },
   },
 };

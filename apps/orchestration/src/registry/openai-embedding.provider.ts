@@ -14,6 +14,10 @@ import { EmbeddingProvider } from '../common/agentic-openapi-parser';
  * không thể vừa là key 9Router vừa là key OpenAI thật cùng lúc (xác nhận
  * bằng thực nghiệm — accuracy_problem.md mục 2).
  */
+// Export để nơi khác (VD ước lượng chi phí) dùng đúng 1 nguồn, không lặp lại
+// chuỗi model ở 2 chỗ dễ lệch khi đổi model.
+export const OPENAI_EMBEDDING_MODEL = 'text-embedding-3-small';
+
 @Injectable()
 export class OpenAiEmbeddingProvider implements EmbeddingProvider {
   private readonly logger = new Logger(OpenAiEmbeddingProvider.name);
@@ -38,7 +42,7 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
     }
 
     const response = await this.client.embeddings.create({
-      model: 'text-embedding-3-small',
+      model: OPENAI_EMBEDDING_MODEL,
       input: texts,
     });
 

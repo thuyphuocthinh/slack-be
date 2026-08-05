@@ -389,6 +389,8 @@ describe('SupervisorService', () => {
 
         expect(mockChannelMemory.getRecentMemories).toHaveBeenCalledWith(
           'chan-1',
+          expect.any(Number),
+          'chèn lại đi',
         );
         const sentPrompt =
           mockStrategy.generateStructured.mock.calls[0][0].prompt;

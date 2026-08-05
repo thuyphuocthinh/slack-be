@@ -3,6 +3,8 @@ import { of, throwError } from 'rxjs';
 import { NAME_SERVICE_TCP } from '@slack/constants';
 import { MessageClientService } from './message-client.service';
 import { ChannelMemoryService } from './memory/channel-memory.service';
+import { LlmStrategyFactory } from './llm/strategy/llm-strategy.factory';
+import { CircuitBreakerService } from './common/circuit-breaker.service';
 
 describe('MessageClientService', () => {
   let service: MessageClientService;
@@ -11,6 +13,11 @@ describe('MessageClientService', () => {
     recordSuccessfulCreateCalls: jest.fn().mockResolvedValue(undefined),
     getRecentMemories: jest.fn().mockResolvedValue([]),
   };
+  // Không cấu hình resolve() -> destructure {strategy, model} từ undefined
+  // ném lỗi ngay -> summarizeSnippets() rơi về fallback rule-based, đúng
+  // hành vi CŨ (giữ nguyên các test đã có từ trước không cần sửa gì).
+  const mockLlmFactory = { resolve: jest.fn() };
+  const mockCircuitBreaker = { run: jest.fn() };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -21,6 +28,8 @@ describe('MessageClientService', () => {
           useValue: mockMessageService,
         },
         { provide: ChannelMemoryService, useValue: mockChannelMemory },
+        { provide: LlmStrategyFactory, useValue: mockLlmFactory },
+        { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
       ],
     }).compile();
 
@@ -478,6 +487,83 @@ describe('MessageClientService', () => {
         expect(history[0].text.endsWith('...')).toBe(true);
         expect(history[0].text.length).toBeLessThan(longText.length);
       });
+
+      it('Giai đoạn 2 (Agent OS) — "Compress": uses the LLM-generated summary when the strategy resolves and succeeds', async () => {
+        mockMessageService.send
+          .mockReturnValueOnce(
+            of({
+              messages: [
+                { content: 'câu hỏi gần nhất', sender: { isBot: false } },
+              ],
+              nextCursor: 'x',
+            }),
+          )
+          .mockReturnValueOnce(
+            of({
+              messages: [
+                {
+                  content: 'doanh thu tháng này bao nhiêu?',
+                  sender: { isBot: false },
+                },
+              ],
+            }),
+          );
+        const mockGenerateStructured = jest
+          .fn()
+          .mockResolvedValueOnce({ summary: 'Đã hỏi về doanh thu tháng này.' });
+        mockLlmFactory.resolve.mockReturnValueOnce({
+          strategy: {
+            id: 'openai',
+            generateStructured: mockGenerateStructured,
+          },
+          model: 'gpt-4.1-nano',
+        });
+        mockCircuitBreaker.run.mockImplementationOnce((_key, action) =>
+          action(),
+        );
+
+        const history = await service.getRecentHistory({
+          channelId: 'c1',
+          userId: 'u1',
+          beforeMessageId: 'm1',
+          limit: 10,
+        });
+
+        expect(history[0].text).toContain('Đã hỏi về doanh thu tháng này.');
+      });
+
+      it('falls back to the rule-based join when the LLM call fails', async () => {
+        mockMessageService.send
+          .mockReturnValueOnce(
+            of({
+              messages: [
+                { content: 'câu hỏi gần nhất', sender: { isBot: false } },
+              ],
+              nextCursor: 'x',
+            }),
+          )
+          .mockReturnValueOnce(
+            of({
+              messages: [{ content: 'ngữ cảnh cũ', sender: { isBot: false } }],
+            }),
+          );
+        mockLlmFactory.resolve.mockReturnValueOnce({
+          strategy: { id: 'openai' },
+          model: 'gpt-4.1-nano',
+        });
+        mockCircuitBreaker.run.mockRejectedValueOnce(
+          new Error('provider down'),
+        );
+
+        const history = await service.getRecentHistory({
+          channelId: 'c1',
+          userId: 'u1',
+          beforeMessageId: 'm1',
+          limit: 10,
+        });
+
+        expect(history[0].text).toContain('ngữ cảnh cũ');
+      });
     });
   });
 
@@ -561,6 +647,70 @@ describe('MessageClientService', () => {
           content: '⚠️ Lỗi: connect ECONNREFUSED',
         }),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('getRecentHistory — charBudget safety net (Giai đoạn 2, Agent OS)', () => {
+    it('does not trim anything when charBudget is not provided (existing behavior unchanged)', async () => {
+      mockMessageService.send.mockReturnValue(
+        of({
+          messages: [
+            { content: 'y'.repeat(100), sender: { isBot: false } },
+            { content: 'x'.repeat(100), sender: { isBot: false } },
+          ],
+        }),
+      );
+
+      const history = await service.getRecentHistory({
+        channelId: 'c1',
+        userId: 'u1',
+        beforeMessageId: 'm1',
+        limit: 10,
+      });
+
+      expect(history).toHaveLength(2);
+    });
+
+    it('drops the oldest turns first once the total exceeds charBudget', async () => {
+      mockMessageService.send.mockReturnValue(
+        of({
+          messages: [
+            { content: 'newest turn', sender: { isBot: false } },
+            {
+              content: 'oldest turn should be dropped',
+              sender: { isBot: false },
+            },
+          ],
+        }),
+      );
+
+      const history = await service.getRecentHistory({
+        channelId: 'c1',
+        userId: 'u1',
+        beforeMessageId: 'm1',
+        limit: 10,
+        charBudget: 15,
+      });
+
+      expect(history).toEqual([{ role: 'user', text: 'newest turn' }]);
+    });
+
+    it('always keeps at least the newest turn even if it alone exceeds charBudget', async () => {
+      mockMessageService.send.mockReturnValue(
+        of({
+          messages: [{ content: 'x'.repeat(50), sender: { isBot: false } }],
+        }),
+      );
+
+      const history = await service.getRecentHistory({
+        channelId: 'c1',
+        userId: 'u1',
+        beforeMessageId: 'm1',
+        limit: 10,
+        charBudget: 5,
+      });
+
+      expect(history).toHaveLength(1);
     });
   });
 });

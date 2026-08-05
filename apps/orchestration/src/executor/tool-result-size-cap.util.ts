@@ -6,6 +6,7 @@ import {
   JsonValue,
 } from 'agentic-io-parser';
 import { LLM_MODEL_REGISTRY } from '@slack/constants';
+import { isLikelyReadOnlyRound } from './read-only-round-heuristic.util';
 
 // Chặn cuối cùng trước khi 1 kết quả tool (MCP tĩnh HOẶC dynamic provider) được
 // nhồi vào prompt/rounds gửi lại cho LLM. Đặt cap TỔNG dung lượng ở đây
@@ -112,7 +113,9 @@ export function capToolResultSize(
 // KHÔNG dồn hết context cho dữ liệu dù model có context window rất lớn (VD
 // Gemini 1M token), vì prompt quá to vẫn tốn tiền/độ trễ thật dù "vừa" về
 // mặt kỹ thuật — nên vẫn có MAX_DATA_CHARS_CEILING chặn trần tuyệt đối.
-const CHARS_PER_TOKEN_ESTIMATE = 4; // ước lượng thô (tiếng Việt/Anh trộn lẫn), KHÔNG chính xác tuyệt đối theo tokenizer thật của từng provider.
+// Export để tái dùng ước lượng token chỗ khác (VD chi phí embedding) — cùng
+// 1 con số ước lượng cho toàn app, không lặp lại magic number.
+export const CHARS_PER_TOKEN_ESTIMATE = 4; // ước lượng thô (tiếng Việt/Anh trộn lẫn), KHÔNG chính xác tuyệt đối theo tokenizer thật của từng provider.
 const DATA_BUDGET_FRACTION = 0.3;
 const MAX_DATA_CHARS_CEILING = 200_000;
 
@@ -126,6 +129,24 @@ export function resolveDataCharBudget(modelId: string): number {
     entry.contextWindowTokens * CHARS_PER_TOKEN_ESTIMATE * DATA_BUDGET_FRACTION,
   );
   return Math.min(scaled, MAX_DATA_CHARS_CEILING);
+}
+
+// channel_memory trước đây dùng hằng số cố định, không biết model đang xử lý
+// có context window lớn hay nhỏ. Cộng thêm 1 lát budget riêng (KHÔNG trừ vào
+// tool result — 2 khoản độc lập, hành vi/test tool result giữ nguyên).
+const MEMORY_BUDGET_FRACTION = 0.1;
+
+export function resolveMemoryCharBudget(modelId: string): number {
+  return Math.floor(resolveDataCharBudget(modelId) * MEMORY_BUDGET_FRACTION);
+}
+
+// Lịch sử hội thoại vẫn tự quản lý theo turn-count (redact/recap/tóm tắt,
+// xem getRecentHistory()) — số này chỉ dùng làm LƯỚI AN TOÀN cuối cùng, cùng
+// công thức resolveDataCharBudget(), độc lập với tool result/memory.
+const HISTORY_BUDGET_FRACTION = 0.5;
+
+export function resolveHistoryCharBudget(modelId: string): number {
+  return Math.floor(resolveDataCharBudget(modelId) * HISTORY_BUDGET_FRACTION);
 }
 
 // accuracy_problem.md — cap TỪNG round.result riêng theo ngân sách CHIA ĐỀU,
@@ -149,5 +170,30 @@ export function capRoundResults<T extends { result: string }>(
   return rounds.map((r) => ({
     ...r,
     result: capToolResultSize(r.result, perRoundBudget),
+  }));
+}
+
+// Giai đoạn 2 (Agent OS) — "Clear": thay vì chia đều ngân sách cho mọi round
+// như capRoundResults(), round reconstructible (chỉ tra cứu/đọc — xem
+// isLikelyReadOnlyRound) nhường chỗ cho round irreplaceable (đã tạo/sửa/xoá),
+// vì round reconstructible gọi lại được nếu cần, round kia thì không.
+const IRREPLACEABLE_WEIGHT = 2;
+
+export function capRoundResultsWeighted<
+  T extends { task: string; result: string },
+>(rounds: readonly T[], totalBudget: number = MAX_TOOL_RESULT_CHARS): T[] {
+  if (rounds.length === 0) return [...rounds];
+
+  const weights = rounds.map((r) =>
+    isLikelyReadOnlyRound(r) ? 1 : IRREPLACEABLE_WEIGHT,
+  );
+  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+
+  return rounds.map((r, i) => ({
+    ...r,
+    result: capToolResultSize(
+      r.result,
+      Math.floor((totalBudget * weights[i]) / totalWeight),
+    ),
   }));
 }

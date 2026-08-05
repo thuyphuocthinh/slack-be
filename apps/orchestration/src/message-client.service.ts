@@ -18,6 +18,9 @@ import {
 } from './dto/message-client.dto';
 import { ToolCallTraceDto } from './dto/react-loop.dto';
 import { ChannelMemoryService } from './memory/channel-memory.service';
+import { LlmStrategyFactory } from './llm/strategy/llm-strategy.factory';
+import { CircuitBreakerService } from './common/circuit-breaker.service';
+import { withLlmRetry } from './llm/with-llm-retry.util';
 
 interface MessageLike {
   content: unknown;
@@ -59,6 +62,22 @@ function extractContentText(content: unknown): string {
 const REDACTED_MODEL_ANSWER_TEXT =
   '(nội dung câu trả lời cũ đã ẩn khỏi ngữ cảnh này — KHÔNG được dùng làm dữ liệu; nếu câu hỏi hiện tại cần dữ liệu/số liệu cụ thể, PHẢI delegate lại để lấy MỚI)';
 
+// Giai đoạn 2 (Agent OS) — "Compress": tóm tắt bằng LLM thay vì chỉ nối câu
+// (rule-based) như trước, để giữ lại Ý CHÍNH thay vì cắt cụt giữa chừng.
+const HISTORY_SUMMARY_PROMPT =
+  'Tóm tắt các đoạn hội thoại sau thành 1-2 câu ngắn gọn, giữ lại thông tin/quyết định quan trọng nhất. Chỉ trả về phần tóm tắt, không thêm lời dẫn.';
+
+const HISTORY_SUMMARY_SCHEMA = {
+  type: 'object',
+  properties: {
+    summary: {
+      type: 'string',
+      description: 'Bản tóm tắt ngắn gọn 1-2 câu.',
+    },
+  },
+  required: ['summary'],
+};
+
 @Injectable()
 export class MessageClientService {
   private readonly logger = new Logger(MessageClientService.name);
@@ -67,7 +86,9 @@ export class MessageClientService {
     @Inject(NAME_SERVICE_TCP.MESSAGE_SERVICE)
     private readonly messageService: ClientProxy,
     private readonly channelMemory: ChannelMemoryService,
-  ) { }
+    private readonly llmFactory: LlmStrategyFactory,
+    private readonly circuitBreaker: CircuitBreakerService,
+  ) {}
 
   async getMessageText(dto: GetMessageTextRequestDto): Promise<string> {
     const message = await firstValueFrom(
@@ -138,13 +159,33 @@ export class MessageClientService {
         };
       });
 
-    if (!nextCursor) return history;
+    if (!nextCursor)
+      return this.capHistoryToCharBudget(history, dto.charBudget);
 
     const summaryTurn = await this.buildTruncatedHistorySummary(
       dto,
       nextCursor,
     );
-    return summaryTurn ? [summaryTurn, ...history] : history;
+    const withSummary = summaryTurn ? [summaryTurn, ...history] : history;
+    return this.capHistoryToCharBudget(withSummary, dto.charBudget);
+  }
+
+  // Giai đoạn 2 (Agent OS) — lưới an toàn cuối cùng, KHÔNG thay cơ chế
+  // turn-count/redact/recap ở trên. Cắt từ ĐẦU (turn cũ nhất) trước, luôn giữ
+  // ít nhất turn MỚI NHẤT dù riêng nó đã vượt budget — cùng tinh thần
+  // capToCharBudget() ở ChannelMemoryService.
+  private capHistoryToCharBudget(
+    history: ChatHistoryTurnDto[],
+    charBudget?: number,
+  ): ChatHistoryTurnDto[] {
+    if (charBudget === undefined) return history;
+
+    const kept = [...history];
+    let used = kept.reduce((sum, turn) => sum + turn.text.length, 0);
+    while (used > charBudget && kept.length > 1) {
+      used -= kept.shift()!.text.length;
+    }
+    return kept;
   }
 
   // ver3.md mục 1 (ngắn hạn) — ghi lại "đã thử làm gì, kết quả sao" (hành
@@ -196,11 +237,7 @@ export class MessageClientService {
         .filter((text) => text.length > 0);
       if (snippets.length === 0) return null;
 
-      const maxChars =
-        ORCHESTRATION_CONSTANTS.TRUNCATED_HISTORY_SUMMARY_MAX_CHARS;
-      const joined = snippets.join('; ');
-      const summaryText =
-        joined.length > maxChars ? `${joined.slice(0, maxChars)}...` : joined;
+      const summaryText = await this.summarizeSnippets(snippets);
 
       return {
         role: EMessageRole.USER,
@@ -208,6 +245,47 @@ export class MessageClientService {
       };
     } catch {
       return null;
+    }
+  }
+
+  // "Compress" — thử tóm tắt bằng LLM (giữ Ý CHÍNH thay vì cắt cụt); lỗi/timeout
+  // thì rơi về đúng hành vi CŨ (nối câu + cắt độ dài), không chặn luồng chính.
+  private async summarizeSnippets(snippets: string[]): Promise<string> {
+    const maxChars =
+      ORCHESTRATION_CONSTANTS.TRUNCATED_HISTORY_SUMMARY_MAX_CHARS;
+    const joined = snippets.join('; ');
+    const fallback =
+      joined.length > maxChars ? `${joined.slice(0, maxChars)}...` : joined;
+
+    try {
+      const modelId =
+        process.env.HISTORY_SUMMARY_MODEL ??
+        process.env.SUPERVISOR_MODEL ??
+        ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL;
+      const { strategy, model } = this.llmFactory.resolve(modelId);
+
+      const result = await this.circuitBreaker.run(`llm:${strategy.id}`, () =>
+        withLlmRetry(
+          (signal) =>
+            strategy.generateStructured<{ summary: string }>({
+              model,
+              systemInstruction: HISTORY_SUMMARY_PROMPT,
+              prompt: joined,
+              schema: HISTORY_SUMMARY_SCHEMA,
+              signal,
+            }),
+          ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS,
+          `History summary timeout sau ${ORCHESTRATION_CONSTANTS.LLM_CALL_TIMEOUT_MS / 1000}s (model=${model})`,
+        ),
+      );
+
+      const summary = result.summary?.trim();
+      return summary ? summary : fallback;
+    } catch (error) {
+      this.logger.warn(
+        `summarizeSnippets() LLM failed, falling back to rule-based join: ${(error as Error).message}`,
+      );
+      return fallback;
     }
   }
 
@@ -233,7 +311,7 @@ export class MessageClientService {
         updateDto: {
           content: dto.content,
           toolCalls: dto.toolCalls,
-          executionTimeMs: dto.executionTimeMs
+          executionTimeMs: dto.executionTimeMs,
         },
       }),
     );

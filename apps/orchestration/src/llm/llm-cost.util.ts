@@ -1,5 +1,5 @@
 import { getCurrentRunTree } from 'langsmith/traceable';
-import { LLM_MODEL_REGISTRY } from '@slack/constants';
+import { EMBEDDING_MODEL_PRICING, LLM_MODEL_REGISTRY } from '@slack/constants';
 
 export interface TokenUsage {
   inputTokens: number;
@@ -29,6 +29,36 @@ export function estimateCostUsd(
     (usage.inputTokens / 1_000_000) * entry.pricePerMillionInputTokens +
     (usage.outputTokens / 1_000_000) * entry.pricePerMillionOutputTokens
   );
+}
+
+// Embedding không có output tokens — giá tra riêng ở EMBEDDING_MODEL_PRICING
+// (KHÔNG phải LLM_MODEL_REGISTRY, model đó không phải chat model).
+export function estimateEmbeddingCostUsd(
+  modelId: string,
+  inputTokens: number,
+): number | null {
+  const pricePerMillion = EMBEDDING_MODEL_PRICING[modelId];
+  if (pricePerMillion === undefined) return null;
+  return (inputTokens / 1_000_000) * pricePerMillion;
+}
+
+// Cùng convention gắn usage_metadata với attachLlmCostMetadata() — chỉ dùng
+// được từ bên trong 1 hàm đã bọc traceable() với run_type: 'llm'.
+export function attachEmbeddingCostMetadata(
+  modelId: string,
+  inputTokens: number,
+): void {
+  const runTree = getCurrentRunTree(true);
+  if (!runTree) return;
+
+  const totalCostUsd = estimateEmbeddingCostUsd(modelId, inputTokens);
+  runTree.metadata = {
+    usage_metadata: {
+      input_tokens: inputTokens,
+      total_tokens: inputTokens,
+      ...(totalCostUsd !== null ? { total_cost: totalCostUsd } : {}),
+    },
+  };
 }
 
 // Gắn usage/chi phí ước lượng vào LangSmith trace của lượt gọi LLM HIỆN TẠI —

@@ -102,6 +102,18 @@ export const ORCHESTRATION_CONSTANTS = {
   // đợi phình vô hạn (quá tải là dồn ứ chứ không tự xử lý nhanh hơn ngay cả
   // sau khi nâng AI_ORCHESTRATION_QUEUE_CONCURRENCY).
   MAX_ORCHESTRATION_QUEUE_DEPTH: 100,
+  // Giai đoạn 1 (Agent OS) — fair queueing theo workspace cho
+  // AI_ORCHESTRATION_QUEUE. Đếm số lần trigger AI trong window này để tính
+  // priority (AiTriggerPriorityService) — workspace trigger dồn dập trong
+  // 60s bị priority tệ dần, workspace khác chen lên trước.
+  WORKSPACE_TRIGGER_PRIORITY_WINDOW_SEC: 60,
+  // Clamp priority tối đa — tránh tăng vô hạn nếu 1 workspace trigger liên
+  // tục nhiều window liền (BullMQ priority càng lớn càng bị xử lý sau).
+  WORKSPACE_TRIGGER_PRIORITY_MAX: 1000,
+  // Ngưỡng RIÊNG cho 1 workspace, thấp hơn hẳn MAX_ORCHESTRATION_QUEUE_DEPTH
+  // (dùng chung toàn hệ thống) — chặn 1 workspace tự spam trước khi nó kịp
+  // đẩy tổng số job chạm ngưỡng chung và làm workspace khác bị từ chối lây.
+  WORKSPACE_TRIGGER_ADMISSION_LIMIT: 30,
   // Giai đoạn System, mục 4 — chặn LLM tự gọi lại CÙNG 1 tool với CÙNG tham số
   // trong 1 lượt run(). = 1 nghĩa là CHỈ CHO PHÉP ĐÚNG 1 LẦN GỌI THẬT cho mỗi
   // (tool, tham số) — lần thứ 2 trở đi bị chặn ngay, KHÔNG phải "cho phép lặp
@@ -166,6 +178,10 @@ export const ORCHESTRATION_CONSTANTS = {
   // phình prompt.
   CHANNEL_MEMORY_READ_LIMIT: 20,
   CHANNEL_MEMORY_CONTENT_MAX_CHARS: 300,
+  // Giai đoạn 2 (Agent OS) — channel_memory chỉ là GỢI Ý tham khảo (xem comment
+  // ở ChannelMemoryEntity), không phải nguồn sự thật lâu dài — tự xoá sau
+  // TTL này để không phình vô hạn và không đọc phải fact đã quá cũ.
+  CHANNEL_MEMORY_TTL_HOURS: 24 * 30,
 };
 
 export const ORCHESTRATION_SYSTEM_PROMPT = `Bạn là AI Assistant, 1 thành viên thật trong channel Slack này (không phải app/bot riêng biệt) — nói chuyện tự nhiên như đồng nghiệp, không xưng "tôi là 1 mô hình AI".

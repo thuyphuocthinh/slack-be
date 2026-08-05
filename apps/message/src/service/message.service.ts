@@ -40,7 +40,13 @@ import {
 } from '@slack/queue';
 import { IMessageAttachment } from '../types/message-attachment.interface';
 import { ITipTapNode } from '../types/tiptap-node.interface';
-import { CACHE, CachedService, RateLimitService, TTL } from '@slack/cached';
+import {
+  CACHE,
+  CachedService,
+  RateLimitService,
+  AiTriggerPriorityService,
+  TTL,
+} from '@slack/cached';
 import { AuditAction, AuditEntityType } from '@slack/common';
 
 @Injectable()
@@ -58,6 +64,7 @@ export class MessageService {
     private readonly queueService: QueueService,
     private readonly cachedService: CachedService,
     private readonly rateLimitService: RateLimitService,
+    private readonly aiTriggerPriority: AiTriggerPriorityService,
   ) {}
 
   private async checkChannelExist(channelId: string, senderId: string) {
@@ -456,6 +463,30 @@ export class MessageService {
       return;
     }
 
+    // Giai đoạn 1 (Agent OS) — chặn RIÊNG workspace này nếu tự nó trigger AI
+    // quá dồn dập, TRƯỚC khi kiểm tra ngưỡng chung. Không có bước này, 1
+    // workspace spam vẫn có thể đẩy tổng job chạm MAX_ORCHESTRATION_QUEUE_DEPTH
+    // và làm workspace KHÁC bị từ chối lây ở bước isOverloaded() bên dưới.
+    const recentTriggerCount = await this.aiTriggerPriority.countRecentTriggers(
+      channel.workspaceId,
+      ORCHESTRATION_CONSTANTS.WORKSPACE_TRIGGER_PRIORITY_WINDOW_SEC,
+    );
+    if (
+      recentTriggerCount >
+      ORCHESTRATION_CONSTANTS.WORKSPACE_TRIGGER_ADMISSION_LIMIT
+    ) {
+      this.logger.warn(
+        `maybeTriggerAiOrchestration() workspaceId=${channel.workspaceId} trigger AI quá dồn dập (>${ORCHESTRATION_CONSTANTS.WORKSPACE_TRIGGER_ADMISSION_LIMIT} lượt/${ORCHESTRATION_CONSTANTS.WORKSPACE_TRIGGER_PRIORITY_WINDOW_SEC}s) — từ chối enqueue cho userId=${savedMessage.userId}`,
+      );
+      await this.createMessage({
+        channelId: channel.id,
+        senderId: botEntry.id,
+        content:
+          'Workspace của bạn đang gửi yêu cầu AI quá nhanh, vui lòng thử lại sau ít phút.',
+      });
+      return;
+    }
+
     // Backpressure/Admission control — waiting+active vượt ngưỡng thì từ chối
     // enqueue NGAY tại lúc trigger thay vì để hàng đợi phình vô hạn (worker
     // concurrency chỉ 5, quá tải là dồn ứ chứ không tự xử lý nhanh hơn).
@@ -475,6 +506,15 @@ export class MessageService {
       return;
     }
 
+    // Giai đoạn 1 (Agent OS) — fair queueing theo workspace: priority càng
+    // tệ (số càng lớn) nếu workspace này vừa trigger AI dồn dập, để workspace
+    // khác không bị xếp sau hàng trăm job của 1 workspace duy nhất. Tái dùng
+    // đúng count đã đếm ở trên, không gọi Redis thêm lần nào.
+    const priority = Math.min(
+      recentTriggerCount,
+      ORCHESTRATION_CONSTANTS.WORKSPACE_TRIGGER_PRIORITY_MAX,
+    );
+
     await this.queueService.addJob(
       EQueueName.AI_ORCHESTRATION_QUEUE,
       EJobName.PROCESS_AI_TRIGGER,
@@ -492,6 +532,7 @@ export class MessageService {
         jobId: `ai_trigger_${savedMessage.id}`,
         attempts: 3,
         backoff: { type: 'exponential', delay: 3000 },
+        priority,
       },
     );
   }

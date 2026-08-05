@@ -41,6 +41,10 @@ export class GetRecentHistoryRequestDto {
   // Chỉ lấy message TRƯỚC message này (không tính chính nó)
   beforeMessageId: string;
   limit: number;
+  // Giai đoạn 2 (Agent OS) — lưới an toàn ký tự cuối cùng (xem
+  // resolveHistoryCharBudget), KHÔNG thay cơ chế turn-count hiện có. Không
+  // truyền = giữ nguyên hành vi cũ (không cắt thêm theo ký tự).
+  charBudget?: number;
 }
 
 export class ChatHistoryTurnDto {

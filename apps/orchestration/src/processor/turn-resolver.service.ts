@@ -19,6 +19,7 @@ import { CheckpointPauseService } from './checkpoint-pause.service';
 import { MetricsRegistryService } from '../common/metrics-registry.service';
 import { AnswerResult } from './orchestration-answer.types';
 import { TurnResolverRun } from './turn-resolver-run';
+import { resolveHistoryCharBudget } from '../executor/tool-result-size-cap.util';
 
 // Ghi chú thiết kế đầy đủ (WHY): slack-docs/Documents/Orchestration/code-notes/turn-resolver.service.md
 // Logic chi tiết 1 turn (plan/delegate/evaluate/synthesize) nằm ở
@@ -52,6 +53,10 @@ export class TurnResolverService {
         userId,
         beforeMessageId: messageId,
         limit: ORCHESTRATION_CONSTANTS.CHAT_HISTORY_LIMIT,
+        charBudget: resolveHistoryCharBudget(
+          process.env.DEFAULT_REACT_MODEL ??
+            ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL,
+        ),
       }),
     ]);
 
