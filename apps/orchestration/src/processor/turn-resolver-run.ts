@@ -227,6 +227,7 @@ export class TurnResolverRun {
       agentRankingCache,
       this.signal,
       this.data.channelId,
+      this.data.workspaceId,
     );
 
     if (plan.action === 'respond') {

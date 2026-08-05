@@ -19,6 +19,8 @@ import { ORCHESTRATION_CONSTANTS } from '@slack/constants';
 import { LlmStrategyFactory } from '../llm/strategy/llm-strategy.factory';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { MemoryManagerService } from '../memory/memory-manager.service';
+import { SkillService } from '../memory/skill.service';
+import { SkillRetrievalService } from '../memory/skill-retrieval.service';
 import { resolveDataCharBudget } from '../executor/tool-result-size-cap.util';
 
 // approval-flow.service.ts import @slack/common ở module scope (extractTextFromMcpResult)
@@ -60,6 +62,15 @@ describe('ApprovalFlowService', () => {
     })),
     getMemories: jest.fn().mockResolvedValue([]),
   };
+  const mockSkillService = {
+    create: jest.fn().mockResolvedValue(undefined),
+    incrementApprovedRunCount: jest.fn().mockResolvedValue(undefined),
+  };
+  // Mặc định null — mọi test đã có từ trước (không liên quan Skill Library)
+  // không bị ảnh hưởng (recordSkillOutcome() sẽ tự tạo skill mới, không throw).
+  const mockSkillRetrieval = {
+    findSimilarForAcquisition: jest.fn().mockResolvedValue(null),
+  };
 
   beforeEach(async () => {
     mockMessageClient.updateMessage.mockResolvedValue(undefined);
@@ -82,6 +93,7 @@ describe('ApprovalFlowService', () => {
     // Mặc định: task không nêu số lượng cụ thể — mọi test đã có từ trước
     // (không liên quan quantity-check) không bị ảnh hưởng.
     mockStrategy.generateStructured.mockResolvedValue({ requiredCount: 0 });
+    mockSkillRetrieval.findSimilarForAcquisition.mockResolvedValue(null);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -97,6 +109,8 @@ describe('ApprovalFlowService', () => {
         { provide: LlmStrategyFactory, useValue: mockLlmFactory },
         { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
         { provide: MemoryManagerService, useValue: mockMemoryManager },
+        { provide: SkillService, useValue: mockSkillService },
+        { provide: SkillRetrievalService, useValue: mockSkillRetrieval },
       ],
     }).compile();
 

@@ -29,6 +29,8 @@ import { checkQuantity } from '../llm/quantity-check.util';
 import { LlmStrategyFactory } from '../llm/strategy/llm-strategy.factory';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { MemoryManagerService } from '../memory/memory-manager.service';
+import { SkillService } from '../memory/skill.service';
+import { SkillRetrievalService } from '../memory/skill-retrieval.service';
 
 // Giai đoạn 3 (HITL) — toàn bộ vòng đời "duyệt/từ chối 1 hành động rủi ro":
 // nhận request duyệt (resolveApproval, nhanh — chỉ claim() rồi trả về), rồi
@@ -51,6 +53,8 @@ export class ApprovalFlowService {
     private readonly llmFactory: LlmStrategyFactory,
     private readonly circuitBreaker: CircuitBreakerService,
     private readonly memoryManager: MemoryManagerService,
+    private readonly skillService: SkillService,
+    private readonly skillRetrieval: SkillRetrievalService,
   ) {}
 
   // Chỉ làm phần NHANH (check quyền + claim() atomic) rồi trả về ngay —
@@ -270,6 +274,7 @@ export class ApprovalFlowService {
       roundsSoFar,
       originalPrompt,
       history,
+      riskLevel,
     } = checkpoint;
     const pendingTool = pendingToolOrNull!;
     // Checkpoint có thể pending tới 24h (CHECKPOINT_EXPIRY_MS) trước khi được
@@ -301,6 +306,13 @@ export class ApprovalFlowService {
         return;
       }
       await this.checkpoint.markToolExecuted({ id });
+      await this.recordSkillOutcome({
+        checkpointId: id,
+        workspaceId,
+        pendingTask,
+        pendingTool,
+        riskLevel,
+      });
 
       // Chuyển Message UI từ ApprovalRequestCard về text để hiện Markdown
       await this.messageClient.updateMessage({
@@ -590,5 +602,48 @@ export class ApprovalFlowService {
       ),
       isError: Boolean(toolResult.isError),
     };
+  }
+
+  // Gộp thêm 1 lần chạy đúng vào skill đã có (đủ giống theo embedding), hoặc
+  // đúc skill mới nếu chưa có gì tương tự — chỉ chạy SAU KHI tool đã chạy
+  // thành công thật. Lỗi ở đây tuyệt đối không được chặn luồng approve chính.
+  private async recordSkillOutcome(input: {
+    checkpointId: string;
+    workspaceId: string;
+    pendingTask: string;
+    pendingTool: PendingToolCall;
+    riskLevel: CheckpointResponseDto['riskLevel'];
+  }): Promise<void> {
+    try {
+      const similar = await this.skillRetrieval.findSimilarForAcquisition(
+        input.pendingTask,
+        input.workspaceId,
+      );
+      if (similar) {
+        await this.skillService.incrementApprovedRunCount(
+          similar.id,
+          input.checkpointId,
+        );
+        return;
+      }
+      await this.skillService.create({
+        workspaceId: input.workspaceId,
+        taskDescription: input.pendingTask,
+        summaryMarkdown: `Gọi "${input.pendingTool.provider}.${input.pendingTool.name}" với tham số tương tự:\n${JSON.stringify(input.pendingTool.args, null, 2)}`,
+        steps: [
+          {
+            provider: input.pendingTool.provider,
+            tool: input.pendingTool.name,
+            argsTemplate: input.pendingTool.args,
+          },
+        ],
+        sourceCheckpointId: input.checkpointId,
+        riskLevel: input.riskLevel,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `recordSkillOutcome() failed for checkpoint ${input.checkpointId}: ${(error as Error).message}`,
+      );
+    }
   }
 }

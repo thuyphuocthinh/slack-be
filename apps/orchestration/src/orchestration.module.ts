@@ -25,9 +25,12 @@ import { OrchestrationCheckpointEntity } from './entity/orchestration-checkpoint
 import { OrchestrationTriggerClaimEntity } from './entity/orchestration-trigger-claim.entity';
 import { DynamicProviderEntity } from './entity/dynamic-provider.entity';
 import { ChannelMemoryEntity } from './entity/channel-memory.entity';
+import { SkillEntity } from './entity/skill.entity';
 import { ChannelMemoryService } from './memory/channel-memory.service';
 import { ChannelMemoryCleanupService } from './memory/channel-memory-cleanup.service';
 import { MemoryManagerService } from './memory/memory-manager.service';
+import { SkillService } from './memory/skill.service';
+import { SkillRetrievalService } from './memory/skill-retrieval.service';
 import { CheckpointService } from './checkpoint/checkpoint.service';
 import { CheckpointCleanupService } from './checkpoint/checkpoint-cleanup.service';
 import { TriggerClaimService } from './trigger-claim/trigger-claim.service';
@@ -54,6 +57,7 @@ import { HealthCheckService } from './common/health-check.service';
       OrchestrationTriggerClaimEntity,
       DynamicProviderEntity,
       ChannelMemoryEntity,
+      SkillEntity,
     ]),
     ScheduleModule.forRoot(),
     CachedModule.forRoot(),
@@ -96,6 +100,8 @@ import { HealthCheckService } from './common/health-check.service';
     ChannelMemoryService,
     ChannelMemoryCleanupService,
     MemoryManagerService,
+    SkillService,
+    SkillRetrievalService,
     TriggerClaimService,
     CircuitBreakerService,
     ProviderConcurrencyLimiterService,
