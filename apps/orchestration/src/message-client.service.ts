@@ -62,8 +62,8 @@ function extractContentText(content: unknown): string {
 const REDACTED_MODEL_ANSWER_TEXT =
   '(nội dung câu trả lời cũ đã ẩn khỏi ngữ cảnh này — KHÔNG được dùng làm dữ liệu; nếu câu hỏi hiện tại cần dữ liệu/số liệu cụ thể, PHẢI delegate lại để lấy MỚI)';
 
-// Giai đoạn 2 (Agent OS) — "Compress": tóm tắt bằng LLM thay vì chỉ nối câu
-// (rule-based) như trước, để giữ lại Ý CHÍNH thay vì cắt cụt giữa chừng.
+// Tóm tắt bằng LLM thay vì chỉ nối câu (rule-based) — giữ lại Ý CHÍNH thay vì
+// cắt cụt giữa chừng khi lịch sử quá dài.
 const HISTORY_SUMMARY_PROMPT =
   'Tóm tắt các đoạn hội thoại sau thành 1-2 câu ngắn gọn, giữ lại thông tin/quyết định quan trọng nhất. Chỉ trả về phần tóm tắt, không thêm lời dẫn.';
 
@@ -170,10 +170,10 @@ export class MessageClientService {
     return this.capHistoryToCharBudget(withSummary, dto.charBudget);
   }
 
-  // Giai đoạn 2 (Agent OS) — lưới an toàn cuối cùng, KHÔNG thay cơ chế
-  // turn-count/redact/recap ở trên. Cắt từ ĐẦU (turn cũ nhất) trước, luôn giữ
-  // ít nhất turn MỚI NHẤT dù riêng nó đã vượt budget — cùng tinh thần
-  // capToCharBudget() ở ChannelMemoryService.
+  // Lưới an toàn cuối cùng theo ký tự, KHÔNG thay cơ chế turn-count/redact/
+  // recap ở trên. Cắt từ ĐẦU (turn cũ nhất) trước, luôn giữ ít nhất turn MỚI
+  // NHẤT dù riêng nó đã vượt budget — cùng tinh thần capToCharBudget() ở
+  // ChannelMemoryService.
   private capHistoryToCharBudget(
     history: ChatHistoryTurnDto[],
     charBudget?: number,

@@ -11,6 +11,12 @@ import { RunReactLoopRequestDto } from '../dto/react-loop.dto';
 import { ApprovalRequiredError } from './approval-required.error';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
+import { MemoryManagerService } from '../memory/memory-manager.service';
+import {
+  resolveDataCharBudget,
+  resolveHistoryCharBudget,
+  resolveMemoryCharBudget,
+} from '../executor/tool-result-size-cap.util';
 
 // @slack/common barrel transitively kéo theo "nanoid" (ESM-only) qua
 // string.util.ts — jest không transform được, mock thẳng theo đúng convention
@@ -60,6 +66,16 @@ describe('ReactLoopService', () => {
     requestCancel: jest.fn(),
     getOwner: jest.fn(),
   };
+  // Gọi thẳng các hàm budget thật — assertion cắt độ dài bên dưới thấy đúng
+  // số cũ, không đổi hành vi khi route qua service.
+  const mockMemoryManager = {
+    buildBudget: jest.fn((modelId: string) => ({
+      toolResultCharBudget: resolveDataCharBudget(modelId),
+      memoryCharBudget: resolveMemoryCharBudget(modelId),
+      historyCharBudget: resolveHistoryCharBudget(modelId),
+    })),
+    getMemories: jest.fn().mockResolvedValue([]),
+  };
 
   const baseDto: RunReactLoopRequestDto = {
     prompt: 'có bao nhiêu bảng trong DB?',
@@ -99,6 +115,7 @@ describe('ReactLoopService', () => {
         { provide: AgentStreamService, useValue: mockAgentStream },
         { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
         { provide: AgentCancellationService, useValue: mockCancellation },
+        { provide: MemoryManagerService, useValue: mockMemoryManager },
       ],
     }).compile();
 

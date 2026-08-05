@@ -1,6 +1,10 @@
 import { Logger } from '@nestjs/common';
 import { traceable } from 'langsmith/traceable';
-import { ORCHESTRATION_CONSTANTS, ORCHESTRATION_SELF_CHECK_PROMPT, EStepExecutionStatus } from '@slack/constants';
+import {
+  ORCHESTRATION_CONSTANTS,
+  ORCHESTRATION_SELF_CHECK_PROMPT,
+  EStepExecutionStatus,
+} from '@slack/constants';
 import { extractTextFromMcpResult } from '@slack/common';
 import { McpClientService } from '../mcp/mcp-client.service';
 import {
@@ -24,13 +28,11 @@ import { ApprovalRequiredError } from './approval-required.error';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { CallToolResponseDto, McpToolDto } from '../dto/mcp.dto';
 import { abortableSleep } from '../common/abortable-sleep.util';
-import {
-  capToolResultSize,
-  resolveDataCharBudget,
-} from '../executor/tool-result-size-cap.util';
+import { capToolResultSize } from '../executor/tool-result-size-cap.util';
 import { classifyToolError } from '../executor/tool-error-classifier.util';
 import { parseInsertValues } from '../executor/parse-insert-values.util';
 import { isLikelyCreateToolCall } from '../memory/create-tool-heuristic.util';
+import { MemoryManagerService } from '../memory/memory-manager.service';
 
 /** Gộp về 1 dòng, không cắt bớt — xem code-notes/react-loop.service.md */
 function formatResultPreview(text: string): string {
@@ -60,6 +62,7 @@ export interface ReactLoopRunDeps {
   mcpClient: McpClientService;
   agentStream: AgentStreamService;
   circuitBreaker: CircuitBreakerService;
+  memoryManager: MemoryManagerService;
   logger: Logger;
 }
 
@@ -81,6 +84,7 @@ export class ReactLoopRun {
   private readonly mcpClient: McpClientService;
   private readonly agentStream: AgentStreamService;
   private readonly circuitBreaker: CircuitBreakerService;
+  private readonly memoryManager: MemoryManagerService;
   private readonly logger: Logger;
 
   private readonly toolCalls: ToolCallTraceDto[] = [];
@@ -119,6 +123,7 @@ export class ReactLoopRun {
     this.mcpClient = deps.mcpClient;
     this.agentStream = deps.agentStream;
     this.circuitBreaker = deps.circuitBreaker;
+    this.memoryManager = deps.memoryManager;
     this.logger = deps.logger;
 
     this.tracedHandleToolCall = traceable(
@@ -158,7 +163,7 @@ export class ReactLoopRun {
         turn.toolCalls.map(async (call) => {
           const content = await this.tracedHandleToolCall(call.name, call.args);
           return { id: call.id, name: call.name, content };
-        })
+        }),
       );
 
       turn = await this.sendMessage(results, onToken);
@@ -264,9 +269,9 @@ export class ReactLoopRun {
     let streamedAnything = false;
     const trackedOnTok = onTok
       ? (chunk: string) => {
-        streamedAnything = true;
-        onTok(chunk);
-      }
+          streamedAnything = true;
+          onTok(chunk);
+        }
       : undefined;
     return this.circuitBreaker.run(
       `llm:${this.strategy.id}`,
@@ -534,18 +539,21 @@ export class ReactLoopRun {
         });
         return capToolResultSize(
           errorMessage,
-          resolveDataCharBudget(this.reactModelId),
+          this.memoryManager.buildBudget(this.reactModelId)
+            .toolResultCharBudget,
         );
       }
 
       text = extractTextFromMcpResult(result);
-      status = result.isError ? EStepExecutionStatus.ERROR : EStepExecutionStatus.SUCCESS;
+      status = result.isError
+        ? EStepExecutionStatus.ERROR
+        : EStepExecutionStatus.SUCCESS;
       resultPreview = formatResultPreview(text);
 
       const shouldRetryTransiently =
         status === EStepExecutionStatus.ERROR &&
         transientAttempt <
-        ORCHESTRATION_CONSTANTS.MAX_TRANSIENT_TOOL_RETRY_ATTEMPTS &&
+          ORCHESTRATION_CONSTANTS.MAX_TRANSIENT_TOOL_RETRY_ATTEMPTS &&
         classifyToolError(resultPreview) === 'retryable';
       if (!shouldRetryTransiently) break;
 
@@ -578,7 +586,7 @@ export class ReactLoopRun {
     });
     const feedText = capToolResultSize(
       text,
-      resolveDataCharBudget(this.reactModelId),
+      this.memoryManager.buildBudget(this.reactModelId).toolResultCharBudget,
     );
     if (status === 'success') {
       this.successfulCallCache.set(signature, { resultPreview, feedText });

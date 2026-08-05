@@ -12,7 +12,12 @@ import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { DynamicProviderDbService } from '../registry/dynamic-provider-db.service';
 import { OpenAiEmbeddingProvider } from '../registry/openai-embedding.provider';
 import { MetricsRegistryService } from '../common/metrics-registry.service';
-import { ChannelMemoryService } from '../memory/channel-memory.service';
+import { MemoryManagerService } from '../memory/memory-manager.service';
+import {
+  resolveDataCharBudget,
+  resolveHistoryCharBudget,
+  resolveMemoryCharBudget,
+} from '../executor/tool-result-size-cap.util';
 import { AGENT_REGISTRY } from '../registry/agents.registry';
 
 // Cô lập test khỏi giá trị thật của process.env.AGENT_SQL_SERVER_URL — mock
@@ -51,10 +56,15 @@ describe('SupervisorService', () => {
   // không bao giờ chạm tới mock này.
   const mockEmbeddingProvider = { embed: jest.fn() };
   const mockMetrics = { incrementBehaviorSignal: jest.fn() };
-  // ver3.md mục 1 (dài hạn) — mặc định rỗng, giữ nguyên hành vi mọi test đã có
-  // trước channel_memory (buildPrompt() chỉ thêm section khi memories.length > 0).
-  const mockChannelMemory = {
-    getRecentMemories: jest.fn().mockResolvedValue([]),
+  // Mặc định rỗng, giữ nguyên hành vi mọi test đã có trước channel_memory
+  // (buildPrompt() chỉ thêm section khi memories.length > 0).
+  const mockMemoryManager = {
+    getMemories: jest.fn().mockResolvedValue([]),
+    buildBudget: jest.fn((modelId: string) => ({
+      toolResultCharBudget: resolveDataCharBudget(modelId),
+      memoryCharBudget: resolveMemoryCharBudget(modelId),
+      historyCharBudget: resolveHistoryCharBudget(modelId),
+    })),
   };
 
   beforeEach(async () => {
@@ -67,7 +77,7 @@ describe('SupervisorService', () => {
       (_key: string, action: () => Promise<unknown>) => action(),
     );
     mockDynamicProviderDb.getProvidersByUser.mockResolvedValue([]);
-    mockChannelMemory.getRecentMemories.mockResolvedValue([]);
+    mockMemoryManager.getMemories.mockResolvedValue([]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -78,7 +88,7 @@ describe('SupervisorService', () => {
         { provide: DynamicProviderDbService, useValue: mockDynamicProviderDb },
         { provide: OpenAiEmbeddingProvider, useValue: mockEmbeddingProvider },
         { provide: MetricsRegistryService, useValue: mockMetrics },
-        { provide: ChannelMemoryService, useValue: mockChannelMemory },
+        { provide: MemoryManagerService, useValue: mockMemoryManager },
       ],
     }).compile();
 
@@ -369,7 +379,7 @@ describe('SupervisorService', () => {
 
     describe('ver3.md mục 1 (dài hạn) — channel_memory context', () => {
       it('fetches recent channel memories by channelId and folds them into the prompt BEFORE conversation history', async () => {
-        mockChannelMemory.getRecentMemories.mockResolvedValue([
+        mockMemoryManager.getMemories.mockResolvedValue([
           { content: 'notion.create_page: Page "Roadmap" (id=abc123)' },
         ]);
         mockStrategy.generateStructured.mockResolvedValue({
@@ -387,9 +397,9 @@ describe('SupervisorService', () => {
           'chan-1',
         );
 
-        expect(mockChannelMemory.getRecentMemories).toHaveBeenCalledWith(
+        expect(mockMemoryManager.getMemories).toHaveBeenCalledWith(
           'chan-1',
-          expect.any(Number),
+          ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL,
           'chèn lại đi',
         );
         const sentPrompt =
@@ -413,14 +423,14 @@ describe('SupervisorService', () => {
 
         await service.plan('câu hỏi', agents);
 
-        expect(mockChannelMemory.getRecentMemories).not.toHaveBeenCalled();
+        expect(mockMemoryManager.getMemories).not.toHaveBeenCalled();
         const sentPrompt =
           mockStrategy.generateStructured.mock.calls[0][0].prompt;
         expect(sentPrompt).not.toContain('Thông tin đã xác nhận trước đó');
       });
 
       it('omits the section entirely when there are no memories for the channel', async () => {
-        mockChannelMemory.getRecentMemories.mockResolvedValue([]);
+        mockMemoryManager.getMemories.mockResolvedValue([]);
         mockStrategy.generateStructured.mockResolvedValue({
           action: 'respond',
           answer: 'ok',
@@ -444,7 +454,7 @@ describe('SupervisorService', () => {
 
     describe('ver3.md mục 5 — frustration detection (regex, không LLM call)', () => {
       it('prepends a warning section, placed BEFORE channel_memory, when the current prompt matches a frustration pattern', async () => {
-        mockChannelMemory.getRecentMemories.mockResolvedValue([
+        mockMemoryManager.getMemories.mockResolvedValue([
           { content: 'notion.create_page: Page "Roadmap" (id=abc123)' },
         ]);
         mockStrategy.generateStructured.mockResolvedValue({

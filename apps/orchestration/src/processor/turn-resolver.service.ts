@@ -19,7 +19,7 @@ import { CheckpointPauseService } from './checkpoint-pause.service';
 import { MetricsRegistryService } from '../common/metrics-registry.service';
 import { AnswerResult } from './orchestration-answer.types';
 import { TurnResolverRun } from './turn-resolver-run';
-import { resolveHistoryCharBudget } from '../executor/tool-result-size-cap.util';
+import { MemoryManagerService } from '../memory/memory-manager.service';
 
 // Ghi chú thiết kế đầy đủ (WHY): slack-docs/Documents/Orchestration/code-notes/turn-resolver.service.md
 // Logic chi tiết 1 turn (plan/delegate/evaluate/synthesize) nằm ở
@@ -38,6 +38,7 @@ export class TurnResolverService {
     private readonly cancellation: AgentCancellationService,
     private readonly checkpointPause: CheckpointPauseService,
     private readonly metrics: MetricsRegistryService,
+    private readonly memoryManager: MemoryManagerService,
   ) {}
 
   async resolveAnswer(
@@ -53,10 +54,10 @@ export class TurnResolverService {
         userId,
         beforeMessageId: messageId,
         limit: ORCHESTRATION_CONSTANTS.CHAT_HISTORY_LIMIT,
-        charBudget: resolveHistoryCharBudget(
+        charBudget: this.memoryManager.buildBudget(
           process.env.DEFAULT_REACT_MODEL ??
             ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL,
-        ),
+        ).historyCharBudget,
       }),
     ]);
 
@@ -102,6 +103,7 @@ export class TurnResolverService {
           cancellation: this.cancellation,
           checkpointPause: this.checkpointPause,
           metrics: this.metrics,
+          memoryManager: this.memoryManager,
           logger: this.logger,
         },
       ).run(forcedStep, remainingSteps);

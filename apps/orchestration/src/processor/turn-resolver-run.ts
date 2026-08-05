@@ -22,10 +22,8 @@ import { describeExternalServiceError } from '../llm/external-service-error.util
 import { CheckpointPauseService } from './checkpoint-pause.service';
 import { MetricsRegistryService } from '../common/metrics-registry.service';
 import { buildOnToken } from './agent-stream-token.util';
-import {
-  capRoundResultsWeighted,
-  resolveDataCharBudget,
-} from '../executor/tool-result-size-cap.util';
+import { capRoundResultsWeighted } from '../executor/tool-result-size-cap.util';
+import { MemoryManagerService } from '../memory/memory-manager.service';
 import { hasPendingActionStep } from '../common/pending-action-step.util';
 import {
   AnswerResult,
@@ -64,6 +62,7 @@ export interface TurnResolverRunDeps {
   cancellation: AgentCancellationService;
   checkpointPause: CheckpointPauseService;
   metrics: MetricsRegistryService;
+  memoryManager: MemoryManagerService;
   logger: Logger;
 }
 
@@ -96,6 +95,7 @@ export class TurnResolverRun {
   private readonly cancellation: AgentCancellationService;
   private readonly checkpointPause: CheckpointPauseService;
   private readonly metrics: MetricsRegistryService;
+  private readonly memoryManager: MemoryManagerService;
   private readonly logger: Logger;
 
   private nonProgressRounds: number;
@@ -117,6 +117,7 @@ export class TurnResolverRun {
     this.cancellation = deps.cancellation;
     this.checkpointPause = deps.checkpointPause;
     this.metrics = deps.metrics;
+    this.memoryManager = deps.memoryManager;
     this.logger = deps.logger;
 
     this.nonProgressRounds = this.rounds.filter(isNonProgressRound).length;
@@ -537,7 +538,7 @@ export class TurnResolverRun {
       realRoundsSoFar.length > 0
         ? `${task}\n\nDữ liệu THẬT đã thu thập được từ (các) bước trước trong CÙNG yêu cầu này (PHẢI dùng ĐÚNG NGUYÊN VĂN, không tự bịa/diễn giải lại số liệu):\n${capRoundResultsWeighted(
             realRoundsSoFar,
-            resolveDataCharBudget(reactModelId),
+            this.memoryManager.buildBudget(reactModelId).toolResultCharBudget,
           )
             .map(
               (r, i) =>

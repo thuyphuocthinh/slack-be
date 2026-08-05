@@ -87,9 +87,9 @@ export class ChannelMemoryService {
     }
   }
 
-  // Giai đoạn 2 (Agent OS) — dọn fact đã quá TTL, gọi định kỳ từ
-  // ChannelMemoryCleanupService. TTL cố định cho mọi row nên chỉ cần so
-  // createdAt với ngưỡng thời gian, không cần cột expiresAt riêng.
+  // Dọn fact đã quá TTL, gọi định kỳ từ ChannelMemoryCleanupService. TTL cố
+  // định cho mọi row nên chỉ cần so createdAt với ngưỡng thời gian, không cần
+  // cột expiresAt riêng.
   async deleteExpired(ttlHours: number): Promise<number> {
     const cutoff = new Date(Date.now() - buildTTL('HOUR', ttlHours));
     const result = await this.repo.delete({ createdAt: LessThan(cutoff) });

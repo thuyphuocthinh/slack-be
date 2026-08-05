@@ -18,6 +18,8 @@ import { TurnResolverService } from './turn-resolver.service';
 import { ORCHESTRATION_CONSTANTS } from '@slack/constants';
 import { LlmStrategyFactory } from '../llm/strategy/llm-strategy.factory';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
+import { MemoryManagerService } from '../memory/memory-manager.service';
+import { resolveDataCharBudget } from '../executor/tool-result-size-cap.util';
 
 // approval-flow.service.ts import @slack/common ở module scope (extractTextFromMcpResult)
 // — mock thẳng barrel để tránh kéo theo "nanoid" (ESM-only) mà jest không transform được.
@@ -49,6 +51,14 @@ describe('ApprovalFlowService', () => {
   const mockLlmFactory = { resolve: jest.fn() };
   const mockCircuitBreaker = {
     run: jest.fn((_key: string, action: () => Promise<unknown>) => action()),
+  };
+  const mockMemoryManager = {
+    buildBudget: jest.fn((modelId: string) => ({
+      toolResultCharBudget: resolveDataCharBudget(modelId),
+      memoryCharBudget: 0,
+      historyCharBudget: 0,
+    })),
+    getMemories: jest.fn().mockResolvedValue([]),
   };
 
   beforeEach(async () => {
@@ -86,6 +96,7 @@ describe('ApprovalFlowService', () => {
         { provide: TurnResolverService, useValue: mockTurnResolver },
         { provide: LlmStrategyFactory, useValue: mockLlmFactory },
         { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
+        { provide: MemoryManagerService, useValue: mockMemoryManager },
       ],
     }).compile();
 
@@ -182,7 +193,9 @@ describe('ApprovalFlowService', () => {
         userId: 'user-1',
         messageId: 'approval-msg-1',
         action: 'edit_and_approve',
-        editedArgs: { query: "UPDATE Orders SET Status='Shipped' WHERE OrderId=1" },
+        editedArgs: {
+          query: "UPDATE Orders SET Status='Shipped' WHERE OrderId=1",
+        },
       });
 
       expect(mockCheckpoint.claim).toHaveBeenCalledWith({
@@ -205,7 +218,10 @@ describe('ApprovalFlowService', () => {
           userId: 'user-1',
           messageId: 'approval-msg-1',
           action: 'edit_and_approve',
-          editedArgs: { query: "UPDATE Orders SET Status='Shipped' WHERE OrderId=1", malicious_new_key: 'hacked' },
+          editedArgs: {
+            query: "UPDATE Orders SET Status='Shipped' WHERE OrderId=1",
+            malicious_new_key: 'hacked',
+          },
         }),
       ).rejects.toThrow();
 
@@ -220,7 +236,7 @@ describe('ApprovalFlowService', () => {
           userId: 'user-1',
           messageId: 'approval-msg-1',
           action: 'edit_and_approve',
-          editedArgs: { query: "" }, // empty string is forbidden in validation
+          editedArgs: { query: '' }, // empty string is forbidden in validation
         }),
       ).rejects.toThrow();
 

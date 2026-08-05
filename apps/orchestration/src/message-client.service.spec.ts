@@ -488,7 +488,7 @@ describe('MessageClientService', () => {
         expect(history[0].text.length).toBeLessThan(longText.length);
       });
 
-      it('Giai đoạn 2 (Agent OS) — "Compress": uses the LLM-generated summary when the strategy resolves and succeeds', async () => {
+      it('uses the LLM-generated summary when the strategy resolves and succeeds', async () => {
         mockMessageService.send
           .mockReturnValueOnce(
             of({
@@ -650,7 +650,7 @@ describe('MessageClientService', () => {
     });
   });
 
-  describe('getRecentHistory — charBudget safety net (Giai đoạn 2, Agent OS)', () => {
+  describe('getRecentHistory — charBudget safety net', () => {
     it('does not trim anything when charBudget is not provided (existing behavior unchanged)', async () => {
       mockMessageService.send.mockReturnValue(
         of({

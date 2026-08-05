@@ -31,12 +31,10 @@ import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import {
   capRoundResults,
   capToolResultSize,
-  resolveDataCharBudget,
-  resolveMemoryCharBudget,
 } from '../executor/tool-result-size-cap.util';
 import { hasPendingActionStep } from '../common/pending-action-step.util';
 import { MetricsRegistryService } from '../common/metrics-registry.service';
-import { ChannelMemoryService } from '../memory/channel-memory.service';
+import { MemoryManagerService } from '../memory/memory-manager.service';
 import { ChannelMemoryEntity } from '../entity/channel-memory.entity';
 import { detectFrustration } from './detect-frustration.util';
 
@@ -58,7 +56,7 @@ export class SupervisorService {
     private readonly dynamicProviderDb: DynamicProviderDbService,
     private readonly embeddingProvider: OpenAiEmbeddingProvider,
     private readonly metrics: MetricsRegistryService,
-    private readonly channelMemory: ChannelMemoryService,
+    private readonly memoryManager: MemoryManagerService,
   ) {}
 
   private getSystemAgents(): AvailableAgentDto[] {
@@ -271,11 +269,7 @@ export class SupervisorService {
         ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL;
       const { strategy, model } = this.llmFactory.resolve(planModelId);
       const memories = channelId
-        ? await this.channelMemory.getRecentMemories(
-            channelId,
-            resolveMemoryCharBudget(planModelId),
-            prompt,
-          )
+        ? await this.memoryManager.getMemories(channelId, planModelId, prompt)
         : [];
       // ver3.md mục 5 — chỉ để harvest thủ công cho eval dataset sau này
       // (grep log theo tag), KHÔNG ảnh hưởng tới prompt (đã xử lý trong
@@ -428,7 +422,7 @@ export class SupervisorService {
       ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL;
     const cappedResult = capToolResultSize(
       completedStep.result,
-      resolveDataCharBudget(evaluateModelId),
+      this.memoryManager.buildBudget(evaluateModelId).toolResultCharBudget,
     );
     const remainingText = remainingSteps
       .map((s, i) => {
@@ -495,7 +489,10 @@ export class SupervisorService {
         ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL;
       const { strategy, model } = this.llmFactory.resolve(modelId);
 
-      const roundsText = capRoundResults(rounds, resolveDataCharBudget(modelId))
+      const roundsText = capRoundResults(
+        rounds,
+        this.memoryManager.buildBudget(modelId).toolResultCharBudget,
+      )
         .map(
           (r, i) =>
             `${i + 1}. Agent "${r.agent}" (yêu cầu: "${r.task}") → kết quả: ${r.result}`,
@@ -597,7 +594,7 @@ export class SupervisorService {
     if (previousRounds.length > 0) {
       const roundsText = capRoundResults(
         previousRounds,
-        resolveDataCharBudget(modelId),
+        this.memoryManager.buildBudget(modelId).toolResultCharBudget,
       )
         .map(
           (r, i) =>

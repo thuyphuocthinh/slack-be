@@ -11,6 +11,7 @@ import { AgentCancellationService } from '../cancellation/agent-cancellation.ser
 import { TurnCancelledError } from '../llm/turn-cancelled.error';
 import { CheckpointPauseService } from './checkpoint-pause.service';
 import { MetricsRegistryService } from '../common/metrics-registry.service';
+import { MemoryManagerService } from '../memory/memory-manager.service';
 
 // react-loop.service.ts / supervisor.service.ts import @slack/common ở module
 // scope — mock thẳng barrel để tránh kéo theo "nanoid" (ESM-only).
@@ -37,6 +38,14 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
     pauseForClarification: jest.fn(),
   };
   const mockMetrics = { incrementBehaviorSignal: jest.fn() };
+  const mockMemoryManager = {
+    buildBudget: jest.fn().mockReturnValue({
+      toolResultCharBudget: 6000,
+      memoryCharBudget: 600,
+      historyCharBudget: 3000,
+    }),
+    getMemories: jest.fn().mockResolvedValue([]),
+  };
 
   const data: IProcessAiTriggerJobData = {
     userId: 'user-1',
@@ -72,6 +81,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         { provide: AgentCancellationService, useValue: mockCancellation },
         { provide: CheckpointPauseService, useValue: mockCheckpointPause },
         { provide: MetricsRegistryService, useValue: mockMetrics },
+        { provide: MemoryManagerService, useValue: mockMemoryManager },
       ],
     }).compile();
 

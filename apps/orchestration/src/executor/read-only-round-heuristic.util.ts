@@ -1,9 +1,8 @@
-// Giai đoạn 2 (Agent OS) — "Clear": phân loại round nào reconstructible (chỉ
-// tra cứu/đọc, gọi lại được, an toàn cắt trước) vs irreplaceable (đã tạo/sửa/
-// xoá — kết quả không lặp lại được y hệt). Heuristic TÊN/regex trên `task`,
-// cùng tinh thần isLikelyCreateToolCall() — chấp nhận false positive/negative,
-// vì chỉ ảnh hưởng THỨ TỰ cắt bớt khi thiếu ngân sách, không ảnh hưởng đúng/sai
-// dữ liệu.
+// Phân loại round nào reconstructible (chỉ tra cứu/đọc, gọi lại được, an
+// toàn cắt trước) vs irreplaceable (đã tạo/sửa/xoá — kết quả không lặp lại
+// được y hệt). Heuristic TÊN/regex trên `task`, cùng tinh thần
+// isLikelyCreateToolCall() — chấp nhận false positive/negative, vì chỉ ảnh
+// hưởng THỨ TỰ cắt bớt khi thiếu ngân sách, không ảnh hưởng đúng/sai dữ liệu.
 const READ_ONLY_VERBS = new Set([
   'xem',
   'tra',

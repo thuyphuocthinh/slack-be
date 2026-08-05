@@ -14,20 +14,21 @@ import { McpClientService } from '../mcp/mcp-client.service';
 import { AgentStreamService } from '../socket/agent-stream.service';
 import { describeExternalServiceError } from '../llm/external-service-error.util';
 import { CheckpointService } from '../checkpoint/checkpoint.service';
-import { OrchestrationCheckpointStatus, PendingToolCall } from '../entity/orchestration-checkpoint.entity';
+import {
+  OrchestrationCheckpointStatus,
+  PendingToolCall,
+} from '../entity/orchestration-checkpoint.entity';
 import { DelegationDto } from '../dto/supervisor.dto';
 import { CheckpointResponseDto } from '../dto/checkpoint.dto';
 import { ResolveApprovalRequestDto } from '../dto/orchestration.dto';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
 import { TurnCancelledError } from '../llm/turn-cancelled.error';
 import { TurnResolverService } from './turn-resolver.service';
-import {
-  capToolResultSize,
-  resolveDataCharBudget,
-} from '../executor/tool-result-size-cap.util';
+import { capToolResultSize } from '../executor/tool-result-size-cap.util';
 import { checkQuantity } from '../llm/quantity-check.util';
 import { LlmStrategyFactory } from '../llm/strategy/llm-strategy.factory';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
+import { MemoryManagerService } from '../memory/memory-manager.service';
 
 // Giai đoạn 3 (HITL) — toàn bộ vòng đời "duyệt/từ chối 1 hành động rủi ro":
 // nhận request duyệt (resolveApproval, nhanh — chỉ claim() rồi trả về), rồi
@@ -49,7 +50,8 @@ export class ApprovalFlowService {
     private readonly turnResolver: TurnResolverService,
     private readonly llmFactory: LlmStrategyFactory,
     private readonly circuitBreaker: CircuitBreakerService,
-  ) { }
+    private readonly memoryManager: MemoryManagerService,
+  ) {}
 
   // Chỉ làm phần NHANH (check quyền + claim() atomic) rồi trả về ngay —
   // "approve" thật (gọi tool + resume Supervisor loop, nhiều lượt LLM nối
@@ -133,7 +135,7 @@ export class ApprovalFlowService {
     const originalArgs = checkpoint.pendingTool.args || {};
     const editedArgs = dto.editedArgs;
 
-    for (const [key, value] of Object.entries(editedArgs)) {
+    for (const key of Object.keys(editedArgs)) {
       if (!(key in originalArgs)) {
         throw new RpcException(ORCHESTRATION_ERROR.CHECKPOINT_ACTION_MISMATCH);
       }
@@ -421,7 +423,7 @@ export class ApprovalFlowService {
 
     const { strategy, model } = this.llmFactory.resolve(
       process.env.DEFAULT_REACT_MODEL ??
-      ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL,
+        ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL,
     );
     const { requiredCount, achievedCount } = await checkQuantity(
       pendingTask,
@@ -560,14 +562,12 @@ export class ApprovalFlowService {
   }
 
   // Hành động ĐÃ được duyệt nên gọi tool THẬT trực tiếp, không qua Risk Gate
-  // lần nữa. Cap dung lượng kết quả (capToolResultSize) trước khi nó được feed
-  // vào round tiếp theo — 1 kết quả tool lớn (VD JSON lồng nhau từ dynamic
-  // provider) từng làm sendMessage() của vòng kế tiếp timeout vì context quá to.
-  // accuracy_problem.md mục 5 — cap theo ĐÚNG ngân sách của model ReactLoop
-  // (resolveDataCharBudget), không phải hằng số cứng: checkpoint không lưu
-  // model dùng cho agent gốc, nhưng ReactLoopService.run() LUÔN resolve
-  // DEFAULT_REACT_MODEL trong thực tế (không caller nào override dto.model),
-  // nên dùng lại đúng nguồn đó để khớp ngân sách thật.
+  // lần nữa. Cap dung lượng kết quả trước khi nó được feed vào round tiếp
+  // theo — 1 kết quả tool lớn (VD JSON lồng nhau từ dynamic provider) từng
+  // làm sendMessage() của vòng kế tiếp timeout vì context quá to. Checkpoint
+  // không lưu model dùng cho agent gốc, nhưng ReactLoopService.run() LUÔN
+  // resolve DEFAULT_REACT_MODEL trong thực tế (không caller nào override
+  // dto.model) — dùng lại đúng nguồn đó để khớp ngân sách thật.
   private async executeApprovedToolForReal(
     checkpoint: CheckpointResponseDto,
     userId: string,
@@ -586,7 +586,7 @@ export class ApprovalFlowService {
     return {
       text: capToolResultSize(
         extractTextFromMcpResult(toolResult),
-        resolveDataCharBudget(reactModelId),
+        this.memoryManager.buildBudget(reactModelId).toolResultCharBudget,
       ),
       isError: Boolean(toolResult.isError),
     };

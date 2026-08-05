@@ -14,10 +14,8 @@ import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
 import { runCancellable } from '../common/cancellable-run.util';
 import { TurnCancelledError } from './turn-cancelled.error';
-import {
-  capToolResultSize,
-  resolveDataCharBudget,
-} from '../executor/tool-result-size-cap.util';
+import { capToolResultSize } from '../executor/tool-result-size-cap.util';
+import { MemoryManagerService } from '../memory/memory-manager.service';
 import { ReactLoopRun } from './react-loop-run';
 
 // Ghi chú thiết kế đầy đủ (WHY): slack-docs/Documents/Orchestration/code-notes/react-loop.service.md
@@ -33,6 +31,7 @@ export class ReactLoopService {
     private readonly agentStream: AgentStreamService,
     private readonly circuitBreaker: CircuitBreakerService,
     private readonly cancellation: AgentCancellationService,
+    private readonly memoryManager: MemoryManagerService,
   ) {}
 
   async run(
@@ -109,6 +108,7 @@ export class ReactLoopService {
             mcpClient: this.mcpClient,
             agentStream: this.agentStream,
             circuitBreaker: this.circuitBreaker,
+            memoryManager: this.memoryManager,
             logger: this.logger,
           },
         );
@@ -136,7 +136,7 @@ export class ReactLoopService {
             userId,
             signal,
           );
-          return `\n--- Resource: ${r.name} ---\n${capToolResultSize(content, resolveDataCharBudget(modelId))}`;
+          return `\n--- Resource: ${r.name} ---\n${capToolResultSize(content, this.memoryManager.buildBudget(modelId).toolResultCharBudget)}`;
         } catch (error) {
           this.logger.warn(
             `Failed to read resource ${r.uri}: ${(error as Error).message}`,

@@ -173,10 +173,10 @@ export function capRoundResults<T extends { result: string }>(
   }));
 }
 
-// Giai đoạn 2 (Agent OS) — "Clear": thay vì chia đều ngân sách cho mọi round
-// như capRoundResults(), round reconstructible (chỉ tra cứu/đọc — xem
-// isLikelyReadOnlyRound) nhường chỗ cho round irreplaceable (đã tạo/sửa/xoá),
-// vì round reconstructible gọi lại được nếu cần, round kia thì không.
+// Thay vì chia đều ngân sách cho mọi round như capRoundResults(), round
+// reconstructible (chỉ tra cứu/đọc — xem isLikelyReadOnlyRound) nhường chỗ
+// cho round irreplaceable (đã tạo/sửa/xoá), vì round reconstructible gọi lại
+// được nếu cần, round kia thì không.
 const IRREPLACEABLE_WEIGHT = 2;
 
 export function capRoundResultsWeighted<
