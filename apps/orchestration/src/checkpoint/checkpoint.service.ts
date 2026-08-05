@@ -25,7 +25,7 @@ export class CheckpointService {
   constructor(
     @InjectRepository(OrchestrationCheckpointEntity)
     private readonly repo: Repository<OrchestrationCheckpointEntity>,
-  ) { }
+  ) {}
 
   async create(
     dto: CreateCheckpointRequestDto,
@@ -114,6 +114,7 @@ export class CheckpointService {
       history,
       status,
       kind,
+      riskLevel,
       clarificationQuestion,
       clarificationCandidates,
       selectedProvider,
@@ -138,6 +139,7 @@ export class CheckpointService {
       history,
       status,
       kind,
+      riskLevel,
       clarificationQuestion,
       clarificationCandidates,
       selectedProvider,

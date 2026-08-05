@@ -8,7 +8,7 @@ import {
 } from 'typeorm';
 import { DelegationDto, SupervisorRoundDto } from '../dto/supervisor.dto';
 import { ChatHistoryTurnDto } from '../dto/message-client.dto';
-import { ECheckpointKind } from '@slack/constants';
+import { ECheckpointKind, ECheckpointRiskLevel } from '@slack/constants';
 
 export enum OrchestrationCheckpointStatus {
   PENDING = 'pending',
@@ -76,6 +76,12 @@ export class OrchestrationCheckpointEntity {
 
   @Column({ type: 'varchar', default: ECheckpointKind.APPROVAL })
   kind: ECheckpointKind;
+
+  // Null khi không phân loại được rủi ro cụ thể (provider khác sql_server,
+  // hoặc câu lệnh không parse được) — KHÔNG suy ra mức mặc định giả, tránh
+  // hiểu nhầm là đã đánh giá rủi ro trong khi thực chất chưa có tín hiệu nào.
+  @Column({ type: 'varchar', name: 'risk_level', nullable: true })
+  riskLevel: ECheckpointRiskLevel | null;
 
   @Column({ type: 'text', name: 'clarification_question', nullable: true })
   clarificationQuestion: string | null;

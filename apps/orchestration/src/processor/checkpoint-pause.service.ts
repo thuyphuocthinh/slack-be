@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { IProcessAiTriggerJobData } from '@slack/queue';
+import { ECheckpointRiskLevel } from '@slack/constants';
 import { extractTextFromMcpResult } from '@slack/common';
 import { MessageClientService } from '../message-client.service';
 import { McpClientService } from '../mcp/mcp-client.service';
@@ -36,7 +37,7 @@ export class CheckpointPauseService {
     private readonly messageClient: MessageClientService,
     private readonly checkpoint: CheckpointService,
     private readonly mcpClient: McpClientService,
-  ) { }
+  ) {}
 
   // Dừng turn khi gặp tool rủi ro: tạo message MỚI "approval_request" (không
   // update message "Đang xử lý..."), lưu checkpoint để resume (Step 5), rồi
@@ -59,7 +60,10 @@ export class CheckpointPauseService {
     const { userId, channelId, botUserId } = data;
     const { approvalRequired: pendingTool, task: pendingTask } = approvalNeeded;
 
-    const preview = await this.buildRiskPreview(pendingTool, userId);
+    const { preview, riskLevel } = await this.buildRiskPreview(
+      pendingTool,
+      userId,
+    );
     const approvalContent = {
       type: 'approval_request',
       tool: pendingTool,
@@ -83,6 +87,7 @@ export class CheckpointPauseService {
         roundsSoFar: rounds,
         remainingSteps,
         history,
+        riskLevel,
       },
       '⚠️ Không thể tạo yêu cầu duyệt, vui lòng hỏi lại.',
     );
@@ -264,7 +269,7 @@ export class CheckpointPauseService {
   private async buildRiskPreview(
     pendingTool: PendingToolCall,
     userId: string,
-  ): Promise<string> {
+  ): Promise<{ preview: string; riskLevel: ECheckpointRiskLevel | null }> {
     if (
       pendingTool.provider === 'sql_server' &&
       pendingTool.name === 'execute_write_query'
@@ -275,22 +280,37 @@ export class CheckpointPauseService {
       if (target?.kind === 'whole-table-destructive') {
         const verb =
           target.operation === 'TRUNCATE' ? 'XOÁ TOÀN BỘ DỮ LIỆU' : 'XOÁ HẲN';
-        return `⚠️ Sẽ ${verb} bảng "${target.table}" (${target.operation} — KHÔNG THỂ khôi phục).`;
+        return {
+          preview: `⚠️ Sẽ ${verb} bảng "${target.table}" (${target.operation} — KHÔNG THỂ khôi phục).`,
+          riskLevel: ECheckpointRiskLevel.HIGH,
+        };
       }
       if (target?.kind === 'insert-rows') {
-        return `Sẽ thêm ~${target.rowCount} dòng mới vào bảng "${target.table}".`;
+        // Không bao giờ tới đây trong luồng thật — INSERT tự chạy thẳng ở
+        // Risk Gate (react-loop-run.ts), không tạo checkpoint. Giữ nhánh này
+        // phòng trường hợp pendingTool bị sửa tay qua edit_and_approve.
+        return {
+          preview: `Sẽ thêm ~${target.rowCount} dòng mới vào bảng "${target.table}".`,
+          riskLevel: ECheckpointRiskLevel.MEDIUM,
+        };
       }
       if (target?.kind === 'existing-rows') {
         const count = await this.countAffectedRows(target, userId);
         if (count !== null) {
-          return target.whereClause
-            ? `Sẽ ảnh hưởng ~${count} dòng.`
-            : `⚠️ Câu lệnh KHÔNG có mệnh đề WHERE — sẽ ảnh hưởng TOÀN BỘ bảng (~${count} dòng).`;
+          return {
+            preview: target.whereClause
+              ? `Sẽ ảnh hưởng ~${count} dòng.`
+              : `⚠️ Câu lệnh KHÔNG có mệnh đề WHERE — sẽ ảnh hưởng TOÀN BỘ bảng (~${count} dòng).`,
+            riskLevel: ECheckpointRiskLevel.MEDIUM,
+          };
         }
       }
     }
 
-    return this.buildGenericArgsPreview(pendingTool);
+    return {
+      preview: this.buildGenericArgsPreview(pendingTool),
+      riskLevel: null,
+    };
   }
 
   // Fallback TỔNG QUÁT — hiện nguyên tham số thật sẽ gửi đi kèm tên tool, thay

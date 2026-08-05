@@ -10,6 +10,11 @@ export enum ECheckpointKind {
   CLARIFICATION = 'clarification',
 }
 
+export enum ECheckpointRiskLevel {
+  MEDIUM = 'medium',
+  HIGH = 'high',
+}
+
 export enum EStepExecutionStatus {
   SUCCESS = 'success',
   ERROR = 'error',
@@ -36,5 +41,5 @@ export enum ESupervisorVerdict {
 export enum ECircuitBreaker {
   OPEN = 'open',
   HALF_OPEN = 'halfOpen',
-  CLOSED = 'closed'
+  CLOSED = 'closed',
 }

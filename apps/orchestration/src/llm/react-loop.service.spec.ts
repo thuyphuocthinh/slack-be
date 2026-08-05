@@ -1153,7 +1153,7 @@ describe('ReactLoopService', () => {
       );
     });
 
-    it('merges rows dribbled across multiple single-row INSERTs into ONE approval instead of ever executing a partial write', async () => {
+    it('merges rows dribbled across multiple single-row INSERTs into ONE call, then auto-runs it once the required count is reached (INSERT is low risk, no approval needed)', async () => {
       mockMcpClient.getTools.mockResolvedValue([
         {
           name: 'execute_write_query',
@@ -1178,24 +1178,29 @@ describe('ReactLoopService', () => {
           ],
         });
       }
-
-      const error = await service
-        .run({
-          ...baseDto,
-          prompt: 'Tạo 5 sản phẩm ngẫu nhiên chèn vào bảng Products',
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: 'đã tạo xong 5 sản phẩm',
+          toolCalls: [],
         })
-        .catch((e) => e);
+        .mockResolvedValueOnce({ text: 'đã xác nhận', toolCalls: [] });
 
-      expect(error).toBeInstanceOf(ApprovalRequiredError);
-      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
-      const mergedQuery = error.pendingTool.args.query as string;
+      const result = await service.run({
+        ...baseDto,
+        prompt: 'Tạo 5 sản phẩm ngẫu nhiên chèn vào bảng Products',
+      });
+
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
+      const mergedQuery = mockMcpClient.callTool.mock.calls[0][0].args
+        .query as string;
       expect(mergedQuery.match(/INSERT INTO/gi)).toHaveLength(1);
       for (let i = 1; i <= 5; i++) {
         expect(mergedQuery).toContain(`'Sản phẩm ${i}'`);
       }
+      expect(result.answer).toBe('đã tạo xong 5 sản phẩm');
     });
 
-    it('lets the tool call through to the approval gate when the INSERT already covers the full required count', async () => {
+    it('auto-runs the INSERT once it already covers the full required count (low risk, no approval needed)', async () => {
       mockMcpClient.getTools.mockResolvedValue([
         {
           name: 'execute_write_query',
@@ -1212,25 +1217,34 @@ describe('ReactLoopService', () => {
         "('b@mail.com')",
         "('c@mail.com')",
       ].join(', ');
-      mockSession.sendMessage.mockResolvedValueOnce({
-        text: '',
-        toolCalls: [
-          {
-            name: 'execute_write_query',
-            args: { query: `INSERT INTO Customers (Email) VALUES ${values}` },
-          },
-        ],
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [
+            {
+              name: 'execute_write_query',
+              args: {
+                query: `INSERT INTO Customers (Email) VALUES ${values}`,
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          text: 'đã tạo xong 3 khách hàng',
+          toolCalls: [],
+        })
+        .mockResolvedValueOnce({ text: 'đã xác nhận', toolCalls: [] });
+
+      const result = await service.run({
+        ...baseDto,
+        prompt: 'Tạo 3 khách hàng ngẫu nhiên rồi chèn vào bảng Customers',
       });
 
-      await expect(
-        service.run({
-          ...baseDto,
-          prompt: 'Tạo 3 khách hàng ngẫu nhiên rồi chèn vào bảng Customers',
-        }),
-      ).rejects.toThrow(ApprovalRequiredError);
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
+      expect(result.answer).toBe('đã tạo xong 3 khách hàng');
     });
 
-    it('does not block an INSERT when the task states no explicit quantity (requiredCount=0)', async () => {
+    it('auto-runs an INSERT when the task states no explicit quantity (requiredCount=0, still low risk)', async () => {
       mockMcpClient.getTools.mockResolvedValue([
         {
           name: 'execute_write_query',
@@ -1242,21 +1256,51 @@ describe('ReactLoopService', () => {
       mockStrategy.generateStructured.mockResolvedValueOnce({
         requiredCount: 0,
       });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [
+            {
+              name: 'execute_write_query',
+              args: {
+                query: "INSERT INTO Customers (Email) VALUES ('a@mail.com')",
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          text: 'đã thêm khách hàng mới',
+          toolCalls: [],
+        })
+        .mockResolvedValueOnce({ text: 'đã xác nhận', toolCalls: [] });
+
+      const result = await service.run({
+        ...baseDto,
+        prompt: 'Thêm 1 khách hàng mới',
+      });
+
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
+      expect(result.answer).toBe('đã thêm khách hàng mới');
+    });
+
+    it('still requires approval for a destructive call on a NON-sql_server provider even though it looks like a create action (auto-run is sql_server insert-only)', async () => {
+      mockMcpClient.getTools.mockResolvedValue([
+        {
+          name: 'create_issue',
+          description: 'desc',
+          inputSchema: {},
+          annotations: { readOnlyHint: false, destructiveHint: true },
+        },
+      ]);
       mockSession.sendMessage.mockResolvedValueOnce({
         text: '',
-        toolCalls: [
-          {
-            name: 'execute_write_query',
-            args: {
-              query: "INSERT INTO Customers (Email) VALUES ('a@mail.com')",
-            },
-          },
-        ],
+        toolCalls: [{ name: 'create_issue', args: { title: 'Bug' } }],
       });
 
       await expect(
-        service.run({ ...baseDto, prompt: 'Thêm 1 khách hàng mới' }),
+        service.run({ ...baseDto, provider: 'github' }),
       ).rejects.toThrow(ApprovalRequiredError);
+      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
     });
 
     it('carries {provider, name, args} on the thrown error so the checkpoint can be built from it', async () => {

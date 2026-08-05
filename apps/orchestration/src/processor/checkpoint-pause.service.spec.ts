@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { IProcessAiTriggerJobData } from '@slack/queue';
+import { ECheckpointRiskLevel } from '@slack/constants';
 import { CheckpointPauseService } from './checkpoint-pause.service';
 import { MessageClientService } from '../message-client.service';
 import { CheckpointService } from '../checkpoint/checkpoint.service';
@@ -104,6 +105,7 @@ describe('CheckpointPauseService', () => {
         pendingTask: approvalNeeded.task,
         roundsSoFar: [],
         history: [],
+        riskLevel: null,
       });
       expect(result).toEqual({
         content:
@@ -219,6 +221,7 @@ describe('CheckpointPauseService', () => {
           preview: string;
         }
       ).preview;
+    const getRiskLevel = () => mockCheckpoint.create.mock.calls[0][0].riskLevel;
 
     it('runs a read-only COUNT derived from the WHERE clause and embeds the row estimate', async () => {
       mockMcpClient.callTool.mockResolvedValue({
@@ -249,6 +252,7 @@ describe('CheckpointPauseService', () => {
         ownerId: data.userId,
       });
       expect(getPreview()).toBe('Sẽ ảnh hưởng ~12 dòng.');
+      expect(getRiskLevel()).toBe(ECheckpointRiskLevel.MEDIUM);
     });
 
     it('warns about the whole table when DELETE has no WHERE clause, but still counts it for real', async () => {
@@ -278,6 +282,7 @@ describe('CheckpointPauseService', () => {
       );
       expect(getPreview()).toContain('KHÔNG có mệnh đề WHERE');
       expect(getPreview()).toContain('9999');
+      expect(getRiskLevel()).toBe(ECheckpointRiskLevel.MEDIUM);
     });
 
     it('falls back to a generic preview showing the raw args for execute_stored_procedure (cannot estimate an arbitrary SP), without running a COUNT query', async () => {
@@ -300,6 +305,7 @@ describe('CheckpointPauseService', () => {
         'Sẽ gọi "sql_server.execute_stored_procedure" với tham số:',
       );
       expect(getPreview()).toContain('sp_x');
+      expect(getRiskLevel()).toBeNull();
     });
 
     it('falls back to a generic preview showing the raw args for other domains (VD github.create_issue), without running a COUNT query', async () => {
@@ -330,6 +336,7 @@ describe('CheckpointPauseService', () => {
       expect(getPreview()).toContain(
         'Không ước lượng được mức độ ảnh hưởng cụ thể — kiểm tra kỹ tham số trên trước khi duyệt.',
       );
+      expect(getRiskLevel()).toBeNull();
     });
 
     it('falls back to a generic args preview if the COUNT query itself fails, instead of blocking the approval flow', async () => {
@@ -352,10 +359,14 @@ describe('CheckpointPauseService', () => {
       expect(getPreview()).toContain(
         'Sẽ gọi "sql_server.execute_write_query" với tham số:',
       );
+      expect(getRiskLevel()).toBeNull();
     });
 
     // mục 15 — trước đây INSERT rơi về fallback chung ("không ước lượng
     // được"). Giờ đếm TRỰC TIẾP số tuple trong VALUES, không cần hỏi DB.
+    // Trong luồng thật INSERT tự chạy ở Risk Gate (react-loop-run.ts), không
+    // bao giờ tới đây — test này giữ cho case pendingTool bị sửa tay qua
+    // edit_and_approve.
     it('accuracy_problem.md mục 15 — counts INSERT VALUES tuples DIRECTLY, no COUNT query needed', async () => {
       const approvalNeeded = buildApprovalNeeded({
         args: {
@@ -375,6 +386,7 @@ describe('CheckpointPauseService', () => {
 
       expect(mockMcpClient.callTool).not.toHaveBeenCalled();
       expect(getPreview()).toBe('Sẽ thêm ~3 dòng mới vào bảng "Orders".');
+      expect(getRiskLevel()).toBe(ECheckpointRiskLevel.MEDIUM);
     });
 
     it('accuracy_problem.md mục 15 — INSERT tuple counting respects nested parens (VD hàm NOW() lồng trong 1 tuple), không đếm nhầm', async () => {
@@ -395,6 +407,7 @@ describe('CheckpointPauseService', () => {
       );
 
       expect(getPreview()).toBe('Sẽ thêm ~1 dòng mới vào bảng "Orders".');
+      expect(getRiskLevel()).toBe(ECheckpointRiskLevel.MEDIUM);
     });
 
     it('accuracy_problem.md mục 15 — UPDATE với table alias (cú pháp SQL bình thường mà regex gốc bỏ sót) vẫn ước lượng được', async () => {
@@ -428,6 +441,7 @@ describe('CheckpointPauseService', () => {
         }),
       );
       expect(getPreview()).toBe('Sẽ ảnh hưởng ~5 dòng.');
+      expect(getRiskLevel()).toBe(ECheckpointRiskLevel.MEDIUM);
     });
 
     it('accuracy_problem.md mục 15 — TRUNCATE TABLE cảnh báo THẲNG, không cần đếm gì (huỷ CẢ bảng)', async () => {
@@ -448,6 +462,7 @@ describe('CheckpointPauseService', () => {
       expect(getPreview()).toBe(
         '⚠️ Sẽ XOÁ TOÀN BỘ DỮ LIỆU bảng "Orders" (TRUNCATE — KHÔNG THỂ khôi phục).',
       );
+      expect(getRiskLevel()).toBe(ECheckpointRiskLevel.HIGH);
     });
 
     it('accuracy_problem.md mục 15 — DROP TABLE cảnh báo THẲNG, không cần đếm gì', async () => {
@@ -468,6 +483,7 @@ describe('CheckpointPauseService', () => {
       expect(getPreview()).toBe(
         '⚠️ Sẽ XOÁ HẲN bảng "Orders" (DROP — KHÔNG THỂ khôi phục).',
       );
+      expect(getRiskLevel()).toBe(ECheckpointRiskLevel.HIGH);
     });
 
     it('accuracy_problem.md mục 15 — nhiều câu lệnh gộp (2 statement) từ chối ước lượng, rơi về fallback AN TOÀN thay vì đoán sai', async () => {
@@ -493,6 +509,7 @@ describe('CheckpointPauseService', () => {
       expect(getPreview()).toContain(
         'Không ước lượng được mức độ ảnh hưởng cụ thể — kiểm tra kỹ tham số trên trước khi duyệt.',
       );
+      expect(getRiskLevel()).toBeNull();
     });
 
     it('accuracy_problem.md mục 15 — INSERT ... SELECT (không có VALUES) vẫn CỐ Ý falls back — chưa hỗ trợ, an toàn vì vẫn bắt buộc duyệt tay', async () => {
@@ -515,6 +532,7 @@ describe('CheckpointPauseService', () => {
       expect(getPreview()).toContain(
         'Không ước lượng được mức độ ảnh hưởng cụ thể — kiểm tra kỹ tham số trên trước khi duyệt.',
       );
+      expect(getRiskLevel()).toBeNull();
     });
   });
 

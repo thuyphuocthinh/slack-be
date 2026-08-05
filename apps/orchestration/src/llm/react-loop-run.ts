@@ -33,6 +33,7 @@ import { classifyToolError } from '../executor/tool-error-classifier.util';
 import { parseInsertValues } from '../executor/parse-insert-values.util';
 import { isLikelyCreateToolCall } from '../memory/create-tool-heuristic.util';
 import { MemoryManagerService } from '../memory/memory-manager.service';
+import { extractWriteQueryPreviewTarget } from './write-query-preview.util';
 
 /** Gộp về 1 dòng, không cắt bớt — xem code-notes/react-loop.service.md */
 function formatResultPreview(text: string): string {
@@ -377,6 +378,15 @@ export class ReactLoopRun {
       );
     }
 
+    return this.executeTrackedToolCall(name, args, displayName, argsPreview);
+  }
+
+  private async executeTrackedToolCall(
+    name: string,
+    args: Record<string, unknown>,
+    displayName: string,
+    argsPreview: string,
+  ): Promise<string> {
     const signature = `${name}:${JSON.stringify(args)}`;
     const attempts = (this.callSignatureCounts.get(signature) ?? 0) + 1;
     this.callSignatureCounts.set(signature, attempts);
@@ -393,6 +403,22 @@ export class ReactLoopRun {
     }
 
     return this.runToolCall(name, args, displayName, argsPreview, signature);
+  }
+
+  // INSERT không đụng tới dữ liệu CŨ — sai thì chỉ cần xoá dòng vừa thêm,
+  // khác hẳn UPDATE/DELETE (có thể ghi đè/xoá mất dữ liệu không khôi phục
+  // được). Chỉ tự chạy đúng trường hợp này, mọi câu lệnh ghi khác vẫn qua
+  // Risk Gate như cũ.
+  private isAutoApprovableInsert(
+    name: string,
+    args: Record<string, unknown>,
+  ): boolean {
+    if (this.dto.provider !== 'sql_server' || name !== 'execute_write_query') {
+      return false;
+    }
+    const query = typeof args.query === 'string' ? args.query : undefined;
+    if (!query) return false;
+    return extractWriteQueryPreviewTarget(query)?.kind === 'insert-rows';
   }
 
   /** Risk Gate (Giai đoạn 3, HITL) — chặn TRƯỚC KHI thực thi, trừ khi model
@@ -425,6 +451,15 @@ export class ReactLoopRun {
         argsPreview,
       });
       return shortfallMessage;
+    }
+
+    // checkBulkInsertShortfall() có thể vừa GHI ĐÈ args.query (gộp tuple tích
+    // luỹ) — phải phân loại rủi ro SAU bước đó, dựa trên câu lệnh CUỐI CÙNG.
+    if (this.isAutoApprovableInsert(name, args)) {
+      this.logger.log(
+        `tool_call ${displayName} tự chạy — INSERT rủi ro thấp (không đụng dữ liệu cũ), bỏ qua bước duyệt`,
+      );
+      return this.executeTrackedToolCall(name, args, displayName, argsPreview);
     }
 
     this.logger.log(

@@ -5,7 +5,7 @@ import {
 } from '../entity/orchestration-checkpoint.entity';
 import { DelegationDto, SupervisorRoundDto } from './supervisor.dto';
 import { ChatHistoryTurnDto } from './message-client.dto';
-import { ECheckpointKind } from '@slack/constants';
+import { ECheckpointKind, ECheckpointRiskLevel } from '@slack/constants';
 
 export class CreateCheckpointRequestDto {
   replyMessageId: string;
@@ -20,6 +20,7 @@ export class CreateCheckpointRequestDto {
   roundsSoFar: SupervisorRoundDto[];
   history: ChatHistoryTurnDto[];
   kind?: ECheckpointKind;
+  riskLevel?: ECheckpointRiskLevel | null;
   clarificationQuestion?: string | null;
   clarificationCandidates?: AmbiguousAgentCandidate[] | null;
   remainingSteps?: DelegationDto[];
@@ -43,6 +44,7 @@ export class CheckpointResponseDto {
   history: ChatHistoryTurnDto[];
   status: OrchestrationCheckpointStatus;
   kind: ECheckpointKind;
+  riskLevel: ECheckpointRiskLevel | null;
   clarificationQuestion: string | null;
   clarificationCandidates: AmbiguousAgentCandidate[] | null;
   selectedProvider: string | null;
