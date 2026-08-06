@@ -599,7 +599,13 @@ export class ReactLoopRun {
       transientAttempt++;
       try {
         result = await this.mcpClient.callTool(
-          { provider: this.dto.provider, name, args, ownerId: this.dto.userId },
+          {
+            provider: this.dto.provider,
+            name,
+            args,
+            ownerId: this.dto.userId,
+            workspaceId: this.dto.workspaceId,
+          },
           this.signal,
         );
       } catch (error) {

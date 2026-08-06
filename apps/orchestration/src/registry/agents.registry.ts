@@ -7,6 +7,12 @@
 export interface AgentRegistryEntry {
   label: string;
   endpoint: string | undefined;
+  // true = provider có 1 instance RIÊNG cho mỗi workspace (VD Edge MCP Server
+  // relay chạy on-prem của từng khách hàng) — cache/breaker/limiter phải tách
+  // theo workspaceId để 1 workspace lỗi không ảnh hưởng workspace khác. Mọi
+  // provider hiện có dùng CHUNG 1 instance cho mọi workspace nên để trống
+  // (undefined = false) — KHÔNG đổi hành vi provider hiện tại.
+  perWorkspaceInstance?: boolean;
 }
 
 export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {

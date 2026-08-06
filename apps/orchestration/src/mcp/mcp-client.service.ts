@@ -20,6 +20,7 @@ import { ProviderConcurrencyLimiterService } from '../common/provider-concurrenc
 import { DynamicToolRegistryService } from '../registry/dynamic-tool-registry.service';
 import { DynamicToolExecutorService } from '../executor/dynamic-tool-executor.service';
 import { PiiScrubberUtil } from '../executor/pii-scrubber.util';
+import { routeKey } from './route-key.util';
 
 interface CacheEntry<T> {
   data: T[];
@@ -51,15 +52,19 @@ export class McpClientService {
     private readonly dynamicExecutor: DynamicToolExecutorService,
   ) {}
 
-  private async getClient(provider: string, ownerId?: string): Promise<Client> {
-    const cacheKey = `${provider}:${ownerId ?? '__anon__'}`;
+  private async getClient(
+    provider: string,
+    ownerId?: string,
+    workspaceId?: string,
+  ): Promise<Client> {
+    const cacheKey = `${routeKey(provider, workspaceId)}:${ownerId ?? '__anon__'}`;
     const cached = this.clients.get(cacheKey);
     if (cached) {
       cached.lastUsedAt = Date.now();
       return cached.promise;
     }
 
-    const connecting = this.connectClient(provider, ownerId);
+    const connecting = this.connectClient(provider, ownerId, workspaceId);
     const entry: ClientCacheEntry = {
       promise: connecting,
       lastUsedAt: Date.now(),
@@ -71,9 +76,13 @@ export class McpClientService {
     return connecting;
   }
 
+  // workspaceId hiện chưa dùng để chọn transport (chưa có Edge MCP Server
+  // relay — xem AgentRegistryEntry.perWorkspaceInstance) — giữ tham số để
+  // routeKey()/log nhất quán và tránh phải đổi lại signature khi relay có.
   private async connectClient(
     provider: string,
     ownerId?: string,
+    workspaceId?: string,
   ): Promise<Client> {
     const entry = AGENT_REGISTRY[provider];
     if (!entry?.endpoint) {
@@ -99,7 +108,7 @@ export class McpClientService {
     );
 
     this.logger.log(
-      `Connected MCP client for provider "${provider}" at ${entry.endpoint}`,
+      `Connected MCP client for provider "${routeKey(provider, workspaceId)}" at ${entry.endpoint}`,
     );
     return client;
   }
@@ -168,8 +177,10 @@ export class McpClientService {
     cacheMap: Map<string, CacheEntry<T>>,
     fetchFn: (client: Client) => Promise<T[]>,
     signal?: AbortSignal,
+    workspaceId?: string,
   ): Promise<T[]> {
-    const cached = cacheMap.get(provider);
+    const cacheKey = routeKey(provider, workspaceId);
+    const cached = cacheMap.get(cacheKey);
     if (
       cached &&
       Date.now() - cached.fetchedAt <
@@ -181,7 +192,7 @@ export class McpClientService {
     let cacheType = 'tools';
     if (cacheMap === this.resourcesCache) cacheType = 'resources';
     if (cacheMap === this.promptsCache) cacheType = 'prompts';
-    const key = `${cacheType}:${provider}`;
+    const key = `${cacheType}:${cacheKey}`;
 
     const existingPromise = this.inFlightLists.get(key);
     if (existingPromise) {
@@ -196,8 +207,9 @@ export class McpClientService {
           fetchFn,
           3,
           signal,
+          workspaceId,
         );
-        cacheMap.set(provider, { data, fetchedAt: Date.now() });
+        cacheMap.set(cacheKey, { data, fetchedAt: Date.now() });
         return data;
       } finally {
         this.inFlightLists.delete(key);
@@ -214,8 +226,9 @@ export class McpClientService {
   private getFreshCachedTool(
     provider: string,
     toolName: string,
+    workspaceId?: string,
   ): McpToolDto | undefined {
-    const cached = this.toolsCache.get(provider);
+    const cached = this.toolsCache.get(routeKey(provider, workspaceId));
     if (
       !cached ||
       Date.now() - cached.fetchedAt >=
@@ -230,6 +243,7 @@ export class McpClientService {
     provider: string,
     query?: string,
     signal?: AbortSignal,
+    workspaceId?: string,
   ): Promise<McpToolDto[]> {
     if (await this.dynamicRegistry.isDynamicProvider(provider)) {
       return this.dynamicRegistry.getTools(provider, query);
@@ -251,12 +265,14 @@ export class McpClientService {
         return (result.tools || []) as McpToolDto[];
       },
       signal,
+      workspaceId,
     );
   }
 
   async getResources(
     provider: string,
     signal?: AbortSignal,
+    workspaceId?: string,
   ): Promise<McpResourceDto[]> {
     if (await this.dynamicRegistry.isDynamicProvider(provider)) return [];
 
@@ -276,12 +292,14 @@ export class McpClientService {
         return (result.resources || []) as McpResourceDto[];
       },
       signal,
+      workspaceId,
     );
   }
 
   async getPrompts(
     provider: string,
     signal?: AbortSignal,
+    workspaceId?: string,
   ): Promise<McpPromptDto[]> {
     if (await this.dynamicRegistry.isDynamicProvider(provider)) return [];
 
@@ -301,6 +319,7 @@ export class McpClientService {
         return (result.prompts || []) as McpPromptDto[];
       },
       signal,
+      workspaceId,
     );
   }
 
@@ -330,7 +349,11 @@ export class McpClientService {
       );
     }
 
-    const cachedTool = this.getFreshCachedTool(dto.provider, dto.name);
+    const cachedTool = this.getFreshCachedTool(
+      dto.provider,
+      dto.name,
+      dto.workspaceId,
+    );
     const isDestructive = cachedTool
       ? Boolean(cachedTool.annotations?.destructiveHint)
       : true;
@@ -349,6 +372,7 @@ export class McpClientService {
       },
       maxRetries,
       signal,
+      dto.workspaceId,
     );
   }
 
@@ -376,8 +400,9 @@ export class McpClientService {
     uri: string,
     ownerId?: string,
     signal?: AbortSignal,
+    workspaceId?: string,
   ): Promise<string> {
-    const cacheKey = `${provider}:${ownerId ?? '__anon__'}:${uri}`;
+    const cacheKey = `${routeKey(provider, workspaceId)}:${ownerId ?? '__anon__'}:${uri}`;
     const cached = this.resourceContentCache.get(cacheKey);
     if (
       cached &&
@@ -399,6 +424,7 @@ export class McpClientService {
       },
       3,
       signal,
+      workspaceId,
     );
 
     this.resourceContentCache.set(cacheKey, {
@@ -413,11 +439,19 @@ export class McpClientService {
     name: string,
     args: Record<string, string>,
     ownerId?: string,
+    workspaceId?: string,
   ) {
-    return this.withReconnect(provider, ownerId, async (client) => {
-      const result = await client.getPrompt({ name, arguments: args });
-      return result;
-    });
+    return this.withReconnect(
+      provider,
+      ownerId,
+      async (client) => {
+        const result = await client.getPrompt({ name, arguments: args });
+        return result;
+      },
+      3,
+      undefined,
+      workspaceId,
+    );
   }
 
   private async withReconnect<T>(
@@ -426,15 +460,24 @@ export class McpClientService {
     fn: (client: Client) => Promise<T>,
     maxRetries = 3,
     signal?: AbortSignal,
+    workspaceId?: string,
   ): Promise<T> {
+    const failureDomainKey = `mcp:${routeKey(provider, workspaceId)}`;
     return this.circuitBreaker.run(
-      `mcp:${provider}`,
+      failureDomainKey,
       () =>
         this.concurrencyLimiter.run(
-          `mcp:${provider}`,
+          failureDomainKey,
           ORCHESTRATION_CONSTANTS.MAX_CONCURRENT_MCP_CALLS_PER_PROVIDER,
           () =>
-            this.callWithReconnect(provider, ownerId, fn, maxRetries, signal),
+            this.callWithReconnect(
+              provider,
+              ownerId,
+              fn,
+              maxRetries,
+              signal,
+              workspaceId,
+            ),
           signal,
         ),
       signal,
@@ -447,8 +490,9 @@ export class McpClientService {
     fn: (client: Client) => Promise<T>,
     maxRetries: number,
     signal?: AbortSignal,
+    workspaceId?: string,
   ): Promise<T> {
-    const cacheKey = `${provider}:${ownerId ?? '__anon__'}`;
+    const cacheKey = `${routeKey(provider, workspaceId)}:${ownerId ?? '__anon__'}`;
     const timeoutMsg = `MCP call timeout sau ${ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS / 1000}s (${cacheKey})`;
 
     let attempt = 0;
@@ -459,7 +503,7 @@ export class McpClientService {
         throw new Error('Aborted');
       }
       try {
-        const client = await this.getClient(provider, ownerId);
+        const client = await this.getClient(provider, ownerId, workspaceId);
         return await withTimeout(
           fn(client),
           ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS,

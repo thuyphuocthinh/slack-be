@@ -45,10 +45,10 @@ export class TurnResolverService {
     data: IProcessAiTriggerJobData,
     replyMessageId: string,
   ): Promise<AnswerResult> {
-    const { userId, channelId, messageId } = data;
+    const { userId, channelId, messageId, workspaceId } = data;
     const [prompt, agents, history] = await Promise.all([
       this.messageClient.getMessageText({ id: messageId, userId }),
-      this.supervisor.getAvailableAgents(userId),
+      this.supervisor.getAvailableAgents(userId, workspaceId),
       this.messageClient.getRecentHistory({
         channelId,
         userId,

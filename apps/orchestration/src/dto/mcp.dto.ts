@@ -19,6 +19,10 @@ export class CallToolRequestDto {
   // Danh tính người gọi thật — gửi qua header nội bộ tới MCP server, KHÔNG
   // qua tool args (tránh lộ ra function-calling schema mà LLM thấy được).
   ownerId: string;
+  // Dùng để route/cache/breaker theo ĐÚNG tenant cho provider có 1 instance
+  // riêng/workspace (VD Edge MCP Server relay) — provider dùng chung 1
+  // instance cho mọi workspace (Notion/GitHub...) không cần field này.
+  workspaceId?: string;
 }
 
 export class CallToolResponseDto {

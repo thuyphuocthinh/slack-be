@@ -39,6 +39,15 @@ jest.mock('../registry/agents.registry', () => ({
       label: 'SQL Server',
       endpoint: 'http://mcp-server/mcp/sql_server',
     },
+    // Edge MCP Server plan, Phase 1 — provider giả lập có 1 instance riêng
+    // cho mỗi workspace (VD relay on-prem), dùng để test cache/breaker/limiter
+    // có tách đúng theo workspaceId hay không, KHÔNG ảnh hưởng behavior của
+    // sql_server (provider dùng chung, không set perWorkspaceInstance).
+    edge_relay_test: {
+      label: 'Edge Relay Test',
+      endpoint: 'http://mcp-server/mcp/edge_relay_test',
+      perWorkspaceInstance: true,
+    },
   },
 }));
 
@@ -1123,6 +1132,110 @@ describe('McpClientService', () => {
       service.evictStaleResourceCache();
 
       expect(cacheSize()).toBe(0);
+    });
+  });
+
+  describe('Edge MCP Server plan, Phase 1 — per-workspace isolation for perWorkspaceInstance providers', () => {
+    it('routes callTool() through a SEPARATE breaker key per workspace for a perWorkspaceInstance provider — 1 workspace lỗi không ảnh hưởng workspace khác', async () => {
+      mockCallTool.mockResolvedValue({ content: [] });
+
+      await service.callTool({
+        provider: 'edge_relay_test',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+        workspaceId: 'workspace-A',
+      });
+      await service.callTool({
+        provider: 'edge_relay_test',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+        workspaceId: 'workspace-B',
+      });
+
+      expect(mockCircuitBreaker.run).toHaveBeenCalledWith(
+        'mcp:edge_relay_test:workspace-A',
+        expect.any(Function),
+        undefined,
+      );
+      expect(mockCircuitBreaker.run).toHaveBeenCalledWith(
+        'mcp:edge_relay_test:workspace-B',
+        expect.any(Function),
+        undefined,
+      );
+    });
+
+    it('does NOT share the tool-list cache across 2 workspaces for a perWorkspaceInstance provider — bug thật đã tự phát hiện (đọc code), tránh lộ tool GHI của workspace khác qua cache', async () => {
+      mockListTools
+        .mockResolvedValueOnce({
+          tools: [{ name: 'read_only_tool', description: '', inputSchema: {} }],
+        })
+        .mockResolvedValueOnce({
+          tools: [
+            { name: 'read_only_tool', description: '', inputSchema: {} },
+            {
+              name: 'write_tool',
+              description: '',
+              inputSchema: {},
+              annotations: { destructiveHint: true },
+            },
+          ],
+        });
+
+      const toolsA = await service.getTools(
+        'edge_relay_test',
+        undefined,
+        undefined,
+        'workspace-A',
+      );
+      const toolsB = await service.getTools(
+        'edge_relay_test',
+        undefined,
+        undefined,
+        'workspace-B',
+      );
+
+      expect(toolsA).toEqual([
+        { name: 'read_only_tool', description: '', inputSchema: {} },
+      ]);
+      expect(toolsB).toHaveLength(2);
+      // 2 lần gọi listTools() THẬT — không phải workspace-B ăn cache của A.
+      expect(mockListTools).toHaveBeenCalledTimes(2);
+    });
+
+    it('still shares ONE breaker key/cache across "workspaceId" values for a provider WITHOUT perWorkspaceInstance (sql_server) — không làm loãng ngưỡng circuit breaker vô cớ', async () => {
+      mockListTools.mockResolvedValue({ tools: [] });
+      mockCallTool.mockResolvedValue({ content: [] });
+
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+        workspaceId: 'workspace-A',
+      });
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+        workspaceId: 'workspace-B',
+      });
+
+      // Cả 2 lần đều đi qua ĐÚNG 1 key chung — provider dùng chung 1 instance
+      // cho mọi workspace, tách key theo workspace chỉ làm loãng ngưỡng
+      // circuit breaker vô ích (xem route-key.util.ts).
+      expect(mockCircuitBreaker.run).toHaveBeenCalledWith(
+        'mcp:sql_server',
+        expect.any(Function),
+        undefined,
+      );
+      expect(mockCircuitBreaker.run).not.toHaveBeenCalledWith(
+        'mcp:sql_server:workspace-A',
+        expect.any(Function),
+        undefined,
+      );
     });
   });
 

@@ -338,7 +338,10 @@ export class ApprovalFlowService {
       // duyệt tiếp" đều chỉ là 1 AnswerResult.
       const { remainingSteps: nextRemainingSteps, resultText } =
         await this.resolveRemainingSteps(checkpoint, toolResultText);
-      const agents = await this.supervisor.getAvailableAgents(userId);
+      const agents = await this.supervisor.getAvailableAgents(
+        userId,
+        workspaceId,
+      );
       const rounds = [
         ...roundsSoFar,
         {
@@ -507,7 +510,10 @@ export class ApprovalFlowService {
         content: '🤖 Đang tổng hợp kết quả...',
       });
 
-      const agents = await this.supervisor.getAvailableAgents(userId);
+      const agents = await this.supervisor.getAvailableAgents(
+        userId,
+        workspaceId,
+      );
       const data = {
         userId,
         channelId,

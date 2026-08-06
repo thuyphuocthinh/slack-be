@@ -195,6 +195,35 @@ describe('SupervisorService', () => {
 
       expect(agents).toEqual([]);
     });
+
+    // Edge MCP Server plan, Phase 1 — thêm tham số workspaceId (seam cho
+    // getRelayBoundAgents(), chưa có registry presence thật ở Phase 1) KHÔNG
+    // được đổi kết quả của provider hiện có khi gọi kèm workspaceId.
+    it('passing workspaceId does not change the result for providers without a relay binding (regression — Edge MCP Server plan, Phase 1)', async () => {
+      mockMcpAuthClient.getConnectionStatus.mockResolvedValue([
+        {
+          provider_id: 'sql_server',
+          is_connected: true,
+          status: 'connected',
+          connected_at: '2026-01-01',
+        },
+      ]);
+
+      const withoutWorkspace = await service.getAvailableAgents('user-1');
+      const withWorkspace = await service.getAvailableAgents(
+        'user-1',
+        'workspace-1',
+      );
+
+      expect(withWorkspace).toEqual(withoutWorkspace);
+      expect(withWorkspace).toEqual([
+        {
+          provider: 'sql_server',
+          label: 'SQL Server',
+          description: expect.any(String),
+        },
+      ]);
+    });
   });
 
   describe('plan (Plan-and-Execute, xem accuracy.md — thay cho decide() cũ)', () => {

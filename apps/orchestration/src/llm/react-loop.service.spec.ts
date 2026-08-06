@@ -498,6 +498,7 @@ describe('ReactLoopService', () => {
       'sql_server',
       baseDto.prompt,
       expect.any(AbortSignal),
+      baseDto.workspaceId,
     );
   });
 
@@ -565,12 +566,14 @@ describe('ReactLoopService', () => {
     expect(mockMcpClient.getResources).toHaveBeenCalledWith(
       'sql_server',
       expect.any(AbortSignal),
+      baseDto.workspaceId,
     );
     expect(mockMcpClient.readResource).toHaveBeenCalledWith(
       'sql_server',
       'resource://1',
       'user-1',
       expect.any(AbortSignal),
+      baseDto.workspaceId,
     );
     expect(mockStrategy.startChat).toHaveBeenCalledWith(
       expect.objectContaining({

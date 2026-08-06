@@ -336,6 +336,11 @@ export class CheckpointPauseService {
       : `SELECT COUNT(*) AS affectedRows FROM ${target.table}`;
 
     try {
+      // TODO Edge MCP Server: thiếu workspaceId ở đây — khi sql_server có
+      // perWorkspaceInstance (relay), preview số dòng bị ảnh hưởng của 1
+      // workspace dùng relay sẽ route nhầm sang cloud sql_server thay vì
+      // relay của chính nó. Ngoài phạm vi Phase 1 (chỉ path write-flow này),
+      // xem plan Edge MCP Server.
       const result = await this.mcpClient.callTool({
         provider: 'sql_server',
         name: 'execute_read_only_query',

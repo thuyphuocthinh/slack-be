@@ -72,12 +72,18 @@ export class ReactLoopService {
           ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL;
 
         const [mcpTools, systemInstruction] = await Promise.all([
-          this.mcpClient.getTools(dto.provider, dto.prompt, signal),
+          this.mcpClient.getTools(
+            dto.provider,
+            dto.prompt,
+            signal,
+            dto.workspaceId,
+          ),
           this.buildSystemInstruction(
             dto.provider,
             dto.userId,
             reactModelId,
             signal,
+            dto.workspaceId,
           ),
         ]);
 
@@ -125,8 +131,13 @@ export class ReactLoopService {
     userId: string,
     modelId: string,
     signal?: AbortSignal,
+    workspaceId?: string,
   ): Promise<string> {
-    const mcpResources = await this.mcpClient.getResources(provider, signal);
+    const mcpResources = await this.mcpClient.getResources(
+      provider,
+      signal,
+      workspaceId,
+    );
     const resourceContents = await Promise.all(
       mcpResources.map(async (r) => {
         try {
@@ -135,6 +146,7 @@ export class ReactLoopService {
             r.uri,
             userId,
             signal,
+            workspaceId,
           );
           return `\n--- Resource: ${r.name} ---\n${capToolResultSize(content, this.memoryManager.buildBudget(modelId).toolResultCharBudget)}`;
         } catch (error) {

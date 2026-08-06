@@ -71,7 +71,10 @@ export class SupervisorService {
     ];
   }
 
-  async getAvailableAgents(userId: string): Promise<AvailableAgentDto[]> {
+  async getAvailableAgents(
+    userId: string,
+    workspaceId?: string,
+  ): Promise<AvailableAgentDto[]> {
     const statuses = await this.mcpAuthClient.getConnectionStatus(userId);
     const staticAgents = statuses
       .filter(
@@ -94,7 +97,31 @@ export class SupervisorService {
         `Hệ thống/API mở rộng (Custom Swagger) tên "${entity.name}" — liên quan tới các thao tác/dữ liệu của hệ thống này (tham khảo: ${entity.specUrl}).`,
     }));
 
-    return [...staticAgents, ...this.getSystemAgents(), ...dynamicAgents];
+    return [
+      ...staticAgents,
+      ...this.getRelayBoundAgents(workspaceId, staticAgents),
+      ...this.getSystemAgents(),
+      ...dynamicAgents,
+    ];
+  }
+
+  // Edge MCP Server (chưa xây) — provider có AgentRegistryEntry.perWorkspaceInstance
+  // (relay on-prem riêng của workspace) KHÔNG đi qua mcp_auth is_connected/
+  // endpoint tĩnh ở trên, nên bị lọc mất khỏi staticAgents nếu không OR-in ở
+  // đây. Hiện CHƯA có registry lưu "workspace X có relay đang sống" (chưa có
+  // relay/gateway) nên luôn trả về [] — khi relay có, thay thân hàm này bằng
+  // lookup presence thật (Redis, xem plan Edge MCP Server), không cần đổi lại
+  // call site nào khác của getAvailableAgents().
+  // Giữ đúng signature cho Phase 2 (workspaceId để tra presence,
+  // alreadyIncluded để không trùng provider), thân hàm chưa cần dùng vì chưa
+  // có registry thật.
+  private getRelayBoundAgents(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    workspaceId: string | undefined,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    alreadyIncluded: AvailableAgentDto[],
+  ): AvailableAgentDto[] {
+    return [];
   }
 
   async plan(
