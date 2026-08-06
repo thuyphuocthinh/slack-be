@@ -411,6 +411,11 @@ export class ReactLoopRun {
     return `Đã ghi nhận ${tuples.length}/${requiredCount} dòng yêu cầu (cộng dồn qua các lần gọi trước nếu có). Viết tiếp các dòng CÒN THIẾU (không lặp lại dòng đã gửi) trong 1 câu ghi duy nhất, rồi gọi lại.`;
   }
 
+  private clearInsertAccumulator(query: string): void {
+    const tableSignature = parseInsertValues(query)?.tableSignature;
+    if (tableSignature) this.insertAccumulator.delete(tableSignature);
+  }
+
   private async handleToolCall(
     name: string,
     args: Record<string, unknown>,
@@ -510,7 +515,18 @@ export class ReactLoopRun {
       this.logger.log(
         `tool_call ${displayName} tự chạy — INSERT rủi ro thấp (không đụng dữ liệu cũ), bỏ qua bước duyệt`,
       );
-      return this.executeTrackedToolCall(name, args, displayName, argsPreview);
+      const result = await this.executeTrackedToolCall(
+        name,
+        args,
+        displayName,
+        argsPreview,
+      );
+      // Đã thực thi đúng 1 lần câu lệnh gộp — dọn ngay, dù thành công hay
+      // thất bại. Không dọn thì 1 lần fail (VD trùng unique constraint) sẽ
+      // kéo theo đúng các tuple đã fail đó vào MỌI lần gộp sau trong cùng
+      // lượt, lặp lại y hệt lỗi cũ vô thời hạn dù model viết dòng mới thật.
+      this.clearInsertAccumulator(args.query as string);
+      return result;
     }
 
     this.logger.log(

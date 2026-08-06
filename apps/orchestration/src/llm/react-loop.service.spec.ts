@@ -1249,6 +1249,86 @@ describe('ReactLoopService', () => {
       expect(result.answer).toBe('đã tạo xong 5 sản phẩm');
     });
 
+    it('does not re-include rows from a FAILED merged INSERT into the next attempt for the same table (regression — phantom re-insert of already-rejected rows)', async () => {
+      mockMcpClient.getTools.mockResolvedValue([
+        {
+          name: 'execute_write_query',
+          description: 'desc',
+          inputSchema: {},
+          annotations: { readOnlyHint: false, destructiveHint: true },
+        },
+      ]);
+      mockStrategy.generateStructured.mockResolvedValueOnce({
+        requiredCount: 5,
+      });
+      for (let i = 1; i <= 5; i++) {
+        mockSession.sendMessage.mockResolvedValueOnce({
+          text: '',
+          toolCalls: [
+            {
+              name: 'execute_write_query',
+              args: {
+                query: `INSERT INTO Products (Name, Price) VALUES ('Sản phẩm ${i}', ${i * 100})`,
+              },
+            },
+          ],
+        });
+      }
+      // Lần gộp ĐẦU TIÊN (5 dòng "Sản phẩm 1..5") thất bại — VD trùng khoá.
+      mockMcpClient.callTool.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Lỗi: trùng khoá duy nhất' }],
+        isError: true,
+      });
+      // Model thấy lỗi, viết lại 5 dòng HOÀN TOÀN MỚI cho ĐÚNG bảng đó.
+      mockSession.sendMessage.mockResolvedValueOnce({
+        text: '',
+        toolCalls: [
+          {
+            name: 'execute_write_query',
+            args: {
+              query:
+                "INSERT INTO Products (Name, Price) VALUES ('Sản phẩm B1', 1001), ('Sản phẩm B2', 1002), ('Sản phẩm B3', 1003), ('Sản phẩm B4', 1004), ('Sản phẩm B5', 1005)",
+            },
+          },
+        ],
+      });
+      // Lần gộp THỨ HAI dùng mock callTool mặc định (success) từ beforeEach.
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: 'đã tạo xong 5 sản phẩm (lần 2)',
+          toolCalls: [],
+        })
+        // Self-check round (handleNoMoreToolCalls) — checkQuantity() tự gọi lại
+        // extractRequiredCount() riêng, không dùng chung mock đã cấp cho
+        // getRequiredCount() nên rơi về 0 (an toàn, khớp đúng test gốc), bỏ
+        // qua nhánh nudge, tới thẳng self-check prompt.
+        .mockResolvedValueOnce({ text: 'đã xác nhận', toolCalls: [] });
+
+      const result = await service.run({
+        ...baseDto,
+        prompt: 'Tạo 5 sản phẩm ngẫu nhiên chèn vào bảng Products',
+      });
+
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
+      const firstQuery = mockMcpClient.callTool.mock.calls[0][0].args
+        .query as string;
+      const secondQuery = mockMcpClient.callTool.mock.calls[1][0].args
+        .query as string;
+      // Lần gộp đầu đúng 5 dòng cũ.
+      for (let i = 1; i <= 5; i++) {
+        expect(firstQuery).toContain(`'Sản phẩm ${i}'`);
+      }
+      // Lần gộp thứ hai CHỈ có 5 dòng MỚI — không kéo theo dòng cũ đã fail.
+      expect(secondQuery.match(/INSERT INTO/gi)).toHaveLength(1);
+      for (let i = 1; i <= 5; i++) {
+        expect(secondQuery).not.toContain(`'Sản phẩm ${i}'`);
+      }
+      for (const suffix of ['B1', 'B2', 'B3', 'B4', 'B5']) {
+        expect(secondQuery).toContain(`'Sản phẩm ${suffix}'`);
+      }
+      expect(result.answer).toBe('đã tạo xong 5 sản phẩm (lần 2)');
+    });
+
     it('auto-runs the INSERT once it already covers the full required count (low risk, no approval needed)', async () => {
       mockMcpClient.getTools.mockResolvedValue([
         {
