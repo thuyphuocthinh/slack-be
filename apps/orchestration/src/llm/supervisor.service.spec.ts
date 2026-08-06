@@ -10,10 +10,11 @@ import { McpAuthClientService } from '../mcp-auth/mcp-auth-client.service';
 import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { DynamicProviderDbService } from '../registry/dynamic-provider-db.service';
-import { OpenAiEmbeddingProvider } from '../registry/openai-embedding.provider';
 import { MetricsRegistryService } from '../common/metrics-registry.service';
 import { MemoryManagerService } from '../memory/memory-manager.service';
 import { SkillRetrievalService } from '../memory/skill-retrieval.service';
+import { AgentRankingService } from './agent-ranking.service';
+import { SupervisorPromptBuilder } from './supervisor-prompt.builder';
 import {
   resolveDataCharBudget,
   resolveHistoryCharBudget,
@@ -72,6 +73,11 @@ describe('SupervisorService', () => {
   const mockSkillRetrieval = {
     findMatching: jest.fn().mockResolvedValue(null),
   };
+  // Instance THẬT (không mock hành vi) — AgentRankingService/SupervisorPromptBuilder
+  // chỉ cần đúng 1 dependency đã mock sẵn ở trên, dùng lại instance thật giữ
+  // nguyên mọi assertion cũ (VD mockEmbeddingProvider.embed) không đổi.
+  const agentRanking = new AgentRankingService(mockEmbeddingProvider as any);
+  const promptBuilder = new SupervisorPromptBuilder(mockMemoryManager as any);
 
   beforeEach(async () => {
     mockLlmFactory.resolve.mockReturnValue({
@@ -93,10 +99,11 @@ describe('SupervisorService', () => {
         { provide: LlmStrategyFactory, useValue: mockLlmFactory },
         { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
         { provide: DynamicProviderDbService, useValue: mockDynamicProviderDb },
-        { provide: OpenAiEmbeddingProvider, useValue: mockEmbeddingProvider },
         { provide: MetricsRegistryService, useValue: mockMetrics },
         { provide: MemoryManagerService, useValue: mockMemoryManager },
         { provide: SkillRetrievalService, useValue: mockSkillRetrieval },
+        { provide: AgentRankingService, useValue: agentRanking },
+        { provide: SupervisorPromptBuilder, useValue: promptBuilder },
       ],
     }).compile();
 

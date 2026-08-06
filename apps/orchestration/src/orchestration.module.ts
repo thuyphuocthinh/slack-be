@@ -14,6 +14,8 @@ import { McpClientService } from './mcp/mcp-client.service';
 import { McpAuthClientService } from './mcp-auth/mcp-auth-client.service';
 import { ReactLoopService } from './llm/react-loop.service';
 import { SupervisorService } from './llm/supervisor.service';
+import { AgentRankingService } from './llm/agent-ranking.service';
+import { SupervisorPromptBuilder } from './llm/supervisor-prompt.builder';
 import { MessageClientService } from './message-client.service';
 import { LlmStrategyFactory } from './llm/strategy/llm-strategy.factory';
 import { GeminiStrategy } from './llm/strategy/gemini.strategy';
@@ -88,6 +90,8 @@ import { HealthCheckService } from './common/health-check.service';
     DynamicToolExecutorService,
     ReactLoopService,
     SupervisorService,
+    AgentRankingService,
+    SupervisorPromptBuilder,
     MessageClientService,
     LlmStrategyFactory,
     GeminiStrategy,
