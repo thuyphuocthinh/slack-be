@@ -3,6 +3,20 @@ import {
   SupervisorRoundDto,
 } from '../src/dto/supervisor.dto';
 import { ChatHistoryTurnDto } from '../src/dto/message-client.dto';
+import {
+  GENERIC_DYNAMIC_PROVIDER_A,
+  GENERIC_DYNAMIC_PROVIDER_B,
+  GITHUB_AGENT,
+  GOOGLE_CALENDAR_AGENT,
+  GOOGLE_DOCS_AGENT,
+  GOOGLE_DRIVE_AGENT,
+  GOOGLE_MAIL_AGENT,
+  GOOGLE_SHEETS_AGENT,
+  NOTION_AGENT,
+  SLACK_AGENT,
+  SQL_SERVER_AGENT,
+  TMDB_AGENT,
+} from './eval-supervisor-plan.agents';
 
 export interface SupervisorPlanEvalCase {
   name: string;
@@ -19,84 +33,10 @@ export interface SupervisorPlanEvalCase {
   diagnostic?: boolean;
 }
 
-const TMDB_AGENT: AvailableAgentDto = {
-  provider: 'tmdb_dynamic_1',
-  label: 'TMDB',
-  description:
-    'Hệ thống/API mở rộng (Custom Swagger). TRỌNG TÂM: Hãy ưu tiên chọn agent này nếu yêu cầu liên quan đến các từ khóa hoặc dữ liệu thuộc về hệ thống "TMDB" (URL tham khảo: https://api.themoviedb.org/3/openapi.json).',
-};
+// Ghi chú thiết kế đầy đủ (WHY của từng case, tra theo `name`):
+// slack-docs/Documents/Orchestration/code-notes/eval-supervisor-plan.dataset.md
 
-const SQL_SERVER_AGENT: AvailableAgentDto = {
-  provider: 'sql_server',
-  label: 'SQL Server',
-  description: 'Truy vấn schema và dữ liệu trên SQL Server của bạn.',
-};
-
-const GITHUB_AGENT: AvailableAgentDto = {
-  provider: 'github',
-  label: 'GitHub',
-  description: 'Truy cập repository, issue, pull request trên GitHub.',
-};
-
-const GOOGLE_DOCS_AGENT: AvailableAgentDto = {
-  provider: 'google_docs',
-  label: 'Google Docs',
-  description: 'Đọc và chỉnh sửa nội dung Google Docs.',
-};
-
-const GOOGLE_SHEETS_AGENT: AvailableAgentDto = {
-  provider: 'google_sheets',
-  label: 'Google Sheets',
-  description: 'Đọc và chỉnh sửa dữ liệu trên Google Sheets.',
-};
-
-const GOOGLE_MAIL_AGENT: AvailableAgentDto = {
-  provider: 'google_mail',
-  label: 'Gmail',
-  description: 'Đọc, soạn và gửi email qua Gmail của bạn.',
-};
-
-const GOOGLE_DRIVE_AGENT: AvailableAgentDto = {
-  provider: 'google_drive',
-  label: 'Google Drive',
-  description: 'Truy cập file và thư mục trên Google Drive.',
-};
-
-const GOOGLE_CALENDAR_AGENT: AvailableAgentDto = {
-  provider: 'google_calendar',
-  label: 'Google Calendar',
-  description: 'Đọc và quản lý sự kiện trên Google Calendar của bạn.',
-};
-
-const SLACK_AGENT: AvailableAgentDto = {
-  provider: 'slack',
-  label: 'Slack',
-  description: 'Tương tác với workspace Slack khác của bạn.',
-};
-
-const NOTION_AGENT: AvailableAgentDto = {
-  provider: 'notion',
-  label: 'Notion',
-  description: 'Đọc và chỉnh sửa trang/database trên Notion.',
-};
-
-// Xem code-notes/eval-supervisor-plan.dataset.md
-const GENERIC_DYNAMIC_PROVIDER_A: AvailableAgentDto = {
-  provider: 'dynamic_internal_api_a',
-  label: 'Internal API A',
-  description:
-    'Hệ thống/API mở rộng (Custom Swagger). TRỌNG TÂM: Hãy ưu tiên chọn agent này nếu yêu cầu liên quan đến các từ khóa hoặc dữ liệu thuộc về hệ thống "Internal API A".',
-};
-
-const GENERIC_DYNAMIC_PROVIDER_B: AvailableAgentDto = {
-  provider: 'dynamic_internal_api_b',
-  label: 'Internal API B',
-  description:
-    'Hệ thống/API mở rộng (Custom Swagger). TRỌNG TÂM: Hãy ưu tiên chọn agent này nếu yêu cầu liên quan đến các từ khóa hoặc dữ liệu thuộc về hệ thống "Internal API B".',
-};
-
-// Ghi chú thiết kế đầy đủ (WHY của từng case): slack-docs/Documents/Orchestration/code-notes/eval-supervisor-plan.dataset.md
-export const SUPERVISOR_PLAN_EVAL_CASES: SupervisorPlanEvalCase[] = [
+const BASELINE_CASES: SupervisorPlanEvalCase[] = [
   {
     name: 'tmdb-then-sql-fresh-turn',
     prompt:
@@ -170,10 +110,11 @@ export const SUPERVISOR_PLAN_EVAL_CASES: SupervisorPlanEvalCase[] = [
     rounds: [],
     expectedAction: 'respond',
   },
+];
 
-  // --- Case khó hơn, thêm để dò tín hiệu cho mục 5 (self-consistency) và
-  // mục 6 (uncertainty-clarification) trong accuracy.v2.md — xem code-notes/eval-supervisor-plan.dataset.md ---
-
+// Case khó hơn, thêm để dò tín hiệu cho mục 5 (self-consistency) và mục 6
+// (uncertainty-clarification) trong accuracy.v2.md.
+const SELF_CONSISTENCY_AND_AMBIGUITY_CASES: SupervisorPlanEvalCase[] = [
   {
     name: 'three-step-chain-tmdb-sql-slack',
     prompt:
@@ -227,9 +168,10 @@ export const SUPERVISOR_PLAN_EVAL_CASES: SupervisorPlanEvalCase[] = [
     rounds: [],
     expectedAction: 'plan',
   },
+];
 
-  // --- accuracy_problem.md mục 9.3 — xem code-notes/eval-supervisor-plan.dataset.md ---
-
+// accuracy_problem.md mục 9.3 — agent-level Tool RAG bỏ sót agent bước sau.
+const RESCUE_SECONDARY_AGENT_CASES: SupervisorPlanEvalCase[] = [
   {
     name: 'muc-9.3-rescue-secondary-agent-named-notion',
     prompt:
@@ -290,11 +232,12 @@ export const SUPERVISOR_PLAN_EVAL_CASES: SupervisorPlanEvalCase[] = [
     rounds: [],
     expectedAction: 'plan',
   },
+];
 
-  // --- ver3.md mục 5 — tín hiệu bực bội (regex) không được khiến Supervisor
-  // hiểu lầm thành "user chỉ đang than phiền" và trả lời "respond" thay vì
-  // vẫn thực thi đúng agent mà câu đó yêu cầu ---
-
+// ver3.md mục 5 — tín hiệu bực bội (regex) không được khiến Supervisor hiểu
+// lầm thành "user chỉ đang than phiền" và trả lời "respond" thay vì vẫn thực
+// thi đúng agent mà câu đó yêu cầu.
+const FRUSTRATION_CASES: SupervisorPlanEvalCase[] = [
   {
     name: 'ver3-muc5-frustration-prompt-still-resolves-correct-agent',
     prompt: 'sao vẫn lỗi hoài vậy, chèn lại dữ liệu vào Google Sheet giúp tôi',
@@ -303,4 +246,11 @@ export const SUPERVISOR_PLAN_EVAL_CASES: SupervisorPlanEvalCase[] = [
     expectedAction: 'plan',
     expectedAgents: ['google_sheets'],
   },
+];
+
+export const SUPERVISOR_PLAN_EVAL_CASES: SupervisorPlanEvalCase[] = [
+  ...BASELINE_CASES,
+  ...SELF_CONSISTENCY_AND_AMBIGUITY_CASES,
+  ...RESCUE_SECONDARY_AGENT_CASES,
+  ...FRUSTRATION_CASES,
 ];

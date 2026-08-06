@@ -39,11 +39,25 @@ import { MockStrategy } from '../src/llm/strategy/mock.strategy';
 import { CircuitBreakerService } from '../src/common/circuit-breaker.service';
 import { MetricsRegistryService } from '../src/common/metrics-registry.service';
 import { OpenAiEmbeddingProvider } from '../src/registry/openai-embedding.provider';
+import { MemoryManagerService } from '../src/memory/memory-manager.service';
 import { SupervisorPlanDto } from '../src/dto/supervisor.dto';
 import {
   SUPERVISOR_PLAN_EVAL_CASES,
   SupervisorPlanEvalCase,
 } from './eval-supervisor-plan.dataset';
+
+// CircuitBreakerService lưu state ở Redis thật (xem circuit-breaker.service.ts)
+// — script này chỉ cần nó luôn "closed" (không chặn LLM call thật), không cần
+// đo hành vi mở/đóng mạch, nên fake tối thiểu 4 lệnh nó gọi tới thay vì kéo
+// theo Redis thật.
+function buildNoOpRedisStub(): any {
+  return {
+    get: async () => null,
+    set: async () => 'OK',
+    del: async () => 1,
+    eval: async () => 'closed',
+  };
+}
 
 function buildSupervisor(): SupervisorService {
   const llmFactory = new LlmStrategyFactory(
@@ -53,15 +67,21 @@ function buildSupervisor(): SupervisorService {
     new MockStrategy(),
   );
   const metrics = new MetricsRegistryService();
-  const circuitBreaker = new CircuitBreakerService(metrics);
+  const circuitBreaker = new CircuitBreakerService(
+    buildNoOpRedisStub(),
+    metrics,
+  );
 
   // plan() không đụng tới mcpAuthClient/dynamicProviderDb (2 cái đó chỉ phục
   // vụ getAvailableAgents(), KHÔNG dùng ở đây — dataset tự cấp sẵn `agents`) —
   // stub rỗng, không cần DB/HTTP client thật cho eval script này. embeddingProvider
   // THẬT (mục 2, agent-level Tool RAG) — chỉ thật sự gọi API khi 1 case có
-  // agents.length > MAX_AGENTS_BEFORE_RANKING. channelMemory cũng stub rỗng —
-  // các case ở đây không truyền channelId, nên plan() không bao giờ đụng tới
-  // nó (channelId ? getRecentMemories() : [] — xem SupervisorService.plan()).
+  // agents.length > MAX_AGENTS_BEFORE_RANKING. memoryManager DÙNG THẬT (chỉ
+  // tính toán thuần, không cần DB) vì buildPrompt() gọi buildBudget() bất cứ
+  // khi nào 1 case có `rounds` sẵn (VD tmdb-then-sql-after-tmdb-done) —
+  // channelMemory bên trong nó vẫn stub rỗng vì không case nào truyền
+  // channelId. skillRetrieval cũng stub rỗng cùng lý do — không case nào
+  // truyền workspaceId.
   return new SupervisorService(
     {} as any,
     llmFactory,
@@ -69,6 +89,7 @@ function buildSupervisor(): SupervisorService {
     {} as any,
     new OpenAiEmbeddingProvider(),
     metrics,
+    new MemoryManagerService({} as any),
     {} as any,
   );
 }
