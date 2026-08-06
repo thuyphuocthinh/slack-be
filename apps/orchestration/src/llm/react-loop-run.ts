@@ -19,6 +19,7 @@ import {
 import {
   LlmChatSession,
   LlmStrategy,
+  LlmToolCall,
   LlmToolResult,
   LlmTurnResult,
 } from './strategy/llm-strategy.interface';
@@ -160,17 +161,67 @@ export class ReactLoopRun {
 
       resync('');
 
-      const results: LlmToolResult[] = await Promise.all(
-        turn.toolCalls.map(async (call) => {
-          const content = await this.tracedHandleToolCall(call.name, call.args);
-          return { id: call.id, name: call.name, content };
-        }),
-      );
+      const results = await this.resolveToolCalls(turn.toolCalls);
 
       turn = await this.sendMessage(results, onToken);
     }
 
     return this.buildMaxStepsResponse(turn);
+  }
+
+  // Tool call trong CÙNG 1 lượt chạy song song (tốc độ), nhưng 2 rủi ro cần
+  // xếp hàng riêng thay vì chạy đồng thời: (1) 2 call TRÙNG hệt nhau (tên+
+  // tham số) — vẫn gọi qua tracedHandleToolCall() bình thường để đúng cơ chế
+  // repeat-guard/cache có sẵn (attempts/successfulCallCache) tự nhận ra và
+  // trả kết quả cache cho lần lặp, chỉ là lần lặp phải ĐỢI lần đầu xong hẳn
+  // mới bắt đầu, không cho cả 2 cùng lọt qua bookkeeping một lúc; (2) 2
+  // INSERT nhắm CÙNG bảng — checkBulkInsertShortfall() gộp tuple qua 1 Map
+  // dùng chung (insertAccumulator), chạy đồng thời có thể làm 1 call thấy số
+  // liệu đã lỗi thời của call kia. Khác chữ ký/khác bảng vẫn chạy song song
+  // thật.
+  private resolveToolCalls(toolCalls: LlmToolCall[]): Promise<LlmToolResult[]> {
+    const lastRunBySignature = new Map<string, Promise<unknown>>();
+    const lastRunByTable = new Map<string, Promise<unknown>>();
+
+    const runs = toolCalls.map((call) => {
+      const signature = `${call.name}:${JSON.stringify(call.args)}`;
+      const tableKey = this.resolveInsertTableKey(call);
+      const waitFor = [
+        lastRunBySignature.get(signature),
+        tableKey ? lastRunByTable.get(tableKey) : undefined,
+      ].filter((p): p is Promise<unknown> => !!p);
+
+      const run = waitFor.length
+        ? Promise.allSettled(waitFor).then(() =>
+            this.tracedHandleToolCall(call.name, call.args),
+          )
+        : this.tracedHandleToolCall(call.name, call.args);
+
+      lastRunBySignature.set(signature, run);
+      if (tableKey) lastRunByTable.set(tableKey, run);
+      return run;
+    });
+
+    return Promise.all(
+      runs.map(async (run, i) => ({
+        id: toolCalls[i].id,
+        name: toolCalls[i].name,
+        content: (await run) as string,
+      })),
+    );
+  }
+
+  private resolveInsertTableKey(call: LlmToolCall): string | null {
+    if (
+      this.dto.provider !== 'sql_server' ||
+      call.name !== 'execute_write_query'
+    ) {
+      return null;
+    }
+    const query =
+      typeof call.args.query === 'string' ? call.args.query : undefined;
+    if (!query) return null;
+    return parseInsertValues(query)?.tableSignature ?? null;
   }
 
   /** Model vừa dừng gọi tool — chạy self-check/quantity-nudge (tối đa 1 lần),

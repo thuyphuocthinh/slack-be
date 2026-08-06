@@ -358,7 +358,7 @@ describe('ReactLoopService', () => {
     });
   });
 
-  it('executes multiple tool calls in a single turn SEQUENTIALLY, never overlapping (bug fix: parallel execution raced the repeat-guard/Risk Gate and desynced tool_call/tool_result FE events for same-name calls)', async () => {
+  it('runs independent tool calls (different name/args, not both INSERT into the same table) in the same turn CONCURRENTLY for speed', async () => {
     mockSession.sendMessage
       .mockResolvedValueOnce({
         text: '',
@@ -370,7 +370,6 @@ describe('ReactLoopService', () => {
       .mockResolvedValueOnce({ text: 'đã tổng hợp xong 2 bảng', toolCalls: [] })
       .mockResolvedValueOnce({ text: 'xác nhận đã xong', toolCalls: [] });
 
-    // Cố tình delay callTool để kiểm tra KHÔNG có lúc nào 2 call cùng "in-flight".
     let activeCalls = 0;
     let maxConcurrent = 0;
     const callOrder: string[] = [];
@@ -387,8 +386,55 @@ describe('ReactLoopService', () => {
 
     expect(result.answer).toBe('đã tổng hợp xong 2 bảng');
     expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
-    expect(maxConcurrent).toBe(1); // Không bao giờ có 2 tool cùng chạy 1 lúc
-    expect(callOrder).toEqual(['get_table1', 'get_table2']); // đúng thứ tự model yêu cầu
+    expect(maxConcurrent).toBe(2); // độc lập nhau — chạy thật song song, không xếp hàng oan
+    expect(callOrder).toEqual(['get_table1', 'get_table2']); // vẫn khởi chạy đúng thứ tự model yêu cầu
+  });
+
+  it('serializes 2 INSERT calls targeting the SAME table+columns in one turn instead of letting them race the shared tuple accumulator', async () => {
+    mockMcpClient.getTools.mockResolvedValue([
+      {
+        name: 'execute_write_query',
+        description: 'desc',
+        inputSchema: {},
+        annotations: { readOnlyHint: false, destructiveHint: true },
+      },
+    ]);
+    mockSession.sendMessage
+      .mockResolvedValueOnce({
+        text: '',
+        toolCalls: [
+          {
+            name: 'execute_write_query',
+            args: {
+              query: "INSERT INTO Products (Name) VALUES ('A')",
+            },
+          },
+          {
+            name: 'execute_write_query',
+            args: {
+              query: "INSERT INTO Products (Name) VALUES ('B')",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ text: 'đã thêm xong 2 sản phẩm', toolCalls: [] })
+      .mockResolvedValueOnce({ text: 'xác nhận đã xong', toolCalls: [] });
+
+    let activeCalls = 0;
+    let maxConcurrent = 0;
+    mockMcpClient.callTool.mockImplementation(async () => {
+      activeCalls++;
+      maxConcurrent = Math.max(maxConcurrent, activeCalls);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      activeCalls--;
+      return { content: [{ type: 'text', text: 'data' }], isError: false };
+    });
+
+    const result = await service.run(baseDto);
+
+    expect(result.answer).toBe('đã thêm xong 2 sản phẩm');
+    expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
+    expect(maxConcurrent).toBe(1); // cùng bảng Products — phải xếp hàng, không cho 2 cái cùng đụng insertAccumulator
   });
 
   it('stops after MAX_REACT_STEPS iterations and returns the fallback message if the model never converges', async () => {
