@@ -21,6 +21,7 @@ import {
   resolveMemoryCharBudget,
 } from '../executor/tool-result-size-cap.util';
 import { AGENT_REGISTRY } from '../registry/agents.registry';
+import { EdgeRelayRegistryService } from '../edge-relay/edge-relay-registry.service';
 
 // Cô lập test khỏi giá trị thật của process.env.AGENT_SQL_SERVER_URL — mock
 // thẳng registry để chủ động quyết định agent nào có/thiếu hạ tầng thật.
@@ -30,6 +31,13 @@ jest.mock('../registry/agents.registry', () => ({
     // notion: đã connect qua mcp-auth (xem test bên dưới) nhưng CHƯA có agent
     // thật đăng ký (endpoint rỗng) — phải bị loại khỏi danh sách khả dụng.
     notion: { label: 'Notion', endpoint: undefined },
+    // Edge MCP Server plan, Phase 2 — không có endpoint tĩnh, chỉ khả dụng
+    // qua EdgeRelayRegistryService.isOnline(workspaceId) (xem getRelayBoundAgents()).
+    sql_server_edge: {
+      label: 'SQL Server (on-prem, qua Edge MCP Server)',
+      endpoint: undefined,
+      perWorkspaceInstance: true,
+    },
   },
 }));
 
@@ -73,6 +81,11 @@ describe('SupervisorService', () => {
   const mockSkillRetrieval = {
     findMatching: jest.fn().mockResolvedValue(null),
   };
+  // Mặc định: không workspace nào có relay đang sống — giữ nguyên hành vi
+  // mọi test đã có trước Edge MCP Server Phase 2.
+  const mockEdgeRelayRegistry = {
+    isOnline: jest.fn().mockReturnValue(false),
+  };
   // Instance THẬT (không mock hành vi) — AgentRankingService/SupervisorPromptBuilder
   // chỉ cần đúng 1 dependency đã mock sẵn ở trên, dùng lại instance thật giữ
   // nguyên mọi assertion cũ (VD mockEmbeddingProvider.embed) không đổi.
@@ -91,6 +104,7 @@ describe('SupervisorService', () => {
     mockDynamicProviderDb.getProvidersByUser.mockResolvedValue([]);
     mockMemoryManager.getMemories.mockResolvedValue([]);
     mockSkillRetrieval.findMatching.mockResolvedValue(null);
+    mockEdgeRelayRegistry.isOnline.mockReturnValue(false);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -104,6 +118,7 @@ describe('SupervisorService', () => {
         { provide: SkillRetrievalService, useValue: mockSkillRetrieval },
         { provide: AgentRankingService, useValue: agentRanking },
         { provide: SupervisorPromptBuilder, useValue: promptBuilder },
+        { provide: EdgeRelayRegistryService, useValue: mockEdgeRelayRegistry },
       ],
     }).compile();
 
@@ -223,6 +238,53 @@ describe('SupervisorService', () => {
           description: expect.any(String),
         },
       ]);
+    });
+
+    describe('Edge MCP Server plan, Phase 2 — relay-bound agents', () => {
+      it('includes sql_server_edge when the workspace has a relay online', async () => {
+        mockMcpAuthClient.getConnectionStatus.mockResolvedValue([]);
+        mockEdgeRelayRegistry.isOnline.mockReturnValue(true);
+
+        const agents = await service.getAvailableAgents(
+          'user-1',
+          'workspace-1',
+        );
+
+        expect(mockEdgeRelayRegistry.isOnline).toHaveBeenCalledWith(
+          'workspace-1',
+        );
+        expect(agents).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ provider: 'sql_server_edge' }),
+          ]),
+        );
+      });
+
+      it('excludes sql_server_edge when the workspace has no relay online', async () => {
+        mockMcpAuthClient.getConnectionStatus.mockResolvedValue([]);
+        mockEdgeRelayRegistry.isOnline.mockReturnValue(false);
+
+        const agents = await service.getAvailableAgents(
+          'user-1',
+          'workspace-1',
+        );
+
+        expect(agents.some((a) => a.provider === 'sql_server_edge')).toBe(
+          false,
+        );
+      });
+
+      it('excludes sql_server_edge when no workspaceId is provided at all, even if some workspace has a relay online', async () => {
+        mockMcpAuthClient.getConnectionStatus.mockResolvedValue([]);
+        mockEdgeRelayRegistry.isOnline.mockReturnValue(true);
+
+        const agents = await service.getAvailableAgents('user-1');
+
+        expect(mockEdgeRelayRegistry.isOnline).not.toHaveBeenCalled();
+        expect(agents.some((a) => a.provider === 'sql_server_edge')).toBe(
+          false,
+        );
+      });
     });
   });
 

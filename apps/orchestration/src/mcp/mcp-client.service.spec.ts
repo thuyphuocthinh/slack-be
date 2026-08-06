@@ -6,6 +6,10 @@ import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { ProviderConcurrencyLimiterService } from '../common/provider-concurrency-limiter.service';
 import { DynamicToolRegistryService } from '../registry/dynamic-tool-registry.service';
 import { DynamicToolExecutorService } from '../executor/dynamic-tool-executor.service';
+import { EdgeRelayRegistryService } from '../edge-relay/edge-relay-registry.service';
+import { RelayOfflineError } from '../edge-relay/relay-offline.error';
+import { RelayTimeoutError } from '../edge-relay/relay-timeout.error';
+import { RelayClientTransport } from './relay-client.transport';
 
 const mockConnect = jest.fn();
 const mockListTools = jest.fn();
@@ -58,6 +62,12 @@ describe('McpClientService', () => {
   const mockCircuitBreaker = {
     run: jest.fn((_key: string, action: () => Promise<unknown>) => action()),
   };
+  const mockEdgeRelayRegistry = {
+    bind: jest.fn(),
+    unbind: jest.fn(),
+    isOnline: jest.fn(),
+    dispatch: jest.fn(),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -81,6 +91,7 @@ describe('McpClientService', () => {
           useValue: { isDynamicProvider: jest.fn().mockReturnValue(false) },
         },
         { provide: DynamicToolExecutorService, useValue: {} },
+        { provide: EdgeRelayRegistryService, useValue: mockEdgeRelayRegistry },
       ],
     }).compile();
 
@@ -196,6 +207,10 @@ describe('McpClientService', () => {
             useValue: mockDynamicRegistry,
           },
           { provide: DynamicToolExecutorService, useValue: {} },
+          {
+            provide: EdgeRelayRegistryService,
+            useValue: mockEdgeRelayRegistry,
+          },
         ],
       }).compile();
       const dynamicService = module.get<McpClientService>(McpClientService);
@@ -233,6 +248,10 @@ describe('McpClientService', () => {
           {
             provide: DynamicToolExecutorService,
             useValue: mockDynamicExecutor,
+          },
+          {
+            provide: EdgeRelayRegistryService,
+            useValue: mockEdgeRelayRegistry,
           },
         ],
       }).compile();
@@ -1030,6 +1049,10 @@ describe('McpClientService', () => {
             provide: DynamicToolExecutorService,
             useValue: mockDynamicExecutor2,
           },
+          {
+            provide: EdgeRelayRegistryService,
+            useValue: mockEdgeRelayRegistry,
+          },
         ],
       }).compile();
       const dynamicService = module2.get<McpClientService>(McpClientService);
@@ -1236,6 +1259,124 @@ describe('McpClientService', () => {
         expect.any(Function),
         undefined,
       );
+    });
+  });
+
+  describe('Edge MCP Server plan, Phase 2 — relay dispatch and error envelope', () => {
+    afterEach(() => jest.useRealTimers());
+
+    it('connects a perWorkspaceInstance provider through RelayClientTransport, not StreamableHTTPClientTransport', async () => {
+      mockCallTool.mockResolvedValue({ content: [] });
+
+      await service.callTool({
+        provider: 'edge_relay_test',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+        workspaceId: 'workspace-A',
+      });
+
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+      expect(mockConnect.mock.calls[0][0]).toBeInstanceOf(RelayClientTransport);
+    });
+
+    it('throws AGENT_NOT_REGISTERED-style RpcException when a perWorkspaceInstance provider is called without a workspaceId', async () => {
+      await expect(
+        service.callTool({
+          provider: 'edge_relay_test',
+          name: 'x',
+          args: {},
+          ownerId: 'user-1',
+        }),
+      ).rejects.toThrow();
+      expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('converts a RelayOfflineError into a retryable:false JSON error envelope instead of throwing', async () => {
+      (service as any).toolsCache.set('edge_relay_test:workspace-A', {
+        data: [
+          {
+            name: 'write_tool',
+            description: '',
+            inputSchema: {},
+            annotations: { readOnlyHint: false, destructiveHint: true },
+          },
+        ],
+        fetchedAt: Date.now(),
+      });
+      mockConnect.mockRejectedValue(new RelayOfflineError('workspace-A'));
+
+      const result = await service.callTool({
+        provider: 'edge_relay_test',
+        name: 'write_tool',
+        args: {},
+        ownerId: 'user-1',
+        workspaceId: 'workspace-A',
+      });
+
+      expect(result.isError).toBe(true);
+      const parsed = JSON.parse(result.content![0].text as string);
+      expect(parsed).toEqual({
+        error: true,
+        retryable: false,
+        code: 'RELAY_OFFLINE',
+        message: expect.stringContaining('workspace-A'),
+      });
+    });
+
+    it('converts a RelayTimeoutError into a retryable:false envelope for a destructive tool', async () => {
+      (service as any).toolsCache.set('edge_relay_test:workspace-A', {
+        data: [
+          {
+            name: 'write_tool',
+            description: '',
+            inputSchema: {},
+            annotations: { readOnlyHint: false, destructiveHint: true },
+          },
+        ],
+        fetchedAt: Date.now(),
+      });
+      mockConnect.mockRejectedValue(new RelayTimeoutError('workspace-A'));
+
+      const result = await service.callTool({
+        provider: 'edge_relay_test',
+        name: 'write_tool',
+        args: {},
+        ownerId: 'user-1',
+        workspaceId: 'workspace-A',
+      });
+
+      const parsed = JSON.parse(result.content![0].text as string);
+      expect(parsed).toMatchObject({ code: 'RELAY_TIMEOUT', retryable: false });
+    });
+
+    it('converts a RelayTimeoutError into a retryable:true envelope for a read-only tool (safe to retry)', async () => {
+      jest.useFakeTimers();
+      (service as any).toolsCache.set('edge_relay_test:workspace-A', {
+        data: [
+          {
+            name: 'read_only_tool',
+            description: '',
+            inputSchema: {},
+            annotations: { readOnlyHint: true },
+          },
+        ],
+        fetchedAt: Date.now(),
+      });
+      mockConnect.mockRejectedValue(new RelayTimeoutError('workspace-A'));
+
+      const resultPromise = service.callTool({
+        provider: 'edge_relay_test',
+        name: 'read_only_tool',
+        args: {},
+        ownerId: 'user-1',
+        workspaceId: 'workspace-A',
+      });
+      await jest.runAllTimersAsync();
+      const result = await resultPromise;
+
+      const parsed = JSON.parse(result.content![0].text as string);
+      expect(parsed).toMatchObject({ code: 'RELAY_TIMEOUT', retryable: true });
     });
   });
 

@@ -50,6 +50,8 @@ import { CheckpointPauseService } from './processor/checkpoint-pause.service';
 import { ApprovalFlowService } from './processor/approval-flow.service';
 import { MetricsRegistryService } from './common/metrics-registry.service';
 import { HealthCheckService } from './common/health-check.service';
+import { EdgeRelayRegistryService } from './edge-relay/edge-relay-registry.service';
+import { EdgeRelayGateway } from './edge-relay/edge-relay.gateway';
 
 @Module({
   imports: [
@@ -115,6 +117,8 @@ import { HealthCheckService } from './common/health-check.service';
     ApprovalFlowService,
     MetricsRegistryService,
     HealthCheckService,
+    EdgeRelayRegistryService,
+    EdgeRelayGateway,
   ],
 })
 export class OrchestrationModule {}

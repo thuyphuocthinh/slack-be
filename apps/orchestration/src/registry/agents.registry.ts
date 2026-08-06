@@ -59,4 +59,13 @@ export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
     label: 'Python Compute',
     endpoint: process.env.AGENT_COMPUTE_URL,
   },
+  // Edge MCP Server — SQL Server on-prem của khách hàng, chạm được qua relay
+  // (workspace tự mở kết nối outbound), KHÔNG có endpoint tĩnh nào cả. Tách
+  // riêng khỏi `sql_server` (cloud, dùng chung 1 instance) để không làm loãng
+  // cache/breaker key của `sql_server` cho những workspace không dùng relay.
+  sql_server_edge: {
+    label: 'SQL Server (on-prem, qua Edge MCP Server)',
+    endpoint: undefined,
+    perWorkspaceInstance: true,
+  },
 };

@@ -21,6 +21,10 @@ import { DynamicToolRegistryService } from '../registry/dynamic-tool-registry.se
 import { DynamicToolExecutorService } from '../executor/dynamic-tool-executor.service';
 import { PiiScrubberUtil } from '../executor/pii-scrubber.util';
 import { routeKey } from './route-key.util';
+import { RelayClientTransport } from './relay-client.transport';
+import { EdgeRelayRegistryService } from '../edge-relay/edge-relay-registry.service';
+import { RelayOfflineError } from '../edge-relay/relay-offline.error';
+import { RelayTimeoutError } from '../edge-relay/relay-timeout.error';
 
 interface CacheEntry<T> {
   data: T[];
@@ -50,6 +54,7 @@ export class McpClientService {
     private readonly concurrencyLimiter: ProviderConcurrencyLimiterService,
     private readonly dynamicRegistry: DynamicToolRegistryService,
     private readonly dynamicExecutor: DynamicToolExecutorService,
+    private readonly edgeRelayRegistry: EdgeRelayRegistryService,
   ) {}
 
   private async getClient(
@@ -76,15 +81,33 @@ export class McpClientService {
     return connecting;
   }
 
-  // workspaceId hiện chưa dùng để chọn transport (chưa có Edge MCP Server
-  // relay — xem AgentRegistryEntry.perWorkspaceInstance) — giữ tham số để
-  // routeKey()/log nhất quán và tránh phải đổi lại signature khi relay có.
   private async connectClient(
     provider: string,
     ownerId?: string,
     workspaceId?: string,
   ): Promise<Client> {
     const entry = AGENT_REGISTRY[provider];
+
+    if (entry?.perWorkspaceInstance) {
+      if (!workspaceId) {
+        throw new RpcException(ORCHESTRATION_ERROR.AGENT_NOT_REGISTERED);
+      }
+      const client = new Client({ name: 'orchestration', version: '1.0.0' });
+      const transport = new RelayClientTransport(
+        workspaceId,
+        this.edgeRelayRegistry,
+      );
+      await withTimeout(
+        client.connect(transport),
+        ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS,
+        `MCP connect() timeout sau ${ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS / 1000}s (provider=${provider})`,
+      );
+      this.logger.log(
+        `Connected MCP client for provider "${routeKey(provider, workspaceId)}" via edge relay`,
+      );
+      return client;
+    }
+
     if (!entry?.endpoint) {
       throw new RpcException(ORCHESTRATION_ERROR.AGENT_NOT_REGISTERED);
     }
@@ -359,21 +382,55 @@ export class McpClientService {
       : true;
     const maxRetries = isDestructive ? 1 : 3;
 
-    return this.withReconnect(
-      dto.provider,
-      dto.ownerId,
-      async (client) => {
-        const result = (await client.callTool(
-          { name: dto.name, arguments: dto.args },
-          undefined,
-          { signal },
-        )) as CallToolResponseDto;
-        return this.scrubToolResult(result);
-      },
-      maxRetries,
-      signal,
-      dto.workspaceId,
-    );
+    try {
+      return await this.withReconnect(
+        dto.provider,
+        dto.ownerId,
+        async (client) => {
+          const result = (await client.callTool(
+            { name: dto.name, arguments: dto.args },
+            undefined,
+            { signal },
+          )) as CallToolResponseDto;
+          return this.scrubToolResult(result);
+        },
+        maxRetries,
+        signal,
+        dto.workspaceId,
+      );
+    } catch (error) {
+      if (error instanceof RelayOfflineError) {
+        return this.toEdgeRelayErrorResponse(
+          'RELAY_OFFLINE',
+          false,
+          error.message,
+        );
+      }
+      if (error instanceof RelayTimeoutError) {
+        return this.toEdgeRelayErrorResponse(
+          'RELAY_TIMEOUT',
+          Boolean(cachedTool?.annotations?.readOnlyHint),
+          error.message,
+        );
+      }
+      throw error;
+    }
+  }
+
+  private toEdgeRelayErrorResponse(
+    code: string,
+    retryable: boolean,
+    message: string,
+  ): CallToolResponseDto {
+    return {
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({ error: true, retryable, code, message }),
+        },
+      ],
+    };
   }
 
   private scrubToolResult(result: CallToolResponseDto): CallToolResponseDto {

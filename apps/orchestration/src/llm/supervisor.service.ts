@@ -37,6 +37,7 @@ import { SkillRetrievalService } from '../memory/skill-retrieval.service';
 import { AgentRankingService } from './agent-ranking.service';
 import { SupervisorPromptBuilder } from './supervisor-prompt.builder';
 import { detectFrustration } from './detect-frustration.util';
+import { EdgeRelayRegistryService } from '../edge-relay/edge-relay-registry.service';
 
 export interface AgentRankingCache {
   current?: { shown: AvailableAgentDto[]; omittedCount: number };
@@ -57,6 +58,7 @@ export class SupervisorService {
     private readonly skillRetrieval: SkillRetrievalService,
     private readonly agentRanking: AgentRankingService,
     private readonly promptBuilder: SupervisorPromptBuilder,
+    private readonly edgeRelayRegistry: EdgeRelayRegistryService,
   ) {}
 
   private getSystemAgents(): AvailableAgentDto[] {
@@ -105,23 +107,31 @@ export class SupervisorService {
     ];
   }
 
-  // Edge MCP Server (chưa xây) — provider có AgentRegistryEntry.perWorkspaceInstance
-  // (relay on-prem riêng của workspace) KHÔNG đi qua mcp_auth is_connected/
-  // endpoint tĩnh ở trên, nên bị lọc mất khỏi staticAgents nếu không OR-in ở
-  // đây. Hiện CHƯA có registry lưu "workspace X có relay đang sống" (chưa có
-  // relay/gateway) nên luôn trả về [] — khi relay có, thay thân hàm này bằng
-  // lookup presence thật (Redis, xem plan Edge MCP Server), không cần đổi lại
-  // call site nào khác của getAvailableAgents().
-  // Giữ đúng signature cho Phase 2 (workspaceId để tra presence,
-  // alreadyIncluded để không trùng provider), thân hàm chưa cần dùng vì chưa
-  // có registry thật.
+  // Provider có AgentRegistryEntry.perWorkspaceInstance (relay on-prem riêng
+  // của workspace) KHÔNG đi qua mcp_auth is_connected/endpoint tĩnh ở trên,
+  // nên bị lọc mất khỏi staticAgents nếu không OR-in ở đây.
   private getRelayBoundAgents(
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     workspaceId: string | undefined,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     alreadyIncluded: AvailableAgentDto[],
   ): AvailableAgentDto[] {
-    return [];
+    if (!workspaceId) return [];
+
+    const alreadyIncludedProviders = new Set(
+      alreadyIncluded.map((agent) => agent.provider),
+    );
+
+    return Object.entries(AGENT_REGISTRY)
+      .filter(
+        ([provider, entry]) =>
+          entry.perWorkspaceInstance &&
+          !alreadyIncludedProviders.has(provider) &&
+          this.edgeRelayRegistry.isOnline(workspaceId),
+      )
+      .map(([provider, entry]) => ({
+        provider,
+        label: entry.label,
+        description: PROVIDER_DESCRIPTIONS[provider] ?? '',
+      }));
   }
 
   async plan(
