@@ -307,7 +307,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
       })
       .mockResolvedValueOnce({ answer: 'Đã tạo issue #12', toolCalls: [] });
     mockSupervisor.evaluate
-      .mockResolvedValueOnce({ verdict: 're-plan' })
+      .mockResolvedValueOnce({ verdict: 'replan' })
       .mockResolvedValueOnce({ verdict: 'done' });
     mockSupervisor.synthesize.mockResolvedValue('Đã xong cả 2 việc.');
 
@@ -910,7 +910,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
       Promise.resolve({ answer: `kết quả bước ${++call}`, toolCalls: [] }),
     );
     // Luôn re-plan — mô phỏng 1 kế hoạch không bao giờ hội tụ tự nhiên.
-    mockSupervisor.evaluate.mockResolvedValue({ verdict: 're-plan' });
+    mockSupervisor.evaluate.mockResolvedValue({ verdict: 'replan' });
     mockSupervisor.synthesize.mockResolvedValue(
       'Tổng hợp toàn bộ các bước đã thu thập được.',
     );
@@ -950,7 +950,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
     mockCancellation.isCancelled
       .mockResolvedValueOnce(false) // trước khi plan() lần đầu
       .mockResolvedValueOnce(true); // Stop được bấm giữa chừng, trước bước kế
-    mockSupervisor.evaluate.mockResolvedValue({ verdict: 're-plan' });
+    mockSupervisor.evaluate.mockResolvedValue({ verdict: 'replan' });
 
     await expect(resolve()).rejects.toThrow(TurnCancelledError);
   });
@@ -1207,6 +1207,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         expect.any(Object),
         // ver3.md mục 1 (dài hạn) — channelId truyền cho channel_memory.
         'channel-1',
+        'workspace-1',
       );
       // Bước MỚI (sau resume) delegate sang ĐÚNG provider cần thiết cho phần
       // còn lại (sql_server) — KHÔNG bị ép ở lại provider vừa dùng trước đó.
@@ -1510,7 +1511,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         answer: 'vẫn chưa xong',
         toolCalls: [],
       });
-      mockSupervisor.evaluate.mockResolvedValue({ verdict: 're-plan' });
+      mockSupervisor.evaluate.mockResolvedValue({ verdict: 'replan' });
       mockSupervisor.synthesize.mockResolvedValue(
         'Đành tổng hợp, chưa hội tụ.',
       );
