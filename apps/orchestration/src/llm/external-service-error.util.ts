@@ -1,6 +1,7 @@
 import { RpcException } from '@nestjs/microservices';
 import { RelayOfflineError } from '../edge-relay/relay-offline.error';
 import { RelayTimeoutError } from '../edge-relay/relay-timeout.error';
+import { PiiScrubberUtil } from '../executor/pii-scrubber.util';
 
 // Trả nguyên văn message gốc của lỗi (RpcException nội bộ, SDK provider, MCP
 // client...) để hiện thẳng cho user — không paraphrase/generic hoá, debug
@@ -17,9 +18,16 @@ export function describeExternalServiceError(error: unknown): string {
 
   if (error instanceof RpcException) {
     const info = error.getError() as { code?: string; message?: string };
-    return `⚠️ Lỗi hệ thống (${info?.code ?? 'UNKNOWN'}): ${info?.message ?? error.message}`;
+    return `⚠️ Lỗi hệ thống (${info?.code ?? 'UNKNOWN'}): ${scrub(info?.message ?? error.message)}`;
   }
 
   const message = error instanceof Error ? error.message : String(error);
-  return `⚠️ Lỗi: ${message}`;
+  return `⚠️ Lỗi: ${scrub(message)}`;
+}
+
+// Message lỗi thật của SDK/API provider đôi khi echo lại 1 phần request (VD
+// header/token) — scrub trước khi hiện cho user hoặc ghi log, cùng cơ chế
+// đang dùng cho tool result thành công (mcp-client.service.ts scrubToolResult).
+function scrub(message: string): string {
+  return PiiScrubberUtil.scrub(message) as string;
 }

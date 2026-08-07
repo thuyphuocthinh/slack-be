@@ -33,6 +33,7 @@ import { capToolResultSize } from '../executor/tool-result-size-cap.util';
 import { classifyToolError } from '../executor/tool-error-classifier.util';
 import { parseInsertValues } from '../executor/parse-insert-values.util';
 import { isLikelyCreateToolCall } from '../memory/create-tool-heuristic.util';
+import { PiiScrubberUtil } from '../executor/pii-scrubber.util';
 import { MemoryManagerService } from '../memory/memory-manager.service';
 import { extractWriteQueryPreviewTarget } from './write-query-preview.util';
 
@@ -629,7 +630,12 @@ export class ReactLoopRun {
           throw error;
         }
 
-        const errorMessage = (error as Error).message;
+        // SDK/API provider đôi khi echo lại 1 phần request (VD header/token)
+        // trong message lỗi — scrub trước khi log/hiện cho user, cùng cơ chế
+        // đang dùng cho tool result thành công (McpClientService.scrubToolResult).
+        const errorMessage = PiiScrubberUtil.scrub(
+          (error as Error).message,
+        ) as string;
         this.logger.warn(
           `tool_result ${displayName} FAILED (exception): ${errorMessage}`,
         );

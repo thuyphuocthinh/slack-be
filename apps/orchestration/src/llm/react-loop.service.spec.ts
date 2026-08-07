@@ -889,6 +889,29 @@ describe('ReactLoopService', () => {
       expect(result.answer).toBe('ok');
     });
 
+    it('scrubs PII/secrets out of a raw exception message before logging/emitting/feeding it back to the LLM (VD provider lỗi echo lại 1 phần request có token)', async () => {
+      const rawToken =
+        'eyJhbGciOiJIUzI1NiIsInR5cCI.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+      mockMcpClient.callTool.mockRejectedValueOnce(
+        new Error(`Unauthorized, request had header: ${rawToken}`),
+      );
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'get_database_schema', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'ok', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.toolCalls[0].resultPreview).not.toContain(rawToken);
+      expect(result.toolCalls[0].resultPreview).toContain(
+        '[JWT_TOKEN_REDACTED]',
+      );
+      const fedBackToLlm = mockSession.sendMessage.mock.calls[1][0];
+      expect(fedBackToLlm[0].content).not.toContain(rawToken);
+    });
+
     it('blocks a second call to the same tool+args right after the first one FAILS — no retry for application-level errors, only connection errors get retried (and that retry is invisible, inside McpClientService)', async () => {
       mockMcpClient.callTool.mockResolvedValue({
         content: [{ type: 'text', text: 'HTTP 500 upstream error' }],

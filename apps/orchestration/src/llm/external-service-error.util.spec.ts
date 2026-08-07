@@ -48,4 +48,29 @@ describe('describeExternalServiceError', () => {
     expect(result).toContain('on-prem');
     expect(result).not.toContain('Edge relay timed out for workspace');
   });
+
+  it('scrubs a token echoed back inside a raw provider error message instead of leaking it verbatim', () => {
+    const rawToken =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+    const error = new Error(`Unauthorized, request had header: ${rawToken}`);
+
+    const result = describeExternalServiceError(error);
+
+    expect(result).not.toContain(rawToken);
+    expect(result).toContain('[JWT_TOKEN_REDACTED]');
+  });
+
+  it('scrubs a token echoed back inside an RpcException message too', () => {
+    const rawToken =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+    const error = new RpcException({
+      code: 'UPSTREAM_ERROR',
+      message: `token rejected: ${rawToken}`,
+    });
+
+    const result = describeExternalServiceError(error);
+
+    expect(result).not.toContain(rawToken);
+    expect(result).toContain('[JWT_TOKEN_REDACTED]');
+  });
 });
