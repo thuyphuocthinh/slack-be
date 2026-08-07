@@ -81,6 +81,11 @@ export class CheckpointService {
       where: {
         status: OrchestrationCheckpointStatus.APPROVED,
         executionStartedAt: And(Not(IsNull()), LessThan(stalledBefore)),
+        // toolExecutedAt đã set = tool THẬT đã chạy xong (thành công hoặc lỗi
+        // business logic đã được approveCheckpoint() xử lý) — không phải worker
+        // crash, không phải việc của cron này (status chỉ chưa bao giờ được
+        // chuyển ra khỏi APPROVED sau khi xử lý xong, không có nghĩa là đang kẹt).
+        toolExecutedAt: IsNull(),
       },
     });
     return entities.map((e) => this.toResponseDto(e));

@@ -298,6 +298,10 @@ export class ApprovalFlowService {
         this.logger.warn(
           `approveCheckpoint() checkpoint=${id} — tool "${pendingTool.provider}.${pendingTool.name}" thất bại sau khi duyệt, dừng không retry: ${toolResultText}`,
         );
+        // Tool ĐÃ chạy xong thật (chỉ là trả lỗi) — set toolExecutedAt để
+        // findStalledExecution() không hiểu nhầm checkpoint này thành worker
+        // crash rồi ghi đè thông báo lỗi thật (đã chính xác) bằng cảnh báo sai.
+        await this.checkpoint.markToolExecuted({ id });
         await this.messageClient.updateMessage({
           id: replyMessageId,
           userId: botUserId,

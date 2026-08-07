@@ -631,7 +631,12 @@ describe('ApprovalFlowService', () => {
       expect(mockAgentStream.emitStep).toHaveBeenCalledWith(expect.anything(), {
         type: 'done',
       });
-      expect(mockCheckpoint.markToolExecuted).not.toHaveBeenCalled();
+      // Bug fix — tool ĐÃ chạy xong thật (chỉ trả lỗi), không set toolExecutedAt
+      // khiến findStalledExecution() hiểu nhầm thành worker crash 30 phút sau,
+      // ghi đè thông báo lỗi (đã đúng) này bằng cảnh báo sai.
+      expect(mockCheckpoint.markToolExecuted).toHaveBeenCalledWith({
+        id: 'checkpoint-1',
+      });
     });
 
     it("reports the error via tryUpdateMessage() (not the throwing updateMessage()) — resilience to a double-failure is MessageClientService.tryUpdateMessage()'s own responsibility, see message-client.service.spec.ts", async () => {

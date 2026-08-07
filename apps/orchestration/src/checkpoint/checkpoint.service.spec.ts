@@ -255,12 +255,19 @@ describe('CheckpointService', () => {
       await service.claim({
         id: 'checkpoint-1',
         toStatus: OrchestrationCheckpointStatus.APPROVED,
-        updatedPendingTool: { provider: 'sql', name: 'query', args: { q: '1' } },
+        updatedPendingTool: {
+          provider: 'sql',
+          name: 'query',
+          args: { q: '1' },
+        },
       });
 
       expect(mockRepo.update).toHaveBeenCalledWith(
         { id: 'checkpoint-1', status: OrchestrationCheckpointStatus.PENDING },
-        { status: OrchestrationCheckpointStatus.APPROVED, pendingTool: { provider: 'sql', name: 'query', args: { q: '1' } } },
+        {
+          status: OrchestrationCheckpointStatus.APPROVED,
+          pendingTool: { provider: 'sql', name: 'query', args: { q: '1' } },
+        },
       );
     });
   });
@@ -326,9 +333,19 @@ describe('CheckpointService', () => {
         where: {
           status: OrchestrationCheckpointStatus.APPROVED,
           executionStartedAt: expect.anything(), // TypeORM And(Not(IsNull()), LessThan(...))
+          toolExecutedAt: expect.anything(), // TypeORM IsNull()
         },
       });
       expect(result).toEqual([{ id: 'stalled-1' }]);
+    });
+
+    it('excludes checkpoints whose tool already finished running (toolExecutedAt set) — those are not stalled, just never left status=APPROVED after completion', async () => {
+      mockRepo.find.mockResolvedValue([]);
+
+      await service.findStalledExecution();
+
+      const whereArg = mockRepo.find.mock.calls[0][0].where;
+      expect(whereArg.toolExecutedAt).toBeDefined();
     });
 
     it('returns an empty array when no stalled checkpoints exist', async () => {
