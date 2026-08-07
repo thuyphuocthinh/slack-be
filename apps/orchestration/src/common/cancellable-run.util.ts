@@ -50,6 +50,14 @@ export async function runCancellable<T>(
   try {
     return await fn(controller.signal);
   } catch (error) {
+    // fn() (VD ReactLoopService/synthesize()) có thể đã tự dựng sẵn
+    // TurnCancelledError kèm đúng phần text đang stream dở tại điểm bị huỷ —
+    // throw lại y nguyên, KHÔNG gọi buildCancelledError() ghi đè bằng thông
+    // tin xa hơn (VD round trước đó), nếu không phần vừa stream ra sẽ biến
+    // mất, thay bằng text tổng quát dù dữ liệu đúng đã có sẵn.
+    if (error instanceof TurnCancelledError) {
+      throw error;
+    }
     if (controller.signal.aborted) {
       throw buildCancelledError();
     }
