@@ -382,6 +382,22 @@ export class McpClientService {
       : true;
     const maxRetries = isDestructive ? 1 : 3;
 
+    // Lớp chặn thứ 2, độc lập với quyền `db_datareader` phía SQL Server: relay
+    // (perWorkspaceInstance) tự khai tool qua listTools() của chính nó — nếu
+    // relay có bug/bị giả mạo khai nhầm 1 tool ghi thành an toàn, backend vẫn
+    // không tin, chặn hẳn tại đây. Fail-closed: thiếu annotation (cache miss)
+    // cũng bị coi là KHÔNG an toàn, không mặc định cho qua.
+    if (
+      AGENT_REGISTRY[dto.provider]?.perWorkspaceInstance &&
+      !cachedTool?.annotations?.readOnlyHint
+    ) {
+      return this.toEdgeRelayErrorResponse(
+        'RELAY_WRITE_BLOCKED',
+        false,
+        `Tool "${dto.name}" bị chặn — hệ thống on-prem qua Edge MCP Server chỉ được phép gọi tool ĐỌC (readOnlyHint), không xác nhận được tool này an toàn.`,
+      );
+    }
+
     try {
       return await this.withReconnect(
         dto.provider,
@@ -407,9 +423,12 @@ export class McpClientService {
         );
       }
       if (error instanceof RelayTimeoutError) {
+        // Luôn retryable — gate phía trên đã chặn hết tool KHÔNG readOnlyHint
+        // cho provider perWorkspaceInstance (nguồn duy nhất phát sinh lỗi
+        // này), nên tới được đây nghĩa là tool đang gọi chắc chắn chỉ đọc.
         return this.toEdgeRelayErrorResponse(
           'RELAY_TIMEOUT',
-          Boolean(cachedTool?.annotations?.readOnlyHint),
+          true,
           error.message,
         );
       }

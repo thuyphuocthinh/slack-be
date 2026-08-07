@@ -1161,6 +1161,27 @@ describe('McpClientService', () => {
   describe('Edge MCP Server plan, Phase 1 — per-workspace isolation for perWorkspaceInstance providers', () => {
     it('routes callTool() through a SEPARATE breaker key per workspace for a perWorkspaceInstance provider — 1 workspace lỗi không ảnh hưởng workspace khác', async () => {
       mockCallTool.mockResolvedValue({ content: [] });
+      // readOnlyHint để không bị chặn bởi gate fail-closed (không phải trọng
+      // tâm test này — xem describe "callTool() fail-closed write gate...").
+      const readOnlyXTool = {
+        data: [
+          {
+            name: 'x',
+            description: '',
+            inputSchema: {},
+            annotations: { readOnlyHint: true },
+          },
+        ],
+        fetchedAt: Date.now(),
+      };
+      (service as any).toolsCache.set(
+        'edge_relay_test:workspace-A',
+        readOnlyXTool,
+      );
+      (service as any).toolsCache.set(
+        'edge_relay_test:workspace-B',
+        readOnlyXTool,
+      );
 
       await service.callTool({
         provider: 'edge_relay_test',
@@ -1265,6 +1286,29 @@ describe('McpClientService', () => {
   describe('Edge MCP Server plan, Phase 2 — relay dispatch and error envelope', () => {
     afterEach(() => jest.useRealTimers());
 
+    // Tool "x" dùng xuyên suốt describe này để test transport/connection —
+    // đánh dấu readOnlyHint để không bị chặn bởi gate fail-closed (test riêng
+    // ở dưới, "callTool() fail-closed write gate...", đã cover phần đó rồi).
+    // Cache cả key có workspaceId lẫn key bare (fallback khi thiếu workspaceId).
+    beforeEach(() => {
+      const readOnlyXTool = {
+        data: [
+          {
+            name: 'x',
+            description: '',
+            inputSchema: {},
+            annotations: { readOnlyHint: true },
+          },
+        ],
+        fetchedAt: Date.now(),
+      };
+      (service as any).toolsCache.set(
+        'edge_relay_test:workspace-A',
+        readOnlyXTool,
+      );
+      (service as any).toolsCache.set('edge_relay_test', readOnlyXTool);
+    });
+
     it('connects a perWorkspaceInstance provider through RelayClientTransport, not StreamableHTTPClientTransport', async () => {
       mockCallTool.mockResolvedValue({ content: [] });
 
@@ -1335,22 +1379,14 @@ describe('McpClientService', () => {
     });
 
     it('converts a RelayOfflineError into a retryable:false JSON error envelope instead of throwing', async () => {
-      (service as any).toolsCache.set('edge_relay_test:workspace-A', {
-        data: [
-          {
-            name: 'write_tool',
-            description: '',
-            inputSchema: {},
-            annotations: { readOnlyHint: false, destructiveHint: true },
-          },
-        ],
-        fetchedAt: Date.now(),
-      });
+      // Tool đọc — RelayOfflineError xảy ra ở bước connect(), không liên quan
+      // gì tới gate ghi/đọc (đằng nào 1 tool ghi cũng đã bị chặn TRƯỚC khi kịp
+      // connect, xem describe "callTool() fail-closed write gate..." ở dưới).
       mockConnect.mockRejectedValue(new RelayOfflineError('workspace-A'));
 
       const result = await service.callTool({
         provider: 'edge_relay_test',
-        name: 'write_tool',
+        name: 'x',
         args: {},
         ownerId: 'user-1',
         workspaceId: 'workspace-A',
@@ -1364,32 +1400,6 @@ describe('McpClientService', () => {
         code: 'RELAY_OFFLINE',
         message: expect.stringContaining('workspace-A'),
       });
-    });
-
-    it('converts a RelayTimeoutError into a retryable:false envelope for a destructive tool', async () => {
-      (service as any).toolsCache.set('edge_relay_test:workspace-A', {
-        data: [
-          {
-            name: 'write_tool',
-            description: '',
-            inputSchema: {},
-            annotations: { readOnlyHint: false, destructiveHint: true },
-          },
-        ],
-        fetchedAt: Date.now(),
-      });
-      mockConnect.mockRejectedValue(new RelayTimeoutError('workspace-A'));
-
-      const result = await service.callTool({
-        provider: 'edge_relay_test',
-        name: 'write_tool',
-        args: {},
-        ownerId: 'user-1',
-        workspaceId: 'workspace-A',
-      });
-
-      const parsed = JSON.parse(result.content![0].text as string);
-      expect(parsed).toMatchObject({ code: 'RELAY_TIMEOUT', retryable: false });
     });
 
     it('converts a RelayTimeoutError into a retryable:true envelope for a read-only tool (safe to retry)', async () => {
@@ -1419,6 +1429,110 @@ describe('McpClientService', () => {
 
       const parsed = JSON.parse(result.content![0].text as string);
       expect(parsed).toMatchObject({ code: 'RELAY_TIMEOUT', retryable: true });
+    });
+  });
+
+  describe('callTool() fail-closed write gate for perWorkspaceInstance providers (lớp chặn thứ 2, độc lập với quyền db_datareader phía SQL Server)', () => {
+    it('blocks a tool WITHOUT readOnlyHint before ever attempting the network call', async () => {
+      (service as any).toolsCache.set('edge_relay_test:workspace-A', {
+        data: [
+          {
+            name: 'write_tool',
+            description: '',
+            inputSchema: {},
+            annotations: { readOnlyHint: false, destructiveHint: true },
+          },
+        ],
+        fetchedAt: Date.now(),
+      });
+
+      const result = await service.callTool({
+        provider: 'edge_relay_test',
+        name: 'write_tool',
+        args: {},
+        ownerId: 'user-1',
+        workspaceId: 'workspace-A',
+      });
+
+      expect(result.isError).toBe(true);
+      const parsed = JSON.parse(result.content![0].text as string);
+      expect(parsed).toMatchObject({
+        code: 'RELAY_WRITE_BLOCKED',
+        retryable: false,
+      });
+      expect(mockConnect).not.toHaveBeenCalled();
+      expect(mockCallTool).not.toHaveBeenCalled();
+    });
+
+    it('fails closed (blocks) when the tool is not in cache at all — cache miss is NOT treated as safe', async () => {
+      const result = await service.callTool({
+        provider: 'edge_relay_test',
+        name: 'unknown_tool',
+        args: {},
+        ownerId: 'user-1',
+        workspaceId: 'workspace-A',
+      });
+
+      const parsed = JSON.parse(result.content![0].text as string);
+      expect(parsed).toMatchObject({ code: 'RELAY_WRITE_BLOCKED' });
+      expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('allows a tool WITH readOnlyHint through to the real call', async () => {
+      (service as any).toolsCache.set('edge_relay_test:workspace-A', {
+        data: [
+          {
+            name: 'read_only_tool',
+            description: '',
+            inputSchema: {},
+            annotations: { readOnlyHint: true },
+          },
+        ],
+        fetchedAt: Date.now(),
+      });
+      mockConnect.mockResolvedValue(undefined);
+      mockCallTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'ok' }],
+      });
+
+      const result = await service.callTool({
+        provider: 'edge_relay_test',
+        name: 'read_only_tool',
+        args: {},
+        ownerId: 'user-1',
+        workspaceId: 'workspace-A',
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(mockCallTool).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT gate a destructive tool for a provider WITHOUT perWorkspaceInstance (sql_server) — regression, HITL approval elsewhere still handles it', async () => {
+      (service as any).toolsCache.set('sql_server', {
+        data: [
+          {
+            name: 'execute_write_query',
+            description: '',
+            inputSchema: {},
+            annotations: { readOnlyHint: false, destructiveHint: true },
+          },
+        ],
+        fetchedAt: Date.now(),
+      });
+      mockConnect.mockResolvedValue(undefined);
+      mockCallTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'ok' }],
+      });
+
+      const result = await service.callTool({
+        provider: 'sql_server',
+        name: 'execute_write_query',
+        args: {},
+        ownerId: 'user-1',
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(mockCallTool).toHaveBeenCalledTimes(1);
     });
   });
 
