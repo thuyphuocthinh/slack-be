@@ -13,3 +13,21 @@ export function routeKey(provider: string, workspaceId?: string): string {
   }
   return provider;
 }
+
+// Key cho MCP Client CONNECTION cache (McpClientService.clients). Provider
+// perWorkspaceInstance chỉ có 1 socket vật lý cho cả workspace — nếu vẫn tách
+// thêm theo ownerId, 2 user cùng workspace sẽ có 2 Client/session riêng dùng
+// chung 1 socket, mỗi session tự đếm request id từ đầu, dễ trùng id và trả
+// nhầm kết quả cho nhau (xem RelayOutboundTransport.pendingAcks — theo dõi
+// THEO ID, không theo session). Provider dùng chung 1 instance cho mọi
+// workspace vẫn tách theo ownerId như cũ (owner khác nhau có thể có
+// credential/connectionConfig khác nhau qua mcp_auth).
+export function clientCacheKey(
+  provider: string,
+  ownerId: string | undefined,
+  workspaceId?: string,
+): string {
+  const base = routeKey(provider, workspaceId);
+  if (AGENT_REGISTRY[provider]?.perWorkspaceInstance) return base;
+  return `${base}:${ownerId ?? '__anon__'}`;
+}

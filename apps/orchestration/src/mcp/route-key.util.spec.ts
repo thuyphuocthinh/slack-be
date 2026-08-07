@@ -9,7 +9,7 @@ jest.mock('../registry/agents.registry', () => ({
   },
 }));
 
-import { routeKey } from './route-key.util';
+import { routeKey, clientCacheKey } from './route-key.util';
 
 describe('routeKey (Edge MCP Server plan, Phase 1)', () => {
   it('returns the bare provider name for a shared-instance provider, regardless of workspaceId — KHÔNG đổi hành vi provider hiện có', () => {
@@ -31,5 +31,44 @@ describe('routeKey (Edge MCP Server plan, Phase 1)', () => {
     expect(routeKey('unknown_provider', 'workspace-A')).toBe(
       'unknown_provider',
     );
+  });
+});
+
+describe('clientCacheKey (fix — 2 owners on 1 relay socket must share ONE connection)', () => {
+  it('ignores ownerId for a perWorkspaceInstance provider — same key for 2 different owners', () => {
+    const keyForOwnerA = clientCacheKey(
+      'edge_relay_test',
+      'owner-A',
+      'workspace-A',
+    );
+    const keyForOwnerB = clientCacheKey(
+      'edge_relay_test',
+      'owner-B',
+      'workspace-A',
+    );
+
+    expect(keyForOwnerA).toBe(keyForOwnerB);
+  });
+
+  it('still splits by ownerId for a shared-instance provider (unchanged behavior)', () => {
+    const keyForOwnerA = clientCacheKey('sql_server', 'owner-A', 'workspace-A');
+    const keyForOwnerB = clientCacheKey('sql_server', 'owner-B', 'workspace-A');
+
+    expect(keyForOwnerA).not.toBe(keyForOwnerB);
+  });
+
+  it('still splits a perWorkspaceInstance provider by workspaceId', () => {
+    const keyForWorkspaceA = clientCacheKey(
+      'edge_relay_test',
+      'owner-A',
+      'workspace-A',
+    );
+    const keyForWorkspaceB = clientCacheKey(
+      'edge_relay_test',
+      'owner-A',
+      'workspace-B',
+    );
+
+    expect(keyForWorkspaceA).not.toBe(keyForWorkspaceB);
   });
 });

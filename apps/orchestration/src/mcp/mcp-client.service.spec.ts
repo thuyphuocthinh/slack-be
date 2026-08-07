@@ -1292,6 +1292,48 @@ describe('McpClientService', () => {
       expect(mockConnect).not.toHaveBeenCalled();
     });
 
+    it('shares ONE connection across 2 different owners in the same workspace for a perWorkspaceInstance provider (regression — separate sessions on 1 relay socket would race JSON-RPC ids)', async () => {
+      mockCallTool.mockResolvedValue({ content: [] });
+
+      await service.callTool({
+        provider: 'edge_relay_test',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+        workspaceId: 'workspace-A',
+      });
+      await service.callTool({
+        provider: 'edge_relay_test',
+        name: 'x',
+        args: {},
+        ownerId: 'user-2',
+        workspaceId: 'workspace-A',
+      });
+
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('still gives 2 different owners SEPARATE connections for a provider WITHOUT perWorkspaceInstance (sql_server) — regression, unchanged behavior', async () => {
+      mockCallTool.mockResolvedValue({ content: [] });
+
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-1',
+        workspaceId: 'workspace-A',
+      });
+      await service.callTool({
+        provider: 'sql_server',
+        name: 'x',
+        args: {},
+        ownerId: 'user-2',
+        workspaceId: 'workspace-A',
+      });
+
+      expect(mockConnect).toHaveBeenCalledTimes(2);
+    });
+
     it('converts a RelayOfflineError into a retryable:false JSON error envelope instead of throwing', async () => {
       (service as any).toolsCache.set('edge_relay_test:workspace-A', {
         data: [

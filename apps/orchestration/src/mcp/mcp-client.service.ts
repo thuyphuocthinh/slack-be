@@ -20,7 +20,7 @@ import { ProviderConcurrencyLimiterService } from '../common/provider-concurrenc
 import { DynamicToolRegistryService } from '../registry/dynamic-tool-registry.service';
 import { DynamicToolExecutorService } from '../executor/dynamic-tool-executor.service';
 import { PiiScrubberUtil } from '../executor/pii-scrubber.util';
-import { routeKey } from './route-key.util';
+import { routeKey, clientCacheKey } from './route-key.util';
 import { RelayClientTransport } from './relay-client.transport';
 import { EdgeRelayRegistryService } from '../edge-relay/edge-relay-registry.service';
 import { RelayOfflineError } from '../edge-relay/relay-offline.error';
@@ -62,7 +62,7 @@ export class McpClientService {
     ownerId?: string,
     workspaceId?: string,
   ): Promise<Client> {
-    const cacheKey = `${routeKey(provider, workspaceId)}:${ownerId ?? '__anon__'}`;
+    const cacheKey = clientCacheKey(provider, ownerId, workspaceId);
     const cached = this.clients.get(cacheKey);
     if (cached) {
       cached.lastUsedAt = Date.now();
@@ -549,7 +549,7 @@ export class McpClientService {
     signal?: AbortSignal,
     workspaceId?: string,
   ): Promise<T> {
-    const cacheKey = `${routeKey(provider, workspaceId)}:${ownerId ?? '__anon__'}`;
+    const cacheKey = clientCacheKey(provider, ownerId, workspaceId);
     const timeoutMsg = `MCP call timeout sau ${ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS / 1000}s (${cacheKey})`;
 
     let attempt = 0;
