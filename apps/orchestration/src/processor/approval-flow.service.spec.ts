@@ -463,6 +463,7 @@ describe('ApprovalFlowService', () => {
         name: 'execute_write_query',
         args: { query: "UPDATE Orders SET Status='Completed' WHERE OrderId=1" },
         ownerId: 'user-1',
+        workspaceId: 'workspace-1',
       });
       // Chuyển UI sang "Đang tổng hợp..." TRƯỚC khi gọi lại Supervisor.
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({

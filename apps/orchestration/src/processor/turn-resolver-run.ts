@@ -16,7 +16,10 @@ import { ToolCallTraceDto } from '../dto/react-loop.dto';
 import { ChatHistoryTurnDto } from '../dto/message-client.dto';
 import { ApprovalRequiredError } from '../llm/approval-required.error';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
-import { runCancellable } from '../common/cancellable-run.util';
+import {
+  runCancellable,
+  rethrowIfCancelled,
+} from '../common/cancellable-run.util';
 import { TurnCancelledError } from '../llm/turn-cancelled.error';
 import { describeExternalServiceError } from '../llm/external-service-error.util';
 import { CheckpointPauseService } from './checkpoint-pause.service';
@@ -580,9 +583,7 @@ export class TurnResolverRun {
         toolCalls,
       };
     } catch (error) {
-      if (error instanceof TurnCancelledError) {
-        throw error;
-      }
+      rethrowIfCancelled(error);
       if (error instanceof ApprovalRequiredError) {
         return {
           approvalRequired: error.pendingTool,

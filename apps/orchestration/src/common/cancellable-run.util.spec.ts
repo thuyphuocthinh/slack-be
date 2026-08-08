@@ -1,4 +1,4 @@
-import { runCancellable } from './cancellable-run.util';
+import { runCancellable, rethrowIfCancelled } from './cancellable-run.util';
 import { TurnCancelledError } from '../llm/turn-cancelled.error';
 
 describe('runCancellable', () => {
@@ -60,5 +60,16 @@ describe('runCancellable', () => {
     await expect(runCancellable('msg-1', mockCancellation, fn)).rejects.toThrow(
       'lỗi thường, không liên quan Stop',
     );
+  });
+});
+
+describe('rethrowIfCancelled', () => {
+  it('throws the same error when it is a TurnCancelledError', () => {
+    const error = new TurnCancelledError('phần đã stream được');
+    expect(() => rethrowIfCancelled(error)).toThrow(error);
+  });
+
+  it('does nothing (returns) for any other error', () => {
+    expect(() => rethrowIfCancelled(new Error('lỗi thường'))).not.toThrow();
   });
 });

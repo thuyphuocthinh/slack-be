@@ -61,12 +61,13 @@ export class CheckpointPauseService {
     // TurnResolverService.continueRounds().
     remainingSteps: DelegationDto[],
   ): Promise<AnswerResult> {
-    const { userId, channelId, botUserId } = data;
+    const { userId, channelId, botUserId, workspaceId } = data;
     const { approvalRequired: pendingTool, task: pendingTask } = approvalNeeded;
 
     const { preview, riskLevel } = await this.buildRiskPreview(
       pendingTool,
       userId,
+      workspaceId,
     );
     const approvalContent = {
       type: 'approval_request',
@@ -273,6 +274,7 @@ export class CheckpointPauseService {
   private async buildRiskPreview(
     pendingTool: PendingToolCall,
     userId: string,
+    workspaceId: string | undefined,
   ): Promise<{ preview: string; riskLevel: ECheckpointRiskLevel | null }> {
     if (
       pendingTool.provider === 'sql_server' &&
@@ -299,7 +301,7 @@ export class CheckpointPauseService {
         };
       }
       if (target?.kind === 'existing-rows') {
-        const count = await this.countAffectedRows(target, userId);
+        const count = await this.countAffectedRows(target, userId, workspaceId);
         if (count !== null) {
           return {
             preview: target.whereClause
@@ -330,22 +332,19 @@ export class CheckpointPauseService {
   private async countAffectedRows(
     target: Extract<WriteQueryPreviewTarget, { kind: 'existing-rows' }>,
     userId: string,
+    workspaceId: string | undefined,
   ): Promise<number | null> {
     const countQuery = target.whereClause
       ? `SELECT COUNT(*) AS affectedRows FROM ${target.table} WHERE ${target.whereClause}`
       : `SELECT COUNT(*) AS affectedRows FROM ${target.table}`;
 
     try {
-      // TODO Edge MCP Server: thiếu workspaceId ở đây — khi sql_server có
-      // perWorkspaceInstance (relay), preview số dòng bị ảnh hưởng của 1
-      // workspace dùng relay sẽ route nhầm sang cloud sql_server thay vì
-      // relay của chính nó. Ngoài phạm vi Phase 1 (chỉ path write-flow này),
-      // xem plan Edge MCP Server.
       const result = await this.mcpClient.callTool({
         provider: 'sql_server',
         name: 'execute_read_only_query',
         args: { query: countQuery },
         ownerId: userId,
+        workspaceId,
       });
       return parseSingleCountResult(extractTextFromMcpResult(result));
     } catch (error) {

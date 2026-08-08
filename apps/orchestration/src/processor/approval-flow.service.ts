@@ -601,6 +601,7 @@ export class ApprovalFlowService {
       name: pendingTool.name,
       args: pendingTool.args,
       ownerId: userId,
+      workspaceId: checkpoint.workspaceId,
     });
     const reactModelId =
       process.env.DEFAULT_REACT_MODEL ??

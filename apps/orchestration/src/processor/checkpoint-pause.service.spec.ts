@@ -250,6 +250,7 @@ describe('CheckpointPauseService', () => {
           query: 'SELECT COUNT(*) AS affectedRows FROM Orders WHERE OrderId=1',
         },
         ownerId: data.userId,
+        workspaceId: data.workspaceId,
       });
       expect(getPreview()).toBe('Sẽ ảnh hưởng ~12 dòng.');
       expect(getRiskLevel()).toBe(ECheckpointRiskLevel.MEDIUM);

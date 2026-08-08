@@ -1734,7 +1734,10 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         new TurnCancelledError('partial stream'),
       );
 
-      await expect(resolve()).rejects.toThrow(TurnCancelledError);
+      await expect(resolve()).rejects.toMatchObject({
+        name: 'TurnCancelledError',
+        partialText: 'partial stream',
+      });
     });
   });
 });
