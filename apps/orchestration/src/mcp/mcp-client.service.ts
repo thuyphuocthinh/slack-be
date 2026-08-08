@@ -358,6 +358,16 @@ export class McpClientService {
     );
   }
 
+  // Phân biệt với lỗi kết nối/session (ETIMEDOUT, Session not found...): đây
+  // là withTimeout() ở callWithReconnect() TỰ bỏ cuộc chờ, không phải MCP
+  // server báo lỗi — connection vẫn có thể đang ổn, chỉ là query/data VỐN
+  // chậm (đọc bảng lớn, Sheet/Doc dài...). Reconnect + gọi lại NGUYÊN VẸN
+  // request đó vào ĐÚNG ngưỡng thời gian cũ chắc chắn timeout lần nữa — chỉ
+  // nhân thêm thời gian chờ trước khi báo lỗi mà không tăng cơ hội thành công.
+  private isTimeoutError(error: unknown, timeoutMsg: string): boolean {
+    return error instanceof Error && error.message === timeoutMsg;
+  }
+
   async callTool(
     dto: CallToolRequestDto,
     signal?: AbortSignal,
@@ -595,6 +605,11 @@ export class McpClientService {
         this.logger.warn(
           `MCP call failed for "${cacheKey}", attempt ${attempt}/${maxRetries}: ${error.message}`,
         );
+
+        if (this.isTimeoutError(error, timeoutMsg)) {
+          throw error;
+        }
+
         this.clients.delete(cacheKey);
 
         const withinNormalBudget = attempt < maxRetries;

@@ -574,6 +574,71 @@ describe('McpClientService', () => {
     });
   });
 
+  describe('callWithReconnect() timeout vs connection-error retry (bug: đọc dữ liệu lớn bị timeout)', () => {
+    it('does NOT retry when the error IS the client-side watchdog timeout (withTimeout tự bỏ cuộc chờ) — retrying the identical slow call vào ĐÚNG cùng ngưỡng thời gian không giúp được gì', async () => {
+      (service as any).toolsCache.set('sql_server', {
+        data: [
+          {
+            name: 'execute_read_only_query',
+            description: '',
+            inputSchema: {},
+            annotations: { readOnlyHint: true },
+          },
+        ],
+        fetchedAt: Date.now(),
+      });
+      // Đúng NGUYÊN VĂN message callWithReconnect() tự sinh cho watchdog
+      // timeout của chính nó — mô phỏng thẳng tín hiệu này (không cần chờ
+      // 30s thật/fake timer) để test isTimeoutError() nhận diện đúng.
+      mockCallTool.mockRejectedValue(
+        new Error(
+          `MCP call timeout sau ${ORCHESTRATION_CONSTANTS.MCP_CALL_TIMEOUT_MS / 1000}s (sql_server:user-1)`,
+        ),
+      );
+
+      await expect(
+        service.callTool({
+          provider: 'sql_server',
+          name: 'execute_read_only_query',
+          args: { query: 'SELECT * FROM HugeTable' },
+          ownerId: 'user-1',
+        }),
+      ).rejects.toThrow('MCP call timeout');
+
+      // Đúng 1 lần gọi thật — không reconnect, không retry lần 2/3 dù tool
+      // đọc vốn cho phép maxRetries=3 cho lỗi kết nối/session.
+      expect(mockCallTool).toHaveBeenCalledTimes(1);
+      expect(mockConnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('vẫn retry như cũ khi lỗi là kết nối/session THẬT (KHÔNG phải watchdog timeout của chính mình) — quy tắc cũ không đổi', async () => {
+      (service as any).toolsCache.set('sql_server', {
+        data: [
+          {
+            name: 'execute_read_only_query',
+            description: '',
+            inputSchema: {},
+            annotations: { readOnlyHint: true },
+          },
+        ],
+        fetchedAt: Date.now(),
+      });
+      mockCallTool
+        .mockRejectedValueOnce(new Error('ETIMEDOUT'))
+        .mockResolvedValueOnce({ content: [] });
+
+      const result = await service.callTool({
+        provider: 'sql_server',
+        name: 'execute_read_only_query',
+        args: { query: 'SELECT 1' },
+        ownerId: 'user-1',
+      });
+
+      expect(result).toEqual({ content: [] });
+      expect(mockCallTool).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('Giai đoạn 4, Step 6 — circuit breaker theo provider', () => {
     it('routes callTool() through the breaker keyed by "mcp:<provider>", NOT by ownerId', async () => {
       mockCallTool.mockResolvedValue({ content: [] });

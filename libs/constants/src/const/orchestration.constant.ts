@@ -62,8 +62,14 @@ export const ORCHESTRATION_CONSTANTS = {
   MAX_LLM_CALL_RETRY_ATTEMPTS: 2,
   LLM_CALL_RETRY_BACKOFF_MS: 1000,
   // Cùng lý do LLM_CALL_TIMEOUT_MS nhưng cho lời gọi MCP server (connect,
-  // listTools, callTool) — thấp hơn LLM vì tool call thường nhanh hơn nhiều.
-  MCP_CALL_TIMEOUT_MS: 15_000,
+  // listTools, callTool). Từng để 15s ("thấp hơn LLM vì tool call thường
+  // nhanh hơn nhiều") nhưng bug thật: đọc dữ liệu LỚN (VD SELECT bảng lớn,
+  // đọc Sheet/Doc dài) có thể chính đáng mất hơn 15s, không phải lỗi kết nối —
+  // nâng lên bằng LLM_CALL_TIMEOUT_MS để 1 lần đọc lớn có cơ hội xong thật.
+  // Giá trị ước lượng, chưa hiệu chỉnh bằng dữ liệu thật (xem thêm
+  // callWithReconnect() trong mcp-client.service.ts — lỗi TIMEOUT giờ không
+  // retry nữa, vì query/data vốn chậm thì gọi lại y hệt cũng chậm y hệt).
+  MCP_CALL_TIMEOUT_MS: 30_000,
   // Giai đoạn 3 (HITL), Step 8 — checkpoint pending quá 24h chưa được duyệt/từ
   // chối thì CheckpointCleanupService tự reject, tránh 1 checkpoint bị bỏ
   // quên treo "pending" vĩnh viễn.
