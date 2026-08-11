@@ -3,7 +3,7 @@ import { OrchestrationController } from './orchestration.controller';
 import { McpAuthClientService } from './mcp-auth/mcp-auth-client.service';
 import { McpClientService } from './mcp/mcp-client.service';
 import { AiOrchestrationProcessor } from './processor/ai-orchestration.processor';
-import { ApprovalFlowService } from './processor/approval-flow.service';
+import { ApprovalRequestService } from './processor/approval-request.service';
 import { DynamicProviderDbService } from './registry/dynamic-provider-db.service';
 import { ProviderSummaryService } from './registry/provider-summary.service';
 import { HealthCheckService } from './common/health-check.service';
@@ -40,7 +40,7 @@ describe('OrchestrationController', () => {
         { provide: McpAuthClientService, useValue: {} },
         { provide: McpClientService, useValue: {} },
         { provide: AiOrchestrationProcessor, useValue: {} },
-        { provide: ApprovalFlowService, useValue: {} },
+        { provide: ApprovalRequestService, useValue: {} },
         { provide: DynamicProviderDbService, useValue: dynamicProviderDb },
         { provide: ProviderSummaryService, useValue: providerSummary },
         { provide: HealthCheckService, useValue: healthCheckService },

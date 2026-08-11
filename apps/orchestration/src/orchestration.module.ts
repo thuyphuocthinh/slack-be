@@ -47,7 +47,10 @@ import { DynamicToolExecutorService } from './executor/dynamic-tool-executor.ser
 import { AgentCancellationService } from './cancellation/agent-cancellation.service';
 import { TurnResolverService } from './processor/turn-resolver.service';
 import { CheckpointPauseService } from './processor/checkpoint-pause.service';
-import { ApprovalFlowService } from './processor/approval-flow.service';
+import { ApprovalRequestService } from './processor/approval-request.service';
+import { ApprovalExecutionService } from './processor/approval-execution.service';
+import { ApprovalContinuationPlannerService } from './processor/approval-continuation-planner.service';
+import { ApprovalSkillRecorderService } from './processor/approval-skill-recorder.service';
 import { MetricsRegistryService } from './common/metrics-registry.service';
 import { HealthCheckService } from './common/health-check.service';
 import { EdgeRelayRegistryService } from './edge-relay/edge-relay-registry.service';
@@ -114,7 +117,10 @@ import { EdgeRelayGateway } from './edge-relay/edge-relay.gateway';
     AgentCancellationService,
     TurnResolverService,
     CheckpointPauseService,
-    ApprovalFlowService,
+    ApprovalRequestService,
+    ApprovalExecutionService,
+    ApprovalContinuationPlannerService,
+    ApprovalSkillRecorderService,
     MetricsRegistryService,
     HealthCheckService,
     EdgeRelayRegistryService,

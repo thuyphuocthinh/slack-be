@@ -12,7 +12,7 @@ import { TriggerClaimService } from '../trigger-claim/trigger-claim.service';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
 import { TurnCancelledError } from '../llm/turn-cancelled.error';
 import { TurnResolverService } from './turn-resolver.service';
-import { ApprovalFlowService } from './approval-flow.service';
+import { ApprovalExecutionService } from './approval-execution.service';
 
 // ai-orchestration.processor.ts import ReactLoopService (dù đã mock qua DI ở
 // dưới) — file thật của nó vẫn import @slack/common ở module scope, kéo theo
@@ -54,7 +54,7 @@ describe('AiOrchestrationProcessor', () => {
     isCancelled: jest.fn().mockResolvedValue(false),
   };
   const mockTurnResolver = { resolveAnswer: jest.fn() };
-  const mockApprovalFlow = { processApprovalJob: jest.fn() };
+  const mockApprovalExecution = { processApprovalJob: jest.fn() };
 
   const jobData: IProcessAiTriggerJobData = {
     userId: 'user-1',
@@ -73,7 +73,7 @@ describe('AiOrchestrationProcessor', () => {
     mockTriggerClaim.claim.mockResolvedValue(true);
     mockTriggerClaim.release.mockResolvedValue(undefined);
     mockCancellation.isCancelled.mockResolvedValue(false);
-    mockApprovalFlow.processApprovalJob.mockResolvedValue(undefined);
+    mockApprovalExecution.processApprovalJob.mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -83,7 +83,7 @@ describe('AiOrchestrationProcessor', () => {
         { provide: TriggerClaimService, useValue: mockTriggerClaim },
         { provide: AgentCancellationService, useValue: mockCancellation },
         { provide: TurnResolverService, useValue: mockTurnResolver },
-        { provide: ApprovalFlowService, useValue: mockApprovalFlow },
+        { provide: ApprovalExecutionService, useValue: mockApprovalExecution },
       ],
     }).compile();
 
@@ -191,7 +191,7 @@ describe('AiOrchestrationProcessor', () => {
     ).rejects.toThrow('Job name unknown_job is not supported');
   });
 
-  it('dispatches PROCESS_APPROVAL jobs to ApprovalFlowService.processApprovalJob()', async () => {
+  it('dispatches PROCESS_APPROVAL jobs to ApprovalExecutionService.processApprovalJob()', async () => {
     const approvalJobData: IProcessApprovalJobData = {
       checkpointId: 'checkpoint-1',
       userId: 'user-1',
@@ -202,7 +202,7 @@ describe('AiOrchestrationProcessor', () => {
       data: approvalJobData,
     } as Job<IProcessApprovalJobData, void, EJobName>);
 
-    expect(mockApprovalFlow.processApprovalJob).toHaveBeenCalledWith(
+    expect(mockApprovalExecution.processApprovalJob).toHaveBeenCalledWith(
       approvalJobData,
     );
   });

@@ -18,7 +18,7 @@ import { TriggerClaimService } from '../trigger-claim/trigger-claim.service';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
 import { TurnCancelledError } from '../llm/turn-cancelled.error';
 import { TurnResolverService } from './turn-resolver.service';
-import { ApprovalFlowService } from './approval-flow.service';
+import { ApprovalExecutionService } from './approval-execution.service';
 
 type AiOrchestrationJobData =
   | IProcessAiTriggerJobData
@@ -26,7 +26,7 @@ type AiOrchestrationJobData =
 
 // Chỉ còn lo vòng đời job/turn (claim, placeholder message, trace, catch/finally
 // hiển thị kết quả) — vòng lặp Supervisor nằm ở TurnResolverService, toàn bộ
-// luồng duyệt/thực thi HITL nằm ở ApprovalFlowService.
+// luồng duyệt/thực thi HITL nằm ở ApprovalRequestService/ApprovalExecutionService.
 @Processor(EQueueName.AI_ORCHESTRATION_QUEUE, {
   concurrency: ORCHESTRATION_CONSTANTS.AI_ORCHESTRATION_QUEUE_CONCURRENCY,
   lockDuration: 60000,
@@ -43,7 +43,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     private readonly triggerClaim: TriggerClaimService,
     private readonly cancellation: AgentCancellationService,
     private readonly turnResolver: TurnResolverService,
-    private readonly approvalFlow: ApprovalFlowService,
+    private readonly approvalExecution: ApprovalExecutionService,
   ) {
     super();
   }
@@ -67,7 +67,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         // kết, thay vì đúng "1 lần duyệt = 1 trace".
         const traced = traceable(
           (d: IProcessApprovalJobData) =>
-            this.approvalFlow.processApprovalJob(d),
+            this.approvalExecution.processApprovalJob(d),
           {
             name: 'ai-orchestration-approval',
             metadata: { checkpointId: data.checkpointId, userId: data.userId },

@@ -955,6 +955,33 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
     await expect(resolve()).rejects.toThrow(TurnCancelledError);
   });
 
+  it('bug fix — khi Stop giữa 1 turn NHIỀU round, partialText giữ ĐỦ các round đã xong, không chỉ round CUỐI (trace tool-call vẫn hiện đủ, nhưng câu trả lời lưu lại từng "thiếu" round đầu)', async () => {
+    mockSupervisor.plan.mockResolvedValue({
+      action: 'plan',
+      steps: [
+        { agent: 'sql_server', task: 'liệt kê bảng' },
+        { agent: 'sql_server', task: 'liệt kê view' },
+      ],
+    });
+    mockReactLoop.run
+      .mockResolvedValueOnce({
+        answer: 'Có 2 bảng: Orders, Products',
+        toolCalls: [],
+      })
+      .mockResolvedValueOnce({ answer: 'Đã tạo trang ghi chú', toolCalls: [] });
+    mockCancellation.isCancelled
+      .mockResolvedValueOnce(false) // trước round 1
+      .mockResolvedValueOnce(false) // trước round 2
+      .mockResolvedValueOnce(true); // Stop giữa chừng, sau khi CẢ 2 round đã xong
+    mockSupervisor.evaluate.mockResolvedValue({ verdict: 'continue' });
+
+    const error = (await resolve().catch((e) => e)) as TurnCancelledError;
+
+    expect(error).toBeInstanceOf(TurnCancelledError);
+    expect(error.partialText).toContain('Có 2 bảng: Orders, Products');
+    expect(error.partialText).toContain('Đã tạo trang ghi chú');
+  });
+
   it('pauses for approval (via CheckpointPauseService) when a planned step hits the Risk Gate', async () => {
     mockSupervisor.plan.mockResolvedValue({
       action: 'plan',

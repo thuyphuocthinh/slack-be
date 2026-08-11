@@ -16,10 +16,7 @@ import { ToolCallTraceDto } from '../dto/react-loop.dto';
 import { ChatHistoryTurnDto } from '../dto/message-client.dto';
 import { ApprovalRequiredError } from '../llm/approval-required.error';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
-import {
-  runCancellable,
-  rethrowIfCancelled,
-} from '../common/cancellable-run.util';
+import { runCancellable } from '../common/cancellable-run.util';
 import { TurnCancelledError } from '../llm/turn-cancelled.error';
 import { describeExternalServiceError } from '../llm/external-service-error.util';
 import { CheckpointPauseService } from './checkpoint-pause.service';
@@ -45,6 +42,33 @@ function isNonProgressRound(round: SupervisorRoundDto): boolean {
     round.result.startsWith(GUARDRAIL_BLOCKED_MARKER) ||
     round.result.startsWith(REPLAN_MARKER)
   );
+}
+
+// Bug thật (Stop giữa turn nhiều round) — trước đây khi bị huỷ, chỉ giữ ĐÚNG
+// round CUỐI (hoặc phần dở của round đang chạy) làm nội dung lưu, làm mất
+// sạch kết quả các round TRƯỚC đã chạy THÀNH CÔNG thật, dù timeline tool-call
+// (theo dõi riêng, không qua field này) vẫn hiện đủ — user thấy câu trả lời
+// "thiếu" hẳn so với những gì đã thực sự chạy. Gộp lại TOÀN BỘ round đã xong
+// (bỏ non-progress) + phần đang chạy dở (nếu có) — không gọi thêm LLM
+// (synthesize) vì Stop cần dừng ngay, không phải lúc để tốn thêm round-trip.
+function buildCancelledPartialText(
+  rounds: SupervisorRoundDto[],
+  inProgressPartialText?: string,
+): string | undefined {
+  const doneRounds = rounds.filter((r) => !isNonProgressRound(r));
+  const doneParts =
+    doneRounds.length === 1
+      ? [doneRounds[0].result]
+      : doneRounds.map((r, i) => `${i + 1}. ${r.agent}: ${r.result}`);
+  if (!inProgressPartialText) {
+    return doneParts.length > 0 ? doneParts.join('\n\n') : undefined;
+  }
+  // Không có round nào TRƯỚC — không cần tiền tố phân biệt, trả nguyên văn.
+  if (doneParts.length === 0) return inProgressPartialText;
+  return [
+    ...doneParts,
+    `(đang xử lý dở khi bị dừng) ${inProgressPartialText}`,
+  ].join('\n\n');
 }
 
 export interface TurnResolverRunOptions {
@@ -185,11 +209,7 @@ export class TurnResolverRun {
       this.signal?.aborted ||
       (await this.cancellation.isCancelled(this.replyMessageId))
     ) {
-      throw new TurnCancelledError(
-        this.rounds.length > 0
-          ? this.rounds[this.rounds.length - 1].result
-          : undefined,
-      );
+      throw new TurnCancelledError(buildCancelledPartialText(this.rounds));
     }
   }
 
@@ -402,7 +422,10 @@ export class TurnResolverRun {
           ),
           sig,
         ),
-      () => new TurnCancelledError(fallbackAccumulator.text || undefined),
+      () =>
+        new TurnCancelledError(
+          buildCancelledPartialText(this.rounds, fallbackAccumulator.text),
+        ),
       this.signal,
     );
     return buildAnswer(finalAnswer, this.toolCalls);
@@ -443,7 +466,10 @@ export class TurnResolverRun {
             ),
             sig,
           ),
-        () => new TurnCancelledError(accumulator.text || undefined),
+        () =>
+          new TurnCancelledError(
+            buildCancelledPartialText(this.rounds, accumulator.text),
+          ),
         this.signal,
       );
       return buildAnswer(finalAnswer, this.toolCalls);
@@ -583,7 +609,13 @@ export class TurnResolverRun {
         toolCalls,
       };
     } catch (error) {
-      rethrowIfCancelled(error);
+      if (error instanceof TurnCancelledError) {
+        // ReactLoop's own partialText chỉ là phần dở của round NÀY — gộp
+        // thêm các round TRƯỚC đã xong (xem buildCancelledPartialText).
+        throw new TurnCancelledError(
+          buildCancelledPartialText(this.rounds, error.partialText),
+        );
+      }
       if (error instanceof ApprovalRequiredError) {
         return {
           approvalRequired: error.pendingTool,

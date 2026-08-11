@@ -1,35 +1,26 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  EJobName,
-  EQueueName,
-  IProcessApprovalJobData,
-  QueueService,
-} from '@slack/queue';
-import { ApprovalFlowService } from './approval-flow.service';
+import { IProcessApprovalJobData } from '@slack/queue';
+import { ApprovalExecutionService } from './approval-execution.service';
 import { MessageClientService } from '../message-client.service';
 import { SupervisorService } from '../llm/supervisor.service';
 import { AgentStreamService } from '../socket/agent-stream.service';
 import { CheckpointService } from '../checkpoint/checkpoint.service';
 import { McpClientService } from '../mcp/mcp-client.service';
-import { OrchestrationCheckpointStatus } from '../entity/orchestration-checkpoint.entity';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
 import { TurnCancelledError } from '../llm/turn-cancelled.error';
 import { TurnResolverService } from './turn-resolver.service';
-import { ORCHESTRATION_CONSTANTS } from '@slack/constants';
-import { LlmStrategyFactory } from '../llm/strategy/llm-strategy.factory';
-import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { MemoryManagerService } from '../memory/memory-manager.service';
-import { SkillService } from '../memory/skill.service';
-import { SkillRetrievalService } from '../memory/skill-retrieval.service';
+import { ApprovalContinuationPlannerService } from './approval-continuation-planner.service';
+import { ApprovalSkillRecorderService } from './approval-skill-recorder.service';
 import { resolveDataCharBudget } from '../executor/tool-result-size-cap.util';
 
-// approval-flow.service.ts import @slack/common ở module scope (extractTextFromMcpResult)
+// approval-execution.service.ts import @slack/common ở module scope (extractTextFromMcpResult)
 // — mock thẳng barrel để tránh kéo theo "nanoid" (ESM-only) mà jest không transform được.
 jest.mock('@slack/common', () => ({ extractTextFromMcpResult: jest.fn() }));
 import { extractTextFromMcpResult } from '@slack/common';
 
-describe('ApprovalFlowService', () => {
-  let service: ApprovalFlowService;
+describe('ApprovalExecutionService', () => {
+  let service: ApprovalExecutionService;
 
   const mockMessageClient = {
     updateMessage: jest.fn(),
@@ -38,367 +29,65 @@ describe('ApprovalFlowService', () => {
   const mockSupervisor = { getAvailableAgents: jest.fn() };
   const mockAgentStream = { emitStep: jest.fn() };
   const mockCheckpoint = {
-    findPendingByReplyMessageId: jest.fn(),
     findById: jest.fn(),
-    claim: jest.fn(),
     claimExecution: jest.fn(),
     markToolExecuted: jest.fn(),
-    revertApprovedClaim: jest.fn(),
   };
   const mockMcpClient = { callTool: jest.fn() };
-  const mockQueueService = { addJob: jest.fn() };
   const mockCancellation = { startTurn: jest.fn() };
   const mockTurnResolver = { continueRounds: jest.fn() };
-  const mockStrategy = { id: 'openai', generateStructured: jest.fn() };
-  const mockLlmFactory = { resolve: jest.fn() };
-  const mockCircuitBreaker = {
-    run: jest.fn((_key: string, action: () => Promise<unknown>) => action()),
-  };
   const mockMemoryManager = {
     buildBudget: jest.fn((modelId: string) => ({
       toolResultCharBudget: resolveDataCharBudget(modelId),
       memoryCharBudget: 0,
       historyCharBudget: 0,
     })),
-    getMemories: jest.fn().mockResolvedValue([]),
   };
-  const mockSkillService = {
-    create: jest.fn().mockResolvedValue(undefined),
-    incrementApprovedRunCount: jest.fn().mockResolvedValue(undefined),
-  };
-  // Mặc định null — mọi test đã có từ trước (không liên quan Skill Library)
-  // không bị ảnh hưởng (recordSkillOutcome() sẽ tự tạo skill mới, không throw).
-  const mockSkillRetrieval = {
-    findSimilarForAcquisition: jest.fn().mockResolvedValue(null),
-  };
+  const mockContinuationPlanner = { resolveRemainingSteps: jest.fn() };
+  const mockSkillRecorder = { record: jest.fn() };
 
   beforeEach(async () => {
     mockMessageClient.updateMessage.mockResolvedValue(undefined);
     mockMessageClient.tryUpdateMessage.mockResolvedValue(undefined);
     mockAgentStream.emitStep.mockResolvedValue(undefined);
-    mockCheckpoint.claim.mockResolvedValue({ claimed: true });
     mockCheckpoint.claimExecution.mockResolvedValue({ claimed: true });
     mockCheckpoint.markToolExecuted.mockResolvedValue(undefined);
-    mockCheckpoint.revertApprovedClaim.mockResolvedValue(undefined);
-    mockQueueService.addJob.mockResolvedValue({ id: 'job-1' });
     mockSupervisor.getAvailableAgents.mockResolvedValue([]);
     mockTurnResolver.continueRounds.mockResolvedValue({
       content: 'ok',
       toolCalls: undefined,
     });
-    mockLlmFactory.resolve.mockReturnValue({
-      strategy: mockStrategy,
-      model: 'gpt-4o-mini',
-    });
-    // Mặc định: task không nêu số lượng cụ thể — mọi test đã có từ trước
-    // (không liên quan quantity-check) không bị ảnh hưởng.
-    mockStrategy.generateStructured.mockResolvedValue({ requiredCount: 0 });
-    mockSkillRetrieval.findSimilarForAcquisition.mockResolvedValue(null);
+    mockSkillRecorder.record.mockResolvedValue(undefined);
+    // Mặc định passthrough — không thiếu số lượng gì (đã có test riêng cho
+    // logic quantity-check trong approval-continuation-planner.service.spec.ts).
+    mockContinuationPlanner.resolveRemainingSteps.mockImplementation(
+      (checkpoint, resultText) =>
+        Promise.resolve({ remainingSteps: checkpoint.remainingSteps, resultText }),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        ApprovalFlowService,
+        ApprovalExecutionService,
         { provide: MessageClientService, useValue: mockMessageClient },
         { provide: SupervisorService, useValue: mockSupervisor },
         { provide: AgentStreamService, useValue: mockAgentStream },
         { provide: CheckpointService, useValue: mockCheckpoint },
         { provide: McpClientService, useValue: mockMcpClient },
-        { provide: QueueService, useValue: mockQueueService },
         { provide: AgentCancellationService, useValue: mockCancellation },
         { provide: TurnResolverService, useValue: mockTurnResolver },
-        { provide: LlmStrategyFactory, useValue: mockLlmFactory },
-        { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
         { provide: MemoryManagerService, useValue: mockMemoryManager },
-        { provide: SkillService, useValue: mockSkillService },
-        { provide: SkillRetrievalService, useValue: mockSkillRetrieval },
+        {
+          provide: ApprovalContinuationPlannerService,
+          useValue: mockContinuationPlanner,
+        },
+        { provide: ApprovalSkillRecorderService, useValue: mockSkillRecorder },
       ],
     }).compile();
 
-    service = module.get<ApprovalFlowService>(ApprovalFlowService);
+    service = module.get<ApprovalExecutionService>(ApprovalExecutionService);
   });
 
   afterEach(() => jest.clearAllMocks());
-
-  describe('resolveApproval (Giai đoạn 3 — HITL, Step 5)', () => {
-    const checkpoint = {
-      id: 'checkpoint-1',
-      replyMessageId: 'approval-msg-1',
-      userId: 'user-1',
-      botUserId: 'bot-1',
-      channelId: 'channel-1',
-      workspaceId: 'workspace-1',
-      channelType: 'direct',
-      originalPrompt: 'cập nhật status đơn OrderId=1 thành Completed',
-      pendingTool: {
-        provider: 'sql_server',
-        name: 'execute_write_query',
-        args: { query: "UPDATE Orders SET Status='Completed' WHERE OrderId=1" },
-      },
-      pendingTask: 'cập nhật status đơn OrderId=1',
-      roundsSoFar: [
-        {
-          agent: 'sql_server',
-          task: 'tìm đơn OrderId=1',
-          result: 'Đơn OrderId=1 đang Pending',
-        },
-      ],
-      history: [],
-      kind: 'approval' as const,
-    };
-
-    it('reject: marks the checkpoint rejected, edits the message, does NOT run the tool', async () => {
-      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(checkpoint);
-
-      await service.resolveApproval({
-        userId: 'user-1',
-        messageId: 'approval-msg-1',
-        action: 'reject',
-      });
-
-      expect(mockCheckpoint.claim).toHaveBeenCalledWith({
-        id: 'checkpoint-1',
-        toStatus: OrchestrationCheckpointStatus.REJECTED,
-      });
-      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
-        id: 'approval-msg-1',
-        userId: 'bot-1',
-        content: '❌ Đã huỷ theo yêu cầu.',
-      });
-      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
-      expect(mockAgentStream.emitStep).toHaveBeenCalledWith(
-        {
-          userId: 'user-1',
-          channelId: 'channel-1',
-          messageId: 'approval-msg-1',
-          channelType: 'direct',
-        },
-        { type: 'done' },
-      );
-    });
-
-    it('approve: claims the checkpoint then enqueues a background job instead of running the tool inline (fast HTTP response)', async () => {
-      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(checkpoint);
-
-      await service.resolveApproval({
-        userId: 'user-1',
-        messageId: 'approval-msg-1',
-        action: 'approve',
-      });
-
-      expect(mockCheckpoint.claim).toHaveBeenCalledWith({
-        id: 'checkpoint-1',
-        toStatus: OrchestrationCheckpointStatus.APPROVED,
-      });
-      // attempts:1 — mcpClient.callTool() không idempotent, không được để queue tự retry chạy lại tool THẬT lần 2.
-      expect(mockQueueService.addJob).toHaveBeenCalledWith(
-        EQueueName.AI_ORCHESTRATION_QUEUE,
-        EJobName.PROCESS_APPROVAL,
-        { checkpointId: 'checkpoint-1', userId: 'user-1' },
-        { attempts: 1 },
-      );
-      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
-      expect(mockMessageClient.updateMessage).not.toHaveBeenCalled();
-    });
-
-    it('edit_and_approve: correctly validates and passes updated pending tool to claim()', async () => {
-      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(checkpoint);
-
-      await service.resolveApproval({
-        userId: 'user-1',
-        messageId: 'approval-msg-1',
-        action: 'edit_and_approve',
-        editedArgs: {
-          query: "UPDATE Orders SET Status='Shipped' WHERE OrderId=1",
-        },
-      });
-
-      expect(mockCheckpoint.claim).toHaveBeenCalledWith({
-        id: 'checkpoint-1',
-        toStatus: OrchestrationCheckpointStatus.APPROVED,
-        updatedPendingTool: {
-          provider: 'sql_server',
-          name: 'execute_write_query',
-          args: { query: "UPDATE Orders SET Status='Shipped' WHERE OrderId=1" },
-        },
-      });
-      expect(mockQueueService.addJob).toHaveBeenCalled();
-    });
-
-    it('edit_and_approve: rejects if attempting to add new unknown keys to args', async () => {
-      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(checkpoint);
-
-      await expect(
-        service.resolveApproval({
-          userId: 'user-1',
-          messageId: 'approval-msg-1',
-          action: 'edit_and_approve',
-          editedArgs: {
-            query: "UPDATE Orders SET Status='Shipped' WHERE OrderId=1",
-            malicious_new_key: 'hacked',
-          },
-        }),
-      ).rejects.toThrow();
-
-      expect(mockCheckpoint.claim).not.toHaveBeenCalled();
-    });
-
-    it('edit_and_approve: rejects if attempting to inject forbidden values', async () => {
-      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(checkpoint);
-
-      await expect(
-        service.resolveApproval({
-          userId: 'user-1',
-          messageId: 'approval-msg-1',
-          action: 'edit_and_approve',
-          editedArgs: { query: '' }, // empty string is forbidden in validation
-        }),
-      ).rejects.toThrow();
-
-      expect(mockCheckpoint.claim).not.toHaveBeenCalled();
-    });
-
-    it('approve: reverts the claim back to PENDING when enqueueing the job fails, instead of leaving it stuck APPROVED forever', async () => {
-      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(checkpoint);
-      mockQueueService.addJob.mockRejectedValue(new Error('redis unreachable'));
-
-      await expect(
-        service.resolveApproval({
-          userId: 'user-1',
-          messageId: 'approval-msg-1',
-          action: 'approve',
-        }),
-      ).rejects.toThrow();
-
-      expect(mockCheckpoint.revertApprovedClaim).toHaveBeenCalledWith({
-        id: 'checkpoint-1',
-      });
-      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
-    });
-
-    it('throws CHECKPOINT_NOT_FOUND when there is no pending checkpoint for this message', async () => {
-      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(null);
-
-      await expect(
-        service.resolveApproval({
-          userId: 'user-1',
-          messageId: 'unknown-msg',
-          action: 'approve',
-        }),
-      ).rejects.toThrow();
-      expect(mockCheckpoint.claim).not.toHaveBeenCalled();
-    });
-
-    it('throws CHECKPOINT_FORBIDDEN when the requester is not the user who triggered the turn', async () => {
-      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(checkpoint);
-
-      await expect(
-        service.resolveApproval({
-          userId: 'some-other-user',
-          messageId: 'approval-msg-1',
-          action: 'approve',
-        }),
-      ).rejects.toThrow();
-      expect(mockCheckpoint.claim).not.toHaveBeenCalled();
-      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
-    });
-
-    it('throws CHECKPOINT_ALREADY_RESOLVED and never runs the tool when another request already claimed it first (double-click / 2 tabs)', async () => {
-      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(checkpoint);
-      mockCheckpoint.claim.mockResolvedValue({ claimed: false });
-
-      await expect(
-        service.resolveApproval({
-          userId: 'user-1',
-          messageId: 'approval-msg-1',
-          action: 'approve',
-        }),
-      ).rejects.toThrow();
-      expect(mockQueueService.addJob).not.toHaveBeenCalled();
-      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
-      expect(mockMessageClient.updateMessage).not.toHaveBeenCalled();
-    });
-
-    it('accuracy_problem.md mục 1 — clarify: claims with selectedProvider then enqueues the same background job as approve', async () => {
-      const clarificationCheckpoint = {
-        ...checkpoint,
-        kind: 'clarification' as const,
-      };
-      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(
-        clarificationCheckpoint,
-      );
-
-      await service.resolveApproval({
-        userId: 'user-1',
-        messageId: 'approval-msg-1',
-        action: 'clarify',
-        selectedProvider: 'notion',
-      });
-
-      expect(mockCheckpoint.claim).toHaveBeenCalledWith({
-        id: 'checkpoint-1',
-        toStatus: OrchestrationCheckpointStatus.APPROVED,
-        selectedProvider: 'notion',
-      });
-      expect(mockQueueService.addJob).toHaveBeenCalledWith(
-        EQueueName.AI_ORCHESTRATION_QUEUE,
-        EJobName.PROCESS_APPROVAL,
-        { checkpointId: 'checkpoint-1', userId: 'user-1' },
-        { attempts: 1 },
-      );
-    });
-
-    it('throws CHECKPOINT_ACTION_MISMATCH when action="clarify" but the checkpoint kind is "approval"', async () => {
-      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(checkpoint);
-
-      await expect(
-        service.resolveApproval({
-          userId: 'user-1',
-          messageId: 'approval-msg-1',
-          action: 'clarify',
-          selectedProvider: 'notion',
-        }),
-      ).rejects.toThrow();
-      expect(mockCheckpoint.claim).not.toHaveBeenCalled();
-    });
-
-    it('throws CHECKPOINT_ACTION_MISMATCH when action="clarify" but selectedProvider is missing', async () => {
-      const clarificationCheckpoint = {
-        ...checkpoint,
-        kind: 'clarification' as const,
-      };
-      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(
-        clarificationCheckpoint,
-      );
-
-      await expect(
-        service.resolveApproval({
-          userId: 'user-1',
-          messageId: 'approval-msg-1',
-          action: 'clarify',
-        }),
-      ).rejects.toThrow();
-      expect(mockCheckpoint.claim).not.toHaveBeenCalled();
-    });
-
-    it('throws CHECKPOINT_ACTION_MISMATCH when action="approve" but the checkpoint kind is "clarification"', async () => {
-      const clarificationCheckpoint = {
-        ...checkpoint,
-        kind: 'clarification' as const,
-      };
-      mockCheckpoint.findPendingByReplyMessageId.mockResolvedValue(
-        clarificationCheckpoint,
-      );
-
-      await expect(
-        service.resolveApproval({
-          userId: 'user-1',
-          messageId: 'approval-msg-1',
-          action: 'approve',
-        }),
-      ).rejects.toThrow();
-      expect(mockCheckpoint.claim).not.toHaveBeenCalled();
-    });
-  });
 
   describe('processApprovalJob (Giai đoạn 3 — HITL, Step 5 — thực thi nền qua queue)', () => {
     const checkpoint = {
@@ -496,8 +185,6 @@ describe('ApprovalFlowService', () => {
         ],
         [],
         undefined,
-        // accuracy_problem.md mục 9.2 — fixture `checkpoint` ở trên không set
-        // remainingSteps => destructure ra undefined, truyền nguyên vậy xuống.
         undefined,
       );
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
@@ -514,6 +201,13 @@ describe('ApprovalFlowService', () => {
       });
       expect(mockCheckpoint.markToolExecuted).toHaveBeenCalledWith({
         id: 'checkpoint-1',
+      });
+      expect(mockSkillRecorder.record).toHaveBeenCalledWith({
+        checkpointId: 'checkpoint-1',
+        workspaceId: 'workspace-1',
+        pendingTask: 'cập nhật status đơn OrderId=1',
+        pendingTool: checkpoint.pendingTool,
+        riskLevel: undefined,
       });
     });
 
@@ -638,6 +332,7 @@ describe('ApprovalFlowService', () => {
       expect(mockCheckpoint.markToolExecuted).toHaveBeenCalledWith({
         id: 'checkpoint-1',
       });
+      expect(mockSkillRecorder.record).not.toHaveBeenCalled();
     });
 
     it("reports the error via tryUpdateMessage() (not the throwing updateMessage()) — resilience to a double-failure is MessageClientService.tryUpdateMessage()'s own responsibility, see message-client.service.spec.ts", async () => {
@@ -680,7 +375,7 @@ describe('ApprovalFlowService', () => {
       });
     });
 
-    it('Giai đoạn 4, Step 1 — does NOT run the tool a second time when execution was already claimed (stalled/redelivered job)', async () => {
+    it('does NOT run the tool a second time when execution was already claimed (stalled/redelivered job)', async () => {
       mockCheckpoint.findById.mockResolvedValue(checkpoint);
       mockCheckpoint.claimExecution.mockResolvedValue({ claimed: false });
 
@@ -736,7 +431,7 @@ describe('ApprovalFlowService', () => {
         'Đơn OrderId=1 đã Completed.',
       );
       // TurnResolverService tự pause lần 2 (qua CheckpointPauseService) NẾU vòng
-      // tiếp theo lại gặp 1 tool rủi ro khác — ApprovalFlowService không cần
+      // tiếp theo lại gặp 1 tool rủi ro khác — ApprovalExecutionService không cần
       // biết chuyện đó xảy ra, chỉ forward đúng AnswerResult nhận được.
       mockTurnResolver.continueRounds.mockResolvedValue({
         content:
@@ -754,132 +449,6 @@ describe('ApprovalFlowService', () => {
           '⏸️ Cần bạn duyệt 1 hành động trước khi tiếp tục — xem tin nhắn bên dưới.',
         toolCalls: undefined,
       });
-    });
-  });
-
-  describe('quantity-check after approval (ver3.md mục 3)', () => {
-    const checkpoint = {
-      id: 'checkpoint-1',
-      replyMessageId: 'approval-msg-1',
-      userId: 'user-1',
-      botUserId: 'bot-1',
-      channelId: 'channel-1',
-      workspaceId: 'workspace-1',
-      channelType: 'direct',
-      originalPrompt: 'Tạo 5 sản phẩm ngẫu nhiên rồi chèn vào bảng Products',
-      pendingTool: {
-        provider: 'sql_server',
-        name: 'execute_write_query',
-        args: { query: "INSERT INTO Products VALUES ('A')" },
-      },
-      pendingTask: 'Tạo 5 sản phẩm ngẫu nhiên rồi chèn vào bảng Products',
-      roundsSoFar: [],
-      history: [],
-      kind: 'approval' as const,
-    };
-
-    const runApprovalJob = () =>
-      service.processApprovalJob({
-        checkpointId: 'checkpoint-1',
-        userId: 'user-1',
-      });
-
-    beforeEach(() => {
-      mockCheckpoint.findById.mockResolvedValue(checkpoint);
-      mockMcpClient.callTool.mockResolvedValue({
-        content: [{ type: 'text', text: 'raw' }],
-      });
-      (extractTextFromMcpResult as jest.Mock).mockReturnValue('1 row inserted');
-    });
-
-    it('prepends a continuation step when the achieved count falls short', async () => {
-      mockStrategy.generateStructured
-        .mockResolvedValueOnce({ requiredCount: 5 })
-        .mockResolvedValueOnce({ achievedCount: 1 });
-
-      await runApprovalJob();
-
-      const remainingSteps = mockTurnResolver.continueRounds.mock.calls[0][8];
-      expect(remainingSteps).toHaveLength(1);
-      expect(remainingSteps[0].agent).toBe('sql_server');
-      expect(remainingSteps[0].task).toContain('Đã xử lý 1/5');
-    });
-
-    it('tells the model to batch the remaining rows into a single tool call (manual_test_bank.md V1/V2 — avoid 1 approval round per row)', async () => {
-      mockStrategy.generateStructured
-        .mockResolvedValueOnce({ requiredCount: 20 })
-        .mockResolvedValueOnce({ achievedCount: 1 });
-
-      await runApprovalJob();
-
-      const remainingSteps = mockTurnResolver.continueRounds.mock.calls[0][8];
-      expect(remainingSteps[0].task).toContain(
-        'gộp TOÀN BỘ 19 phần còn thiếu vào ĐÚNG 1 lần gọi tool duy nhất',
-      );
-    });
-
-    it('leaves remainingSteps untouched when the achieved count already matches', async () => {
-      mockStrategy.generateStructured
-        .mockResolvedValueOnce({ requiredCount: 5 })
-        .mockResolvedValueOnce({ achievedCount: 5 });
-
-      await runApprovalJob();
-
-      expect(mockTurnResolver.continueRounds.mock.calls[0][8]).toEqual(
-        checkpoint.remainingSteps,
-      );
-    });
-
-    it('does not count an UNRELATED earlier round using the same agent toward the continuation cap (bug fix)', async () => {
-      const checkpointWithUnrelatedRound = {
-        ...checkpoint,
-        roundsSoFar: [
-          {
-            agent: 'sql_server',
-            task: 'kiểm tra số lượng khách hàng inactive',
-            result: '120 khách hàng',
-          },
-        ],
-      };
-      mockCheckpoint.findById.mockResolvedValue(checkpointWithUnrelatedRound);
-      mockStrategy.generateStructured
-        .mockResolvedValueOnce({ requiredCount: 5 })
-        .mockResolvedValueOnce({ achievedCount: 1 });
-
-      await runApprovalJob();
-
-      // Round không liên quan (task khác hẳn) KHÔNG được tính vào "đã thử mấy
-      // lần" — vẫn còn dư budget để chèn tiếp, không chạm cap ngay lập tức.
-      const remainingSteps = mockTurnResolver.continueRounds.mock.calls[0][8];
-      expect(remainingSteps).toHaveLength(1);
-      expect(remainingSteps[0].task).toContain('Đã xử lý 1/5');
-    });
-
-    it('stops nudging once MAX_QUANTITY_CONTINUATION_ROUNDS is reached, but still warns instead of silently claiming done', async () => {
-      const priorAttempts =
-        ORCHESTRATION_CONSTANTS.MAX_QUANTITY_CONTINUATION_ROUNDS - 1;
-      const stuckCheckpoint = {
-        ...checkpoint,
-        roundsSoFar: Array.from({ length: priorAttempts }, () => ({
-          agent: 'sql_server',
-          task: checkpoint.pendingTask,
-          result: '1',
-        })),
-      };
-      mockCheckpoint.findById.mockResolvedValue(stuckCheckpoint);
-      mockStrategy.generateStructured
-        .mockResolvedValueOnce({ requiredCount: 5 })
-        .mockResolvedValueOnce({ achievedCount: 1 });
-
-      await runApprovalJob();
-
-      const roundsArg = mockTurnResolver.continueRounds.mock.calls[0][5];
-      expect(roundsArg[roundsArg.length - 1].result).toContain(
-        `mới xử lý được 1 sau ${ORCHESTRATION_CONSTANTS.MAX_QUANTITY_CONTINUATION_ROUNDS} lần thử`,
-      );
-      expect(mockTurnResolver.continueRounds.mock.calls[0][8]).toEqual(
-        stuckCheckpoint.remainingSteps,
-      );
     });
   });
 
@@ -948,8 +517,6 @@ describe('ApprovalFlowService', () => {
         [],
         [],
         { agent: 'notion', task: 'lưu thông tin này lại' },
-        // accuracy_problem.md mục 9.2 — fixture `clarificationCheckpoint` ở
-        // trên không set remainingSteps => destructure ra undefined.
         undefined,
       );
       expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
