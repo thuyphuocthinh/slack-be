@@ -28,6 +28,7 @@ services:
     image: pgvector/pgvector:pg15
     container_name: slack-postgres-dev
     restart: unless-stopped
+    command: postgres -c max_connections=300
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
