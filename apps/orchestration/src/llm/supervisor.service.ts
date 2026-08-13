@@ -22,7 +22,9 @@ import {
   SupervisorRoundDto,
 } from '../dto/supervisor.dto';
 import { ChatHistoryTurnDto } from '../dto/message-client.dto';
+import { ToolCallTraceDto } from '../dto/react-loop.dto';
 import { LlmStrategyFactory } from './strategy/llm-strategy.factory';
+import { checkQuantity, QuantityCheckResult } from './quantity-check.util';
 import { describeExternalServiceError } from './external-service-error.util';
 import { withLlmRetry } from './with-llm-retry.util';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
@@ -388,6 +390,40 @@ export class SupervisorService {
       );
       return { verdict: ESupervisorVerdict.CONTINUE };
     }
+  }
+
+  // HH1 (manual_test_bank_heavy.md) — checkQuantity() ở react-loop-run.ts chỉ
+  // so cục bộ TRONG 1 ReactLoopService.run(); khi Supervisor tự lặp/tách
+  // nhiều step cho CÙNG 1 yêu cầu số lượng (VD 12 sản phẩm), mỗi step tự thấy
+  // đủ dù TỔNG cả turn đã vượt/thiếu — synthesize() vẫn có thể báo sai số. Gọi
+  // SAU CÙNG (finalizeAnswer()), gộp resultPreview của TOÀN BỘ toolCalls turn.
+  async checkCumulativeQuantity(
+    originalPrompt: string,
+    toolCalls: ToolCallTraceDto[],
+    signal?: AbortSignal,
+  ): Promise<QuantityCheckResult> {
+    const resultsText = toolCalls
+      .filter((tc) => tc.status === 'success' && tc.resultPreview)
+      .map((tc) => `${tc.tool}: ${tc.resultPreview}`)
+      .join('\n');
+    if (!resultsText) {
+      return { requiredCount: 0, achievedCount: 0 };
+    }
+
+    const modelId =
+      process.env.SUPERVISOR_EVALUATE_MODEL ??
+      process.env.SUPERVISOR_MODEL ??
+      ORCHESTRATION_CONSTANTS.SUPERVISOR_MODEL;
+    const { strategy, model } = this.llmFactory.resolve(modelId);
+    return checkQuantity(
+      originalPrompt,
+      resultsText,
+      strategy,
+      model,
+      this.circuitBreaker,
+      this.logger,
+      signal,
+    );
   }
 
   async synthesize(

@@ -248,7 +248,10 @@ describe('ReactLoopService', () => {
       expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
     });
 
-    it('falls back to the answer from before the nudge when the model does not call more tools despite the mismatch', async () => {
+    it('falls back to the answer from before the nudge, PLUS a code-authored honesty note with the real counts, when the model does not call more tools despite the mismatch', async () => {
+      // Bug thật (HH1) — trước fix, model có thể vẫn giữ nguyên câu trả lời
+      // "Đã tạo xong." (bịa như đã xong đủ) dù achievedCount THẬT khác hẳn
+      // requiredCount. Giờ PHẢI luôn kèm số liệu thật, không tin nguyên văn model.
       mockStrategy.generateStructured
         .mockResolvedValueOnce({ requiredCount: 5 })
         .mockResolvedValueOnce({ achievedCount: 1 });
@@ -262,7 +265,9 @@ describe('ReactLoopService', () => {
 
       const result = await service.run(baseDto);
 
-      expect(result.answer).toBe('Đã tạo xong.');
+      expect(result.answer).toBe(
+        'Đã tạo xong.\n\n⚠️ Yêu cầu cần xử lý đúng 5, nhưng theo kết quả tool THẬT chỉ xác nhận được 1.',
+      );
       expect(mockSession.sendMessage).toHaveBeenCalledTimes(3);
     });
 

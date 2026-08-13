@@ -271,6 +271,10 @@ Nếu prompt có kèm "Các bước đã thực hiện trong turn này" — đó
 
 QUAN TRỌNG — câu trả lời CŨ của CHÍNH BẠN (AI) trong "Lịch sử hội thoại gần đây" đã bị ẨN NỘI DUNG (chỉ còn 1 dòng ghi chú dạng "AI: (nội dung câu trả lời cũ đã ẩn...)") — đây là CỐ Ý, không phải lỗi hiển thị, để tránh bạn tự bịa/đoán lại số liệu cũ đó. Nếu câu hỏi hiện tại cần số liệu/dữ liệu cụ thể (đếm, liệt kê, trạng thái hiện tại, nội dung...), chỉ được coi là "đã đủ dữ liệu" để chọn "respond" khi dữ liệu đó nằm trong "Các bước đã thực hiện trong turn này" (round của CHÍNH turn hiện tại) — TUYỆT ĐỐI KHÔNG tự đoán/bịa lại nội dung đã bị ẩn đó, dù câu hỏi có vẻ y hệt đã hỏi trước đó. Câu hỏi CỦA USER trong lịch sử vẫn còn đầy đủ, đủ để bạn hiểu NGỮ CẢNH/CHỦ ĐỀ (đại từ, "còn X thì sao") — nhưng luôn phải "plan" lại để lấy dữ liệu MỚI khi câu hỏi cần dữ liệu thật.
 
+NGOẠI LỆ cho rule ngay trên — nếu dữ liệu cần thiết là do CHÍNH USER tự khai báo/cung cấp trực tiếp trong 1 dòng "User: ..." ở lịch sử (VD "ghi nhớ giúp tôi X là Y", tự đặt tên/mã/số điện thoại/ghi chú riêng — KHÔNG phải dữ liệu do 1 hệ thống ngoài trả về), được phép "respond" trích dẫn lại ĐÚNG NGUYÊN VĂN từ dòng "User:" đó, KHÔNG cần "plan" gọi agent — vì đây là lời user tự nói, không có nguy cơ đã lỗi thời/bị hệ thống ngoài thay đổi như dữ liệu cần agent lấy. Chỉ áp dụng khi dữ liệu đó thật sự nằm trong 1 dòng "User:" còn hiện đầy đủ (không phải dòng "AI:" đã ẩn, không phải suy đoán).
+
+QUAN TRỌNG — nếu action="respond" VÀ câu hỏi HIỆN TẠI (không phải lịch sử) là 1 YÊU CẦU LƯU/GHI NHỚ thông tin do CHÍNH USER tự khai báo ngay trong câu đó (VD "ghi nhớ giúp tôi X là Y", "lưu lại giúp tôi...", tự đặt tên/mã/số/ghi chú riêng — KHÔNG áp dụng khi user chỉ đang HỎI LẠI 1 thông tin đã lưu trước đó), PHẢI điền THÊM field "rememberFact" bằng ĐÚNG NGUYÊN VĂN thông tin cần lưu (VD "mã khách VIP đặc biệt là KH-9981") — hệ thống sẽ tự lưu bền field này lại, giúp trả lời đúng dù hội thoại sau đó có dài thêm rất nhiều. "rememberFact" là field THÊM VÀO, KHÔNG THAY THẾ "answer" — vẫn PHẢI điền "answer" bình thường như MỌI lần "respond" khác (1 câu xác nhận ngắn, VD "Mình đã ghi nhớ mã khách VIP đặc biệt là KH-9981."), TUYỆT ĐỐI không để "answer" trống chỉ vì đã điền "rememberFact". Bỏ trống "rememberFact" (không phải "answer") ở MỌI trường hợp khác.
+
 QUAN TRỌNG — KHÔNG tự thêm vào "steps" 1 bước KIỂM TRA/XÁC NHẬN lặp lại đúng nội dung 1 câu hỏi CŨ (trong "Lịch sử hội thoại gần đây") nếu câu hỏi HIỆN TẠI không hề nhắc tới việc đó. VD: lượt trước hỏi "bảng Customers có tên A, B, C không", lượt HIỆN TẠI chỉ yêu cầu "tạo 5 customer ngẫu nhiên rồi chèn vào bảng Customers" — CHỈ cần đúng các bước phục vụ TRỰC TIẾP yêu cầu hiện tại (tạo dữ liệu, chèn), TUYỆT ĐỐI không tự chèn thêm bước "kiểm tra tên A, B, C" chỉ vì nó vừa được hỏi ở lượt trước — lịch sử hội thoại CHỈ để hiểu ngữ cảnh/chủ đề, KHÔNG PHẢI danh sách việc cần lặp lại.
 
 QUAN TRỌNG — chống bịa dữ liệu khi nối nhiều agent: nếu "task" cho 1 bước tiếp theo (hoặc "answer" khi respond) cần nhắc lại số liệu/tên/ID cụ thể đã có từ 1 bước trước, PHẢI copy ĐÚNG NGUYÊN VĂN giá trị đó từ đúng phần "kết quả" tương ứng — TUYỆT ĐỐI không tự đoán, làm tròn, hay diễn giải lại số liệu, dù chỉ lệch 1 ký tự cũng khiến agent sau nhận sai thông tin.
@@ -375,6 +379,11 @@ export const SUPERVISOR_PLAN_SCHEMA = {
     answer: {
       type: 'string',
       description: 'Bắt buộc khi action="respond". Bỏ trống khi action="plan".',
+    },
+    rememberFact: {
+      type: 'string',
+      description:
+        'CHỈ điền khi action="respond" VÀ câu hỏi hiện tại là 1 yêu cầu LƯU/GHI NHỚ thông tin user tự khai báo ngay trong câu đó (VD "ghi nhớ giúp tôi mã khách VIP là KH-9981") — điền ĐÚNG NGUYÊN VĂN thông tin cần lưu để hệ thống lưu bền lại. Bỏ trống ở mọi trường hợp khác (câu hỏi thường, hỏi lại thông tin cũ, action="plan").',
     },
     steps: {
       type: 'array',

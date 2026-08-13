@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { IProcessAiTriggerJobData } from '@slack/queue';
 import { ORCHESTRATION_CONSTANTS, ESupervisorVerdict } from '@slack/constants';
 import { ReactLoopService } from '../llm/react-loop.service';
+import { ToolRepeatGuard } from '../llm/tool-repeat-guard';
 import {
   AgentRankingCache,
   SupervisorService,
@@ -43,14 +44,6 @@ function isNonProgressRound(round: SupervisorRoundDto): boolean {
     round.result.startsWith(REPLAN_MARKER)
   );
 }
-
-// Bug thật (Stop giữa turn nhiều round) — trước đây khi bị huỷ, chỉ giữ ĐÚNG
-// round CUỐI (hoặc phần dở của round đang chạy) làm nội dung lưu, làm mất
-// sạch kết quả các round TRƯỚC đã chạy THÀNH CÔNG thật, dù timeline tool-call
-// (theo dõi riêng, không qua field này) vẫn hiện đủ — user thấy câu trả lời
-// "thiếu" hẳn so với những gì đã thực sự chạy. Gộp lại TOÀN BỘ round đã xong
-// (bỏ non-progress) + phần đang chạy dở (nếu có) — không gọi thêm LLM
-// (synthesize) vì Stop cần dừng ngay, không phải lúc để tốn thêm round-trip.
 function buildCancelledPartialText(
   rounds: SupervisorRoundDto[],
   inProgressPartialText?: string,
@@ -115,6 +108,8 @@ export class TurnResolverRun {
   private readonly rounds: SupervisorRoundDto[];
   private readonly toolCalls: ToolCallTraceDto[];
   private readonly signal?: AbortSignal;
+
+  private readonly repeatGuard = new ToolRepeatGuard();
 
   private readonly reactLoop: ReactLoopService;
   private readonly supervisor: SupervisorService;
@@ -254,7 +249,25 @@ export class TurnResolverRun {
     );
 
     if (plan.action === 'respond') {
-      return { done: true, answer: await this.finalizeAnswer(plan.answer) };
+      if (plan.rememberFact) {
+        this.memoryManager
+          .recordUserDeclaredFact(
+            this.data.channelId,
+            this.replyMessageId,
+            plan.rememberFact,
+          )
+          .catch((error) =>
+            this.logger.warn(
+              `recordUserDeclaredFact() failed: ${(error as Error).message}`,
+            ),
+          );
+      }
+      const answerHint =
+        plan.answer ||
+        (plan.rememberFact
+          ? `Mình đã ghi nhớ: ${plan.rememberFact}.`
+          : plan.answer);
+      return { done: true, answer: await this.finalizeAnswer(answerHint) };
     }
 
     const steps = plan.steps ?? [];
@@ -428,14 +441,20 @@ export class TurnResolverRun {
         ),
       this.signal,
     );
-    return buildAnswer(finalAnswer, this.toolCalls);
+    return buildAnswer(
+      await this.appendCumulativeQuantityDisclaimer(finalAnswer),
+      this.toolCalls,
+    );
   }
 
   private async finalizeAnswer(answerHint?: string): Promise<AnswerResult> {
     const { userId, channelId, channelType } = this.data;
 
     if (this.rounds.length === 1) {
-      return buildAnswer(this.rounds[0].result, this.toolCalls);
+      return buildAnswer(
+        await this.appendCumulativeQuantityDisclaimer(this.rounds[0].result),
+        this.toolCalls,
+      );
     }
     if (this.rounds.length > 1) {
       await this.agentStream
@@ -472,12 +491,38 @@ export class TurnResolverRun {
           ),
         this.signal,
       );
-      return buildAnswer(finalAnswer, this.toolCalls);
+      return buildAnswer(
+        await this.appendCumulativeQuantityDisclaimer(finalAnswer),
+        this.toolCalls,
+      );
     }
     return buildAnswer(
       answerHint || 'Xin lỗi, mình chưa có câu trả lời phù hợp.',
       this.toolCalls,
     );
+  }
+
+  // HH1 (manual_test_bank_heavy.md) — Fix #3 (react-loop-run.ts) chỉ so
+  // required/achieved TRONG 1 ReactLoopService.run(); khi Supervisor tách
+  // nhiều step cho CÙNG 1 yêu cầu số lượng, mỗi step tự thấy đủ cục bộ dù
+  // TỔNG cả turn đã lệch. Check lại 1 lần CUỐI ở đây bằng resultPreview của
+  // TOÀN BỘ toolCalls turn (this.toolCalls đã cộng dồn qua mọi step/resume).
+  // Bỏ qua (không tốn thêm LLM call) nếu turn không có tool call thật nào.
+  private async appendCumulativeQuantityDisclaimer(
+    answer: string,
+  ): Promise<string> {
+    if (this.toolCalls.length === 0) return answer;
+
+    const { requiredCount, achievedCount } =
+      await this.supervisor.checkCumulativeQuantity(
+        this.prompt,
+        this.toolCalls,
+        this.signal,
+      );
+    if (requiredCount > 0 && achievedCount !== requiredCount) {
+      return `${answer}\n\n⚠️ Yêu cầu cần xử lý đúng ${requiredCount}, nhưng theo kết quả tool THẬT chỉ xác nhận được ${achievedCount}.`;
+    }
+    return answer;
   }
 
   private async runEvaluateAndDecide(
@@ -603,6 +648,7 @@ export class TurnResolverRun {
           streamKey,
         },
         this.signal,
+        this.repeatGuard,
       );
       return {
         round: { agent: targetAgent.provider, task, result: answer },

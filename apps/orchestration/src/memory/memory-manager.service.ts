@@ -39,4 +39,16 @@ export class MemoryManagerService {
       queryText,
     );
   }
+
+  async recordUserDeclaredFact(
+    channelId: string,
+    sourceMessageId: string,
+    fact: string,
+  ): Promise<void> {
+    return this.channelMemory.recordUserDeclaredFact(
+      channelId,
+      sourceMessageId,
+      fact,
+    );
+  }
 }

@@ -396,9 +396,13 @@ describe('MessageClientService', () => {
             direction: 'before',
           }),
         );
+        // Bug thật — trước fix, tóm tắt gộp LUÔN câu trả lời của AI ("Doanh
+        // thu tháng này là 100 triệu.") vào 1 dòng gán nhãn "User:", trong khi
+        // lịch sử bình thường luôn ẨN câu trả lời AI cũ. Giờ chỉ tóm tắt phần
+        // USER nói, đúng tinh thần redaction (xem SUPERVISOR_PLANNING_PROMPT).
         expect(history[0]).toEqual({
           role: 'user',
-          text: '(Tóm tắt ngữ cảnh cũ hơn, KHÔNG phải câu hỏi mới) Trước đó, cuộc trò chuyện đã đề cập: doanh thu tháng này bao nhiêu?; Doanh thu tháng này là 100 triệu.',
+          text: '(Tóm tắt ngữ cảnh cũ hơn, KHÔNG phải câu hỏi mới) Trước đó, cuộc trò chuyện đã đề cập: doanh thu tháng này bao nhiêu?',
         });
         expect(history[1]).toEqual({ role: 'user', text: 'câu hỏi gần nhất' });
       });

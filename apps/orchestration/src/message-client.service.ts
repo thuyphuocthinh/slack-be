@@ -233,6 +233,7 @@ export class MessageClientService {
       const snippets = messages
         .slice()
         .reverse()
+        .filter((m) => !m.sender?.isBot)
         .map((m) => extractContentText(m.content).trim())
         .filter((text) => text.length > 0);
       if (snippets.length === 0) return null;

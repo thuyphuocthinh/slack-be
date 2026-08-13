@@ -87,6 +87,39 @@ export class ChannelMemoryService {
     }
   }
 
+  async recordUserDeclaredFact(
+    channelId: string,
+    sourceMessageId: string,
+    fact: string,
+  ): Promise<void> {
+    const maxChars = ORCHESTRATION_CONSTANTS.CHANNEL_MEMORY_CONTENT_MAX_CHARS;
+    const content =
+      fact.length > maxChars ? `${fact.slice(0, maxChars)}...` : fact;
+
+    if (looksLikeInjection(content)) {
+      this.logger.warn(
+        `recordUserDeclaredFact() skipped a suspicious memory for channel ${channelId} (looks like a prompt injection attempt)`,
+      );
+      return;
+    }
+
+    try {
+      await this.repo
+        .createQueryBuilder()
+        .insert()
+        .into(ChannelMemoryEntity)
+        .values([
+          { channelId, sourceMessageId, tool: 'user_declared_fact', content },
+        ])
+        .orIgnore()
+        .execute();
+    } catch (error) {
+      this.logger.warn(
+        `recordUserDeclaredFact() failed for channel ${channelId}: ${(error as Error).message}`,
+      );
+    }
+  }
+
   // Dọn fact đã quá TTL, gọi định kỳ từ ChannelMemoryCleanupService. TTL cố
   // định cho mọi row nên chỉ cần so createdAt với ngưỡng thời gian, không cần
   // cột expiresAt riêng.

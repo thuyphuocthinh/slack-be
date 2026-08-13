@@ -33,6 +33,8 @@ export interface ReactLoopRunOptions {
   reactModelId: string;
   session: LlmChatSession;
   signal: AbortSignal;
+  // Không truyền (VD test cũ) → tự tạo guard riêng cho đúng behavior cũ.
+  repeatGuard?: ToolRepeatGuard;
 }
 
 export interface ReactLoopRunDeps {
@@ -96,7 +98,7 @@ export class ReactLoopRun {
         agentStream: deps.agentStream,
         memoryManager: deps.memoryManager,
         logger: deps.logger,
-        repeatGuard: new ToolRepeatGuard(),
+        repeatGuard: options.repeatGuard ?? new ToolRepeatGuard(),
         insertAccumulator,
         riskGate,
       },
@@ -180,11 +182,16 @@ export class ReactLoopRun {
         resync('');
         return { done: false, nextTurn: nudgeTurn };
       }
-      this.logger.log(
-        `run() done at step=${step} toolCalls=${toolCalls.length} (quantity vẫn thiếu nhưng model không gọi thêm tool)`,
+      this.logger.warn(
+        `run() done at step=${step} toolCalls=${toolCalls.length} (quantity vẫn thiếu nhưng model không gọi thêm tool) requiredCount=${requiredCount} achievedCount=${achievedCount}`,
       );
-      const answer =
+      // Bug thật (HH1) — model từng báo "đã xong đủ N" dù achievedCount thật
+      // KHÁC N (bịa số/lặp lại số đã yêu cầu). KHÔNG tin nguyên văn câu trả lời
+      // của model ở nhánh này — luôn tự chèn CON SỐ THẬT đã tính được, để user
+      // không bị đọc nhầm là đã xong đủ.
+      const baseAnswer =
         answerBeforeSelfCheck || 'Xin lỗi, mình chưa có câu trả lời phù hợp.';
+      const answer = `${baseAnswer}\n\n⚠️ Yêu cầu cần xử lý đúng ${requiredCount}, nhưng theo kết quả tool THẬT chỉ xác nhận được ${achievedCount}.`;
       resync(answer);
       return { done: true, response: { answer, toolCalls } };
     }

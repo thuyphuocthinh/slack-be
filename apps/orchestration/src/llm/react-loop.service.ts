@@ -17,6 +17,7 @@ import { TurnCancelledError } from './turn-cancelled.error';
 import { capToolResultSize } from '../executor/tool-result-size-cap.util';
 import { MemoryManagerService } from '../memory/memory-manager.service';
 import { ReactLoopRun } from './react-loop-run';
+import { ToolRepeatGuard } from './tool-repeat-guard';
 
 // Ghi chú thiết kế đầy đủ (WHY): slack-docs/Documents/Orchestration/code-notes/react-loop.service.md
 // Logic chi tiết 1 lượt chạy (tool call, self-check, quantity-nudge...) nằm
@@ -37,6 +38,7 @@ export class ReactLoopService {
   async run(
     dto: RunReactLoopRequestDto,
     parentSignal?: AbortSignal,
+    repeatGuard?: ToolRepeatGuard,
   ): Promise<RunReactLoopResponseDto> {
     let confirmedText = '';
     const emitToken = (step: { type: 'token' | 'resync'; text: string }) => {
@@ -109,7 +111,16 @@ export class ReactLoopService {
         });
 
         const reactLoopRun = new ReactLoopRun(
-          { dto, mcpTools, strategy, model, reactModelId, session, signal },
+          {
+            dto,
+            mcpTools,
+            strategy,
+            model,
+            reactModelId,
+            session,
+            signal,
+            repeatGuard,
+          },
           {
             mcpClient: this.mcpClient,
             agentStream: this.agentStream,
