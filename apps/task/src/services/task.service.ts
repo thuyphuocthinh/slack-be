@@ -12,9 +12,22 @@ import {
 import { TaskEntity } from '../entity/task.entity';
 import { LabelEntity } from '../entity/label.entity';
 import { TaskMemberEntity } from '../entity/task_member.entity';
-import { ChangeTaskGroupDto, CreateAttachmentDto, CreateTaskDto, DragDropTaskDto, FilterTasksDto, UpdateTaskDto } from '../dto/task.dto';
+import {
+  ChangeTaskGroupDto,
+  CreateAttachmentDto,
+  CreateTaskDto,
+  DragDropTaskDto,
+  FilterTasksDto,
+  UpdateTaskDto,
+} from '../dto/task.dto';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
-import { DATABASE_ERROR, TASK_ERROR, NAME_SERVICE_TCP, NOTIFICATION_MESSAGE_PATTERNS, NotificationType } from '@slack/constants';
+import {
+  DATABASE_ERROR,
+  TASK_ERROR,
+  NAME_SERVICE_TCP,
+  NOTIFICATION_MESSAGE_PATTERNS,
+  NotificationType,
+} from '@slack/constants';
 import { ITaskResponse } from '../type/task.response';
 import { BoardMemberEntity } from '../entity/board_member.entity';
 import { TaskCommonService } from './task-common.service';
@@ -48,7 +61,7 @@ export class TaskService {
     private readonly queueService: QueueService,
     @Inject(NAME_SERVICE_TCP.NOTIFICATION_SERVICE)
     private readonly notificationClient: ClientProxy,
-  ) { }
+  ) {}
 
   async createNewTask(
     dto: CreateTaskDto,
@@ -96,16 +109,22 @@ export class TaskService {
       );
     }
 
-    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
-      action: AuditAction.TASK_CREATED,
-      actorId: requesterId,
-      entityType: AuditEntityType.TASK,
-      entityId: result.id,
-      metadata: { groupId: dto.groupId, title: result.title },
-    });
+    this.queueService
+      .addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+        action: AuditAction.TASK_CREATED,
+        actorId: requesterId,
+        entityType: AuditEntityType.TASK,
+        entityId: result.id,
+        metadata: { groupId: dto.groupId, title: result.title },
+      })
+      .catch((err) =>
+        this.logger.error(
+          'Failed to dispatch SAVE_AUDIT_LOG job (task created)',
+          err,
+        ),
+      );
 
     return result;
-
   }
 
   async updateTaskDetails(
@@ -119,7 +138,14 @@ export class TaskService {
       async (manager) => {
         const task = await manager.findOne(TaskEntity, {
           where: { id },
-          relations: ['labels', 'group', 'members', 'attachments', 'checklists', 'checklists.items'],
+          relations: [
+            'labels',
+            'group',
+            'members',
+            'attachments',
+            'checklists',
+            'checklists.items',
+          ],
         });
 
         if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
@@ -162,16 +188,22 @@ export class TaskService {
       updatedTask.dueDate,
     );
 
-    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
-      action: AuditAction.TASK_UPDATED,
-      actorId: requesterId,
-      entityType: AuditEntityType.TASK,
-      entityId: id,
-      metadata: { groupId: updatedTask.groupId, title: result.title },
-    });
+    this.queueService
+      .addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+        action: AuditAction.TASK_UPDATED,
+        actorId: requesterId,
+        entityType: AuditEntityType.TASK,
+        entityId: id,
+        metadata: { groupId: updatedTask.groupId, title: result.title },
+      })
+      .catch((err) =>
+        this.logger.error(
+          'Failed to dispatch SAVE_AUDIT_LOG job (task updated)',
+          err,
+        ),
+      );
 
     return result;
-
   }
 
   async removeTask(id: string, requesterId: string): Promise<string> {
@@ -203,17 +235,23 @@ export class TaskService {
 
     await this.handleTaskDeadlineJob(id, groupId, boardId, null);
 
-    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
-      action: AuditAction.TASK_DELETED,
-      actorId: requesterId,
+    this.queueService
+      .addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+        action: AuditAction.TASK_DELETED,
+        actorId: requesterId,
 
-      entityType: AuditEntityType.TASK,
-      entityId: id,
-      metadata: { groupId },
-    });
+        entityType: AuditEntityType.TASK,
+        entityId: id,
+        metadata: { groupId },
+      })
+      .catch((err) =>
+        this.logger.error(
+          'Failed to dispatch SAVE_AUDIT_LOG job (task deleted)',
+          err,
+        ),
+      );
 
     return `Task with ID ${id} has been deleted`;
-
   }
 
   async getTaskDetails(
@@ -222,7 +260,14 @@ export class TaskService {
   ): Promise<ITaskResponse> {
     const task = await this.taskRepo.findOne({
       where: { id },
-      relations: ['labels', 'group', 'members', 'attachments', 'checklists', 'checklists.items'],
+      relations: [
+        'labels',
+        'group',
+        'members',
+        'attachments',
+        'checklists',
+        'checklists.items',
+      ],
     });
     if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
 
@@ -352,7 +397,7 @@ export class TaskService {
         .catch(() => null);
       const assignerName = assigner
         ? `${assigner.firstName || ''} ${assigner.lastName || ''}`.trim() ||
-        'User'
+          'User'
         : 'User';
 
       firstValueFrom(
@@ -388,7 +433,6 @@ export class TaskService {
     }
 
     return 'Assign member to task successfully';
-
   }
 
   async unassignMemberFromTask(
@@ -433,7 +477,6 @@ export class TaskService {
     });
 
     return 'Unassign member from task successfully';
-
   }
 
   async toggleTaskLabel(
@@ -495,41 +538,41 @@ export class TaskService {
       order: task.order,
       labels: task.labels
         ? task.labels.map((l) => ({
-          id: l.id,
-          boardId: l.boardId,
-          name: l.name,
-          color: l.color,
-        }))
+            id: l.id,
+            boardId: l.boardId,
+            name: l.name,
+            color: l.color,
+          }))
         : [],
       members: task.members
         ? task.members.map((m) => ({
-          id: m.id,
-          taskId: m.taskId,
-          memberId: m.memberId,
-        }))
+            id: m.id,
+            taskId: m.taskId,
+            memberId: m.memberId,
+          }))
         : [],
       attachments: task.attachments
         ? task.attachments.map((a) => ({
-          id: a.id,
-          taskId: a.taskId,
-          title: a.title,
-          link: a.link,
-        }))
+            id: a.id,
+            taskId: a.taskId,
+            title: a.title,
+            link: a.link,
+          }))
         : [],
       checklists: task.checklists
         ? task.checklists.map((c) => ({
-          id: c.id,
-          taskId: c.taskId,
-          name: c.name,
-          items: c.items
-            ? c.items.map((i) => ({
-              id: i.id,
-              checklistId: i.checklistId,
-              content: i.content,
-              isCompleted: i.isCompleted,
-            }))
-            : [],
-        }))
+            id: c.id,
+            taskId: c.taskId,
+            name: c.name,
+            items: c.items
+              ? c.items.map((i) => ({
+                  id: i.id,
+                  checklistId: i.checklistId,
+                  content: i.content,
+                  isCompleted: i.isCompleted,
+                }))
+              : [],
+          }))
         : [],
       isDone: task.isDone,
       createdAt: task.createdAt,
@@ -705,7 +748,10 @@ export class TaskService {
     }
   }
 
-  async dragDropTask(dto: DragDropTaskDto, requesterId: string): Promise<string> {
+  async dragDropTask(
+    dto: DragDropTaskDto,
+    requesterId: string,
+  ): Promise<string> {
     const { sourceGroupId, targetGroupId } = await this.dataSource.transaction(
       async (manager) => {
         const task = await manager.findOne(TaskEntity, {
@@ -829,50 +875,56 @@ export class TaskService {
     });
   }
 
-  async changeTaskGroup(dto: ChangeTaskGroupDto, requesterId: string): Promise<string> {
+  async changeTaskGroup(
+    dto: ChangeTaskGroupDto,
+    requesterId: string,
+  ): Promise<string> {
     const { taskId, targetGroupId } = dto;
-    const { sourceGroupId } = await this.dataSource.transaction(async (manager) => {
-      const task = await manager.findOne(TaskEntity, {
-        where: { id: taskId },
-        relations: ['group', 'group.board'],
-      });
-      if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
+    const { sourceGroupId } = await this.dataSource.transaction(
+      async (manager) => {
+        const task = await manager.findOne(TaskEntity, {
+          where: { id: taskId },
+          relations: ['group', 'group.board'],
+        });
+        if (!task) throw new RpcException(TASK_ERROR.TASK_NOT_FOUND);
 
-      const targetGroup = await manager.findOneBy(TaskGroupEntity, { id: targetGroupId });
-      if (!targetGroup) throw new RpcException(TASK_ERROR.GROUP_NOT_FOUND);
+        const targetGroup = await manager.findOneBy(TaskGroupEntity, {
+          id: targetGroupId,
+        });
+        if (!targetGroup) throw new RpcException(TASK_ERROR.GROUP_NOT_FOUND);
 
-      // Check membership for source board
-      await this.commonService.checkBoardMembership(
-        task.group.boardId,
-        requesterId,
-        manager,
-      );
+        // Check membership for source board
+        await this.commonService.checkBoardMembership(
+          task.group.boardId,
+          requesterId,
+          manager,
+        );
 
-      // Check membership for target board
-      await this.commonService.checkBoardMembership(
-        targetGroup.boardId,
-        requesterId,
-        manager,
-      );
+        // Check membership for target board
+        await this.commonService.checkBoardMembership(
+          targetGroup.boardId,
+          requesterId,
+          manager,
+        );
 
-      const sourceGroupId = task.groupId;
+        const sourceGroupId = task.groupId;
 
-      // 1. Lấy max order hiện tại của group đích
-      const maxTargetOrder = await manager
-        .createQueryBuilder(TaskEntity, 'task')
-        .select('MAX(task.order)', 'maxOrder')
-        .where('task.groupId = :groupId', { groupId: targetGroupId })
-        .getRawOne();
+        // 1. Lấy max order hiện tại của group đích
+        const maxTargetOrder = await manager
+          .createQueryBuilder(TaskEntity, 'task')
+          .select('MAX(task.order)', 'maxOrder')
+          .where('task.groupId = :groupId', { groupId: targetGroupId })
+          .getRawOne();
 
-      // 2. Cập nhật cả groupId và order mới (đưa xuống cuối)
-      await manager.update(TaskEntity, task.id, {
-        groupId: targetGroupId,
-        order: (Number(maxTargetOrder?.maxOrder) || 0) + 1024,
-      });
+        // 2. Cập nhật cả groupId và order mới (đưa xuống cuối)
+        await manager.update(TaskEntity, task.id, {
+          groupId: targetGroupId,
+          order: (Number(maxTargetOrder?.maxOrder) || 0) + 1024,
+        });
 
-
-      return { sourceGroupId };
-    });
+        return { sourceGroupId };
+      },
+    );
 
     await this.cachedService.invalidateList(
       CACHE.TASK.TRACKERS.TASK_LIST_VERSION(sourceGroupId),
@@ -884,9 +936,20 @@ export class TaskService {
     return 'Task moved to new group successfully';
   }
 
-  async filterTasks(dto: FilterTasksDto, requesterId: string): Promise<ITaskResponse[]> {
-
-    const { boardId, name, startDate, dueDate, groupId, memberIds, labelIds, status } = dto;
+  async filterTasks(
+    dto: FilterTasksDto,
+    requesterId: string,
+  ): Promise<ITaskResponse[]> {
+    const {
+      boardId,
+      name,
+      startDate,
+      dueDate,
+      groupId,
+      memberIds,
+      labelIds,
+      status,
+    } = dto;
 
     await this.commonService.checkBoardMembership(boardId, requesterId);
 
@@ -899,12 +962,16 @@ export class TaskService {
 
     // Filter theo tên (nếu có)
     if (name) {
-      taskQuery = taskQuery.andWhere('task.title ILIKE :name', { name: `%${name}%` });
+      taskQuery = taskQuery.andWhere('task.title ILIKE :name', {
+        name: `%${name}%`,
+      });
     }
 
     // Filter theo ngày bắt đầu (nếu có)
     if (startDate) {
-      taskQuery = taskQuery.andWhere('task.startDate >= :startDate', { startDate });
+      taskQuery = taskQuery.andWhere('task.startDate >= :startDate', {
+        startDate,
+      });
     }
 
     // Filter theo ngày kết thúc (nếu có)
@@ -925,12 +992,22 @@ export class TaskService {
 
     // Filter theo assignee: Dùng innerJoin với alias riêng để không làm lọc mất dữ liệu trả về
     if (memberIds && memberIds.length > 0) {
-      taskQuery = taskQuery.innerJoin('task.members', 'm_filter', 'm_filter.memberId IN (:...memberIds)', { memberIds });
+      taskQuery = taskQuery.innerJoin(
+        'task.members',
+        'm_filter',
+        'm_filter.memberId IN (:...memberIds)',
+        { memberIds },
+      );
     }
 
     // Filter theo label: Tương tự dùng alias riêng
     if (labelIds && labelIds.length > 0) {
-      taskQuery = taskQuery.innerJoin('task.labels', 'l_filter', 'l_filter.id IN (:...labelIds)', { labelIds });
+      taskQuery = taskQuery.innerJoin(
+        'task.labels',
+        'l_filter',
+        'l_filter.id IN (:...labelIds)',
+        { labelIds },
+      );
     }
 
     // Sắp xếp theo order
@@ -942,5 +1019,4 @@ export class TaskService {
     // Format kết quả
     return tasks.map((task) => this.mapTaskResponse(task));
   }
-
 }
