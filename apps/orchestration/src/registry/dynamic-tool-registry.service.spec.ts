@@ -6,6 +6,9 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DynamicProviderEntity } from '../entity/dynamic-provider.entity';
 import { OpenAPI } from 'openapi-types';
 import { RpcException } from '@nestjs/microservices';
+import { buildTTL } from '@slack/common';
+
+const CACHE_TTL_MS = buildTTL('HOUR', 1);
 
 /** A spec with `operationCount` GET operations — operation 0 is about "refund", the rest are
  *  generic filler — enough to exercise the >128-tool semantic-search path deterministically. */
@@ -82,6 +85,10 @@ describe('DynamicToolRegistryService', () => {
     parserService = module.get(OpenApiParserService);
   });
 
+  // Service tự set 1 interval dọn cache (constructor) — không clear thì Jest
+  // treo lại sau khi hết test vì còn handle đang mở.
+  afterEach(() => service.onModuleDestroy());
+
   it('should lazy load spec from DB and parse tools correctly', async () => {
     const mockDoc = {
       openapi: '3.0.0',
@@ -147,6 +154,122 @@ describe('DynamicToolRegistryService', () => {
     // RAM cleared, but if db count still > 0, isDynamicProvider returns true
     mockRepo.count.mockResolvedValue(0);
     expect(await service.isDynamicProvider('p1')).toBe(false);
+  });
+
+  describe('cache TTL (bug fix — 1 instance refresh OAuth2 token cho provider, các instance khác cần tự đọc lại DB)', () => {
+    afterEach(() => jest.useRealTimers());
+
+    it('re-reads DB once the cache TTL elapses, even though the entry was accessed the whole time (lastAccessed alone must not defer reload forever)', async () => {
+      jest.useFakeTimers();
+      mockRepo.findOne.mockResolvedValue({
+        specUrl: 'http://example.com/spec.json',
+        isActive: true,
+      });
+      parserService.loadSpec.mockResolvedValue({
+        openapi: '3.0.0',
+        info: { title: 'Test', version: '1.0' },
+        paths: {},
+      } as unknown as OpenAPI.Document);
+
+      await service.getSpec('p1');
+      expect(mockRepo.findOne).toHaveBeenCalledTimes(1);
+
+      // Truy cập liên tục TRƯỚC khi hết TTL — không được đọc lại DB.
+      await jest.advanceTimersByTimeAsync(CACHE_TTL_MS / 2);
+      await service.getSpec('p1');
+      await jest.advanceTimersByTimeAsync(CACHE_TTL_MS / 2 - 1000);
+      await service.getSpec('p1');
+      expect(mockRepo.findOne).toHaveBeenCalledTimes(1);
+
+      // Qua khỏi TTL tính từ lúc LOAD (không phải từ lần truy cập gần nhất) — phải đọc lại DB.
+      await jest.advanceTimersByTimeAsync(2000);
+      await service.getSpec('p1');
+      expect(mockRepo.findOne).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('markTokenRefreshed (bug fix — TTL reload racing a reactive OAuth2 refresh not yet persisted)', () => {
+    afterEach(() => jest.useRealTimers());
+
+    const T0 = new Date('2026-01-01T00:00:00.000Z');
+
+    it('keeps the RAM token on a TTL reload when it was mutated AFTER the DB row was last written (persist job has not landed yet)', async () => {
+      jest.useFakeTimers({ now: T0 });
+      parserService.loadSpec.mockResolvedValue({
+        openapi: '3.0.0',
+        info: { title: 'Test', version: '1.0' },
+        paths: {},
+      } as unknown as OpenAPI.Document);
+      mockRepo.findOne.mockResolvedValueOnce({
+        specUrl: 'http://example.com/spec.json',
+        isActive: true,
+        accessToken: 'original-access-token',
+        refreshToken: 'original-refresh-token',
+        updatedAt: T0,
+      });
+
+      const spec = await service.getProviderSpec('p1');
+
+      // 401 → reactive renew, 5s sau lần load: mutate RAM trực tiếp rồi báo lại cho
+      // registry, giống hệt DynamicToolExecutorService.refreshOAuth2Token().
+      await jest.advanceTimersByTimeAsync(5000);
+      spec.accessToken = 'fresh-access-token';
+      spec.refreshToken = 'fresh-refresh-token';
+      service.markTokenRefreshed('p1'); // tokenMutatedAt = T0 + 5s
+
+      // Hết TTL → ensureLoaded() phải đọc lại DB. mockRepo vẫn trả về đúng bản GHI TỪ
+      // TRƯỚC lúc mutate (updatedAt=T0, job persist token mới chưa kịp chạy xong) —
+      // RAM (T0+5s) mới hơn nên phải thắng.
+      mockRepo.findOne.mockResolvedValueOnce({
+        specUrl: 'http://example.com/spec.json',
+        isActive: true,
+        accessToken: 'original-access-token',
+        refreshToken: 'original-refresh-token',
+        updatedAt: T0,
+      });
+      await jest.advanceTimersByTimeAsync(CACHE_TTL_MS + 1000);
+
+      const reloaded = await service.getProviderSpec('p1');
+      expect(reloaded.accessToken).toBe('fresh-access-token');
+      expect(reloaded.refreshToken).toBe('fresh-refresh-token');
+    });
+
+    it('adopts the DB token on a TTL reload when it is newer than the last RAM mutation (persist job already landed)', async () => {
+      jest.useFakeTimers({ now: T0 });
+      parserService.loadSpec.mockResolvedValue({
+        openapi: '3.0.0',
+        info: { title: 'Test', version: '1.0' },
+        paths: {},
+      } as unknown as OpenAPI.Document);
+      mockRepo.findOne.mockResolvedValueOnce({
+        specUrl: 'http://example.com/spec.json',
+        isActive: true,
+        accessToken: 'original-access-token',
+        refreshToken: 'original-refresh-token',
+        updatedAt: T0,
+      });
+
+      const spec = await service.getProviderSpec('p1');
+      await jest.advanceTimersByTimeAsync(5000);
+      spec.accessToken = 'fresh-access-token';
+      spec.refreshToken = 'fresh-refresh-token';
+      service.markTokenRefreshed('p1'); // tokenMutatedAt = T0 + 5s
+
+      // Job persist chạy xong ngay sau đó (T0 + 5.5s) — TRƯỚC khi TTL hết hạn.
+      const persistedAt = new Date(T0.getTime() + 5500);
+      await jest.advanceTimersByTimeAsync(CACHE_TTL_MS + 1000);
+      mockRepo.findOne.mockResolvedValueOnce({
+        specUrl: 'http://example.com/spec.json',
+        isActive: true,
+        accessToken: 'persisted-access-token',
+        refreshToken: 'persisted-refresh-token',
+        updatedAt: persistedAt,
+      });
+
+      const reloaded = await service.getProviderSpec('p1');
+      expect(reloaded.accessToken).toBe('persisted-access-token');
+      expect(reloaded.refreshToken).toBe('persisted-refresh-token');
+    });
   });
 
   describe('semantic tool search (Giai đoạn 4 — Tool RAG, >128 tools)', () => {

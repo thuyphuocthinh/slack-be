@@ -51,6 +51,12 @@ export class ToggleReactionRequestDto {
   emoji: string;
 }
 
+export class ToggleFeedbackRequestDto {
+  messageId: string;
+  userId: string;
+  type: 'like' | 'unlike';
+}
+
 export class GetThreadRequestDto {
   userId: string;
   workspaceId: string;

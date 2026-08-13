@@ -1,0 +1,19 @@
+{
+  "workspaces": [
+    {
+      "id": "6e266c75-60e9-44b5-a8cf-87fc07b200e9",
+      "channelId": "e6f9cb9d-5b3e-4b8a-be61-156255d84a58",
+      "botUserId": "f995e8eb-81b8-4008-869d-53f28d22147a"
+    },
+    {
+      "id": "41b91d38-cea6-4d2e-8a9f-4b4eb35c302e",
+      "channelId": "d6c4c686-9df4-45aa-b8a1-1c31c706618d",
+      "botUserId": "db68b7b7-143e-47e5-b757-0d04538f1d9a"
+    },
+    {
+      "id": "73975da2-dfd8-484b-84f8-265d14ebdc8b",
+      "channelId": "dcd64ae0-fd87-44c6-87a3-51aaa004fd8a",
+      "botUserId": "1134552a-59a7-4e19-b912-1b15ede78a74"
+    }
+  ]
+}

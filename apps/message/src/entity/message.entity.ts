@@ -10,6 +10,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { MessageReactionEntity } from './message_reaction.entity';
+import { MessageFeedbackEntity } from './message_feedback.entity';
 import { MessageMentionEntity } from './message_mention.entity';
 import { MessageAttachmentEntity } from './message_attachment.entity';
 import { ILinkPreviewMetadata } from '../types/link-preview.interface';
@@ -72,6 +73,9 @@ export class MessageEntity {
   @OneToMany(() => MessageReactionEntity, (reaction) => reaction.message)
   reactions: MessageReactionEntity[];
 
+  @OneToMany(() => MessageFeedbackEntity, (feedback) => feedback.message)
+  feedback: MessageFeedbackEntity[];
+
   @OneToMany(() => MessageMentionEntity, (mention) => mention.message)
   mentions: MessageMentionEntity[];
 
@@ -94,6 +98,13 @@ export class MessageEntity {
     name: 'tool_calls',
   })
   toolCalls?: IToolCallTrace[] | null;
+
+  @Column({
+    type: 'int',
+    nullable: true,
+    name: 'execution_time_ms',
+  })
+  executionTimeMs?: number | null;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt: Date;

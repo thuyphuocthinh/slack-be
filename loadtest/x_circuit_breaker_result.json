@@ -1,0 +1,207 @@
+{
+  "burstStart": 1786457532717,
+  "sendResults": [
+    {
+      "email": "loadtest_1@test.local",
+      "i": 0,
+      "status": 201
+    },
+    {
+      "email": "loadtest_1@test.local",
+      "i": 1,
+      "status": 201
+    },
+    {
+      "email": "loadtest_1@test.local",
+      "i": 2,
+      "status": 201
+    },
+    {
+      "email": "loadtest_1@test.local",
+      "i": 3,
+      "status": 201
+    },
+    {
+      "email": "loadtest_1@test.local",
+      "i": 4,
+      "status": 201
+    },
+    {
+      "email": "loadtest_2@test.local",
+      "i": 0,
+      "status": 201
+    },
+    {
+      "email": "loadtest_2@test.local",
+      "i": 1,
+      "status": 201
+    },
+    {
+      "email": "loadtest_2@test.local",
+      "i": 2,
+      "status": 201
+    },
+    {
+      "email": "loadtest_2@test.local",
+      "i": 3,
+      "status": 201
+    },
+    {
+      "email": "loadtest_2@test.local",
+      "i": 4,
+      "status": 201
+    },
+    {
+      "email": "loadtest_3@test.local",
+      "i": 0,
+      "status": 201
+    },
+    {
+      "email": "loadtest_3@test.local",
+      "i": 1,
+      "status": 201
+    },
+    {
+      "email": "loadtest_3@test.local",
+      "i": 2,
+      "status": 201
+    },
+    {
+      "email": "loadtest_3@test.local",
+      "i": 3,
+      "status": 201
+    },
+    {
+      "email": "loadtest_3@test.local",
+      "i": 4,
+      "status": 201
+    },
+    {
+      "email": "loadtest_4@test.local",
+      "i": 0,
+      "status": 201
+    },
+    {
+      "email": "loadtest_4@test.local",
+      "i": 1,
+      "status": 201
+    },
+    {
+      "email": "loadtest_4@test.local",
+      "i": 2,
+      "status": 201
+    },
+    {
+      "email": "loadtest_4@test.local",
+      "i": 3,
+      "status": 201
+    },
+    {
+      "email": "loadtest_4@test.local",
+      "i": 4,
+      "status": 201
+    },
+    {
+      "email": "loadtest_5@test.local",
+      "i": 0,
+      "status": 201
+    },
+    {
+      "email": "loadtest_5@test.local",
+      "i": 1,
+      "status": 201
+    },
+    {
+      "email": "loadtest_5@test.local",
+      "i": 2,
+      "status": 201
+    },
+    {
+      "email": "loadtest_5@test.local",
+      "i": 3,
+      "status": 201
+    },
+    {
+      "email": "loadtest_5@test.local",
+      "i": 4,
+      "status": 201
+    },
+    {
+      "email": "loadtest_6@test.local",
+      "i": 0,
+      "status": 201
+    },
+    {
+      "email": "loadtest_6@test.local",
+      "i": 1,
+      "status": 201
+    },
+    {
+      "email": "loadtest_6@test.local",
+      "i": 2,
+      "status": 201
+    },
+    {
+      "email": "loadtest_6@test.local",
+      "i": 3,
+      "status": 201
+    },
+    {
+      "email": "loadtest_6@test.local",
+      "i": 4,
+      "status": 201
+    },
+    {
+      "email": "loadtest_7@test.local",
+      "i": 0,
+      "status": 201
+    },
+    {
+      "email": "loadtest_7@test.local",
+      "i": 1,
+      "status": 201
+    },
+    {
+      "email": "loadtest_7@test.local",
+      "i": 2,
+      "status": 201
+    },
+    {
+      "email": "loadtest_7@test.local",
+      "i": 3,
+      "status": 201
+    },
+    {
+      "email": "loadtest_7@test.local",
+      "i": 4,
+      "status": 201
+    },
+    {
+      "email": "loadtest_8@test.local",
+      "i": 0,
+      "status": 201
+    },
+    {
+      "email": "loadtest_8@test.local",
+      "i": 1,
+      "status": 201
+    },
+    {
+      "email": "loadtest_8@test.local",
+      "i": 2,
+      "status": 201
+    },
+    {
+      "email": "loadtest_8@test.local",
+      "i": 3,
+      "status": 201
+    },
+    {
+      "email": "loadtest_8@test.local",
+      "i": 4,
+      "status": 201
+    }
+  ],
+  "openedAtMs": 1786457540179,
+  "botMsgs": []
+}

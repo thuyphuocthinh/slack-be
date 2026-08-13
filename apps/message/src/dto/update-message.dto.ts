@@ -19,4 +19,7 @@ export class UpdateMessageDto {
   @IsArray()
   @IsOptional()
   toolCalls?: IToolCallTrace[];
+
+  @IsOptional()
+  executionTimeMs?: number;
 }

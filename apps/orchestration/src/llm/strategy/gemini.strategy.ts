@@ -3,10 +3,8 @@ import { RpcException } from '@nestjs/microservices';
 import { JsonExtractor } from 'agentic-io-parser';
 import {
   GoogleGenerativeAI,
-  type ChatSession,
   type Content,
   type FunctionDeclarationSchema,
-  type Part,
   type Tool,
 } from '@google/generative-ai';
 import { traceable } from 'langsmith/traceable';
@@ -17,53 +15,10 @@ import {
   LlmHistoryTurn,
   LlmStrategy,
   LlmStructuredOptions,
-  LlmToolResult,
-  LlmTurnResult,
 } from './llm-strategy.interface';
 import { attachLlmCostMetadata } from '../llm-cost.util';
-
-/**
- * Gemini API thỉnh thoảng trả 429 (quota) hoặc 503 (server quá tải) — đều
- * là lỗi TẠM THỜI, tự hết sau vài giây. Dùng chung cho MỌI lời gọi Gemini
- * (chat lẫn structured output) — SDK Gemini không có retry built-in như
- * OpenAI/Anthropic SDK, phải tự viết, nhưng chỉ viết đúng 1 chỗ.
- */
-function isRetryableGeminiError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return (
-    /\[(429|503)/.test(message) ||
-    /Too Many Requests|Service Unavailable/i.test(message)
-  );
-}
-
-async function withGeminiRetry<T>(
-  fn: () => Promise<T>,
-  logger: Logger,
-  maxAttempts = 3,
-  signal?: AbortSignal,
-): Promise<T> {
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      // Đã bị huỷ (Stop) — đừng thử lại, cứ để lỗi bay thẳng lên cho
-      // runCancellable() nhận ra signal.aborted và quy về TurnCancelledError.
-      if (
-        attempt === maxAttempts ||
-        signal?.aborted ||
-        !isRetryableGeminiError(error)
-      ) {
-        throw error;
-      }
-      const delayMs = 1000 * 2 ** (attempt - 1); // 1s, 2s, 4s
-      logger.warn(
-        `Gemini call failed (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs}ms: ${(error as Error).message}`,
-      );
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-    }
-  }
-  throw new Error('withGeminiRetry: unreachable');
-}
+import { withGeminiRetry } from './gemini-retry.util';
+import { GeminiChatSession } from './gemini-chat-session';
 
 @Injectable()
 export class GeminiStrategy implements LlmStrategy {
@@ -98,8 +53,8 @@ export class GeminiStrategy implements LlmStrategy {
     ];
 
     const requestOptions = {
-      baseUrl: process.env.AI_ROUTER_URL 
-        ? process.env.AI_ROUTER_URL.replace(/\/v1$/, '') 
+      baseUrl: process.env.AI_ROUTER_URL
+        ? process.env.AI_ROUTER_URL.replace(/\/v1$/, '')
         : 'http://slack-9router:20128',
     };
 
@@ -128,8 +83,8 @@ export class GeminiStrategy implements LlmStrategy {
     }
 
     const requestOptions = {
-      baseUrl: process.env.AI_ROUTER_URL 
-        ? process.env.AI_ROUTER_URL.replace(/\/v1$/, '') 
+      baseUrl: process.env.AI_ROUTER_URL
+        ? process.env.AI_ROUTER_URL.replace(/\/v1$/, '')
         : 'http://slack-9router:20128',
     };
 
@@ -149,8 +104,10 @@ export class GeminiStrategy implements LlmStrategy {
     const generate = traceable(
       async (prompt: string) => {
         const result = await withGeminiRetry(
-          () => model.generateContent(prompt),
+          () => model.generateContent(prompt, { signal: opts.signal }),
           this.logger,
+          3,
+          opts.signal,
         );
         // Giai đoạn 4, Step 7 — gắn usage/chi phí ước lượng vào chính trace
         // "gemini.generateStructured" này (bên trong hàm traceable() bọc).
@@ -169,7 +126,7 @@ export class GeminiStrategy implements LlmStrategy {
     const text = result.response.text();
     const extractor = new JsonExtractor();
     const cleanJson = extractor.extract(text);
-    
+
     return JSON.parse(cleanJson) as T;
   }
 
@@ -182,6 +139,7 @@ export class GeminiStrategy implements LlmStrategy {
   private toGeminiSchema(
     schema: Record<string, unknown>,
   ): FunctionDeclarationSchema {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- lấy ra để LOẠI khỏi `rest`, không cần dùng trực tiếp.
     const { $schema, additionalProperties, properties, items, ...rest } =
       schema;
     const cleaned: Record<string, unknown> = { ...rest };
@@ -236,87 +194,5 @@ export class GeminiStrategy implements LlmStrategy {
       merged.shift();
     }
     return merged;
-  }
-}
-
-class GeminiChatSession implements LlmChatSession {
-  private readonly tracedSend: (
-    input: string | LlmToolResult[],
-    onToken?: (chunk: string) => void,
-    signal?: AbortSignal,
-  ) => Promise<LlmTurnResult>;
-
-  constructor(
-    private readonly chat: ChatSession,
-    private readonly logger: Logger,
-    private readonly model: string,
-  ) {
-    this.tracedSend = traceable(this.rawSend.bind(this), {
-      name: 'gemini.sendMessage',
-      run_type: 'llm',
-    }) as (
-      input: string | LlmToolResult[],
-      onToken?: (chunk: string) => void,
-      signal?: AbortSignal,
-    ) => Promise<LlmTurnResult>;
-  }
-
-  sendMessage(
-    input: string | LlmToolResult[],
-    onToken?: (chunk: string) => void,
-    signal?: AbortSignal,
-  ): Promise<LlmTurnResult> {
-    return this.tracedSend(input, onToken, signal);
-  }
-
-  private async rawSend(
-    input: string | LlmToolResult[],
-    onToken?: (chunk: string) => void,
-    signal?: AbortSignal,
-  ): Promise<LlmTurnResult> {
-    const message: string | Part[] =
-      typeof input === 'string'
-        ? input
-        : input.map((r) => ({
-            functionResponse: {
-              name: r.name,
-              response: { content: r.content },
-            },
-          }));
-
-    const result = await withGeminiRetry(
-      () => this.chat.sendMessageStream(message, { signal }),
-      this.logger,
-      3,
-      signal,
-    );
-    
-    let fullText = '';
-    for await (const chunk of result.stream) {
-      const chunkText = chunk.text();
-      if (chunkText) {
-        fullText += chunkText;
-        if (onToken) onToken(chunkText);
-      }
-    }
-
-    const response = await result.response;
-    const calls = response.functionCalls() ?? [];
-
-    const usage = response.usageMetadata;
-    if (usage) {
-      attachLlmCostMetadata(this.model, {
-        inputTokens: usage.promptTokenCount ?? 0,
-        outputTokens: usage.candidatesTokenCount ?? 0,
-      });
-    }
-
-    return {
-      text: fullText,
-      toolCalls: calls.map((c) => ({
-        name: c.name,
-        args: c.args as Record<string, unknown>,
-      })),
-    };
   }
 }

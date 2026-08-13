@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
+import { And, IsNull, LessThan, Not, Repository } from 'typeorm';
 import { ORCHESTRATION_CONSTANTS } from '@slack/constants';
 import {
   OrchestrationCheckpointEntity,
@@ -14,6 +14,8 @@ import {
   CreateCheckpointRequestDto,
   FindCheckpointByIdRequestDto,
   FindPendingCheckpointRequestDto,
+  MarkStalledAsRejectedRequestDto,
+  MarkToolExecutedRequestDto,
 } from '../dto/checkpoint.dto';
 
 @Injectable()
@@ -31,8 +33,11 @@ export class CheckpointService {
     const expiresAt = new Date(
       Date.now() + ORCHESTRATION_CONSTANTS.CHECKPOINT_EXPIRY_MS,
     );
+    const toolLabel = dto.pendingTool
+      ? `${dto.pendingTool.provider}.${dto.pendingTool.name}`
+      : `clarification(${dto.clarificationCandidates?.map((c) => c.provider).join(',')})`;
     this.logger.log(
-      `create() replyMessageId=${dto.replyMessageId} tool=${dto.pendingTool.provider}.${dto.pendingTool.name} expiresAt=${expiresAt.toISOString()}`,
+      `create() replyMessageId=${dto.replyMessageId} tool=${toolLabel} expiresAt=${expiresAt.toISOString()}`,
     );
     const saved = await this.repo.save(this.repo.create({ ...dto, expiresAt }));
     return this.toResponseDto(saved);
@@ -62,6 +67,30 @@ export class CheckpointService {
     return entities.map((e) => this.toResponseDto(e));
   }
 
+  // Bug fix — checkpoint kẹt vô hình sau worker crash:
+  // status=APPROVED + execution_started_at IS NOT NULL (claimExecution() đã
+  // chạy) nhưng worker crash trước khi tool thật sự chạy xong → không ai biết,
+  // không bao giờ cleanup (findExpiredPending() chỉ quét PENDING).
+  // Quét checkpoint quá STALLED_EXECUTION_TTL_MS kể từ execution_started_at —
+  // đủ dài để không lẫn với execution đang thật sự chạy.
+  async findStalledExecution(): Promise<CheckpointResponseDto[]> {
+    const stalledBefore = new Date(
+      Date.now() - ORCHESTRATION_CONSTANTS.STALLED_EXECUTION_TTL_MS,
+    );
+    const entities = await this.repo.find({
+      where: {
+        status: OrchestrationCheckpointStatus.APPROVED,
+        executionStartedAt: And(Not(IsNull()), LessThan(stalledBefore)),
+        // toolExecutedAt đã set = tool THẬT đã chạy xong (thành công hoặc lỗi
+        // business logic đã được approveCheckpoint() xử lý) — không phải worker
+        // crash, không phải việc của cron này (status chỉ chưa bao giờ được
+        // chuyển ra khỏi APPROVED sau khi xử lý xong, không có nghĩa là đang kẹt).
+        toolExecutedAt: IsNull(),
+      },
+    });
+    return entities.map((e) => this.toResponseDto(e));
+  }
+
   async findById(
     dto: FindCheckpointByIdRequestDto,
   ): Promise<CheckpointResponseDto | null> {
@@ -86,9 +115,16 @@ export class CheckpointService {
       pendingTool,
       pendingTask,
       roundsSoFar,
+      remainingSteps,
       history,
       status,
+      kind,
+      riskLevel,
+      clarificationQuestion,
+      clarificationCandidates,
+      selectedProvider,
       expiresAt,
+      toolExecutedAt,
       createdAt,
       updatedAt,
     } = entity;
@@ -104,9 +140,16 @@ export class CheckpointService {
       pendingTool,
       pendingTask,
       roundsSoFar,
+      remainingSteps,
       history,
       status,
+      kind,
+      riskLevel,
+      clarificationQuestion,
+      clarificationCandidates,
+      selectedProvider,
       expiresAt,
+      toolExecutedAt,
       createdAt,
       updatedAt,
     };
@@ -115,9 +158,19 @@ export class CheckpointService {
   async claim(
     dto: ClaimCheckpointRequestDto,
   ): Promise<ClaimCheckpointResponseDto> {
+    const updatePayload: Parameters<typeof this.repo.update>[1] = {
+      status: dto.toStatus,
+    };
+    if (dto.selectedProvider !== undefined) {
+      updatePayload.selectedProvider = dto.selectedProvider;
+    }
+    if (dto.updatedPendingTool !== undefined) {
+      Object.assign(updatePayload, { pendingTool: dto.updatedPendingTool });
+    }
+
     const result = await this.repo.update(
       { id: dto.id, status: OrchestrationCheckpointStatus.PENDING },
-      { status: dto.toStatus },
+      updatePayload,
     );
     const claimed = result.affected === 1;
     this.logger.log(
@@ -142,6 +195,46 @@ export class CheckpointService {
       .execute();
     const claimed = result.affected === 1;
     this.logger.log(`claimExecution() id=${dto.id} claimed=${claimed}`);
+    return { claimed };
+  }
+
+  // Bug fix — atomic update để dọn checkpoint kẹt sau worker crash. Khác
+  // claim() (WHERE status=PENDING): ở đây checkpoint đã APPROVED nhưng
+  // execution bị gián đoạn. WHERE status=APPROVED đảm bảo không nhầm với
+  // checkpoint đang PENDING hoặc đã REJECTED (idempotent: nếu chạy 2 lần
+  // thì lần 2 affected=0, claimed=false — an toàn).
+  // Bug fix — set ngay sau khi mcpClient.callTool() thật đã chạy xong thành
+  // công. Không cần atomic/conditional (chỉ ghi 1 lần, không tranh chấp).
+  async markToolExecuted(dto: MarkToolExecutedRequestDto): Promise<void> {
+    await this.repo
+      .createQueryBuilder()
+      .update(OrchestrationCheckpointEntity)
+      .set({ toolExecutedAt: () => 'now()' })
+      .where('id = :id', { id: dto.id })
+      .execute();
+  }
+
+  // Đảo ngược claim() 'approved' khi bước enqueue job NGAY SAU nó lại thất bại — không
+  // revert thì checkpoint kẹt vĩnh viễn ở APPROVED mà chưa job nào từng được tạo:
+  // findExpiredPending() chỉ quét PENDING, findStalledExecution() cần execution_started_at
+  // (chỉ set BÊN TRONG job không tồn tại đó). WHERE status='approved' đảm bảo chỉ tự sửa
+  // đúng claim của chính request này.
+  async revertApprovedClaim(dto: { id: string }): Promise<void> {
+    await this.repo.update(
+      { id: dto.id, status: OrchestrationCheckpointStatus.APPROVED },
+      { status: OrchestrationCheckpointStatus.PENDING },
+    );
+  }
+
+  async markStalledAsRejected(
+    dto: MarkStalledAsRejectedRequestDto,
+  ): Promise<ClaimCheckpointResponseDto> {
+    const result = await this.repo.update(
+      { id: dto.id, status: OrchestrationCheckpointStatus.APPROVED },
+      { status: OrchestrationCheckpointStatus.REJECTED },
+    );
+    const claimed = result.affected === 1;
+    this.logger.warn(`markStalledAsRejected() id=${dto.id} claimed=${claimed}`);
     return { claimed };
   }
 }

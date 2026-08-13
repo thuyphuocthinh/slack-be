@@ -24,13 +24,33 @@ export class McpAuthClientService {
         : undefined;
   }
 
+  // 200 OK không đảm bảo shape đúng (VD server trả {} thay vì {data: [...]}) — res.data.data
+  // khi đó là undefined chứ KHÔNG throw, nên lỗi trôi ra khỏi try/catch này và nổ ra thành
+  // TypeError thô ở nơi gọi (VD isConnected() gọi .some() trên undefined). Validate tường
+  // minh ở đây để mọi shape sai đều thành RpcException nhất quán, không có đường thoát.
+  private extractData<T>(res: { data?: unknown }, context: string): T {
+    const body = res.data as { data?: T } | undefined;
+    if (!body || body.data === undefined) {
+      throw new Error(
+        `mcp-auth response for ${context} is missing the "data" field`,
+      );
+    }
+    return body.data;
+  }
+
   async getConnectionStatus(ownerId: string): Promise<ProviderStatusDto[]> {
     try {
       const res = await axios.get(`${this.baseUrl}/connect/status`, {
         params: { owner_id: ownerId },
         headers: { Authorization: this.basicAuthHeader },
       });
-      return res.data.data;
+      const data = this.extractData<ProviderStatusDto[]>(res, 'connect/status');
+      if (!Array.isArray(data)) {
+        throw new Error(
+          'mcp-auth response for connect/status: "data" is not an array',
+        );
+      }
+      return data;
     } catch (error) {
       this.logger.error(`getConnectionStatus failed: ${error.message}`);
       throw new RpcException(ORCHESTRATION_ERROR.MCP_AUTH_REQUEST_FAILED);
@@ -42,13 +62,18 @@ export class McpAuthClientService {
     return statuses.some((s) => s.provider_id === provider && s.is_connected);
   }
 
-  async initiateConnect(dto: InitiateConnectRequestDto): Promise<InitiateConnectResponseDto> {
+  async initiateConnect(
+    dto: InitiateConnectRequestDto,
+  ): Promise<InitiateConnectResponseDto> {
     try {
       const res = await axios.get(`${this.baseUrl}/connect/initiate`, {
         params: { owner_id: dto.ownerId, provider: dto.provider },
         headers: { Authorization: this.basicAuthHeader },
       });
-      return res.data.data;
+      return this.extractData<InitiateConnectResponseDto>(
+        res,
+        'connect/initiate',
+      );
     } catch (error) {
       this.logger.error(`initiateConnect failed: ${error.message}`);
       throw new RpcException(ORCHESTRATION_ERROR.MCP_AUTH_REQUEST_FAILED);
@@ -59,7 +84,11 @@ export class McpAuthClientService {
     try {
       await axios.post(
         `${this.baseUrl}/connect/submit`,
-        { owner_id: dto.ownerId, provider: dto.provider, credentials: dto.credentials },
+        {
+          owner_id: dto.ownerId,
+          provider: dto.provider,
+          credentials: dto.credentials,
+        },
         { headers: { Authorization: this.basicAuthHeader } },
       );
     } catch (error) {

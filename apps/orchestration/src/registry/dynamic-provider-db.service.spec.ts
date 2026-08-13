@@ -24,6 +24,7 @@ describe('DynamicProviderDbService', () => {
     mockRepo = {
       create: jest.fn((data) => data),
       save: jest.fn(),
+      update: jest.fn(),
       remove: jest.fn(),
       find: jest.fn(),
       findOne: jest.fn(),
@@ -409,9 +410,7 @@ describe('DynamicProviderDbService', () => {
     });
 
     beforeEach(() => {
-      mockRepo.save.mockImplementation((entity: any) =>
-        Promise.resolve(entity),
-      );
+      mockRepo.update.mockResolvedValue({ affected: 1 });
     });
 
     it('throws DYNAMIC_PROVIDER_NOT_FOUND when the provider does not exist or belongs to another user', async () => {
@@ -436,7 +435,8 @@ describe('DynamicProviderDbService', () => {
         providerId: 'dynamic_abc',
       });
 
-      expect(mockRepo.save).toHaveBeenCalledWith(
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'dynamic_abc', refreshToken: 'old-refresh-token' },
         expect.objectContaining({
           name: 'Spotify',
           specUrl: 'https://api.spotify.com/openapi.json',
@@ -470,7 +470,8 @@ describe('DynamicProviderDbService', () => {
         expect.objectContaining({ refresh_token: 'old-refresh-token' }),
         expect.anything(),
       );
-      expect(mockRepo.save).toHaveBeenCalledWith(
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'dynamic_abc', refreshToken: 'old-refresh-token' },
         expect.objectContaining({
           accessToken: 'brand-new-access-token',
           refreshToken: 'rotated-refresh-token',
@@ -509,7 +510,7 @@ describe('DynamicProviderDbService', () => {
       await expect(
         service.updateProvider({ userId: 'user-1', providerId: 'dynamic_abc' }),
       ).rejects.toThrow(RpcException);
-      expect(mockRepo.save).not.toHaveBeenCalled();
+      expect(mockRepo.update).not.toHaveBeenCalled();
     });
 
     it('invalidates the RAM cache after a successful update so the next tool call re-reads fresh credentials', async () => {
@@ -568,7 +569,8 @@ describe('DynamicProviderDbService', () => {
       });
 
       expect(axios.post).not.toHaveBeenCalled();
-      expect(mockRepo.save).toHaveBeenCalledWith(
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'dynamic_tmdb', refreshToken: undefined },
         expect.objectContaining({ accessToken: 'new-bearer-token' }),
       );
     });
@@ -593,7 +595,7 @@ describe('DynamicProviderDbService', () => {
       ).rejects.toThrow(RpcException);
 
       expect(axios.post).not.toHaveBeenCalled();
-      expect(mockRepo.save).not.toHaveBeenCalled();
+      expect(mockRepo.update).not.toHaveBeenCalled();
     });
 
     it('returns hasAccessToken/hasRefreshToken/hasTokenUrl booleans reflecting the saved state', async () => {
@@ -610,6 +612,23 @@ describe('DynamicProviderDbService', () => {
       expect(result.hasAccessToken).toBe(true);
       expect(result.hasRefreshToken).toBe(true);
       expect(result.hasTokenUrl).toBe(true);
+    });
+
+    it('bug fix — throws DYNAMIC_PROVIDER_CONCURRENT_UPDATE instead of silently clobbering a token rotated elsewhere (CAS)', async () => {
+      mockRepo.findOne.mockResolvedValue(existingEntity());
+      (axios.post as jest.Mock).mockResolvedValue({
+        data: { access_token: 'fresh-access-token', expires_in: 3600 },
+      });
+      mockRepo.update.mockResolvedValue({ affected: 0 });
+
+      await expect(
+        service.updateProvider({ userId: 'user-1', providerId: 'dynamic_abc' }),
+      ).rejects.toThrow(RpcException);
+
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'dynamic_abc', refreshToken: 'old-refresh-token' },
+        expect.anything(),
+      );
     });
   });
 });

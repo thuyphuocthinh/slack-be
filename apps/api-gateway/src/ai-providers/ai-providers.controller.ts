@@ -21,7 +21,7 @@ import { RateLimit } from '../common/guards/rate-limit.decorator';
 @ApiBearerAuth()
 @Controller('ai-providers')
 export class AiProvidersController {
-  constructor(private readonly aiProvidersService: AiProvidersService) {}
+  constructor(private readonly aiProvidersService: AiProvidersService) { }
 
   @Get()
   @ApiOperation({
@@ -90,6 +90,8 @@ export class AiProvidersController {
       user.sub,
       messageId,
       dto.action,
+      dto.selectedProvider,
+      dto.editedArgs,
     );
   }
 

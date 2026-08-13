@@ -285,6 +285,21 @@ export const CACHE = {
       // Cờ báo turn cần dừng — vòng lặp đang chạy tự poll cờ này.
       TURN_CANCEL: (messageId: string): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:orchestration:v1:turn_cancel:${messageId}`,
+      CIRCUIT_BREAKER_STATE: (key: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:orchestration:v1:circuit_breaker:state:${key}`,
+      CIRCUIT_BREAKER_OPENED_AT: (key: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:orchestration:v1:circuit_breaker:opened_at:${key}`,
+      CIRCUIT_BREAKER_PROBE_LOCK: (key: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:orchestration:v1:circuit_breaker:probe_lock:${key}`,
+      CIRCUIT_BREAKER_TOTAL: (key: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:orchestration:v1:circuit_breaker:total:${key}`,
+      CIRCUIT_BREAKER_FAILURES: (key: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:orchestration:v1:circuit_breaker:failures:${key}`,
+      // Fair queueing — đếm số lần workspace trigger AI trong 1 cửa sổ trượt,
+      // dùng làm priority cho job (workspace trigger dồn dập bị đẩy priority
+      // tệ dần, không chặn hẳn — xem AiTriggerPriorityService).
+      WORKSPACE_TRIGGER_COUNT: (workspaceId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:orchestration:v1:workspace_trigger_count:${workspaceId}`,
     },
   },
 };

@@ -1,0 +1,113 @@
+version: '3.8'
+
+# Compose gọn cho LOCAL DEV — chỉ chạy hạ tầng cần thiết (Postgres + Redis + 9router),
+# bỏ PgBouncer/Loki/Grafana/Prometheus/cAdvisor/node-exporter (mấy cái đó phục vụ
+# observability trên server thật, không cần thiết để chạy tính năng ở local và
+# chỉ tổ tốn RAM trên máy dev). 9router PHẢI chạy — cả 3 LLM strategy (OpenAI/
+# Anthropic/Gemini) trong orchestration đều gọi qua nó, không có đường gọi
+# thẳng provider thật (xem apps/orchestration/src/llm/strategy/*.strategy.ts).
+#
+# Cách dùng:
+#   docker compose -f docker-compose.dev.yml up -d
+#
+# Rồi sửa .env trỏ vào container thay vì RDS/tunnel:
+#   DB_HOST=127.0.0.1
+#   DB_PORT=5432
+#   DB_USER=postgres
+#   DB_PASS=postgres
+#   DB_NAME=slack_db
+#   REDIS_HOST=127.0.0.1
+#   REDIS_PORT=6379
+#   REDIS_PASSWORD=123456
+#   BULLMQ_HOST=127.0.0.1
+#   BULLMQ_PORT=6380
+#   BULLMQ_PASSWORD=123456
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: slack-postgres-dev
+    restart: unless-stopped
+    command: postgres -c max_connections=300
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: slack_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis-cache:
+    image: redis:7-alpine
+    container_name: slack-redis-cache-dev
+    restart: unless-stopped
+    command: redis-server --requirepass 123456 --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_cache_dev_data:/data
+
+  redis-bullmq:
+    image: redis:7-alpine
+    container_name: slack-redis-bullmq-dev
+    restart: unless-stopped
+    command: redis-server --requirepass 123456 --appendonly yes
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_bullmq_dev_data:/data
+
+  9router:
+    image: decolua/9router:latest
+    container_name: slack-9router-dev
+    restart: unless-stopped
+    ports:
+      - "20128:20128"
+    volumes:
+      # Data (API key thật của OpenAI/Anthropic/Gemini + virtual key cấp cho
+      # slack-be) là volume RỖNG lúc đầu — bản cũ nằm trên EC2 đã mất, không
+      # có trong dump.sql. Phải vào cấu hình lại provider key từ đầu sau khi
+      # container này chạy lần đầu.
+      - 9router_dev_data:/app/data
+
+  # load-test-scale-plan.md — CHỈ dùng cho đo tải quy mô lớn (ramp 40→100→
+  # 300→1000), KHÔNG phải hạ tầng dev thường trực (xem comment đầu file lý do
+  # bỏ PgBouncer khỏi compose này). Trỏ THẲNG vào service "postgres" ở trên
+  # (KHÔNG phải RDS — khác hẳn block pgbouncer trong docker-compose.yml/production).
+  # DB_HOST dùng tên service trong network compose, không phải 127.0.0.1.
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: slack-pgbouncer-dev
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      LISTEN_PORT: 6432
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      # load-test-scale-plan.md — 50 (mặc định) gây "timeout exceeded when
+      # trying to connect" THẬT ở mốc 300 CCU (85.67% request lỗi), dù
+      # Postgres pg_stat_activity lúc đó chỉ 58/300 — nghẽn ở POOL pgbouncer,
+      # không phải Postgres. Nâng lên 250 (< max_connections=300 của Postgres,
+      # chừa margin cho các connection khác/admin).
+      DEFAULT_POOL_SIZE: 250
+    ports:
+      - "6432:6432"
+
+volumes:
+  postgres_dev_data:
+  redis_cache_dev_data:
+  redis_bullmq_dev_data:
+  9router_dev_data:

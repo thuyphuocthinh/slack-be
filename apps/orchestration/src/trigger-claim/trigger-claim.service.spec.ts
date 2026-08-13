@@ -14,6 +14,7 @@ describe('TriggerClaimService (Giai đoạn 4, Step 1 — idempotency cho PROCES
   };
   const mockRepo = {
     createQueryBuilder: jest.fn(() => mockQueryBuilder),
+    delete: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -54,5 +55,35 @@ describe('TriggerClaimService (Giai đoạn 4, Step 1 — idempotency cho PROCES
     const result = await service.claim('trigger-msg-1');
 
     expect(result).toBe(false);
+  });
+
+  describe('release (hardening: undo a claim when nothing real was created yet, so a retry is safe)', () => {
+    it('deletes the claim row for the given triggerMessageId', async () => {
+      mockRepo.delete.mockResolvedValue({ affected: 1 });
+
+      await service.release('trigger-msg-1');
+
+      expect(mockRepo.delete).toHaveBeenCalledWith({
+        triggerMessageId: 'trigger-msg-1',
+      });
+    });
+  });
+
+  describe('reapStaleClaims (TTL reaper: unblocks a claim orphaned by a hard worker crash)', () => {
+    it('deletes claims older than the TTL', async () => {
+      mockRepo.delete.mockResolvedValue({ affected: 2 });
+
+      await service.reapStaleClaims();
+
+      expect(mockRepo.delete).toHaveBeenCalledWith({
+        createdAt: expect.anything(),
+      });
+    });
+
+    it('does not warn when nothing was stale', async () => {
+      mockRepo.delete.mockResolvedValue({ affected: 0 });
+
+      await service.reapStaleClaims();
+    });
   });
 });

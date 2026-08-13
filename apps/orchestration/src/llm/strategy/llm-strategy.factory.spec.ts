@@ -55,7 +55,9 @@ describe('LlmStrategyFactory', () => {
       factory.resolve('not-a-real-model');
       fail('expected resolve() to throw');
     } catch (error) {
-      expect((error as RpcException).getError()).toEqual(ORCHESTRATION_ERROR.UNKNOWN_LLM_MODEL);
+      expect((error as RpcException).getError()).toEqual(
+        ORCHESTRATION_ERROR.UNKNOWN_LLM_MODEL,
+      );
     }
   });
 });

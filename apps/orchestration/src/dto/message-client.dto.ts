@@ -1,3 +1,4 @@
+import { EStepExecutionStatus, EMessageRole } from '@slack/constants';
 export class CreateOrchestrationMessageRequestDto {
   channelId: string;
   senderId: string;
@@ -16,7 +17,17 @@ export class UpdateOrchestrationMessageRequestDto {
   // object — Giai đoạn 3 (HITL) cần re-send content dạng object khi update
   // message "approval_request" kèm toolCalls (xem pauseForApproval()).
   content: string | Record<string, unknown>;
-  toolCalls?: { tool: string; status: 'success' | 'error' | 'awaiting_approval'; resultPreview?: string }[];
+  toolCalls?: {
+    tool: string;
+    status: EStepExecutionStatus;
+    resultPreview?: string;
+  }[];
+  // ver3.md mục 1 (dài hạn) — optional CÓ CHỦ ĐÍCH: chỉ cần truyền ở các call
+  // site có toolCalls thật (nơi có thể phát sinh ghi nhớ channel_memory), các
+  // nhánh lỗi chỉ update text bỏ qua an toàn (không channelId → updateMessage()
+  // tự bỏ qua bước ghi channel_memory).
+  channelId?: string;
+  executionTimeMs?: number;
 }
 
 export class GetMessageTextRequestDto {
@@ -30,9 +41,13 @@ export class GetRecentHistoryRequestDto {
   // Chỉ lấy message TRƯỚC message này (không tính chính nó)
   beforeMessageId: string;
   limit: number;
+  // Lưới an toàn ký tự cuối cùng (resolveHistoryCharBudget), KHÔNG thay cơ
+  // chế turn-count hiện có. Không truyền = giữ nguyên hành vi cũ (không cắt
+  // thêm theo ký tự).
+  charBudget?: number;
 }
 
 export class ChatHistoryTurnDto {
-  role: 'user' | 'model';
+  role: EMessageRole;
   text: string;
 }

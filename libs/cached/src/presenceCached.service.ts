@@ -1,36 +1,57 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import Redis from 'ioredis';
 import { CACHE } from './cached.constant';
 
 @Injectable()
 export class PresenceCacheService {
+  private readonly logger = new Logger(PresenceCacheService.name);
+
   constructor(
     @Inject('REDIS_CLIENT')
     private readonly redis: Redis,
-  ) { }
+  ) {}
 
   /**
    * Cập nhật thời gian hoạt động cuối cùng của User
    */
   async updateLastSeen(userId: string) {
-    const key = CACHE.PRESENCE.KEYS.USER_STATUS(userId);
-    const now = Math.floor(Date.now() / 1000);
-    // Lưu timestamp hiện tại và đặt TTL để tự động xóa nếu quá lâu không có signal
-    await this.redis.set(key, now.toString(), 'EX', CACHE.PRESENCE.SETTINGS.REDIS_TTL);
+    try {
+      const key = CACHE.PRESENCE.KEYS.USER_STATUS(userId);
+      const now = Math.floor(Date.now() / 1000);
+      // Lưu timestamp hiện tại và đặt TTL để tự động xóa nếu quá lâu không có signal
+      await this.redis.set(
+        key,
+        now.toString(),
+        'EX',
+        CACHE.PRESENCE.SETTINGS.REDIS_TTL,
+      );
+    } catch (error) {
+      this.logger.error(
+        `updateLastSeen() failed for user ${userId}: ${error.message}`,
+      );
+    }
   }
 
   /**
    * Xóa trạng thái Online ngay lập tức (khi logout/disconnect sạch)
    */
   async removeStatus(userId: string) {
-    const key = CACHE.PRESENCE.KEYS.USER_STATUS(userId);
-    await this.redis.del(key);
+    try {
+      const key = CACHE.PRESENCE.KEYS.USER_STATUS(userId);
+      await this.redis.del(key);
+    } catch (error) {
+      this.logger.error(
+        `removeStatus() failed for user ${userId}: ${error.message}`,
+      );
+    }
   }
 
   /**
    * Lấy trạng thái của danh sách User (hỗ trợ tới 100 người)
    */
-  async getPresences(userIds: string[]): Promise<Record<string, 'online' | 'offline'>> {
+  async getPresences(
+    userIds: string[],
+  ): Promise<Record<string, 'online' | 'offline'>> {
     if (userIds.length === 0) return {};
 
     const keys = userIds.map((id) => CACHE.PRESENCE.KEYS.USER_STATUS(id));
@@ -50,13 +71,12 @@ export class PresenceCacheService {
 
       const lastSeen = parseInt(lastSeenStr, 10);
       // Nếu thời gian kể từ lần cuối "vẫy tay" nhỏ hơn ngưỡng quy định thì coi là Online
-      presenceMap[id] = (now - lastSeen < threshold) ? 'online' : 'offline';
+      presenceMap[id] = now - lastSeen < threshold ? 'online' : 'offline';
     });
 
     return presenceMap;
   }
 }
-
 
 /*
 ### 1. Phía Client (Frontend) gửi yêu cầu:

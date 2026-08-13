@@ -6,11 +6,20 @@ import { CachedService } from './cached.service';
 import { RateLimitService } from './rateLimit.service';
 import { AuthCacheService } from './authCached.service';
 import { PresenceCacheService } from './presenceCached.service';
+import { AiTriggerPriorityService } from './aiTriggerPriority.service';
+
+const PROVIDERS = [
+  CachedService,
+  RateLimitService,
+  AuthCacheService,
+  PresenceCacheService,
+  AiTriggerPriorityService,
+];
 
 @Global()
 @Module({
-  providers: [CachedService, RateLimitService, AuthCacheService, PresenceCacheService],
-  exports: [CachedService, RateLimitService, AuthCacheService, PresenceCacheService],
+  providers: PROVIDERS,
+  exports: PROVIDERS,
 })
 export class CachedModule {
   static forRoot(): DynamicModule {

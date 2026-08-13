@@ -20,7 +20,6 @@ import { RemoveMemberDto } from '../dto/remove-member.dto';
 import { AuditAction, AuditEntityType } from '@slack/common';
 import { EJobName, EQueueName, QueueService } from '@slack/queue';
 
-
 @Injectable()
 export class ChannelMemberService {
   private readonly logger = new Logger(ChannelMemberService.name);
@@ -35,8 +34,7 @@ export class ChannelMemberService {
     private readonly workspaceClient: ClientProxy,
     private readonly cachedService: CachedService,
     private readonly queueService: QueueService,
-  ) { }
-
+  ) {}
 
   private async checkWorkspacePermission(
     workspaceId: string,
@@ -61,7 +59,6 @@ export class ChannelMemberService {
     );
   }
 
-
   private mapMemberToResponse(
     member: ChannelMemberEntity,
   ): ChannelMemberResponse {
@@ -70,7 +67,10 @@ export class ChannelMemberService {
     };
   }
 
-  async checkMemberInChannel(channelId: string, memberId: string): Promise<boolean> {
+  async checkMemberInChannel(
+    channelId: string,
+    memberId: string,
+  ): Promise<boolean> {
     const member = await this.channelMemberRepository.findOne({
       where: { channelId, memberId },
     });
@@ -143,17 +143,23 @@ export class ChannelMemberService {
 
     this.logger.log('Added member: ', JSON.stringify(dto, null, 2));
 
-    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
-      action: AuditAction.USER_ADDED_TO_CHANNEL,
-      actorId: performerId,
-      targetId: memberId,
-      entityType: AuditEntityType.CHANNEL,
-      entityId: channelId,
-      metadata: { workspaceId },
-    });
+    this.queueService
+      .addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+        action: AuditAction.USER_ADDED_TO_CHANNEL,
+        actorId: performerId,
+        targetId: memberId,
+        entityType: AuditEntityType.CHANNEL,
+        entityId: channelId,
+        metadata: { workspaceId },
+      })
+      .catch((err) =>
+        this.logger.error(
+          'Failed to dispatch SAVE_AUDIT_LOG job (member added)',
+          err,
+        ),
+      );
 
     return 'success';
-
   }
 
   async addBatchMembers(dto: AddBatchMembersDto): Promise<string> {
@@ -234,19 +240,25 @@ export class ChannelMemberService {
 
     if (newMemberIds.length > 0) {
       newMemberIds.forEach((id) => {
-        this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
-          action: AuditAction.USER_ADDED_TO_CHANNEL,
-          actorId: performerId,
-          targetId: id,
-          entityType: AuditEntityType.CHANNEL,
-          entityId: channelId,
-          metadata: { workspaceId },
-        });
+        this.queueService
+          .addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+            action: AuditAction.USER_ADDED_TO_CHANNEL,
+            actorId: performerId,
+            targetId: id,
+            entityType: AuditEntityType.CHANNEL,
+            entityId: channelId,
+            metadata: { workspaceId },
+          })
+          .catch((err) =>
+            this.logger.error(
+              'Failed to dispatch SAVE_AUDIT_LOG job (member added, bulk)',
+              err,
+            ),
+          );
       });
     }
 
     return 'success';
-
   }
 
   async removeMember(dto: RemoveMemberDto): Promise<string> {
@@ -326,17 +338,23 @@ export class ChannelMemberService {
 
     this.logger.log('Removed member: ', JSON.stringify(dto, null, 2));
 
-    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
-      action: AuditAction.USER_REMOVED_FROM_CHANNEL,
-      actorId: performerId,
-      targetId: targetMemberId,
-      entityType: AuditEntityType.CHANNEL,
-      entityId: channelId,
-      metadata: { workspaceId },
-    });
+    this.queueService
+      .addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+        action: AuditAction.USER_REMOVED_FROM_CHANNEL,
+        actorId: performerId,
+        targetId: targetMemberId,
+        entityType: AuditEntityType.CHANNEL,
+        entityId: channelId,
+        metadata: { workspaceId },
+      })
+      .catch((err) =>
+        this.logger.error(
+          'Failed to dispatch SAVE_AUDIT_LOG job (member removed)',
+          err,
+        ),
+      );
 
     return 'success';
-
   }
 
   async getMembers(channelId: string): Promise<ChannelMemberResponse[]> {
@@ -403,16 +421,22 @@ export class ChannelMemberService {
       JSON.stringify({ channelId, memberId }, null, 2),
     );
 
-    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
-      action: AuditAction.USER_REMOVED_FROM_CHANNEL,
-      actorId: memberId,
-      entityType: AuditEntityType.CHANNEL,
-      entityId: channelId,
-      metadata: { workspaceId, reason: 'leave' },
-    });
+    this.queueService
+      .addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+        action: AuditAction.USER_REMOVED_FROM_CHANNEL,
+        actorId: memberId,
+        entityType: AuditEntityType.CHANNEL,
+        entityId: channelId,
+        metadata: { workspaceId, reason: 'leave' },
+      })
+      .catch((err) =>
+        this.logger.error(
+          'Failed to dispatch SAVE_AUDIT_LOG job (member left)',
+          err,
+        ),
+      );
 
     return 'User left channel successfully';
-
   }
 
   async incrementUnreadCount(

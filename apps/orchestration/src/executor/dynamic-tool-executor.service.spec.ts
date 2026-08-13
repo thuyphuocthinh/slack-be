@@ -27,6 +27,7 @@ describe('DynamicToolExecutorService', () => {
   beforeEach(async () => {
     const mockRegistryService = {
       getProviderSpec: jest.fn(),
+      markTokenRefreshed: jest.fn(),
     };
 
     const mockRepo = {
@@ -107,6 +108,75 @@ describe('DynamicToolExecutorService', () => {
     );
   });
 
+  // Bug thật đã sửa (Stop giữa turn) — trước đây nhánh dynamic provider hoàn
+  // toàn không cancellable, phải đợi tool tự xong/timeout dù user đã bấm Stop.
+  // agentic-openapi-parser@1.8.0+ hỗ trợ AbortSignal ở ExecuteToolOptions.
+  it('accuracy_problem.md — forwards the Stop-cancellation signal all the way down to the underlying axios request config', async () => {
+    const mockSpec: OpenAPIV3.Document = {
+      openapi: '3.0.0',
+      info: { title: 'Test', version: '1.0' },
+      servers: [{ url: 'https://api.test.com' }],
+      paths: { '/users': { get: { operationId: 'getUsers' } as any } },
+    };
+    registryService.getProviderSpec.mockResolvedValue({
+      providerId: 'test_provider',
+      specUrl: 'http://test',
+      document: mockSpec,
+      tools: [],
+    });
+    (axios as unknown as jest.Mock).mockResolvedValue({ data: { ok: true } });
+    const controller = new AbortController();
+
+    await service.execute(
+      'test_provider',
+      'getUsers',
+      {},
+      'user-1',
+      controller.signal,
+    );
+
+    expect(axios).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
+  it('does NOT retry after the signal is aborted, even on a normally-retryable failure', async () => {
+    const mockSpec: OpenAPIV3.Document = {
+      openapi: '3.0.0',
+      info: { title: 'Test', version: '1.0' },
+      servers: [{ url: 'https://api.test.com' }],
+      paths: { '/users': { get: { operationId: 'getUsers' } as any } },
+    };
+    registryService.getProviderSpec.mockResolvedValue({
+      providerId: 'test_provider',
+      specUrl: 'http://test',
+      document: mockSpec,
+      tools: [],
+    });
+    const controller = new AbortController();
+    const cancelError = Object.assign(new Error('canceled'), {
+      code: 'ERR_CANCELED',
+    });
+    (axios as unknown as jest.Mock).mockImplementation(() => {
+      controller.abort();
+      return Promise.reject(cancelError);
+    });
+
+    await expect(
+      service.execute(
+        'test_provider',
+        'getUsers',
+        {},
+        'user-1',
+        controller.signal,
+      ),
+    ).rejects.toThrow('canceled');
+
+    // Đúng 1 lần gọi thật — không retry sau khi đã bị huỷ, dù đây vốn là 1
+    // lỗi ĐÁNG lẽ retryable (không có response, giống network error).
+    expect(axios).toHaveBeenCalledTimes(1);
+  });
+
   it('should attach requestBody correctly for POST method', async () => {
     const mockSpec: OpenAPIV3.Document = {
       openapi: '3.0.0',
@@ -177,6 +247,8 @@ describe('DynamicToolExecutorService', () => {
     expect(result.isError).toBe(true);
     expect(result.content![0].text).toContain('Status 404');
     expect(result.content![0].text).toContain('Not Found');
+    // 404 — lỗi client, KHÔNG thuộc nhóm HTTP status tạm thời (429/502/503/504).
+    expect(JSON.parse(result.content![0].text!).retryable).toBe(false);
   });
 
   it('should return error DTO if tool is not found in spec', async () => {
@@ -197,6 +269,7 @@ describe('DynamicToolExecutorService', () => {
 
     expect(result.isError).toBe(true);
     expect(result.content![0].text).toContain('not found in spec');
+    expect(JSON.parse(result.content![0].text!).retryable).toBe(false);
   });
 
   it('redacts sensitive keys in the response via the PII scrub processor', async () => {
@@ -245,7 +318,7 @@ describe('DynamicToolExecutorService', () => {
       providerId: 'test_provider',
       specUrl: 'http://test',
       document: mockSpec,
-      tools: [],
+      tools: [{ name: 'getFlaky', annotations: { readOnlyHint: true } }] as any,
     });
     (axios as unknown as jest.Mock)
       .mockRejectedValueOnce({
@@ -259,6 +332,42 @@ describe('DynamicToolExecutorService', () => {
     expect(result.isError).toBe(false);
     expect(result.content![0].text).toContain('"ok": true');
     expect(axios).toHaveBeenCalledTimes(2);
+  });
+
+  it('does NOT retry a non-idempotent (write) tool on a transient failure — the server may have already processed it', async () => {
+    const mockSpec: OpenAPIV3.Document = {
+      openapi: '3.0.0',
+      info: { title: 'Test', version: '1.0' },
+      servers: [{ url: 'https://api.test.com' }],
+      paths: {
+        '/orders': {
+          post: { operationId: 'createOrder' } as any,
+        },
+      },
+    };
+
+    registryService.getProviderSpec.mockResolvedValue({
+      providerId: 'test_provider',
+      specUrl: 'http://test',
+      document: mockSpec,
+      tools: [
+        {
+          name: 'createOrder',
+          annotations: { readOnlyHint: false, destructiveHint: true },
+        },
+      ] as any,
+    });
+    (axios as unknown as jest.Mock).mockRejectedValue({
+      response: { status: 503, data: 'Service Unavailable' },
+      config: {},
+    });
+
+    const result = await service.execute('test_provider', 'createOrder', {});
+
+    expect(result.isError).toBe(true);
+    // Không có readOnlyHint — chỉ 1 lần gọi thật, không retry mù lên 1 side-effect
+    // có thể đã xử lý xong phía server.
+    expect(axios).toHaveBeenCalledTimes(1);
   });
 
   describe('reactive OAuth2 renew on 401', () => {
@@ -310,6 +419,51 @@ describe('DynamicToolExecutorService', () => {
       expect(axios.post).toHaveBeenCalledTimes(1);
       // Retry chỉ xảy ra đúng 1 lần: gọi ban đầu (401) + 1 lần retry sau refresh = 2 lần gọi axios.
       expect(axios).toHaveBeenCalledTimes(2);
+    });
+
+    it('de-duplicates 2 concurrent 401s for the SAME provider into a single token refresh (bug fix — race lets the 2nd refresh use an already-rotated refreshToken)', async () => {
+      registryService.getProviderSpec.mockResolvedValue({
+        providerId: 'spotify_provider',
+        specUrl: 'http://test',
+        document: mockSpec,
+        tools: [],
+        authType: EDynamicProviderAuthType.OAUTH2,
+        accessToken: 'stale-access-token',
+        refreshToken: 'refresh-token',
+        authConfig: {
+          tokenUrl: 'https://accounts.spotify.com/api/token',
+          clientId: 'cid',
+          clientSecret: 'csecret',
+        },
+      } as any);
+
+      (axios as unknown as jest.Mock)
+        .mockRejectedValueOnce({
+          response: { status: 401, data: 'Unauthorized' },
+          config: {},
+        })
+        .mockRejectedValueOnce({
+          response: { status: 401, data: 'Unauthorized' },
+          config: {},
+        })
+        .mockResolvedValueOnce({ data: { ok: 1 } })
+        .mockResolvedValueOnce({ data: { ok: 2 } });
+      (axios.post as jest.Mock).mockResolvedValue({
+        data: {
+          access_token: 'fresh-access-token',
+          refresh_token: 'rotated-refresh-token',
+          expires_in: 3600,
+        },
+      });
+
+      const [first, second] = await Promise.all([
+        service.execute('spotify_provider', 'getMe', {}),
+        service.execute('spotify_provider', 'getMe', {}),
+      ]);
+
+      expect(first.isError).toBe(false);
+      expect(second.isError).toBe(false);
+      expect(axios.post).toHaveBeenCalledTimes(1);
     });
 
     it("routes the refresher's internal logs through the app's NestJS Logger instead of the library's default — regression test for a missing `logger` option", async () => {
@@ -537,7 +691,9 @@ describe('DynamicToolExecutorService', () => {
       providerId: 'test_provider',
       specUrl: 'http://test',
       document: mockSpec,
-      tools: [],
+      tools: [
+        { name: 'getAlwaysDown', annotations: { readOnlyHint: true } },
+      ] as any,
     });
     (axios as unknown as jest.Mock).mockRejectedValue({
       response: { status: 503, data: 'Service Unavailable' },
@@ -548,7 +704,56 @@ describe('DynamicToolExecutorService', () => {
 
     expect(result.isError).toBe(true);
     expect(result.content![0].text).toContain('Status 503');
+    // Dù 503 thuộc nhóm HTTP status tạm thời, thư viện ĐÃ tự retry 3 lần thật
+    // (initial + maxRetries: 2) và vẫn thất bại — nghĩa là "còn đáng thử lại
+    // không" đã được trả lời (KHÔNG) trước khi lỗi này thoát ra. Vì vậy luôn
+    // retryable: false ở đây, để react-loop.service.ts không retry chồng thêm
+    // lần nữa (tránh nhân 2 tầng retry: 2 orchestration × 3 thư viện = 6 lời
+    // gọi HTTP cho 1 lỗi dai dẳng).
+    expect(JSON.parse(result.content![0].text!).retryable).toBe(false);
     // Initial attempt + 2 retries (maxRetries: 2), matching the configured retry policy.
     expect(axios).toHaveBeenCalledTimes(3);
+  });
+
+  it('propagates cancellation signal (AbortSignal) instead of swallowing it as a tool error', async () => {
+    const mockSpec = {
+      openapi: '3.0.0',
+      info: { title: 'Test', version: '1.0' },
+      servers: [{ url: 'https://api.test.com' }],
+      paths: {
+        '/slow-endpoint': {
+          get: { operationId: 'getSlow' },
+        },
+      },
+    } as any;
+
+    registryService.getProviderSpec.mockResolvedValue({
+      providerId: 'test_provider',
+      specUrl: 'http://test',
+      document: mockSpec,
+      tools: [],
+    });
+
+    const controller = new AbortController();
+    (axios as unknown as jest.Mock).mockImplementation((config) => {
+      return new Promise((_, reject) => {
+        config.signal?.addEventListener('abort', () => {
+          reject(new Error('canceled'));
+        });
+      });
+    });
+
+    // Abort early
+    controller.abort();
+
+    await expect(
+      service.execute(
+        'test_provider',
+        'getSlow',
+        {},
+        undefined,
+        controller.signal,
+      ),
+    ).rejects.toThrow();
   });
 });

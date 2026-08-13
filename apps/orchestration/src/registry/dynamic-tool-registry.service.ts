@@ -41,11 +41,17 @@ export interface DynamicProviderSpec {
 
 interface CacheEntry {
   data: DynamicProviderSpec;
+  // Dùng để dọn RAM entry không ai đụng tới (cleanupExpiredCache) — KHÁC
+  // loadedAt bên dưới, không dùng để quyết định có đọc lại DB hay không.
   lastAccessed: number;
+  loadedAt: number;
   // Built lazily, only for providers with >128 tools — see getTools(). Replaced automatically
   // whenever ensureLoaded() reloads the entry (e.g. after cache TTL expiry), so it can never
   // serve stale rankings for a tool list that no longer matches.
   semanticIndex?: SemanticToolIndex<IndexableMcpTool>;
+  // Mốc thời gian lần cuối DynamicToolExecutorService mutate token TRỰC TIẾP trong RAM
+  // (reactive refresh sau 401) — xem markTokenRefreshed()/loadIntoCache().
+  tokenMutatedAt?: number;
 }
 
 @Injectable()
@@ -95,16 +101,54 @@ export class DynamicToolRegistryService implements OnModuleDestroy {
   }
 
   /**
-   * Đảm bảo provider đã được load từ DB và parse thành công vào RAM
+   * Đảm bảo provider đã được load từ DB và parse thành công vào RAM, đọc lại
+   * DB nếu entry đã quá hạn (isStale) — kể cả khi vẫn đang được dùng liên tục.
    */
   private async ensureLoaded(providerId: string): Promise<void> {
     const existing = this.registry.get(providerId);
-    if (existing) {
-      // Cập nhật lại thời gian truy cập để không bị xóa
+    if (existing && !this.isStale(existing)) {
       existing.lastAccessed = Date.now();
       return;
     }
 
+    await this.loadIntoCache(providerId);
+  }
+
+  // TTL tuyệt đối kể từ lúc load, KHÁC lastAccessed — nếu chỉ dựa vào
+  // lastAccessed (tự làm mới mỗi lần đọc), 1 provider dùng liên tục sẽ không
+  // bao giờ đọc lại DB. Khi chạy nhiều instance (scale ngang), refresh token
+  // reactive (DynamicToolExecutorService) chỉ cập nhật RAM của ĐÚNG 1
+  // instance vừa xử lý — các instance khác phải tự hết hạn để đọc lại DB,
+  // nếu không sẽ giữ token cũ (đã bị rotate/vô hiệu) vĩnh viễn.
+  private isStale(entry: CacheEntry): boolean {
+    return Date.now() - entry.loadedAt > this.CACHE_TTL_MS;
+  }
+
+  // Gọi ngay sau khi DynamicToolExecutorService mutate token trong RAM (401 → renew).
+  // loadIntoCache() (trigger bởi TTL) có thể chạy gần như đồng thời và đọc lại DB TRƯỚC
+  // KHI queue job persist token mới kịp chạy xong — không có mốc này, nó sẽ ghi đè RAM
+  // bằng token CŨ vừa đọc được từ DB, làm mất token vừa refresh.
+  markTokenRefreshed(providerId: string): void {
+    const entry = this.registry.get(providerId);
+    if (entry) entry.tokenMutatedAt = Date.now();
+  }
+
+  // RAM mới hơn DB khi nó vừa được reactive-refresh (markTokenRefreshed) SAU lần DB
+  // được ghi gần nhất (entity.updatedAt) — tức là queue job persist token đó chưa
+  // kịp chạy xong. Ngược lại (bình thường, hoặc DB vừa được nơi khác cập nhật mới hơn)
+  // thì DB mới là nguồn đáng tin.
+  private shouldKeepRamToken(
+    existing: CacheEntry | undefined,
+    entity: DynamicProviderEntity,
+  ): boolean {
+    return (
+      existing?.tokenMutatedAt !== undefined &&
+      !!entity.updatedAt &&
+      existing.tokenMutatedAt > entity.updatedAt.getTime()
+    );
+  }
+
+  private async loadIntoCache(providerId: string): Promise<void> {
     const entity = await this.providerRepo.findOne({
       where: { id: providerId, isActive: true },
     });
@@ -115,9 +159,13 @@ export class DynamicToolRegistryService implements OnModuleDestroy {
       });
     }
 
+    const existing = this.registry.get(providerId);
+    const keepRamToken = this.shouldKeepRamToken(existing, entity);
+
     try {
       const document = await this.parserService.loadSpec(entity.specUrl);
       const tools = OpenApiConverter.convertToMcpTools(document);
+      const now = Date.now();
 
       this.registry.set(providerId, {
         data: {
@@ -125,13 +173,21 @@ export class DynamicToolRegistryService implements OnModuleDestroy {
           specUrl: entity.specUrl,
           document,
           tools,
-          accessToken: entity.accessToken,
+          accessToken: keepRamToken
+            ? existing!.data.accessToken
+            : entity.accessToken,
           authType: entity.authType,
-          refreshToken: entity.refreshToken,
-          tokenExpiresAt: entity.tokenExpiresAt,
+          refreshToken: keepRamToken
+            ? existing!.data.refreshToken
+            : entity.refreshToken,
+          tokenExpiresAt: keepRamToken
+            ? existing!.data.tokenExpiresAt
+            : entity.tokenExpiresAt,
           authConfig: entity.authConfig,
         },
-        lastAccessed: Date.now(),
+        lastAccessed: now,
+        loadedAt: now,
+        tokenMutatedAt: keepRamToken ? existing!.tokenMutatedAt : undefined,
       });
       this.logger.log(`Lazy-loaded dynamic provider "${providerId}" into RAM.`);
     } catch (error: any) {

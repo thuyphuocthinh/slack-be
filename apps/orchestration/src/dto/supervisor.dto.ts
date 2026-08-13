@@ -1,3 +1,4 @@
+import { ESupervisorVerdict } from '@slack/constants';
 export class AvailableAgentDto {
   provider: string;
   label: string;
@@ -7,6 +8,7 @@ export class AvailableAgentDto {
 export class DelegationDto {
   agent: string;
   task: string;
+  mustExecute?: boolean;
 }
 
 // Plan-and-Execute (xem accuracy.md) — thay cho SupervisorDecisionDto cũ.
@@ -14,10 +16,12 @@ export class DelegationDto {
 export class SupervisorPlanDto {
   action: 'respond' | 'plan';
   answer?: string;
+  rememberFact?: string;
   steps?: DelegationDto[];
+  ambiguousCandidates?: AvailableAgentDto[];
 }
 
-export type SupervisorEvaluateVerdict = 'continue' | 're-plan' | 'done';
+export type SupervisorEvaluateVerdict = ESupervisorVerdict;
 
 // Trả về SAU MỖI bước trong kế hoạch — quyết định có bám theo kế hoạch cũ
 // (continue), lập lại kế hoạch (re-plan), hay dừng vì đã đủ dữ liệu (done).

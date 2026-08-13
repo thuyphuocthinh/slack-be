@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -130,6 +131,13 @@ export class ToggleReactionApiDto {
   @IsNotEmpty()
   @ApiProperty()
   emoji: string;
+}
+
+export class ToggleFeedbackApiDto {
+  @IsIn(['like', 'unlike'])
+  @IsNotEmpty()
+  @ApiProperty({ enum: ['like', 'unlike'] })
+  type: 'like' | 'unlike';
 }
 
 export class SearchMessagesQueryApiDto {

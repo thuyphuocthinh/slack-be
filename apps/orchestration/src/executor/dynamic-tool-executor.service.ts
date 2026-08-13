@@ -35,6 +35,12 @@ export class DynamicToolExecutorService {
     this.securityInjector,
     this.logger,
   );
+  // 2 tool call cùng provider cùng gặp 401 gần như đồng thời sẽ đọc cùng 1
+  // refreshToken CŨ trước khi cái nào kịp cập nhật — nếu provider rotate
+  // refreshToken sau mỗi lần dùng, lần refresh thứ 2 sẽ fail vì token đã bị
+  // cái đầu vô hiệu hoá. Gộp lại thành 1 lần refresh DUY NHẤT cho mỗi provider,
+  // các lệnh gọi đến sau dùng chung kết quả thay vì tự refresh lại.
+  private readonly pendingOAuth2Refreshes = new Map<string, Promise<boolean>>();
 
   constructor(
     private readonly registry: DynamicToolRegistryService,
@@ -44,13 +50,20 @@ export class DynamicToolExecutorService {
   /**
    * Nhận Tool Call từ LLM và thực thi HTTP request dựa trên OpenAPI spec.
    */
+  // accuracy_problem.md — `signal` (Stop giữa turn) giờ CÓ tác dụng ở nhánh
+  // dynamic provider: agentic-openapi-parser@1.8.0 hỗ trợ AbortSignal ở
+  // ExecuteToolOptions, forward thẳng vào axios + bỏ qua retry sau khi huỷ.
   async execute(
     providerId: string,
     toolName: string,
     args: Record<string, unknown>,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for call-site parity (mcp-client.service.ts passes dto.ownerId); not wired to anything yet, unchanged from before this refactor
+
     ownerId?: string,
+    signal?: AbortSignal,
   ): Promise<CallToolResponseDto> {
+    if (signal?.aborted) {
+      throw new Error('Aborted');
+    }
     try {
       this.logger.log(
         `Executing dynamic tool "${toolName}" for provider "${providerId}"`,
@@ -65,6 +78,7 @@ export class DynamicToolExecutorService {
         spec,
         toolName,
         args,
+        signal,
       );
 
       const responseText =
@@ -75,6 +89,9 @@ export class DynamicToolExecutorService {
         content: [{ type: 'text', text: responseText }],
       };
     } catch (error: unknown) {
+      if (signal?.aborted) {
+        throw error;
+      }
       return this.handleExecutionError(error, toolName, providerId);
     }
   }
@@ -88,19 +105,38 @@ export class DynamicToolExecutorService {
     };
   }
 
+  // Retry chỉ an toàn cho tool ĐỌC (readOnlyHint, tức GET/HEAD/OPTIONS — xem
+  // deriveMethodAnnotations). Tool GHI (POST/PUT/DELETE...) có thể đã xử lý xong ở
+  // phía server trước khi network error xảy ra (timeout/mất kết nối, không có response
+  // để biết được) — retry mù sẽ chạy lại 1 side-effect không idempotent lần nữa mà
+  // không ai hay biết. Không tìm thấy tool trong danh sách (không nên xảy ra) cũng coi
+  // như không an toàn — mặc định thận trọng.
+  private isRetrySafe(
+    providerSpec: DynamicProviderSpec,
+    toolName: string,
+  ): boolean {
+    return (
+      providerSpec.tools.find((t) => t.name === toolName)?.annotations
+        ?.readOnlyHint === true
+    );
+  }
+
   private callTool(
     spec: Record<string, unknown>,
     toolName: string,
     args: Record<string, unknown>,
     providerSpec: DynamicProviderSpec,
+    signal?: AbortSignal,
   ): Promise<unknown> {
+    const maxRetries = this.isRetrySafe(providerSpec, toolName) ? 2 : 0;
     return this.libExecutor.execute(spec, toolName, args, {
       accessToken: providerSpec.accessToken,
       authType: providerSpec.authType as unknown as ELibAuthType,
       timeout: 15000,
       responseProcessors: this.responseProcessors,
-      retry: { maxRetries: 2 },
+      retry: { maxRetries },
       hooks: this.buildHooks(),
+      signal,
     });
   }
 
@@ -113,9 +149,10 @@ export class DynamicToolExecutorService {
     spec: Record<string, unknown>,
     toolName: string,
     args: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<unknown> {
     try {
-      return await this.callTool(spec, toolName, args, providerSpec);
+      return await this.callTool(spec, toolName, args, providerSpec, signal);
     } catch (error) {
       if (
         !this.isUnauthorized(error) ||
@@ -124,7 +161,7 @@ export class DynamicToolExecutorService {
         throw error;
       }
       // Token vừa được refresh — thử lại đúng 1 lần với accessToken mới.
-      return this.callTool(spec, toolName, args, providerSpec);
+      return this.callTool(spec, toolName, args, providerSpec, signal);
     }
   }
 
@@ -132,7 +169,22 @@ export class DynamicToolExecutorService {
     return error instanceof ToolExecutionError && error.statusCode === 401;
   }
 
-  private async tryRenewOAuth2Token(
+  private tryRenewOAuth2Token(
+    providerId: string,
+    providerSpec: DynamicProviderSpec,
+  ): Promise<boolean> {
+    const pending = this.pendingOAuth2Refreshes.get(providerId);
+    if (pending) return pending;
+
+    const refreshing = this.refreshOAuth2Token(
+      providerId,
+      providerSpec,
+    ).finally(() => this.pendingOAuth2Refreshes.delete(providerId));
+    this.pendingOAuth2Refreshes.set(providerId, refreshing);
+    return refreshing;
+  }
+
+  private async refreshOAuth2Token(
     providerId: string,
     providerSpec: DynamicProviderSpec,
   ): Promise<boolean> {
@@ -170,6 +222,7 @@ export class DynamicToolExecutorService {
               accessToken: newState.accessToken,
               refreshToken: newState.refreshToken,
               tokenExpiresAt: newState.tokenExpiresAt,
+              previousRefreshToken: providerSpec.refreshToken,
             },
             {
               attempts: 3,
@@ -202,6 +255,10 @@ export class DynamicToolExecutorService {
     providerSpec.accessToken = newState.accessToken;
     providerSpec.refreshToken = newState.refreshToken;
     providerSpec.tokenExpiresAt = newState.tokenExpiresAt;
+    // Đánh dấu mốc mutate này lại — nếu loadIntoCache() (TTL) chạy gần như đồng thời
+    // và đọc lại DB TRƯỚC KHI job persist ở trên xong, nó cần biết để KHÔNG đè token
+    // vừa refresh bằng bản DB cũ (xem DynamicToolRegistryService.markTokenRefreshed).
+    this.registry.markTokenRefreshed(providerId);
     this.logger.log(
       `Successfully renewed OAuth2 token for "${providerId}" after a 401`,
     );
@@ -216,28 +273,64 @@ export class DynamicToolExecutorService {
     if (error instanceof ToolNotFoundError) {
       return this.formatErrorResponse(
         `Tool "${toolName}" not found in spec for provider "${providerId}"`,
+        'TOOL_NOT_FOUND',
+        false,
       );
     }
 
-    if (
-      error instanceof ToolExecutionError ||
-      error instanceof ResponseProcessingError
-    ) {
+    if (error instanceof ToolExecutionError) {
       this.logger.error(`Error executing dynamic tool: ${error.message}`);
-      return this.formatErrorResponse(error.message);
+      // libExecutor.execute() (agentic-openapi-parser) đã tự retry 3 lần thật
+      // (retry.maxRetries: 2) TRƯỚC KHI ném lỗi này ra — tức là "còn đáng thử
+      // lại không" đã được thư viện trả lời rồi (KHÔNG). Vì vậy luôn báo
+      // retryable: false ở đây, để tầng transient-retry của handleToolCall()
+      // (react-loop.service.ts) không thử lại chồng thêm lần nữa — tránh nhân
+      // 2 tầng retry lên nhau (2 lần orchestration × 3 lần thư viện = 6 lời gọi
+      // HTTP thật cho 1 lỗi 503 dai dẳng). Tầng transient-retry đó vẫn cần thiết
+      // cho static provider (mcp_server tự viết) vì static provider KHÔNG có
+      // retry nội bộ nào cả.
+      return this.formatErrorResponse(
+        error.message,
+        'DYNAMIC_PROVIDER_ERROR',
+        false,
+      );
+    }
+
+    if (error instanceof ResponseProcessingError) {
+      // Lỗi xử lý HẬU KỲ (PII scrub/truncate) — không có HTTP status nào để
+      // phân loại, luôn coi là cố định.
+      this.logger.error(`Error executing dynamic tool: ${error.message}`);
+      return this.formatErrorResponse(
+        error.message,
+        'RESPONSE_PROCESSING_ERROR',
+        false,
+      );
     }
 
     const message = error instanceof Error ? error.message : String(error);
     this.logger.error(
       `Unexpected error executing dynamic tool "${toolName}": ${message}`,
     );
-    return this.formatErrorResponse(message);
+    return this.formatErrorResponse(
+      message,
+      `UNKNOWN_ERROR:${toolName}`,
+      false,
+    );
   }
 
-  private formatErrorResponse(message: string): CallToolResponseDto {
+  private formatErrorResponse(
+    message: string,
+    code: string,
+    retryable: boolean,
+  ): CallToolResponseDto {
     return {
       isError: true,
-      content: [{ type: 'text', text: message }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({ error: true, retryable, code, message }),
+        },
+      ],
     };
   }
 }

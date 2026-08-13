@@ -31,7 +31,6 @@ import { WorkspaceCommonService } from './workspace-common.service';
 import { buildTTL, AuditAction, AuditEntityType } from '@slack/common';
 import { EJobName, EQueueName, QueueService } from '@slack/queue';
 
-
 @Injectable()
 export class WorkspaceInviteService {
   private readonly logger = new Logger(WorkspaceInviteService.name);
@@ -142,17 +141,23 @@ export class WorkspaceInviteService {
         );
       });
 
-    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
-      action: AuditAction.USER_INVITED_TO_WORKSPACE,
-      actorId: dto.invitedBy,
-      entityType: AuditEntityType.WORKSPACE,
-      entityId: dto.workspaceId,
-      metadata: { email: dto.email, role: dto.role },
-    });
+    this.queueService
+      .addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+        action: AuditAction.USER_INVITED_TO_WORKSPACE,
+        actorId: dto.invitedBy,
+        entityType: AuditEntityType.WORKSPACE,
+        entityId: dto.workspaceId,
+        metadata: { email: dto.email, role: dto.role },
+      })
+      .catch((err) =>
+        this.logger.error(
+          'Failed to dispatch SAVE_AUDIT_LOG job (invite created)',
+          err,
+        ),
+      );
 
     this.logger.log('Invite member', savedInvite);
     return this.commonService.mapInviteToDto(savedInvite);
-
   }
 
   async joinWorkspace(
@@ -185,13 +190,20 @@ export class WorkspaceInviteService {
     });
 
     this.logger.log('Join workspace', JSON.stringify({ savedMember }));
-    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
-      action: AuditAction.USER_JOINED_WORKSPACE,
-      actorId: dto.userId,
-      entityType: AuditEntityType.WORKSPACE,
-      entityId: savedMember.workspaceId,
-      metadata: { role: savedMember.role },
-    });
+    this.queueService
+      .addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+        action: AuditAction.USER_JOINED_WORKSPACE,
+        actorId: dto.userId,
+        entityType: AuditEntityType.WORKSPACE,
+        entityId: savedMember.workspaceId,
+        metadata: { role: savedMember.role },
+      })
+      .catch((err) =>
+        this.logger.error(
+          'Failed to dispatch SAVE_AUDIT_LOG job (member joined)',
+          err,
+        ),
+      );
 
     await this.cachedService.invalidateList(
       CACHE.USER_WORKSPACE.TRACKERS.LIST_VERSION(dto.userId),
@@ -201,8 +213,6 @@ export class WorkspaceInviteService {
     );
 
     return this.commonService.mapMemberToDto(savedMember);
-
-
   }
 
   async resendInvite(

@@ -5,6 +5,7 @@ export const MESSAGE_MESSAGE_PATTERNS = {
   UPDATE: 'message.update',
   DELETE: 'message.delete',
   TOGGLE_REACTION: 'message.toggle_reaction',
+  TOGGLE_FEEDBACK: 'message.toggle_feedback',
   TOGGLE_PIN: 'message.toggle_pin',
   SEARCH: 'message.search',
   GET_THREADS: 'message.get_threads',

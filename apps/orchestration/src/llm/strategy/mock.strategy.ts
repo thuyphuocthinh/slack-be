@@ -4,72 +4,54 @@ import {
   LlmChatSession,
   LlmStrategy,
   LlmStructuredOptions,
-  LlmToolResult,
-  LlmTurnResult,
 } from './llm-strategy.interface';
+import { MockChatSession } from './mock-chat-session';
 
+// LOAD_TEST_MODE — thay CẢ 4 lời gọi LLM (plan/evaluate/synthesize/ReactLoop)
+// bằng mock này (xem LlmStrategyFactory.resolve()), để load test đo được
+// throughput/concurrency THẬT của hạ tầng (BullMQ queue, MCP client, circuit
+// breaker) mà không tốn tiền/bị rate-limit bởi provider LLM thật.
+//
+// "agent"/"tool" KHÔNG được hard-code — phải trỏ tới 1 agent THẬT đã kết nối
+// trong workspace test (LOAD_TEST_AGENT_PROVIDER, mặc định "sql_server"),
+// nếu không plan() sẽ trả về agent không tồn tại, bị continueRounds() chặn
+// ngay ("Mình chưa thể xử lý yêu cầu này...") — không chạm được tới
+// ReactLoop/MCP/queue nào cả, load test coi như vô nghĩa.
 @Injectable()
 export class MockStrategy implements LlmStrategy {
   readonly id = 'mock';
   private readonly logger = new Logger(MockStrategy.name);
 
+  private get mockAgentProvider(): string {
+    return process.env.LOAD_TEST_AGENT_PROVIDER || 'sql_server';
+  }
+
   startChat(opts: LlmChatOptions): LlmChatSession {
-    this.logger.log(`startChat (LOAD_TEST_MODE) with ${opts.tools.length} tools`);
-    return new MockChatSession();
+    this.logger.log(
+      `startChat (LOAD_TEST_MODE) with ${opts.tools.length} tools`,
+    );
+    return new MockChatSession(opts.tools);
   }
 
   async generateStructured<T>(opts: LlmStructuredOptions): Promise<T> {
     this.logger.log('generateStructured (LOAD_TEST_MODE)');
-    // Giả lập độ trễ LLM
     await new Promise((resolve) => setTimeout(resolve, 500));
-    
-    // Trả về mock decision để Supervisor bắt buộc gọi sang ReactLoop (test streaming)
+
+    // SUPERVISOR_EVALUATE_SCHEMA(_NO_DONE) có field "verdict" — mọi schema
+    // của plan() (có/không "answer") đều không có field này.
+    if ('verdict' in (opts.schema.properties as Record<string, unknown>)) {
+      return { verdict: 'done' } as unknown as T;
+    }
+
     return {
-      action: 'delegate',
-      delegations: [
-        { agent: 'mock_agent', task: 'Hãy fake một bài blog dài' }
-      ]
+      action: 'plan',
+      steps: [
+        {
+          agent: this.mockAgentProvider,
+          task: 'Load test: gọi 1 tool bất kỳ rồi trả lời',
+          mustExecute: true,
+        },
+      ],
     } as unknown as T;
-  }
-}
-
-class MockChatSession implements LlmChatSession {
-  private step = 0;
-
-  async sendMessage(
-    input: string | LlmToolResult[],
-    onToken?: (chunk: string) => void,
-  ): Promise<LlmTurnResult> {
-    // Giả lập thời gian suy nghĩ của LLM
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    this.step++;
-
-    if (this.step === 1) {
-       // Lượt 1: LLM quyết định gọi tool (để load test đập vào hệ thống tool call)
-       // Trả về tool_call thay vì answer luôn
-       return {
-         text: '',
-         toolCalls: [
-           { id: 'mock-1', name: 'mock_tool_1', args: {} }
-         ]
-       }
-    }
-
-    // Lượt cuối: LLM trả lời thật (có stream nếu được yêu cầu)
-    const finalAnswer = 'Đã hoàn tất load test bằng Mock LLM! Hệ thống hoạt động siêu mượt.';
-    
-    if (onToken) {
-      const parts = finalAnswer.split(' ');
-      for (const p of parts) {
-        onToken(p + ' ');
-        // Giả lập streaming từng chữ một
-        await new Promise((resolve) => setTimeout(resolve, 30));
-      }
-    }
-
-    return {
-      text: finalAnswer,
-      toolCalls: [],
-    };
   }
 }

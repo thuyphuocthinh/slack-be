@@ -42,6 +42,9 @@ lerna-debug.log*
 .env.production.local
 .env.local
 
+# regenerable loadtest output (self-signed JWTs, run seed_bulk_users.js to recreate)
+loadtest/loadtest-users-bulk.json
+
 # temp directory
 .temp
 .tmp

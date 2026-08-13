@@ -1,96 +1,186 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
-import CircuitBreaker from 'opossum';
-import { ORCHESTRATION_CONSTANTS, ORCHESTRATION_ERROR } from '@slack/constants';
+import Redis from 'ioredis';
+import { CACHE } from '@slack/cached';
+import { ECircuitBreaker, ORCHESTRATION_CONSTANTS, ORCHESTRATION_ERROR } from '@slack/constants';
 import { MetricsRegistryService } from './metrics-registry.service';
+import { CIRCUIT_BREAKER_REPORT_SCRIPT } from './circuit-breaker.lua';
+
+const KEYS = CACHE.ORCHESTRATION.KEYS;
+
+const ABORTED_BY_CALLER = Symbol('circuit-breaker-aborted-by-caller');
+
+interface TaggableError {
+  [ABORTED_BY_CALLER]?: true;
+}
+
+// "Probe" = request thử/dò xem provider đã sống lại chưa 
 
 /**
- * Giai đoạn 4, Step 6 — 1 breaker riêng cho mỗi `key` (VD `mcp:sql_server`,
- * `llm:gemini`), lazy tạo lần đầu gặp key đó. Cùng thư viện `opossum` đã dùng
- * ở `apps/socket-gateway/src/common/utils/circuit-breaker.util.ts`, viết lại
- * ở đây (không import chéo app) vì 2 app không chia sẻ lib chung cho việc này.
- *
- * `timeout: false` — đã có `withTimeout()` riêng ở từng call site
- * (LLM_CALL_TIMEOUT_MS/MCP_CALL_TIMEOUT_MS), breaker chỉ ĐẾM lỗi/mở mạch,
- * không tự canh giờ chồng lên timeout đã có.
+ * Tóm gọn cách chia key: mỗi provider MCP (mcp:sql_server, mcp:notion...) và mỗi strategy LLM (llm:gemini, llm:gpt4o...) có 1 mạch riêng — 
+ * provider này chết không ảnh hưởng provider khác, đúng nguyên lý ban đầu bàn (test "keeps independent circuits per key" cũng verify đúng điều này).
  */
+type AcquireDecision = 'ALLOWED' | 'PROBE' | 'OPEN';
+
 @Injectable()
 export class CircuitBreakerService {
   private readonly logger = new Logger(CircuitBreakerService.name);
-  private readonly breakers = new Map<
-    string,
-    CircuitBreaker<[() => Promise<unknown>], unknown>
-  >();
+  private readonly knownKeys = new Set<string>();
 
-  constructor(private readonly metrics: MetricsRegistryService) {}
+  constructor(
+    @Inject('REDIS_CLIENT') private readonly redis: Redis,
+    private readonly metrics: MetricsRegistryService,
+  ) { }
 
-  async run<T>(key: string, action: () => Promise<T>): Promise<T> {
-    const breaker = this.getOrCreateBreaker(key);
+  async run<T>(
+    key: string,
+    action: () => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    this.knownKeys.add(key);
+    const decision = await this.acquire(key);
 
-    // Check TRƯỚC khi fire() (không phải bắt lỗi rồi mới suy ra) — chính xác
-    // 100% đây là fail-fast do mạch đang mở, không lẫn với 1 lỗi thật vừa
-    // khớp làm mạch mở ngay tại request đó.
-    if (breaker.opened) {
-      const message = `${ORCHESTRATION_ERROR.CIRCUIT_BREAKER_OPEN.message} (key=${key})`;
-      this.logger.warn(`run() key=${key} bị chặn — circuit đang OPEN`);
-      throw new RpcException({
-        ...ORCHESTRATION_ERROR.CIRCUIT_BREAKER_OPEN,
-        message,
-      });
+    if (decision === 'OPEN') {
+      throw this.buildOpenError(key);
     }
 
-    return (await breaker.fire(action)) as T;
+    try {
+      const result = await this.runTagged(action, signal);
+      await this.report(key, decision === 'PROBE', true);
+      return result;
+    } catch (error) {
+      const aborted = (error as TaggableError)[ABORTED_BY_CALLER] === true;
+      if (aborted) {
+        if (decision === 'PROBE') {
+          await this.redis.del(KEYS.CIRCUIT_BREAKER_PROBE_LOCK(key));
+        }
+      } else {
+        await this.report(key, decision === 'PROBE', false);
+      }
+      throw error;
+    }
   }
 
-  // Backpressure/Admission control — trạng thái hiện tại của mọi breaker đã
-  // từng tạo (key = 'mcp:<provider>'/'llm:<strategy>'), dùng cho health-check
-  // và metrics — trước đây chỉ nằm trong log, không đọc được từ bên ngoài.
-  getStates(): Record<string, 'open' | 'halfOpen' | 'closed'> {
-    const states: Record<string, 'open' | 'halfOpen' | 'closed'> = {};
-    this.breakers.forEach((breaker, key) => {
-      states[key] = breaker.opened
-        ? 'open'
-        : breaker.halfOpen
-          ? 'halfOpen'
-          : 'closed';
-    });
-    return states;
-  }
-
-  private getOrCreateBreaker(
-    key: string,
-  ): CircuitBreaker<[() => Promise<unknown>], unknown> {
-    const existing = this.breakers.get(key);
-    if (existing) return existing;
-
-    const breaker = new CircuitBreaker<[() => Promise<unknown>], unknown>(
-      (fn) => fn(),
-      {
-        timeout: false,
-        errorThresholdPercentage:
-          ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENTAGE,
-        volumeThreshold:
-          ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_VOLUME_THRESHOLD,
-        resetTimeout: ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_RESET_TIMEOUT_MS,
-      },
+  async getStates(): Promise<Record<string, ECircuitBreaker>> {
+    const entries = await Promise.all(
+      Array.from(this.knownKeys).map(
+        async (key) => [key, await this.getState(key)] as const,
+      ),
     );
+    return Object.fromEntries(entries);
+  }
 
-    breaker.on('open', () => {
-      this.logger.warn(
-        `Circuit "${key}" OPEN — request mới fail nhanh trong ${ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_RESET_TIMEOUT_MS / 1000}s`,
+  private buildOpenError(key: string): RpcException {
+    this.logger.warn(`run() key=${key} bị chặn — circuit đang OPEN`);
+    return new RpcException({
+      ...ORCHESTRATION_ERROR.CIRCUIT_BREAKER_OPEN,
+      message: `${ORCHESTRATION_ERROR.CIRCUIT_BREAKER_OPEN.message} (key=${key})`,
+    });
+  }
+
+  private async runTagged<T>(
+    action: () => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    try {
+      return await action();
+    } catch (error) {
+      if (signal?.aborted) {
+        (error as TaggableError)[ABORTED_BY_CALLER] = true;
+      }
+      throw error;
+    }
+  }
+
+  private async acquire(key: string): Promise<AcquireDecision> {
+    const state = await this.redis.get(KEYS.CIRCUIT_BREAKER_STATE(key));
+
+    if (state !== ECircuitBreaker.OPEN && state !== ECircuitBreaker.HALF_OPEN) {
+      return 'ALLOWED';
+    }
+
+    if (state === ECircuitBreaker.OPEN) {
+      const openedAt = Number(await this.redis.get(KEYS.CIRCUIT_BREAKER_OPENED_AT(key))) || 0;
+      if (Date.now() - openedAt < ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_RESET_TIMEOUT_MS) {
+        return 'OPEN';
+      }
+    }
+
+    /**
+     * "Tao muốn giành quyền làm request thử (probe) — nếu chưa ai giành thì tao giành được (NX thành công, trả 'OK'), 
+     * và quyền này tự hết hạn sau 60s dù tao có quên giải phóng (PX, phòng khi instance giữ lock bị crash giữa đường thì lock không kẹt vĩnh viễn)."
+     */
+
+    const acquired = await this.redis.set(
+      KEYS.CIRCUIT_BREAKER_PROBE_LOCK(key),
+      '1',
+      'PX',
+      ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_PROBE_LOCK_TTL_MS,
+      'NX',
+    );
+    if (!acquired) {
+      return 'OPEN';
+    }
+
+    await this.redis.set(KEYS.CIRCUIT_BREAKER_STATE(key), ECircuitBreaker.HALF_OPEN);
+    return 'PROBE';
+  }
+
+  private async report(
+    key: string,
+    wasProbe: boolean,
+    success: boolean,
+  ): Promise<void> {
+    const prevState = await this.getState(key);
+    let nextState: ECircuitBreaker;
+
+    if (wasProbe) {
+      await this.redis.del(KEYS.CIRCUIT_BREAKER_PROBE_LOCK(key));
+      if (success) {
+        await this.redis.del(
+          KEYS.CIRCUIT_BREAKER_STATE(key),
+          KEYS.CIRCUIT_BREAKER_OPENED_AT(key),
+          KEYS.CIRCUIT_BREAKER_TOTAL(key),
+          KEYS.CIRCUIT_BREAKER_FAILURES(key),
+        );
+        nextState = ECircuitBreaker.CLOSED;
+      } else {
+        await this.redis.set(KEYS.CIRCUIT_BREAKER_STATE(key), ECircuitBreaker.OPEN);
+        await this.redis.set(KEYS.CIRCUIT_BREAKER_OPENED_AT(key), Date.now());
+        nextState = ECircuitBreaker.OPEN;
+      }
+    } else {
+      const result = await this.redis.eval(
+        CIRCUIT_BREAKER_REPORT_SCRIPT,
+        4,
+        KEYS.CIRCUIT_BREAKER_TOTAL(key),
+        KEYS.CIRCUIT_BREAKER_FAILURES(key),
+        KEYS.CIRCUIT_BREAKER_STATE(key),
+        KEYS.CIRCUIT_BREAKER_OPENED_AT(key),
+        ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_VOLUME_WINDOW_SEC,
+        success ? '0' : '1',
+        ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_VOLUME_THRESHOLD,
+        ORCHESTRATION_CONSTANTS.CIRCUIT_BREAKER_ERROR_THRESHOLD_PERCENTAGE,
+        Date.now(),
       );
-      this.metrics.setBreakerState(key, 'open');
-    });
-    breaker.on('halfOpen', () => {
-      this.logger.log(`Circuit "${key}" HALF_OPEN — thử lại 1 request`);
-      this.metrics.setBreakerState(key, 'halfOpen');
-    });
-    breaker.on('close', () => {
-      this.logger.log(`Circuit "${key}" CLOSED — provider đã phục hồi`);
-      this.metrics.setBreakerState(key, 'closed');
-    });
+      nextState =
+        result === ECircuitBreaker.OPEN
+          ? ECircuitBreaker.OPEN
+          : ECircuitBreaker.CLOSED;
+    }
 
-    this.breakers.set(key, breaker);
-    return breaker;
+    if (nextState !== prevState) {
+      this.logAndEmit(key, nextState);
+    }
+  }
+
+  private async getState(key: string): Promise<ECircuitBreaker> {
+    const state = await this.redis.get(KEYS.CIRCUIT_BREAKER_STATE(key));
+    return (state as ECircuitBreaker | null) ?? ECircuitBreaker.CLOSED;
+  }
+
+  private logAndEmit(key: string, state: ECircuitBreaker): void {
+    this.logger.log(`Circuit "${key}" -> ${state}`);
+    this.metrics.setBreakerState(key, state);
   }
 }

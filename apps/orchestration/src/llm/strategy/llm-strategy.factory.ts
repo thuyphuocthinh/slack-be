@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { RpcException } from '@nestjs/microservices';
-import { LLM_MODEL_REGISTRY, ORCHESTRATION_ERROR, type LlmStrategyId } from '@slack/constants';
+import {
+  LLM_MODEL_REGISTRY,
+  ORCHESTRATION_ERROR,
+  type LlmStrategyId,
+} from '@slack/constants';
 import { GeminiStrategy } from './gemini.strategy';
 import { OpenAiStrategy } from './openai.strategy';
 import { AnthropicStrategy } from './anthropic.strategy';
@@ -23,7 +27,12 @@ export class LlmStrategyFactory {
     private readonly anthropic: AnthropicStrategy,
     private readonly mock: MockStrategy,
   ) {
-    this.strategies = { gemini: this.gemini, openai: this.openai, anthropic: this.anthropic, mock: this.mock };
+    this.strategies = {
+      gemini: this.gemini,
+      openai: this.openai,
+      anthropic: this.anthropic,
+      mock: this.mock,
+    };
   }
 
   resolve(modelId: string): { strategy: LlmStrategy; model: string } {

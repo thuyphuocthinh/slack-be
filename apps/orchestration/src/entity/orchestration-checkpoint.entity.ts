@@ -6,8 +6,9 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { SupervisorRoundDto } from '../dto/supervisor.dto';
+import { DelegationDto, SupervisorRoundDto } from '../dto/supervisor.dto';
 import { ChatHistoryTurnDto } from '../dto/message-client.dto';
+import { ECheckpointKind, ECheckpointRiskLevel } from '@slack/constants';
 
 export enum OrchestrationCheckpointStatus {
   PENDING = 'pending',
@@ -19,6 +20,11 @@ export interface PendingToolCall {
   provider: string;
   name: string;
   args: Record<string, unknown>;
+}
+
+export interface AmbiguousAgentCandidate {
+  provider: string;
+  label: string;
 }
 
 /**
@@ -44,12 +50,6 @@ export class OrchestrationCheckpointEntity {
   @Index()
   userId: string;
 
-  // Người GỬI message "approval_request" (luôn là bot, KHÁC `userId` — người
-  // TRIGGER/duyệt) — cần lưu lại vì `resolveApproval()` phải update ĐÚNG
-  // message này bằng danh nghĩa người đã tạo ra nó (message service chặn
-  // update nếu `userId` truyền vào khác `message.userId`/sender thật —
-  // ERR.MESSAGE.0103). Nullable vì cột thêm sau, checkpoint tạo TRƯỚC migration
-  // này sẽ không có giá trị (coi là dữ liệu cũ, không dùng lại được).
   @Column({ type: 'uuid', name: 'bot_user_id', nullable: true })
   botUserId: string;
 
@@ -64,14 +64,53 @@ export class OrchestrationCheckpointEntity {
 
   @Column({ type: 'text', name: 'original_prompt' })
   originalPrompt: string;
-  @Column({ type: 'jsonb', name: 'pending_tool' })
-  pendingTool: PendingToolCall;
+
+  // accuracy_problem.md mục 1 — nullable vì checkpoint 'clarification' KHÔNG
+  // gắn với 1 tool call cụ thể nào (chưa biết agent nào đúng), khác hẳn
+  // checkpoint 'approval' (luôn có đúng 1 pendingTool chờ duyệt).
+  @Column({ type: 'jsonb', name: 'pending_tool', nullable: true })
+  pendingTool: PendingToolCall | null;
 
   @Column({ type: 'text', name: 'pending_task' })
   pendingTask: string;
 
+  @Column({ type: 'varchar', default: ECheckpointKind.APPROVAL })
+  kind: ECheckpointKind;
+
+  // Null khi không phân loại được rủi ro cụ thể (provider khác sql_server,
+  // hoặc câu lệnh không parse được) — KHÔNG suy ra mức mặc định giả, tránh
+  // hiểu nhầm là đã đánh giá rủi ro trong khi thực chất chưa có tín hiệu nào.
+  @Column({ type: 'varchar', name: 'risk_level', nullable: true })
+  riskLevel: ECheckpointRiskLevel | null;
+
+  @Column({ type: 'text', name: 'clarification_question', nullable: true })
+  clarificationQuestion: string | null;
+
+  @Column({
+    type: 'jsonb',
+    name: 'clarification_candidates',
+    nullable: true,
+  })
+  clarificationCandidates: AmbiguousAgentCandidate[] | null;
+
+  // Set khi user chọn xong 1 candidate (resolveApproval action='clarify') —
+  // processApprovalJob() đọc lại field này để biết ép agent nào cho bước đang chờ.
+  @Column({ type: 'varchar', name: 'selected_provider', nullable: true })
+  selectedProvider: string | null;
+
   @Column({ type: 'jsonb', name: 'rounds_so_far', default: () => "'[]'" })
   roundsSoFar: SupervisorRoundDto[];
+
+  // accuracy_problem.md mục 9.2 — các bước CÒN LẠI CHƯA CHẠY của kế hoạch gốc
+  // tại thời điểm dừng (VD kế hoạch [A(cần duyệt/mơ hồ), B, C] → lưu [B, C] ở
+  // đây). Cho phép resume ĐÚNG theo kế hoạch gốc (continueRounds() bỏ qua
+  // plan(), dùng lại mảng này) thay vì buộc phải lập lại kế hoạch từ đầu,
+  // không có gì đảm bảo bản mới không bỏ sót B/C. Dùng cho CẢ 2 loại
+  // checkpoint ('approval' lẫn 'clarification'). Rỗng cho checkpoint tạo
+  // trước migration này (coi như không có gì để resume thêm, giữ đúng hành vi
+  // cũ).
+  @Column({ type: 'jsonb', name: 'remaining_steps', default: () => "'[]'" })
+  remainingSteps: DelegationDto[];
 
   @Column({ type: 'jsonb', default: () => "'[]'" })
   history: ChatHistoryTurnDto[];
@@ -94,6 +133,14 @@ export class OrchestrationCheckpointEntity {
   // khi job này chạy, xem resolveApproval()). Null nghĩa là chưa thực thi lần nào.
   @Column({ type: 'timestamptz', name: 'execution_started_at', nullable: true })
   executionStartedAt: Date | null;
+
+  // Set NGAY SAU KHI mcpClient.callTool() thật sự chạy xong thành công —
+  // khác executionStartedAt (set TRƯỚC khi gọi). Phân biệt "worker crash
+  // trước khi tool chạy" (null) với "tool đã chạy xong, crash lúc tổng hợp
+  // câu trả lời" (có giá trị) — CheckpointCleanupService cần biết để không
+  // bảo user "thử lại" 1 hành động ghi đã thực thi thành công rồi.
+  @Column({ type: 'timestamptz', name: 'tool_executed_at', nullable: true })
+  toolExecutedAt: Date | null;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt: Date;

@@ -16,7 +16,14 @@
     "build:calendar": "nest build calendar",
     "build:integrations": "nest build integrations",
     "build:orchestration": "nest build orchestration",
+    "build:channel": "nest build channel",
+    "build:task": "nest build task",
+    "build:message": "nest build message",
+    "build:socket-gateway": "nest build socket-gateway",
+    "build:video-call": "nest build video-call",
+    "build:canvas": "nest build canvas",
     "build:all": "pnpm build:gateway && pnpm build:auth && pnpm build:user && pnpm build:workspace && pnpm build:notification && pnpm build:billing && pnpm build:calendar && pnpm build:integrations && pnpm build:orchestration",
+    "build:dev": "pnpm build:gateway && pnpm build:auth && pnpm build:user && pnpm build:workspace && pnpm build:notification && pnpm build:channel && pnpm build:message && pnpm build:socket-gateway && pnpm build:orchestration",
     "format": "prettier --write \"apps/**/*.ts\" \"libs/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -51,7 +58,8 @@
     "typeorm": "node -r ts-node/register -r tsconfig-paths/register ./node_modules/typeorm/cli.js",
     "migration:generate": "pnpm typeorm migration:generate -d ./data-source.ts",
     "migration:run": "pnpm typeorm migration:run -d ./data-source.ts",
-    "migration:revert": "pnpm typeorm migration:revert -d ./data-source.ts"
+    "migration:revert": "pnpm typeorm migration:revert -d ./data-source.ts",
+    "eval:supervisor-plan": "node -r ts-node/register -r tsconfig-paths/register apps/orchestration/scripts/eval-supervisor-plan.ts"
   },
   "lint-staged": {
     "*.ts": [
@@ -88,7 +96,7 @@
     "@tiptap/extension-task-list": "^3.26.0",
     "@tiptap/starter-kit": "^3.26.0",
     "agentic-io-parser": "^1.0.1",
-    "agentic-openapi-parser": "^1.7.0",
+    "agentic-openapi-parser": "^1.8.0",
     "argon2": "^0.44.0",
     "axios": "^1.16.1",
     "bullmq": "^5.76.1",

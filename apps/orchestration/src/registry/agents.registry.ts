@@ -7,6 +7,12 @@
 export interface AgentRegistryEntry {
   label: string;
   endpoint: string | undefined;
+  // true = provider có 1 instance RIÊNG cho mỗi workspace (VD Edge MCP Server
+  // relay chạy on-prem của từng khách hàng) — cache/breaker/limiter phải tách
+  // theo workspaceId để 1 workspace lỗi không ảnh hưởng workspace khác. Mọi
+  // provider hiện có dùng CHUNG 1 instance cho mọi workspace nên để trống
+  // (undefined = false) — KHÔNG đổi hành vi provider hiện tại.
+  perWorkspaceInstance?: boolean;
 }
 
 export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
@@ -35,8 +41,31 @@ export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
     label: 'Google Drive',
     endpoint: process.env.AGENT_GOOGLE_DRIVE_URL,
   },
+  google_calendar: {
+    label: 'Google Calendar',
+    endpoint: process.env.AGENT_GOOGLE_CALENDAR_URL,
+  },
   slack: {
     label: 'Slack',
     endpoint: process.env.AGENT_SLACK_URL,
+  },
+  notion: {
+    label: 'Notion',
+    endpoint: process.env.AGENT_NOTION_URL,
+  },
+  // Agent HỆ THỐNG — không phải kết nối tới hệ thống ngoài, không cần user
+  // connect (xem SupervisorService.getSystemAgents()).
+  compute: {
+    label: 'Python Compute',
+    endpoint: process.env.AGENT_COMPUTE_URL,
+  },
+  // Edge MCP Server — SQL Server on-prem của khách hàng, chạm được qua relay
+  // (workspace tự mở kết nối outbound), KHÔNG có endpoint tĩnh nào cả. Tách
+  // riêng khỏi `sql_server` (cloud, dùng chung 1 instance) để không làm loãng
+  // cache/breaker key của `sql_server` cho những workspace không dùng relay.
+  sql_server_edge: {
+    label: 'SQL Server (on-prem, qua Edge MCP Server)',
+    endpoint: undefined,
+    perWorkspaceInstance: true,
   },
 };

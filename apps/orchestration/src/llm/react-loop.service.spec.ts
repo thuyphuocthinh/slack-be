@@ -11,6 +11,12 @@ import { RunReactLoopRequestDto } from '../dto/react-loop.dto';
 import { ApprovalRequiredError } from './approval-required.error';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
+import { MemoryManagerService } from '../memory/memory-manager.service';
+import {
+  resolveDataCharBudget,
+  resolveHistoryCharBudget,
+  resolveMemoryCharBudget,
+} from '../executor/tool-result-size-cap.util';
 
 // @slack/common barrel transitively kéo theo "nanoid" (ESM-only) qua
 // string.util.ts — jest không transform được, mock thẳng theo đúng convention
@@ -41,6 +47,7 @@ describe('ReactLoopService', () => {
   const mockStrategy = {
     id: 'gemini',
     startChat: jest.fn().mockReturnValue(mockSession),
+    generateStructured: jest.fn(),
   };
   const mockLlmFactory = {
     resolve: jest
@@ -58,6 +65,16 @@ describe('ReactLoopService', () => {
     startTurn: jest.fn(),
     requestCancel: jest.fn(),
     getOwner: jest.fn(),
+  };
+  // Gọi thẳng các hàm budget thật — assertion cắt độ dài bên dưới thấy đúng
+  // số cũ, không đổi hành vi khi route qua service.
+  const mockMemoryManager = {
+    buildBudget: jest.fn((modelId: string) => ({
+      toolResultCharBudget: resolveDataCharBudget(modelId),
+      memoryCharBudget: resolveMemoryCharBudget(modelId),
+      historyCharBudget: resolveHistoryCharBudget(modelId),
+    })),
+    getMemories: jest.fn().mockResolvedValue([]),
   };
 
   const baseDto: RunReactLoopRequestDto = {
@@ -88,6 +105,7 @@ describe('ReactLoopService', () => {
     // resync()/onToken() luôn gọi emitStep(...).catch(...) — cần resolve thật
     // (không phải undefined mặc định của jest.fn()) để .catch() không throw.
     mockAgentStream.emitStep.mockResolvedValue(undefined);
+    mockStrategy.generateStructured.mockResolvedValue({ requiredCount: 0 });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -97,6 +115,7 @@ describe('ReactLoopService', () => {
         { provide: AgentStreamService, useValue: mockAgentStream },
         { provide: CircuitBreakerService, useValue: mockCircuitBreaker },
         { provide: AgentCancellationService, useValue: mockCancellation },
+        { provide: MemoryManagerService, useValue: mockMemoryManager },
       ],
     }).compile();
 
@@ -146,6 +165,7 @@ describe('ReactLoopService', () => {
         tool: 'sql_server.get_database_schema',
         status: 'success',
         resultPreview: 'result data',
+        argsPreview: '{}',
       },
     ]);
     expect(mockSession.sendMessage).toHaveBeenCalledTimes(3);
@@ -199,7 +219,151 @@ describe('ReactLoopService', () => {
     expect(mockSession.sendMessage).toHaveBeenCalledTimes(4);
   });
 
-  it('executes multiple tool calls in a single turn SEQUENTIALLY, never overlapping (bug fix: parallel execution raced the repeat-guard/Risk Gate and desynced tool_call/tool_result FE events for same-name calls)', async () => {
+  describe('quantity check (ver3.md mục 3)', () => {
+    it('nudges to continue with a code-authored message when the required count does not match the achieved count', async () => {
+      mockStrategy.generateStructured
+        .mockResolvedValueOnce({ requiredCount: 5 })
+        .mockResolvedValueOnce({ achievedCount: 1 });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'execute_write_query', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'Đã tạo xong.', toolCalls: [] })
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'execute_write_query', args: { n: 2 } }],
+        })
+        .mockResolvedValueOnce({ text: 'Đã tạo đủ 5.', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.answer).toBe('Đã tạo đủ 5.');
+      expect(mockSession.sendMessage).toHaveBeenNthCalledWith(
+        3,
+        'Yêu cầu cần xử lý đúng 5 bản ghi, nhưng theo kết quả tool hiện tại mới có 1. Hãy tiếp tục thực hiện phần còn thiếu trước khi trả lời.',
+        expect.any(Function),
+        expect.anything(),
+      );
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
+    });
+
+    it('falls back to the answer from before the nudge, PLUS a code-authored honesty note with the real counts, when the model does not call more tools despite the mismatch', async () => {
+      // Bug thật (HH1) — trước fix, model có thể vẫn giữ nguyên câu trả lời
+      // "Đã tạo xong." (bịa như đã xong đủ) dù achievedCount THẬT khác hẳn
+      // requiredCount. Giờ PHẢI luôn kèm số liệu thật, không tin nguyên văn model.
+      mockStrategy.generateStructured
+        .mockResolvedValueOnce({ requiredCount: 5 })
+        .mockResolvedValueOnce({ achievedCount: 1 });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'execute_write_query', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'Đã tạo xong.', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'vẫn giữ nguyên', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.answer).toBe(
+        'Đã tạo xong.\n\n⚠️ Yêu cầu cần xử lý đúng 5, nhưng theo kết quả tool THẬT chỉ xác nhận được 1.',
+      );
+      expect(mockSession.sendMessage).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not call the achieved-count check and falls through to the freeform self-check when the task states no explicit quantity', async () => {
+      mockStrategy.generateStructured.mockResolvedValueOnce({
+        requiredCount: 0,
+      });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'get_database_schema', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'Đây là schema.', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'đã xác nhận', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.answer).toBe('Đây là schema.');
+      expect(mockStrategy.generateStructured).toHaveBeenCalledTimes(1);
+      expect(mockSession.sendMessage).toHaveBeenNthCalledWith(
+        3,
+        ORCHESTRATION_SELF_CHECK_PROMPT,
+        expect.any(Function),
+        expect.anything(),
+      );
+    });
+
+    it('falls through to the freeform self-check when the required and achieved counts already match', async () => {
+      mockStrategy.generateStructured
+        .mockResolvedValueOnce({ requiredCount: 3 })
+        .mockResolvedValueOnce({ achievedCount: 3 });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'execute_write_query', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'Đã tạo đủ 3.', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'đã xác nhận', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.answer).toBe('Đã tạo đủ 3.');
+      expect(mockSession.sendMessage).toHaveBeenNthCalledWith(
+        3,
+        ORCHESTRATION_SELF_CHECK_PROMPT,
+        expect.any(Function),
+        expect.anything(),
+      );
+    });
+
+    it('treats a failed quantity check as not-applicable and still runs the freeform self-check', async () => {
+      mockStrategy.generateStructured.mockRejectedValueOnce(
+        new Error('provider down'),
+      );
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'get_database_schema', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'Đây là schema.', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'đã xác nhận', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.answer).toBe('Đây là schema.');
+      expect(mockSession.sendMessage).toHaveBeenNthCalledWith(
+        3,
+        ORCHESTRATION_SELF_CHECK_PROMPT,
+        expect.any(Function),
+        expect.anything(),
+      );
+    });
+
+    it('skips self-check on the last step instead of losing the answer already in hand', async () => {
+      let call = 0;
+      mockSession.sendMessage.mockImplementation(() => {
+        call++;
+        if (call < ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS) {
+          return Promise.resolve({
+            text: '',
+            toolCalls: [{ name: 'get_database_schema', args: { call } }],
+          });
+        }
+        return Promise.resolve({ text: 'good answer', toolCalls: [] });
+      });
+
+      const result = await service.run(baseDto);
+
+      expect(result.answer).toBe('good answer');
+      expect(mockSession.sendMessage).toHaveBeenCalledTimes(
+        ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS,
+      );
+    });
+  });
+
+  it('runs independent tool calls (different name/args, not both INSERT into the same table) in the same turn CONCURRENTLY for speed', async () => {
     mockSession.sendMessage
       .mockResolvedValueOnce({
         text: '',
@@ -211,7 +375,6 @@ describe('ReactLoopService', () => {
       .mockResolvedValueOnce({ text: 'đã tổng hợp xong 2 bảng', toolCalls: [] })
       .mockResolvedValueOnce({ text: 'xác nhận đã xong', toolCalls: [] });
 
-    // Cố tình delay callTool để kiểm tra KHÔNG có lúc nào 2 call cùng "in-flight".
     let activeCalls = 0;
     let maxConcurrent = 0;
     const callOrder: string[] = [];
@@ -228,8 +391,55 @@ describe('ReactLoopService', () => {
 
     expect(result.answer).toBe('đã tổng hợp xong 2 bảng');
     expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
-    expect(maxConcurrent).toBe(1); // Không bao giờ có 2 tool cùng chạy 1 lúc
-    expect(callOrder).toEqual(['get_table1', 'get_table2']); // đúng thứ tự model yêu cầu
+    expect(maxConcurrent).toBe(2); // độc lập nhau — chạy thật song song, không xếp hàng oan
+    expect(callOrder).toEqual(['get_table1', 'get_table2']); // vẫn khởi chạy đúng thứ tự model yêu cầu
+  });
+
+  it('serializes 2 INSERT calls targeting the SAME table+columns in one turn instead of letting them race the shared tuple accumulator', async () => {
+    mockMcpClient.getTools.mockResolvedValue([
+      {
+        name: 'execute_write_query',
+        description: 'desc',
+        inputSchema: {},
+        annotations: { readOnlyHint: false, destructiveHint: true },
+      },
+    ]);
+    mockSession.sendMessage
+      .mockResolvedValueOnce({
+        text: '',
+        toolCalls: [
+          {
+            name: 'execute_write_query',
+            args: {
+              query: "INSERT INTO Products (Name) VALUES ('A')",
+            },
+          },
+          {
+            name: 'execute_write_query',
+            args: {
+              query: "INSERT INTO Products (Name) VALUES ('B')",
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ text: 'đã thêm xong 2 sản phẩm', toolCalls: [] })
+      .mockResolvedValueOnce({ text: 'xác nhận đã xong', toolCalls: [] });
+
+    let activeCalls = 0;
+    let maxConcurrent = 0;
+    mockMcpClient.callTool.mockImplementation(async () => {
+      activeCalls++;
+      maxConcurrent = Math.max(maxConcurrent, activeCalls);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      activeCalls--;
+      return { content: [{ type: 'text', text: 'data' }], isError: false };
+    });
+
+    const result = await service.run(baseDto);
+
+    expect(result.answer).toBe('đã thêm xong 2 sản phẩm');
+    expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
+    expect(maxConcurrent).toBe(1); // cùng bảng Products — phải xếp hàng, không cho 2 cái cùng đụng insertAccumulator
   });
 
   it('stops after MAX_REACT_STEPS iterations and returns the fallback message if the model never converges', async () => {
@@ -246,8 +456,11 @@ describe('ReactLoopService', () => {
 
     const result = await service.run(baseDto);
 
+    // accuracy_problem.md — mọi tool call ở test này đều THÀNH CÔNG (mock mặc
+    // định), nên bắt buộc phải kèm caveat "đã thực hiện thành công trước khi
+    // dừng" — tránh user tưởng nhầm chưa có gì xảy ra rồi lặp lại thao tác.
     expect(result.answer).toBe(
-      'Xin lỗi, câu hỏi này cần nhiều bước hơn mình hỗ trợ được.',
+      'Xin lỗi, câu hỏi này cần nhiều bước hơn mình hỗ trợ được. Một số hành động (đọc/ghi dữ liệu) đã thực hiện THÀNH CÔNG trước khi dừng — kiểm tra lại kết quả hiện có trước khi yêu cầu lại, tránh lặp lại đúng thao tác đã làm.',
     );
     expect(mockMcpClient.callTool).toHaveBeenCalledTimes(
       ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS,
@@ -255,6 +468,26 @@ describe('ReactLoopService', () => {
     // 1 lượt gọi ban đầu + đúng MAX_REACT_STEPS lượt trong loop
     expect(mockSession.sendMessage).toHaveBeenCalledTimes(
       ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS + 1,
+    );
+  });
+
+  it('accuracy_problem.md — KHÔNG kèm caveat "đã thực hiện thành công" khi hết MAX_REACT_STEPS mà KHÔNG có tool call nào thành công (không có gì để cảnh báo lặp lại)', async () => {
+    let call = 0;
+    mockSession.sendMessage.mockImplementation(() =>
+      Promise.resolve({
+        text: '',
+        toolCalls: [{ name: 'get_database_schema', args: { step: call++ } }],
+      }),
+    );
+    mockMcpClient.callTool.mockResolvedValue({
+      content: [{ type: 'text', text: 'lỗi mô phỏng' }],
+      isError: true,
+    });
+
+    const result = await service.run(baseDto);
+
+    expect(result.answer).toBe(
+      'Xin lỗi, câu hỏi này cần nhiều bước hơn mình hỗ trợ được.',
     );
   });
 
@@ -269,6 +502,8 @@ describe('ReactLoopService', () => {
     expect(mockMcpClient.getTools).toHaveBeenCalledWith(
       'sql_server',
       baseDto.prompt,
+      expect.any(AbortSignal),
+      baseDto.workspaceId,
     );
   });
 
@@ -333,11 +568,17 @@ describe('ReactLoopService', () => {
 
     await service.run(baseDto);
 
-    expect(mockMcpClient.getResources).toHaveBeenCalledWith('sql_server');
+    expect(mockMcpClient.getResources).toHaveBeenCalledWith(
+      'sql_server',
+      expect.any(AbortSignal),
+      baseDto.workspaceId,
+    );
     expect(mockMcpClient.readResource).toHaveBeenCalledWith(
       'sql_server',
       'resource://1',
       'user-1',
+      expect.any(AbortSignal),
+      baseDto.workspaceId,
     );
     expect(mockStrategy.startChat).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -378,7 +619,11 @@ describe('ReactLoopService', () => {
           messageId: 'reply-msg-1',
           channelType: 'group',
         },
-        { type: 'tool_call', tool: 'sql_server.get_database_schema' },
+        {
+          type: 'tool_call',
+          tool: 'sql_server.get_database_schema',
+          argsPreview: '{}',
+        },
       );
       expect(mockAgentStream.emitStep).toHaveBeenNthCalledWith(
         3,
@@ -409,6 +654,81 @@ describe('ReactLoopService', () => {
       );
     });
 
+    // UX — code Python thật của run_python (hoặc câu SQL thật) phải hiện được
+    // cho user xem/copy trên UI, không chỉ tồn tại thoáng qua trong debug log.
+    it('shows a single string argument RAW (multi-line code stays readable) instead of JSON-escaping it', async () => {
+      const pythonCode =
+        'import statistics\nprint(statistics.pstdev([1, 2, 3]))';
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [
+            { name: 'get_database_schema', args: { code: pythonCode } },
+          ],
+        })
+        .mockResolvedValueOnce({ text: 'ok', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'vẫn giữ nguyên', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.toolCalls[0].argsPreview).toBe(pythonCode);
+      expect(mockAgentStream.emitStep).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ type: 'tool_call', argsPreview: pythonCode }),
+      );
+    });
+
+    it('JSON-stringifies multi-argument tool calls instead of showing [object Object]', async () => {
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [
+            { name: 'get_database_schema', args: { repo: 'a/b', title: 'x' } },
+          ],
+        })
+        .mockResolvedValueOnce({ text: 'ok', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'vẫn giữ nguyên', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.toolCalls[0].argsPreview).toBe(
+        JSON.stringify({ repo: 'a/b', title: 'x' }, null, 2),
+      );
+    });
+
+    // accuracy_problem.md mục 11 (trace UI) — bug thật: emitStep() riêng dùng
+    // cho tool_call/tool_result (KHÁC emitToken() dùng cho token/resync) từng
+    // thiếu hẳn `streamKey` — MỌI tool_call/tool_result rơi về mặc định
+    // 'main' bất kể dto.streamKey là gì, tách rời khỏi nhóm đúng (được
+    // TurnResolverService tạo qua step_start, DÙNG ĐÚNG streamKey của bước
+    // đó) — FE thấy 2 nhóm: 1 có nhãn nhưng rỗng, 1 "main" không nhãn nhưng
+    // chứa dữ liệu tool thật. Test tất cả LOẠI event (tool_call/tool_result/
+    // token/resync) đều mang ĐÚNG CÙNG 1 streamKey khi dto có set streamKey
+    // (baseDto ở trên KHÔNG set, nên các test khác không bắt được bug này).
+    it('carries dto.streamKey through EVERY step type (tool_call/tool_result/token/resync), not just token/resync', async () => {
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'get_database_schema', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'ok', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'vẫn giữ nguyên', toolCalls: [] }); // self-check round
+
+      await service.run({ ...baseDto, streamKey: 'r0-sql_server' });
+
+      for (const [context] of mockAgentStream.emitStep.mock.calls) {
+        expect(context).toEqual(
+          expect.objectContaining({ streamKey: 'r0-sql_server' }),
+        );
+      }
+      // Xác nhận CỤ THỂ tool_call/tool_result (không chỉ resync/token) có mặt
+      // trong assertion trên — tránh false-positive nếu vòng lặp trên rỗng.
+      const toolEventTypes = mockAgentStream.emitStep.mock.calls
+        .map(([, step]) => step.type)
+        .filter((t) => t === 'tool_call' || t === 'tool_result');
+      expect(toolEventTypes).toEqual(['tool_call', 'tool_result']);
+    });
+
     it('namespaces the tool name by dto.provider, not hard-coded (Step 6 — avoid collisions across agents)', async () => {
       mockSession.sendMessage
         .mockResolvedValueOnce({
@@ -425,11 +745,13 @@ describe('ReactLoopService', () => {
           tool: 'github.list_issues',
           status: 'success',
           resultPreview: 'result data',
+          argsPreview: '{}',
         },
       ]);
       // Gọi MCP server thật vẫn dùng đúng tên gốc "list_issues", KHÔNG bị namespace
       expect(mockMcpClient.callTool).toHaveBeenCalledWith(
         expect.objectContaining({ provider: 'github', name: 'list_issues' }),
+        expect.anything(),
       );
     });
 
@@ -478,7 +800,10 @@ describe('ReactLoopService', () => {
     });
 
     it('caps the tool result text fed BACK to the LLM once it exceeds the context-safety limit, without touching resultPreview', async () => {
-      const hugeText = 'y'.repeat(7000);
+      // accuracy_problem.md mục 5 — budget giờ tính THEO model thật
+      // (gpt-4o-mini ~153.600 ký tự), không còn hằng số cứng 6000 — dữ liệu
+      // phải vượt XA budget mới để còn kiểm được hành vi cap.
+      const hugeText = 'y'.repeat(160_000);
       mockMcpClient.callTool.mockResolvedValue({
         content: [{ type: 'text', text: hugeText }],
         isError: false,
@@ -501,6 +826,34 @@ describe('ReactLoopService', () => {
       // resultPreview (trace UI) vẫn đầy đủ, không bị cap.
       expect(result.toolCalls[0].resultPreview).toBe(hugeText);
     });
+
+    it('accuracy_problem.md mục 5 — KHÔNG cắt kết quả tool cỡ thật (VD 500 dòng SQL, ~40k ký tự) trước khi feed lại cho LLM trong CÙNG 1 lượt ReactLoop', async () => {
+      const fiveHundredRows = JSON.stringify(
+        Array.from({ length: 500 }, (_, i) => ({
+          id: i,
+          name: `Khách hàng ${i}`,
+          email: `customer${i}@example.com`,
+        })),
+      );
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [{ type: 'text', text: fiveHundredRows }],
+        isError: false,
+      });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'get_database_schema', args: {} }],
+        })
+        .mockImplementationOnce((input) => {
+          const fedBackText = (input as { content: string }[])[0].content;
+          expect(fedBackText).toContain('"id":0');
+          expect(fedBackText).toContain('"id":499');
+          expect(fedBackText).not.toContain('truncated');
+          return Promise.resolve({ text: 'ok', toolCalls: [] });
+        });
+
+      await service.run(baseDto);
+    });
   });
 
   describe('mục 4 — tool-call error handling (react-loop.service.ts)', () => {
@@ -520,6 +873,7 @@ describe('ReactLoopService', () => {
         tool: 'sql_server.get_database_schema',
         status: 'error',
         resultPreview: 'ECONNREFUSED',
+        argsPreview: '{}',
       });
       // Call #1 = resync(''), #2 = tool_call, #3 = tool_result (error) — không
       // có lần emit "pending" nào bị bỏ dở.
@@ -540,7 +894,34 @@ describe('ReactLoopService', () => {
       expect(result.answer).toBe('ok');
     });
 
-    it('blocks further real calls to the same tool with the same args after MAX_SAME_TOOL_CALL_REPEATS attempts in one turn, instead of letting the LLM loop forever on a self-triggered repeat', async () => {
+    it('scrubs PII/secrets out of a raw exception message before logging/emitting/feeding it back to the LLM (VD provider lỗi echo lại 1 phần request có token)', async () => {
+      const rawToken =
+        'eyJhbGciOiJIUzI1NiIsInR5cCI.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+      mockMcpClient.callTool.mockRejectedValueOnce(
+        new Error(`Unauthorized, request had header: ${rawToken}`),
+      );
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'get_database_schema', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'ok', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result.toolCalls[0].resultPreview).not.toContain(rawToken);
+      expect(result.toolCalls[0].resultPreview).toContain(
+        '[JWT_TOKEN_REDACTED]',
+      );
+      const fedBackToLlm = mockSession.sendMessage.mock.calls[1][0];
+      expect(fedBackToLlm[0].content).not.toContain(rawToken);
+    });
+
+    it('blocks a second call to the same tool+args right after the first one FAILS — no retry for application-level errors, only connection errors get retried (and that retry is invisible, inside McpClientService)', async () => {
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'HTTP 500 upstream error' }],
+        isError: true,
+      });
       mockSession.sendMessage.mockResolvedValue({
         text: '',
         toolCalls: [{ name: 'get_database_schema', args: { x: 1 } }],
@@ -548,19 +929,16 @@ describe('ReactLoopService', () => {
 
       const result = await service.run(baseDto);
 
-      // Chỉ ĐÚNG 1 lần gọi tool THẬT — lần lặp thứ 2 (chưa vượt ngưỡng) được
-      // phục vụ từ cache kết quả thành công, không tốn thêm lời gọi backend
-      // thật nào; chỉ từ lần thứ 3 trở đi (vượt ngưỡng) mới bị chặn hẳn.
+      // Đúng 1 lần gọi tool THẬT — lỗi ứng dụng (đã kết nối được, chỉ là bản
+      // thân request lỗi) không có lý do gì để retry với ĐÚNG tham số đó,
+      // nên MAX_SAME_TOOL_CALL_REPEATS=1 chặn ngay từ lần lặp thứ 2.
       expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
-      // MAX_REACT_STEPS lượt tool-call tổng cộng đều được ghi trace (thật,
-      // cache, hay bị chặn) — số bị chặn (từ sau ngưỡng) phải có status 'error'.
       expect(result.toolCalls).toHaveLength(
         ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS,
       );
-      const blocked = result.toolCalls.slice(
-        ORCHESTRATION_CONSTANTS.MAX_SAME_TOOL_CALL_REPEATS,
-      );
-      expect(blocked.every((t) => t.status === 'error')).toBe(true);
+      expect(result.toolCalls[0].status).toBe('error'); // lần gọi thật, tool trả lỗi
+      const blockedAfterFirst = result.toolCalls.slice(1);
+      expect(blockedAfterFirst.every((t) => t.status === 'error')).toBe(true);
     });
 
     it('serves a repeated identical call from cache instead of hitting the real tool again (bug: model re-called google_docs.get_document_content twice in a row even though the first call already succeeded)', async () => {
@@ -581,18 +959,38 @@ describe('ReactLoopService', () => {
       // đúng 1 lần, lần thứ 2 lấy từ cache nhưng vẫn hiện đúng như 1 lần gọi
       // thành công trên trace (để UI không đổi hành vi hiển thị).
       expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
+      const expectedArgsPreview = JSON.stringify({ x: 1 }, null, 2);
       expect(result.toolCalls.slice(0, 2)).toEqual([
         {
           tool: 'sql_server.get_database_schema',
           status: 'success',
           resultPreview: 'result data',
+          argsPreview: expectedArgsPreview,
         },
         {
           tool: 'sql_server.get_database_schema',
           status: 'success',
           resultPreview: 'result data',
+          argsPreview: expectedArgsPreview,
         },
       ]);
+    });
+
+    it('keeps reusing the cached success for a signature that already succeeded, no matter how many times it repeats — never hard-blocks a proven-good call', async () => {
+      mockSession.sendMessage.mockResolvedValue({
+        text: '',
+        toolCalls: [{ name: 'get_database_schema', args: { x: 1 } }],
+      });
+      // Mặc định beforeEach đã mock callTool trả về thành công.
+
+      const result = await service.run(baseDto);
+
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1); // chỉ 1 lần thật, còn lại phục vụ từ cache
+      expect(result.toolCalls).toHaveLength(
+        ORCHESTRATION_CONSTANTS.MAX_REACT_STEPS,
+      );
+      // KHÔNG có entry nào bị chặn cứng — cache-hit luôn ưu tiên hơn ngưỡng chặn.
+      expect(result.toolCalls.every((t) => t.status === 'success')).toBe(true);
     });
 
     it('names the other available tools in the block message so the LLM has a concrete next step instead of re-reading forever (bug: model kept re-calling get_document_content instead of ever trying append_document_text)', async () => {
@@ -605,6 +1003,10 @@ describe('ReactLoopService', () => {
           annotations: { readOnlyHint: false, destructiveHint: false },
         },
       ]);
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'not found' }],
+        isError: true,
+      });
       mockSession.sendMessage.mockResolvedValue({
         text: '',
         toolCalls: [
@@ -614,11 +1016,144 @@ describe('ReactLoopService', () => {
 
       const result = await service.run(baseDto);
 
-      const blocked = result.toolCalls.find((t) => t.status === 'error');
+      const blocked = result.toolCalls.find((t) =>
+        t.resultPreview?.includes('KHÔNG được gọi lại tool này'),
+      );
       expect(blocked?.resultPreview).toContain('KHÔNG được gọi lại tool này');
       // Gợi ý phải liệt kê CHÍNH XÁC tool còn lại (append_document_text),
       // không lặp lại chính tool vừa bị chặn (get_document_content) trong gợi ý.
       expect(blocked?.resultPreview).toMatch(/còn lại: append_document_text\./);
+    });
+  });
+
+  describe('mục 4 (nâng cấp) — transient tool-error auto-retry, ẩn với LLM (classifyToolError)', () => {
+    afterEach(() => jest.useRealTimers());
+
+    it('silently retries once when the error is classified as retryable (HTTP 503), succeeding on the 2nd real attempt without ever exposing the failed first attempt to the LLM', async () => {
+      jest.useFakeTimers();
+      mockMcpClient.callTool
+        .mockResolvedValueOnce({
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                error: true,
+                retryable: true,
+                code: 'DYNAMIC_PROVIDER_ERROR',
+                message: 'Service temporarily unavailable',
+              }),
+            },
+          ],
+          isError: true,
+        })
+        .mockResolvedValueOnce({
+          content: [{ type: 'text', text: 'result data' }],
+          isError: false,
+        });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'get_database_schema', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'ok', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'vẫn giữ nguyên', toolCalls: [] });
+
+      const runPromise = service.run(baseDto);
+      await jest.advanceTimersByTimeAsync(
+        ORCHESTRATION_CONSTANTS.TRANSIENT_RETRY_BACKOFF_MS + 100,
+      );
+      const result = await runPromise;
+
+      // 2 lần gọi THẬT bên trong, nhưng ẩn hoàn toàn với LLM/UI.
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
+      const toolResultEmits = mockAgentStream.emitStep.mock.calls.filter(
+        (call) => (call[1] as { type?: string })?.type === 'tool_result',
+      );
+      // Chỉ ĐÚNG 1 cặp tool_call/tool_result được emit ra UI — không lộ lần
+      // lỗi tạm thời đầu tiên ra ngoài.
+      expect(toolResultEmits).toHaveLength(1);
+      expect(toolResultEmits[0][1]).toEqual({
+        type: 'tool_result',
+        tool: 'sql_server.get_database_schema',
+        status: 'success',
+        resultPreview: 'result data',
+      });
+      expect(result.toolCalls[0]).toEqual({
+        tool: 'sql_server.get_database_schema',
+        status: 'success',
+        resultPreview: 'result data',
+        argsPreview: '{}',
+      });
+    });
+
+    it('gives up after MAX_TRANSIENT_TOOL_RETRY_ATTEMPTS and surfaces exactly 1 error tool_result, when the retryable error never clears', async () => {
+      jest.useFakeTimers();
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              error: true,
+              retryable: true,
+              code: 'DYNAMIC_PROVIDER_ERROR',
+              message: 'Still down',
+            }),
+          },
+        ],
+        isError: true,
+      });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [{ name: 'get_database_schema', args: {} }],
+        })
+        .mockResolvedValueOnce({ text: 'ok', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'vẫn giữ nguyên', toolCalls: [] });
+
+      const runPromise = service.run(baseDto);
+      await jest.advanceTimersByTimeAsync(
+        ORCHESTRATION_CONSTANTS.TRANSIENT_RETRY_BACKOFF_MS * 3,
+      );
+      const result = await runPromise;
+
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(
+        ORCHESTRATION_CONSTANTS.MAX_TRANSIENT_TOOL_RETRY_ATTEMPTS,
+      );
+      const toolResultEmits = mockAgentStream.emitStep.mock.calls.filter(
+        (call) => (call[1] as { type?: string })?.type === 'tool_result',
+      );
+      expect(toolResultEmits).toHaveLength(1);
+      expect((toolResultEmits[0][1] as { status?: string }).status).toBe(
+        'error',
+      );
+      expect(result.toolCalls[0].status).toBe('error');
+    });
+
+    it('does not retry a permanent error even when the envelope has a recognizable code but retryable: false (VD 400 — client error, not transient)', async () => {
+      mockMcpClient.callTool.mockResolvedValue({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              error: true,
+              retryable: false,
+              code: 'DYNAMIC_PROVIDER_ERROR',
+              message: 'Bad request',
+            }),
+          },
+        ],
+        isError: true,
+      });
+      mockSession.sendMessage.mockResolvedValue({
+        text: '',
+        toolCalls: [{ name: 'get_database_schema', args: { x: 1 } }],
+      });
+
+      await service.run(baseDto);
+
+      // Không retry transient nào — đúng 1 lần gọi thật cho bước đầu tiên,
+      // các bước lặp lại sau đó bị MAX_SAME_TOOL_CALL_REPEATS chặn (khác cơ chế).
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -651,6 +1186,278 @@ describe('ReactLoopService', () => {
         expect.anything(),
         expect.objectContaining({ type: 'tool_call' }),
       );
+    });
+
+    it('blocks BEFORE the approval gate and asks the model to rewrite when an INSERT has fewer rows than the task requires (manual_test_bank.md V1/V2)', async () => {
+      mockMcpClient.getTools.mockResolvedValue([
+        {
+          name: 'execute_write_query',
+          description: 'desc',
+          inputSchema: {},
+          annotations: { readOnlyHint: false, destructiveHint: true },
+        },
+      ]);
+      mockStrategy.generateStructured.mockResolvedValueOnce({
+        requiredCount: 20,
+      });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [
+            {
+              name: 'execute_write_query',
+              args: {
+                query: "INSERT INTO Customers (Email) VALUES ('a@mail.com')",
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ text: 'đã gộp đủ 20 dòng', toolCalls: [] })
+        .mockResolvedValueOnce({ text: 'vẫn giữ nguyên', toolCalls: [] });
+
+      const result = await service.run({
+        ...baseDto,
+        prompt: 'Tạo 20 khách hàng ngẫu nhiên rồi chèn vào bảng Customers',
+      });
+
+      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
+      expect(result.toolCalls[0]).toEqual(
+        expect.objectContaining({
+          tool: 'sql_server.execute_write_query',
+          status: 'error',
+          resultPreview: expect.stringContaining('1/20'),
+        }),
+      );
+    });
+
+    it('merges rows dribbled across multiple single-row INSERTs into ONE call, then auto-runs it once the required count is reached (INSERT is low risk, no approval needed)', async () => {
+      mockMcpClient.getTools.mockResolvedValue([
+        {
+          name: 'execute_write_query',
+          description: 'desc',
+          inputSchema: {},
+          annotations: { readOnlyHint: false, destructiveHint: true },
+        },
+      ]);
+      mockStrategy.generateStructured.mockResolvedValueOnce({
+        requiredCount: 5,
+      });
+      for (let i = 1; i <= 5; i++) {
+        mockSession.sendMessage.mockResolvedValueOnce({
+          text: '',
+          toolCalls: [
+            {
+              name: 'execute_write_query',
+              args: {
+                query: `INSERT INTO Products (Name, Price) VALUES ('Sản phẩm ${i}', ${i * 100})`,
+              },
+            },
+          ],
+        });
+      }
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: 'đã tạo xong 5 sản phẩm',
+          toolCalls: [],
+        })
+        .mockResolvedValueOnce({ text: 'đã xác nhận', toolCalls: [] });
+
+      const result = await service.run({
+        ...baseDto,
+        prompt: 'Tạo 5 sản phẩm ngẫu nhiên chèn vào bảng Products',
+      });
+
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
+      const mergedQuery = mockMcpClient.callTool.mock.calls[0][0].args
+        .query as string;
+      expect(mergedQuery.match(/INSERT INTO/gi)).toHaveLength(1);
+      for (let i = 1; i <= 5; i++) {
+        expect(mergedQuery).toContain(`'Sản phẩm ${i}'`);
+      }
+      expect(result.answer).toBe('đã tạo xong 5 sản phẩm');
+    });
+
+    it('does not re-include rows from a FAILED merged INSERT into the next attempt for the same table (regression — phantom re-insert of already-rejected rows)', async () => {
+      mockMcpClient.getTools.mockResolvedValue([
+        {
+          name: 'execute_write_query',
+          description: 'desc',
+          inputSchema: {},
+          annotations: { readOnlyHint: false, destructiveHint: true },
+        },
+      ]);
+      mockStrategy.generateStructured.mockResolvedValueOnce({
+        requiredCount: 5,
+      });
+      for (let i = 1; i <= 5; i++) {
+        mockSession.sendMessage.mockResolvedValueOnce({
+          text: '',
+          toolCalls: [
+            {
+              name: 'execute_write_query',
+              args: {
+                query: `INSERT INTO Products (Name, Price) VALUES ('Sản phẩm ${i}', ${i * 100})`,
+              },
+            },
+          ],
+        });
+      }
+      // Lần gộp ĐẦU TIÊN (5 dòng "Sản phẩm 1..5") thất bại — VD trùng khoá.
+      mockMcpClient.callTool.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Lỗi: trùng khoá duy nhất' }],
+        isError: true,
+      });
+      // Model thấy lỗi, viết lại 5 dòng HOÀN TOÀN MỚI cho ĐÚNG bảng đó.
+      mockSession.sendMessage.mockResolvedValueOnce({
+        text: '',
+        toolCalls: [
+          {
+            name: 'execute_write_query',
+            args: {
+              query:
+                "INSERT INTO Products (Name, Price) VALUES ('Sản phẩm B1', 1001), ('Sản phẩm B2', 1002), ('Sản phẩm B3', 1003), ('Sản phẩm B4', 1004), ('Sản phẩm B5', 1005)",
+            },
+          },
+        ],
+      });
+      // Lần gộp THỨ HAI dùng mock callTool mặc định (success) từ beforeEach.
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: 'đã tạo xong 5 sản phẩm (lần 2)',
+          toolCalls: [],
+        })
+        // Self-check round (handleNoMoreToolCalls) — checkQuantity() tự gọi lại
+        // extractRequiredCount() riêng, không dùng chung mock đã cấp cho
+        // getRequiredCount() nên rơi về 0 (an toàn, khớp đúng test gốc), bỏ
+        // qua nhánh nudge, tới thẳng self-check prompt.
+        .mockResolvedValueOnce({ text: 'đã xác nhận', toolCalls: [] });
+
+      const result = await service.run({
+        ...baseDto,
+        prompt: 'Tạo 5 sản phẩm ngẫu nhiên chèn vào bảng Products',
+      });
+
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
+      const firstQuery = mockMcpClient.callTool.mock.calls[0][0].args
+        .query as string;
+      const secondQuery = mockMcpClient.callTool.mock.calls[1][0].args
+        .query as string;
+      // Lần gộp đầu đúng 5 dòng cũ.
+      for (let i = 1; i <= 5; i++) {
+        expect(firstQuery).toContain(`'Sản phẩm ${i}'`);
+      }
+      // Lần gộp thứ hai CHỈ có 5 dòng MỚI — không kéo theo dòng cũ đã fail.
+      expect(secondQuery.match(/INSERT INTO/gi)).toHaveLength(1);
+      for (let i = 1; i <= 5; i++) {
+        expect(secondQuery).not.toContain(`'Sản phẩm ${i}'`);
+      }
+      for (const suffix of ['B1', 'B2', 'B3', 'B4', 'B5']) {
+        expect(secondQuery).toContain(`'Sản phẩm ${suffix}'`);
+      }
+      expect(result.answer).toBe('đã tạo xong 5 sản phẩm (lần 2)');
+    });
+
+    it('auto-runs the INSERT once it already covers the full required count (low risk, no approval needed)', async () => {
+      mockMcpClient.getTools.mockResolvedValue([
+        {
+          name: 'execute_write_query',
+          description: 'desc',
+          inputSchema: {},
+          annotations: { readOnlyHint: false, destructiveHint: true },
+        },
+      ]);
+      mockStrategy.generateStructured.mockResolvedValueOnce({
+        requiredCount: 3,
+      });
+      const values = [
+        "('a@mail.com')",
+        "('b@mail.com')",
+        "('c@mail.com')",
+      ].join(', ');
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [
+            {
+              name: 'execute_write_query',
+              args: {
+                query: `INSERT INTO Customers (Email) VALUES ${values}`,
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          text: 'đã tạo xong 3 khách hàng',
+          toolCalls: [],
+        })
+        .mockResolvedValueOnce({ text: 'đã xác nhận', toolCalls: [] });
+
+      const result = await service.run({
+        ...baseDto,
+        prompt: 'Tạo 3 khách hàng ngẫu nhiên rồi chèn vào bảng Customers',
+      });
+
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
+      expect(result.answer).toBe('đã tạo xong 3 khách hàng');
+    });
+
+    it('auto-runs an INSERT when the task states no explicit quantity (requiredCount=0, still low risk)', async () => {
+      mockMcpClient.getTools.mockResolvedValue([
+        {
+          name: 'execute_write_query',
+          description: 'desc',
+          inputSchema: {},
+          annotations: { readOnlyHint: false, destructiveHint: true },
+        },
+      ]);
+      mockStrategy.generateStructured.mockResolvedValueOnce({
+        requiredCount: 0,
+      });
+      mockSession.sendMessage
+        .mockResolvedValueOnce({
+          text: '',
+          toolCalls: [
+            {
+              name: 'execute_write_query',
+              args: {
+                query: "INSERT INTO Customers (Email) VALUES ('a@mail.com')",
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          text: 'đã thêm khách hàng mới',
+          toolCalls: [],
+        })
+        .mockResolvedValueOnce({ text: 'đã xác nhận', toolCalls: [] });
+
+      const result = await service.run({
+        ...baseDto,
+        prompt: 'Thêm 1 khách hàng mới',
+      });
+
+      expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
+      expect(result.answer).toBe('đã thêm khách hàng mới');
+    });
+
+    it('still requires approval for a destructive call on a NON-sql_server provider even though it looks like a create action (auto-run is sql_server insert-only)', async () => {
+      mockMcpClient.getTools.mockResolvedValue([
+        {
+          name: 'create_issue',
+          description: 'desc',
+          inputSchema: {},
+          annotations: { readOnlyHint: false, destructiveHint: true },
+        },
+      ]);
+      mockSession.sendMessage.mockResolvedValueOnce({
+        text: '',
+        toolCalls: [{ name: 'create_issue', args: { title: 'Bug' } }],
+      });
+
+      await expect(
+        service.run({ ...baseDto, provider: 'github' }),
+      ).rejects.toThrow(ApprovalRequiredError);
+      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
     });
 
     it('carries {provider, name, args} on the thrown error so the checkpoint can be built from it', async () => {
@@ -716,6 +1523,7 @@ describe('ReactLoopService', () => {
           tool: 'sql_server.get_database_schema',
           status: 'success',
           resultPreview: 'result data',
+          argsPreview: '{}',
         },
       ]);
     });
@@ -758,6 +1566,7 @@ describe('ReactLoopService', () => {
       expect(mockCircuitBreaker.run).toHaveBeenCalledWith(
         'llm:gemini',
         expect.any(Function),
+        expect.anything(),
       );
     });
 
@@ -772,6 +1581,33 @@ describe('ReactLoopService', () => {
         'CIRCUIT BREAKER OPEN',
       );
       expect(mockSession.sendMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('LLM call retry on timeout/error (bug thật: 1 lần treo 30s, 0 token, 0 tool_call)', () => {
+    it('retries once and succeeds when sendMessage() fails WITHOUT having streamed any token yet — an toàn vì chưa hiện gì cho user', async () => {
+      mockSession.sendMessage
+        .mockRejectedValueOnce(new Error('stream stalled, 0 tokens'))
+        .mockResolvedValueOnce({ text: 'Xin chào!', toolCalls: [] });
+
+      const result = await service.run(baseDto);
+
+      expect(result).toEqual({ answer: 'Xin chào!', toolCalls: [] });
+      expect(mockSession.sendMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it('does NOT retry when the failed attempt already streamed a partial token — retry mù lúc này sẽ tạo nội dung trùng/lẫn lộn cho user', async () => {
+      mockSession.sendMessage.mockImplementationOnce(
+        (_input: unknown, onTok?: (chunk: string) => void) => {
+          onTok?.('Để tôi kiểm tra...');
+          return Promise.reject(new Error('stream stalled mid-way'));
+        },
+      );
+
+      await expect(service.run(baseDto)).rejects.toThrow(
+        'stream stalled mid-way',
+      );
+      expect(mockSession.sendMessage).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -835,6 +1671,104 @@ describe('ReactLoopService', () => {
       });
       await jest.advanceTimersByTimeAsync(1100);
       await assertion;
+    });
+
+    // Bug thật đã sửa: Stop bấm ĐÚNG LÚC 1 tool call đang chạy (SQL query, gọi
+    // API dynamic provider...) trước đây hoàn toàn vô tác dụng — signal chỉ
+    // tới được sendMessage(), không tới mcpClient.callTool(). Người dùng phải
+    // đợi tool tự xong (có thể tới MCP_CALL_TIMEOUT_MS=15s) mới thấy Stop có
+    // tác dụng, dù đã bấm từ đầu.
+    it('truyền signal xuống mcpClient.callTool() — huỷ được NGAY CẢ KHI đang giữa lúc chạy tool call, không chỉ lúc LLM đang stream', async () => {
+      jest.useFakeTimers();
+      mockSession.sendMessage.mockResolvedValueOnce({
+        text: '',
+        toolCalls: [{ name: 'get_database_schema', args: {} }],
+      });
+      mockMcpClient.callTool.mockImplementation(
+        (_dto: unknown, signal?: AbortSignal) =>
+          new Promise((_, reject) => {
+            signal?.addEventListener('abort', () =>
+              reject(new Error('aborted by signal')),
+            );
+          }),
+      );
+      mockCancellation.isCancelled.mockResolvedValue(true);
+
+      const assertion = expect(service.run(baseDto)).rejects.toMatchObject({
+        name: 'TurnCancelledError',
+      });
+      await jest.advanceTimersByTimeAsync(1100); // cho interval poll (1s) phát hiện Stop
+      await assertion;
+
+      // Không bị "nuốt" thành 1 tool_result lỗi bình thường rồi tiếp tục hỏi
+      // LLM — sendMessage() chỉ được gọi đúng 1 lần (lượt tạo ra tool call),
+      // KHÔNG có lượt thứ 2 nào feed "lỗi" tool này lại cho LLM.
+      expect(mockSession.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    // Bug fix (Bug 2) — TRƯỚC ĐÂY getTools()/readResource() (setup phase) chạy
+    // NGOÀI runCancellable(), nên không nhận signal. Bấm Stop đúng lúc đang
+    // setup thì phải đợi MCP_CALL_TIMEOUT_MS=15s trước khi Stop có hiệu lực.
+    it('Bug fix #2 — Stop effective immediately during getTools() setup phase: signal is passed into setup so cancellation works without waiting for MCP_CALL_TIMEOUT_MS', async () => {
+      jest.useFakeTimers();
+      // Giả lập getTools() treo vô thời hạn (mô phỏng MCP server chậm)
+      mockMcpClient.getTools.mockImplementation(
+        (_provider: string, _query?: string, signal?: AbortSignal) =>
+          new Promise((_resolve, reject) => {
+            if (signal?.aborted) {
+              return reject(new Error('Aborted'));
+            }
+            signal?.addEventListener('abort', () =>
+              reject(new Error('Aborted')),
+            );
+          }),
+      );
+      mockCancellation.isCancelled.mockResolvedValue(true);
+
+      const assertion = expect(service.run(baseDto)).rejects.toMatchObject({
+        name: 'TurnCancelledError',
+      });
+      // Interval poll của runCancellable (1s) phát hiện Stop → abort signal
+      await jest.advanceTimersByTimeAsync(1100);
+      await assertion;
+
+      // sendMessage() KHÔNG được gọi vì setup bị abort trước
+      expect(mockSession.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('Bug fix #2 — Stop effective during readResource() setup: signal is forwarded to buildSystemInstruction → readResource()', async () => {
+      jest.useFakeTimers();
+      // getTools() hoàn thành ngay, nhưng readResource() treo
+      mockMcpClient.getTools.mockResolvedValue([]);
+      mockMcpClient.getResources.mockResolvedValue([
+        { uri: 'file://schema', name: 'Schema' },
+      ]);
+      let capturedSignal: AbortSignal | undefined;
+      mockMcpClient.readResource.mockImplementation(
+        (_p: string, _u: string, _o?: string, signal?: AbortSignal) => {
+          capturedSignal = signal;
+          return new Promise((_resolve, reject) => {
+            if (signal?.aborted) {
+              return reject(new Error('Aborted'));
+            }
+            signal?.addEventListener('abort', () =>
+              reject(new Error('Aborted')),
+            );
+          });
+        },
+      );
+      mockCancellation.isCancelled.mockResolvedValue(true);
+
+      const assertion = expect(service.run(baseDto)).rejects.toMatchObject({
+        name: 'TurnCancelledError',
+      });
+      await jest.advanceTimersByTimeAsync(1100);
+      await assertion;
+
+      // Quan trọng: readResource() phải NHẬN signal từ runCancellable —
+      // đây là bằng chứng signal đã được forward xuống setup phase
+      expect(capturedSignal).toBeDefined();
+      expect(capturedSignal).toBeInstanceOf(AbortSignal);
     });
   });
 });

@@ -5,9 +5,9 @@ const mockCreate = jest.fn();
 const mockStream = jest.fn();
 
 jest.mock('@anthropic-ai/sdk', () => {
-  return jest
-    .fn()
-    .mockImplementation(() => ({ messages: { create: mockCreate, stream: mockStream } }));
+  return jest.fn().mockImplementation(() => ({
+    messages: { create: mockCreate, stream: mockStream },
+  }));
 });
 
 const mockGetCurrentRunTree = jest.fn();
@@ -98,6 +98,32 @@ describe('AnthropicStrategy', () => {
       ]);
     });
 
+    it('throws instead of returning a tool call with possibly-truncated arguments when stop_reason is "max_tokens"', async () => {
+      mockStream.mockReturnValue({
+        on: jest.fn().mockReturnThis(),
+        finalMessage: async () => ({
+          stop_reason: 'max_tokens',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'toolu_1',
+              name: 'get_schema',
+              input: { table: 'Ord' },
+            },
+          ],
+        }),
+      });
+
+      const session = strategy.startChat({
+        model: 'claude-haiku',
+        systemInstruction: '',
+        tools: [],
+        history: [],
+      });
+
+      await expect(session.sendMessage('hi')).rejects.toThrow('truncated');
+    });
+
     it('passes opts.temperature through to every messages.stream call (Step 7)', async () => {
       mockStream.mockReturnValue({
         on: jest.fn().mockReturnThis(),
@@ -119,13 +145,91 @@ describe('AnthropicStrategy', () => {
       );
     });
 
+    it('does not push the same input twice into history when the SAME logical call is retried (bug fix — 2 duplicate tool_result blocks with the same tool_use_id would violate role-alternation)', async () => {
+      mockStream
+        .mockReturnValueOnce({
+          on: jest.fn().mockReturnThis(),
+          finalMessage: async () => {
+            throw new Error('boom');
+          },
+        })
+        .mockReturnValueOnce({
+          on: jest.fn().mockReturnThis(),
+          finalMessage: async () => ({
+            content: [{ type: 'text', text: 'ok' }],
+          }),
+        });
+
+      const session = strategy.startChat({
+        model: 'claude-haiku',
+        systemInstruction: '',
+        tools: [],
+        history: [],
+      });
+
+      const input = 'hi';
+      await expect(session.sendMessage(input)).rejects.toThrow('boom');
+      await session.sendMessage(input); // retry với CÙNG reference input
+
+      const secondCallMessages = mockStream.mock.calls[1][0].messages;
+      const userMessagesForInput = secondCallMessages.filter(
+        (m: any) => m.role === 'user' && m.content === input,
+      );
+      expect(userMessagesForInput).toHaveLength(1);
+    });
+
+    it('does not write the assistant reply to history when its own attempt was already aborted (zombie-attempt bug fix)', async () => {
+      mockStream.mockReturnValueOnce({
+        on: jest.fn().mockReturnThis(),
+        finalMessage: async () => ({
+          content: [{ type: 'text', text: 'stale answer' }],
+        }),
+      });
+
+      const session = strategy.startChat({
+        model: 'claude-haiku',
+        systemInstruction: '',
+        tools: [],
+        history: [],
+      });
+
+      const controller = new AbortController();
+      controller.abort();
+      await expect(
+        session.sendMessage('hi', undefined, controller.signal),
+      ).rejects.toThrow('Aborted');
+
+      mockStream.mockReturnValueOnce({
+        on: jest.fn().mockReturnThis(),
+        finalMessage: async () => ({
+          content: [{ type: 'text', text: 'real answer' }],
+        }),
+      });
+      const result = await session.sendMessage('hi again');
+
+      expect(result.text).toBe('real answer');
+      const secondCallMessages = mockStream.mock.calls[1][0].messages;
+      expect(
+        secondCallMessages.some(
+          (m: any) =>
+            JSON.stringify(m.content) ===
+            JSON.stringify([{ type: 'text', text: 'stale answer' }]),
+        ),
+      ).toBe(false);
+    });
+
     it('sends tool results back as a user turn with tool_result blocks, correlated by tool_use_id', async () => {
       mockStream
         .mockReturnValueOnce({
           on: jest.fn().mockReturnThis(),
           finalMessage: async () => ({
             content: [
-              { type: 'tool_use', id: 'toolu_1', name: 'get_schema', input: {} },
+              {
+                type: 'tool_use',
+                id: 'toolu_1',
+                name: 'get_schema',
+                input: {},
+              },
             ],
           }),
         })
@@ -220,6 +324,7 @@ describe('AnthropicStrategy', () => {
         expect.objectContaining({
           tool_choice: { type: 'tool', name: 'decision' },
         }),
+        expect.anything(),
       );
     });
 

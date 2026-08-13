@@ -86,4 +86,45 @@ describe('ProviderConcurrencyLimiterService', () => {
     });
     expect(ran).toBe(true);
   });
+
+  it('rejects and removes from queue immediately when signal is aborted', async () => {
+    const controller = new AbortController();
+    let releaseFirst: () => void = () => {};
+    const first = service.run(
+      'mcp:sql_server',
+      1,
+      () => new Promise<void>((resolve) => (releaseFirst = resolve)),
+    );
+    await flush();
+
+    // Second task queues up
+    let secondRan = false;
+    const second = service.run(
+      'mcp:sql_server',
+      1,
+      async () => {
+        secondRan = true;
+      },
+      controller.signal,
+    );
+    await flush();
+
+    // Third task queues up behind it
+    let thirdRan = false;
+    const third = service.run('mcp:sql_server', 1, async () => {
+      thirdRan = true;
+    });
+    await flush();
+
+    // Abort the second task
+    controller.abort();
+    await expect(second).rejects.toThrow('Aborted');
+
+    // Release the first task, second shouldn't run, third should run next
+    releaseFirst();
+    await Promise.all([first, third]);
+
+    expect(secondRan).toBe(false);
+    expect(thirdRan).toBe(true);
+  });
 });

@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Job } from 'bullmq';
-import { EJobName, IProcessAiTriggerJobData, IProcessApprovalJobData } from '@slack/queue';
+import {
+  EJobName,
+  IProcessAiTriggerJobData,
+  IProcessApprovalJobData,
+} from '@slack/queue';
 import { AiOrchestrationProcessor } from './ai-orchestration.processor';
 import { MessageClientService } from '../message-client.service';
 import { AgentStreamService } from '../socket/agent-stream.service';
@@ -8,7 +12,7 @@ import { TriggerClaimService } from '../trigger-claim/trigger-claim.service';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
 import { TurnCancelledError } from '../llm/turn-cancelled.error';
 import { TurnResolverService } from './turn-resolver.service';
-import { ApprovalFlowService } from './approval-flow.service';
+import { ApprovalExecutionService } from './approval-execution.service';
 
 // ai-orchestration.processor.ts import ReactLoopService (dù đã mock qua DI ở
 // dưới) — file thật của nó vẫn import @slack/common ở module scope, kéo theo
@@ -37,9 +41,10 @@ describe('AiOrchestrationProcessor', () => {
   const mockMessageClient = {
     createMessage: jest.fn(),
     updateMessage: jest.fn(),
+    tryUpdateMessage: jest.fn(),
   };
   const mockAgentStream = { emitStep: jest.fn() };
-  const mockTriggerClaim = { claim: jest.fn() };
+  const mockTriggerClaim = { claim: jest.fn(), release: jest.fn() };
   // Mặc định: turn chưa từng bị yêu cầu Stop — test nào cần mô phỏng Stop tự
   // override isCancelled/getOwner riêng.
   const mockCancellation = {
@@ -49,7 +54,7 @@ describe('AiOrchestrationProcessor', () => {
     isCancelled: jest.fn().mockResolvedValue(false),
   };
   const mockTurnResolver = { resolveAnswer: jest.fn() };
-  const mockApprovalFlow = { processApprovalJob: jest.fn() };
+  const mockApprovalExecution = { processApprovalJob: jest.fn() };
 
   const jobData: IProcessAiTriggerJobData = {
     userId: 'user-1',
@@ -63,10 +68,12 @@ describe('AiOrchestrationProcessor', () => {
   beforeEach(async () => {
     mockMessageClient.createMessage.mockResolvedValue({ id: 'reply-1' });
     mockMessageClient.updateMessage.mockResolvedValue(undefined);
+    mockMessageClient.tryUpdateMessage.mockResolvedValue(undefined);
     mockAgentStream.emitStep.mockResolvedValue(undefined);
     mockTriggerClaim.claim.mockResolvedValue(true);
+    mockTriggerClaim.release.mockResolvedValue(undefined);
     mockCancellation.isCancelled.mockResolvedValue(false);
-    mockApprovalFlow.processApprovalJob.mockResolvedValue(undefined);
+    mockApprovalExecution.processApprovalJob.mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -76,7 +83,7 @@ describe('AiOrchestrationProcessor', () => {
         { provide: TriggerClaimService, useValue: mockTriggerClaim },
         { provide: AgentCancellationService, useValue: mockCancellation },
         { provide: TurnResolverService, useValue: mockTurnResolver },
-        { provide: ApprovalFlowService, useValue: mockApprovalFlow },
+        { provide: ApprovalExecutionService, useValue: mockApprovalExecution },
       ],
     }).compile();
 
@@ -123,8 +130,10 @@ describe('AiOrchestrationProcessor', () => {
     expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
       id: 'reply-1',
       userId: jobData.botUserId,
+      channelId: jobData.channelId,
       content: 'Có 2 bảng.',
       toolCalls: [{ tool: 'get_database_schema', status: 'success' }],
+      executionTimeMs: expect.any(Number),
     });
     // "done" phải bắn luôn, dù trả lời thành công — FE dựa vào đây để tắt icon "đang chạy tool...".
     expect(mockAgentStream.emitStep).toHaveBeenCalledWith(
@@ -145,7 +154,7 @@ describe('AiOrchestrationProcessor', () => {
 
     await runJob();
 
-    expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+    expect(mockMessageClient.tryUpdateMessage).toHaveBeenCalledWith({
       id: 'reply-1',
       userId: jobData.botUserId,
       content: '⚠️ Lỗi: LLM provider is down',
@@ -182,7 +191,7 @@ describe('AiOrchestrationProcessor', () => {
     ).rejects.toThrow('Job name unknown_job is not supported');
   });
 
-  it('dispatches PROCESS_APPROVAL jobs to ApprovalFlowService.processApprovalJob()', async () => {
+  it('dispatches PROCESS_APPROVAL jobs to ApprovalExecutionService.processApprovalJob()', async () => {
     const approvalJobData: IProcessApprovalJobData = {
       checkpointId: 'checkpoint-1',
       userId: 'user-1',
@@ -193,7 +202,7 @@ describe('AiOrchestrationProcessor', () => {
       data: approvalJobData,
     } as Job<IProcessApprovalJobData, void, EJobName>);
 
-    expect(mockApprovalFlow.processApprovalJob).toHaveBeenCalledWith(
+    expect(mockApprovalExecution.processApprovalJob).toHaveBeenCalledWith(
       approvalJobData,
     );
   });
@@ -232,7 +241,10 @@ describe('AiOrchestrationProcessor', () => {
       mockCancellation.getOwner.mockResolvedValue('user-1');
 
       await expect(
-        processor.cancelTurn({ userId: 'some-other-user', messageId: 'reply-1' }),
+        processor.cancelTurn({
+          userId: 'some-other-user',
+          messageId: 'reply-1',
+        }),
       ).rejects.toThrow();
       expect(mockCancellation.requestCancel).not.toHaveBeenCalled();
     });
@@ -248,11 +260,13 @@ describe('AiOrchestrationProcessor', () => {
 
   describe('handleAiTrigger — Stop mid-turn (TurnCancelledError)', () => {
     it('shows "Đã dừng theo yêu cầu" instead of an error, and still emits done, when the turn is cancelled with no partial text', async () => {
-      mockTurnResolver.resolveAnswer.mockRejectedValue(new TurnCancelledError());
+      mockTurnResolver.resolveAnswer.mockRejectedValue(
+        new TurnCancelledError(),
+      );
 
       await runJob();
 
-      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+      expect(mockMessageClient.tryUpdateMessage).toHaveBeenCalledWith({
         id: 'reply-1',
         userId: jobData.botUserId,
         content: '⏹️ Đã dừng theo yêu cầu.',
@@ -275,11 +289,47 @@ describe('AiOrchestrationProcessor', () => {
 
       await runJob();
 
-      expect(mockMessageClient.updateMessage).toHaveBeenCalledWith({
+      expect(mockMessageClient.tryUpdateMessage).toHaveBeenCalledWith({
         id: 'reply-1',
         userId: jobData.botUserId,
         content: 'Đang tìm dữ liệu kh',
       });
+    });
+  });
+
+  describe('handleAiTrigger — hardening: a turn must never be silently lost', () => {
+    it('releases the trigger claim and rethrows when createMessage() fails BEFORE any reply message exists — nothing was created yet, so a retry is safe', async () => {
+      mockMessageClient.createMessage.mockRejectedValue(
+        new Error('message service unreachable'),
+      );
+
+      await expect(runJob()).rejects.toThrow('message service unreachable');
+
+      expect(mockTriggerClaim.release).toHaveBeenCalledWith(jobData.messageId);
+      // Chưa có reply.id (createMessage() lỗi ngay từ đầu) — không có gì để
+      // update, và không được gọi resolveAnswer().
+      expect(mockTurnResolver.resolveAnswer).not.toHaveBeenCalled();
+    });
+
+    it('releases the trigger claim and rethrows when cancellation.startTurn() fails right after createMessage() succeeds', async () => {
+      mockCancellation.startTurn.mockRejectedValueOnce(
+        new Error('redis unreachable'),
+      );
+
+      await expect(runJob()).rejects.toThrow('redis unreachable');
+
+      expect(mockTriggerClaim.release).toHaveBeenCalledWith(jobData.messageId);
+      expect(mockTurnResolver.resolveAnswer).not.toHaveBeenCalled();
+    });
+
+    it('does NOT release the trigger claim for a failure AFTER the reply message already exists — a retry at that point could create a duplicate "Đang xử lý..." message', async () => {
+      mockTurnResolver.resolveAnswer.mockRejectedValue(
+        new Error('LLM provider is down'),
+      );
+
+      await runJob();
+
+      expect(mockTriggerClaim.release).not.toHaveBeenCalled();
     });
   });
 });

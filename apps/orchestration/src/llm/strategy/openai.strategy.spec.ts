@@ -26,7 +26,9 @@ function mockStream(chunks: any[]): AsyncIterable<any> {
       let i = 0;
       return {
         next: async () =>
-          i < chunks.length ? { value: chunks[i++], done: false } : { value: undefined, done: true },
+          i < chunks.length
+            ? { value: chunks[i++], done: false }
+            : { value: undefined, done: true },
       };
     },
   };
@@ -68,19 +70,29 @@ describe('OpenAiStrategy', () => {
 
   describe('startChat / sendMessage', () => {
     it('sends system + history on the first turn and maps tool_calls into LlmTurnResult', async () => {
-      mockCreate.mockResolvedValue(mockStream([
-        {
-          choices: [
-            {
-              delta: {
-                tool_calls: [
-                  { index: 0, id: 'call_1', type: 'function', function: { name: 'get_schema', arguments: '{"table":"Orders"}' } },
-                ],
+      mockCreate.mockResolvedValue(
+        mockStream([
+          {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: 'call_1',
+                      type: 'function',
+                      function: {
+                        name: 'get_schema',
+                        arguments: '{"table":"Orders"}',
+                      },
+                    },
+                  ],
+                },
               },
-            },
-          ],
-        },
-      ]));
+            ],
+          },
+        ]),
+      );
 
       const session = strategy.startChat({
         model: 'gpt-4o-mini',
@@ -111,9 +123,9 @@ describe('OpenAiStrategy', () => {
     });
 
     it('passes opts.temperature through to every chat.completions.create call (Step 7)', async () => {
-      mockCreate.mockResolvedValue(mockStream([
-        { choices: [{ delta: { content: 'ok' } }] },
-      ]));
+      mockCreate.mockResolvedValue(
+        mockStream([{ choices: [{ delta: { content: 'ok' } }] }]),
+      );
 
       const session = strategy.startChat({
         model: 'gpt-4o-mini',
@@ -132,16 +144,29 @@ describe('OpenAiStrategy', () => {
 
     it('carries assistant + tool-result turns forward across sequential sendMessage calls (stateful session)', async () => {
       mockCreate
-        .mockResolvedValueOnce(mockStream([
-          {
-            choices: [
-              { delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'get_schema', arguments: '{}' } }] } },
-            ],
-          },
-        ]))
-        .mockResolvedValueOnce(mockStream([
-          { choices: [{ delta: { content: 'đã xong' } }] },
-        ]));
+        .mockResolvedValueOnce(
+          mockStream([
+            {
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: 'call_1',
+                        type: 'function',
+                        function: { name: 'get_schema', arguments: '{}' },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          ]),
+        )
+        .mockResolvedValueOnce(
+          mockStream([{ choices: [{ delta: { content: 'đã xong' } }] }]),
+        );
 
       const session = strategy.startChat({
         model: 'gpt-4o-mini',
@@ -168,13 +193,26 @@ describe('OpenAiStrategy', () => {
     });
 
     it('falls back to an empty args object when the model returns malformed JSON arguments', async () => {
-      mockCreate.mockResolvedValue(mockStream([
-        {
-          choices: [
-            { delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'x', arguments: ']' } }] } },
-          ],
-        },
-      ]));
+      mockCreate.mockResolvedValue(
+        mockStream([
+          {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: 'call_1',
+                      type: 'function',
+                      function: { name: 'x', arguments: ']' },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ]),
+      );
 
       const session = strategy.startChat({
         model: 'gpt-4o-mini',
@@ -187,13 +225,55 @@ describe('OpenAiStrategy', () => {
       expect(result.toolCalls[0].args).toEqual({});
     });
 
+    it('throws instead of returning a tool call with possibly-truncated arguments when finish_reason is "length"', async () => {
+      mockCreate.mockResolvedValue(
+        mockStream([
+          {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: 'call_1',
+                      type: 'function',
+                      function: { name: 'x', arguments: '{"a":1' },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          { choices: [{ delta: {}, finish_reason: 'length' }] },
+        ]),
+      );
+
+      const session = strategy.startChat({
+        model: 'gpt-4o-mini',
+        systemInstruction: '',
+        tools: [],
+        history: [],
+      });
+
+      await expect(session.sendMessage('hi')).rejects.toThrow('truncated');
+    });
+
     it('Giai đoạn 4, Step 7 — attaches token usage from completion.usage onto the current trace', async () => {
       const runTree: { metadata?: unknown } = {};
       mockGetCurrentRunTree.mockReturnValue(runTree);
-      mockCreate.mockResolvedValue(mockStream([
-        { choices: [{ delta: { content: 'ok' } }] },
-        { choices: [], usage: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 } },
-      ]));
+      mockCreate.mockResolvedValue(
+        mockStream([
+          { choices: [{ delta: { content: 'ok' } }] },
+          {
+            choices: [],
+            usage: {
+              prompt_tokens: 20,
+              completion_tokens: 8,
+              total_tokens: 28,
+            },
+          },
+        ]),
+      );
 
       const session = strategy.startChat({
         model: 'gpt-4o-mini',
@@ -211,6 +291,83 @@ describe('OpenAiStrategy', () => {
           }),
         }),
       );
+    });
+
+    it('does not push the same input twice into history when the SAME logical call is retried (bug fix — retry after a failed attempt used to duplicate the user/tool message)', async () => {
+      mockCreate
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValueOnce(
+          mockStream([{ choices: [{ delta: { content: 'ok' } }] }]),
+        );
+
+      const session = strategy.startChat({
+        model: 'gpt-4o-mini',
+        systemInstruction: '',
+        tools: [],
+        history: [],
+      });
+
+      const input = 'hi';
+      await expect(session.sendMessage(input)).rejects.toThrow('boom');
+      await session.sendMessage(input); // retry với CÙNG reference input
+
+      const secondCallMessages = mockCreate.mock.calls[1][0].messages;
+      const userMessagesForInput = secondCallMessages.filter(
+        (m: any) => m.role === 'user' && m.content === input,
+      );
+      expect(userMessagesForInput).toHaveLength(1);
+    });
+
+    it('does not write the assistant reply to history when its own attempt was already aborted (zombie-attempt bug fix)', async () => {
+      mockCreate.mockResolvedValueOnce(
+        mockStream([{ choices: [{ delta: { content: 'stale answer' } }] }]),
+      );
+
+      const session = strategy.startChat({
+        model: 'gpt-4o-mini',
+        systemInstruction: '',
+        tools: [],
+        history: [],
+      });
+
+      const controller = new AbortController();
+      controller.abort();
+      await expect(
+        session.sendMessage('hi', undefined, controller.signal),
+      ).rejects.toThrow('Aborted');
+
+      mockCreate.mockResolvedValueOnce(
+        mockStream([{ choices: [{ delta: { content: 'real answer' } }] }]),
+      );
+      const result = await session.sendMessage('hi again');
+
+      expect(result.text).toBe('real answer');
+      const secondCallMessages = mockCreate.mock.calls[1][0].messages;
+      expect(
+        secondCallMessages.some((m: any) => m.content === 'stale answer'),
+      ).toBe(false);
+    });
+
+    it('pushes the input again for a genuinely NEW call after a previous one succeeded', async () => {
+      mockCreate.mockResolvedValue(
+        mockStream([{ choices: [{ delta: { content: 'ok' } }] }]),
+      );
+
+      const session = strategy.startChat({
+        model: 'gpt-4o-mini',
+        systemInstruction: '',
+        tools: [],
+        history: [],
+      });
+
+      await session.sendMessage('first');
+      await session.sendMessage('second');
+
+      const secondCallMessages = mockCreate.mock.calls[1][0].messages;
+      expect(secondCallMessages.filter((m: any) => m.role === 'user')).toEqual([
+        { role: 'user', content: 'first' },
+        { role: 'user', content: 'second' },
+      ]);
     });
   });
 
@@ -237,7 +394,26 @@ describe('OpenAiStrategy', () => {
             json_schema: expect.objectContaining({ name: 'decision' }),
           },
         }),
+        expect.anything(),
       );
+    });
+
+    it('throws when the model refuses instead of silently returning an empty object', async () => {
+      mockCreate.mockResolvedValue({
+        choices: [{ message: { refusal: "can't help with that" } }],
+      });
+
+      await expect(
+        strategy.generateStructured({
+          model: 'gpt-4o-mini',
+          systemInstruction: 'system',
+          prompt: 'chào bạn',
+          schema: {
+            type: 'object',
+            properties: { action: { type: 'string' } },
+          },
+        }),
+      ).rejects.toThrow("can't help with that");
     });
 
     it('Giai đoạn 4, Step 7 — attaches token usage from completion.usage onto the current trace', async () => {

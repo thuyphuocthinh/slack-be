@@ -1,7 +1,15 @@
-import { IsIn, IsNotEmpty } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { EApprovalAction } from '@slack/constants';
 
 export class ResolveApprovalDto {
-  @IsIn(['approve', 'reject'])
+  @IsIn(['approve', 'reject', 'clarify', 'edit_and_approve'])
   @IsNotEmpty()
-  action: 'approve' | 'reject';
+  action: EApprovalAction;
+
+  @IsOptional()
+  @IsString()
+  selectedProvider?: string;
+
+  @IsOptional()
+  editedArgs?: Record<string, any>;
 }

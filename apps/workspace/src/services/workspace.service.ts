@@ -120,17 +120,20 @@ export class WorkspaceService {
           );
         }
 
-        this.queueService.addJob(
-          EQueueName.AUDIT_QUEUE,
-          EJobName.SAVE_AUDIT_LOG,
-          {
+        this.queueService
+          .addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
             action: AuditAction.WORKSPACE_CREATED,
             actorId: currentDto.ownerUserId,
             entityType: AuditEntityType.WORKSPACE,
             entityId: savedWorkspace.id,
             metadata: { name: savedWorkspace.name, slug: savedWorkspace.slug },
-          },
-        );
+          })
+          .catch((err) =>
+            this.logger.error(
+              'Failed to dispatch SAVE_AUDIT_LOG job (workspace created)',
+              err,
+            ),
+          );
 
         return this.commonService.mapWorkspaceToDto(savedWorkspace);
       } catch (err) {
@@ -184,13 +187,20 @@ export class WorkspaceService {
     );
     await this.cachedService.invalidateListBulk(trackerKeys);
 
-    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
-      action: AuditAction.WORKSPACE_RENAMED,
-      actorId: dto.updatedBy,
-      entityType: AuditEntityType.WORKSPACE,
-      entityId: dto.workspaceId,
-      metadata: { name: updatedWorkspace.name },
-    });
+    this.queueService
+      .addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+        action: AuditAction.WORKSPACE_RENAMED,
+        actorId: dto.updatedBy,
+        entityType: AuditEntityType.WORKSPACE,
+        entityId: dto.workspaceId,
+        metadata: { name: updatedWorkspace.name },
+      })
+      .catch((err) =>
+        this.logger.error(
+          'Failed to dispatch SAVE_AUDIT_LOG job (workspace renamed)',
+          err,
+        ),
+      );
 
     return this.commonService.mapWorkspaceToDto(updatedWorkspace);
   }
@@ -257,13 +267,20 @@ export class WorkspaceService {
     this.cachedService.del(CACHE.WORKSPACE.KEYS.DETAIL(workspace.id));
     this.cachedService.del(CACHE.WORKSPACE.KEYS.MEMBERS(workspace.id));
 
-    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
-      action: AuditAction.WORKSPACE_DELETED,
-      actorId: dto.ownerUserId,
-      entityType: AuditEntityType.WORKSPACE,
-      entityId: workspace.id,
-      metadata: { name: workspace.name },
-    });
+    this.queueService
+      .addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+        action: AuditAction.WORKSPACE_DELETED,
+        actorId: dto.ownerUserId,
+        entityType: AuditEntityType.WORKSPACE,
+        entityId: workspace.id,
+        metadata: { name: workspace.name },
+      })
+      .catch((err) =>
+        this.logger.error(
+          'Failed to dispatch SAVE_AUDIT_LOG job (workspace deleted)',
+          err,
+        ),
+      );
 
     return 'Workspace deleted successfully';
   }

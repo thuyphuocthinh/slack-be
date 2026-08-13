@@ -14,6 +14,8 @@ import { McpClientService } from './mcp/mcp-client.service';
 import { McpAuthClientService } from './mcp-auth/mcp-auth-client.service';
 import { ReactLoopService } from './llm/react-loop.service';
 import { SupervisorService } from './llm/supervisor.service';
+import { AgentRankingService } from './llm/agent-ranking.service';
+import { SupervisorPromptBuilder } from './llm/supervisor-prompt.builder';
 import { MessageClientService } from './message-client.service';
 import { LlmStrategyFactory } from './llm/strategy/llm-strategy.factory';
 import { GeminiStrategy } from './llm/strategy/gemini.strategy';
@@ -24,6 +26,13 @@ import { AgentStreamService } from './socket/agent-stream.service';
 import { OrchestrationCheckpointEntity } from './entity/orchestration-checkpoint.entity';
 import { OrchestrationTriggerClaimEntity } from './entity/orchestration-trigger-claim.entity';
 import { DynamicProviderEntity } from './entity/dynamic-provider.entity';
+import { ChannelMemoryEntity } from './entity/channel-memory.entity';
+import { SkillEntity } from './entity/skill.entity';
+import { ChannelMemoryService } from './memory/channel-memory.service';
+import { ChannelMemoryCleanupService } from './memory/channel-memory-cleanup.service';
+import { MemoryManagerService } from './memory/memory-manager.service';
+import { SkillService } from './memory/skill.service';
+import { SkillRetrievalService } from './memory/skill-retrieval.service';
 import { CheckpointService } from './checkpoint/checkpoint.service';
 import { CheckpointCleanupService } from './checkpoint/checkpoint-cleanup.service';
 import { TriggerClaimService } from './trigger-claim/trigger-claim.service';
@@ -38,9 +47,14 @@ import { DynamicToolExecutorService } from './executor/dynamic-tool-executor.ser
 import { AgentCancellationService } from './cancellation/agent-cancellation.service';
 import { TurnResolverService } from './processor/turn-resolver.service';
 import { CheckpointPauseService } from './processor/checkpoint-pause.service';
-import { ApprovalFlowService } from './processor/approval-flow.service';
+import { ApprovalRequestService } from './processor/approval-request.service';
+import { ApprovalExecutionService } from './processor/approval-execution.service';
+import { ApprovalContinuationPlannerService } from './processor/approval-continuation-planner.service';
+import { ApprovalSkillRecorderService } from './processor/approval-skill-recorder.service';
 import { MetricsRegistryService } from './common/metrics-registry.service';
 import { HealthCheckService } from './common/health-check.service';
+import { EdgeRelayRegistryService } from './edge-relay/edge-relay-registry.service';
+import { EdgeRelayGateway } from './edge-relay/edge-relay.gateway';
 
 @Module({
   imports: [
@@ -49,6 +63,8 @@ import { HealthCheckService } from './common/health-check.service';
       OrchestrationCheckpointEntity,
       OrchestrationTriggerClaimEntity,
       DynamicProviderEntity,
+      ChannelMemoryEntity,
+      SkillEntity,
     ]),
     ScheduleModule.forRoot(),
     CachedModule.forRoot(),
@@ -79,6 +95,8 @@ import { HealthCheckService } from './common/health-check.service';
     DynamicToolExecutorService,
     ReactLoopService,
     SupervisorService,
+    AgentRankingService,
+    SupervisorPromptBuilder,
     MessageClientService,
     LlmStrategyFactory,
     GeminiStrategy,
@@ -88,15 +106,25 @@ import { HealthCheckService } from './common/health-check.service';
     AgentStreamService,
     CheckpointService,
     CheckpointCleanupService,
+    ChannelMemoryService,
+    ChannelMemoryCleanupService,
+    MemoryManagerService,
+    SkillService,
+    SkillRetrievalService,
     TriggerClaimService,
     CircuitBreakerService,
     ProviderConcurrencyLimiterService,
     AgentCancellationService,
     TurnResolverService,
     CheckpointPauseService,
-    ApprovalFlowService,
+    ApprovalRequestService,
+    ApprovalExecutionService,
+    ApprovalContinuationPlannerService,
+    ApprovalSkillRecorderService,
     MetricsRegistryService,
     HealthCheckService,
+    EdgeRelayRegistryService,
+    EdgeRelayGateway,
   ],
 })
 export class OrchestrationModule {}

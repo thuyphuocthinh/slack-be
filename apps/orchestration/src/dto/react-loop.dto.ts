@@ -1,4 +1,5 @@
 import { ChatHistoryTurnDto } from './message-client.dto';
+import { EStepExecutionStatus } from '@slack/constants';
 
 export class RunReactLoopRequestDto {
   prompt: string;
@@ -31,13 +32,25 @@ export class ToolCallTraceDto {
   tool: string;
   // 'awaiting_approval' (Giai đoạn 3, HITL) — tool bị Risk Gate chặn, đang chờ
   // user bấm Duyệt/Từ chối, KHÁC với 'error' (đã thử chạy và thất bại thật).
-  status: 'success' | 'error' | 'awaiting_approval';
+  status: EStepExecutionStatus;
   // Xem trước ngắn gọn kết quả tool trả về (rút gọn 1 dòng) — hiện dưới mỗi
   // bước trong timeline FE, giống Claude Code hiện "⎿ output" dưới tool call.
   resultPreview?: string;
+  // Tham số THẬT LLM đã sinh ra để gọi tool (VD code Python của run_python,
+  // câu SQL của execute_*_query) — chỉ để HIỂN THỊ/COPY cho user xem, không
+  // dùng lại ở đâu trong pipeline (khác resultPreview không feed ngược LLM).
+  argsPreview?: string;
 }
 
 export class RunReactLoopResponseDto {
   answer: string;
   toolCalls: ToolCallTraceDto[];
+}
+
+export class QuantityCheckRequiredDto {
+  requiredCount: number;
+}
+
+export class QuantityCheckAchievedDto {
+  achievedCount: number;
 }

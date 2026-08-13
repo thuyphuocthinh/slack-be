@@ -28,7 +28,6 @@ import { CACHE, CachedService, TTL } from '@slack/cached';
 import { IOffsetResponse, AuditAction, AuditEntityType } from '@slack/common';
 import { EJobName, EQueueName, QueueService } from '@slack/queue';
 
-
 @Injectable()
 export class ChannelService {
   private readonly logger = new Logger(ChannelService.name);
@@ -43,8 +42,7 @@ export class ChannelService {
     private readonly workspaceClient: ClientProxy,
     private readonly cachedService: CachedService,
     private readonly queueService: QueueService,
-  ) { }
-
+  ) {}
 
   public mapChannelToResponse(
     channel: ChannelEntity,
@@ -100,7 +98,9 @@ export class ChannelService {
   ): Promise<ChannelEntity> {
     const { workspaceId, memberId, targetMemberIds = [], description } = dto;
 
-    const allMemberIds = [...new Set([memberId, ...targetMemberIds])].filter(Boolean);
+    const allMemberIds = [...new Set([memberId, ...targetMemberIds])].filter(
+      Boolean,
+    );
     const memberCount = allMemberIds.length;
 
     return await this.dataSource.transaction(async (manager) => {
@@ -255,16 +255,26 @@ export class ChannelService {
       JSON.stringify(savedChannel, null, 2),
     );
 
-    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
-      action: AuditAction.CHANNEL_CREATED,
-      actorId: memberId,
-      entityType: AuditEntityType.CHANNEL,
-      entityId: savedChannel.id,
-      metadata: { title: savedChannel.title, type: savedChannel.type, workspaceId: savedChannel.workspaceId },
-    });
+    this.queueService
+      .addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+        action: AuditAction.CHANNEL_CREATED,
+        actorId: memberId,
+        entityType: AuditEntityType.CHANNEL,
+        entityId: savedChannel.id,
+        metadata: {
+          title: savedChannel.title,
+          type: savedChannel.type,
+          workspaceId: savedChannel.workspaceId,
+        },
+      })
+      .catch((err) =>
+        this.logger.error(
+          'Failed to dispatch SAVE_AUDIT_LOG job (channel created)',
+          err,
+        ),
+      );
 
     return this.mapChannelToResponse(savedChannel);
-
   }
 
   async updateChannel(dto: UpdateChannelDto): Promise<ChannelResponse> {
@@ -303,16 +313,22 @@ export class ChannelService {
       );
       await this.cachedService.invalidateListBulk(trackerKeys);
 
-      this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
-      action: AuditAction.CHANNEL_RENAMED,
-      actorId: memberId,
-      entityType: AuditEntityType.CHANNEL,
-      entityId: savedChannel.id,
-      metadata: { title: savedChannel.title },
-    });
+      this.queueService
+        .addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+          action: AuditAction.CHANNEL_RENAMED,
+          actorId: memberId,
+          entityType: AuditEntityType.CHANNEL,
+          entityId: savedChannel.id,
+          metadata: { title: savedChannel.title },
+        })
+        .catch((err) =>
+          this.logger.error(
+            'Failed to dispatch SAVE_AUDIT_LOG job (channel renamed)',
+            err,
+          ),
+        );
 
-    return this.mapChannelToResponse(savedChannel);
-
+      return this.mapChannelToResponse(savedChannel);
     } catch (error) {
       if (error instanceof OptimisticLockVersionMismatchError) {
         throw new RpcException(DATABASE_ERROR.OPTIMISTIC_LOCK_CONFLICT);
@@ -353,16 +369,22 @@ export class ChannelService {
     );
     await this.cachedService.invalidateListBulk(trackerKeys);
 
-    this.queueService.addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
-      action: AuditAction.CHANNEL_DELETED,
-      actorId: memberId,
-      entityType: AuditEntityType.CHANNEL,
-      entityId: channelId,
-      metadata: { title: channel.title, workspaceId: channel.workspaceId },
-    });
+    this.queueService
+      .addJob(EQueueName.AUDIT_QUEUE, EJobName.SAVE_AUDIT_LOG, {
+        action: AuditAction.CHANNEL_DELETED,
+        actorId: memberId,
+        entityType: AuditEntityType.CHANNEL,
+        entityId: channelId,
+        metadata: { title: channel.title, workspaceId: channel.workspaceId },
+      })
+      .catch((err) =>
+        this.logger.error(
+          'Failed to dispatch SAVE_AUDIT_LOG job (channel deleted)',
+          err,
+        ),
+      );
 
     return 'success';
-
   }
 
   async getChannels(

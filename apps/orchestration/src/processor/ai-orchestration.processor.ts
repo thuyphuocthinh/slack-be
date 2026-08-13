@@ -9,7 +9,7 @@ import {
   IProcessAiTriggerJobData,
   IProcessApprovalJobData,
 } from '@slack/queue';
-import { ORCHESTRATION_ERROR } from '@slack/constants';
+import { ORCHESTRATION_CONSTANTS, ORCHESTRATION_ERROR } from '@slack/constants';
 import { MessageClientService } from '../message-client.service';
 import { AgentStreamService } from '../socket/agent-stream.service';
 import { describeExternalServiceError } from '../llm/external-service-error.util';
@@ -18,7 +18,7 @@ import { TriggerClaimService } from '../trigger-claim/trigger-claim.service';
 import { AgentCancellationService } from '../cancellation/agent-cancellation.service';
 import { TurnCancelledError } from '../llm/turn-cancelled.error';
 import { TurnResolverService } from './turn-resolver.service';
-import { ApprovalFlowService } from './approval-flow.service';
+import { ApprovalExecutionService } from './approval-execution.service';
 
 type AiOrchestrationJobData =
   | IProcessAiTriggerJobData
@@ -26,9 +26,9 @@ type AiOrchestrationJobData =
 
 // Chỉ còn lo vòng đời job/turn (claim, placeholder message, trace, catch/finally
 // hiển thị kết quả) — vòng lặp Supervisor nằm ở TurnResolverService, toàn bộ
-// luồng duyệt/thực thi HITL nằm ở ApprovalFlowService.
+// luồng duyệt/thực thi HITL nằm ở ApprovalRequestService/ApprovalExecutionService.
 @Processor(EQueueName.AI_ORCHESTRATION_QUEUE, {
-  concurrency: 5,
+  concurrency: ORCHESTRATION_CONSTANTS.AI_ORCHESTRATION_QUEUE_CONCURRENCY,
   lockDuration: 60000,
   maxStalledCount: 1,
 })
@@ -43,7 +43,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
     private readonly triggerClaim: TriggerClaimService,
     private readonly cancellation: AgentCancellationService,
     private readonly turnResolver: TurnResolverService,
-    private readonly approvalFlow: ApprovalFlowService,
+    private readonly approvalExecution: ApprovalExecutionService,
   ) {
     super();
   }
@@ -66,7 +66,8 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         // hàng loạt trace lẻ (openai.sendMessage, mcp.callTool...) không liên
         // kết, thay vì đúng "1 lần duyệt = 1 trace".
         const traced = traceable(
-          (d: IProcessApprovalJobData) => this.approvalFlow.processApprovalJob(d),
+          (d: IProcessApprovalJobData) =>
+            this.approvalExecution.processApprovalJob(d),
           {
             name: 'ai-orchestration-approval',
             metadata: { checkpointId: data.checkpointId, userId: data.userId },
@@ -106,15 +107,32 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       return;
     }
 
-    const reply = await this.messageClient.createMessage({
-      channelId,
-      senderId: botUserId,
-      content: '🤖 Đang xử lý...',
-    });
-    // Ghi lại chủ turn NGAY khi bắt đầu chạy — endpoint Stop cần biết ai được
-    // phép huỷ (chỉ đúng userId này), và vòng lặp bên trong cần biết khoá Redis
-    // nào để tự kiểm tra (đều khoá theo reply.id, xem AgentCancellationService).
-    await this.cancellation.startTurn(reply.id, userId);
+    // Giai đoạn hardening — createMessage()/startTurn() lỗi (VD message-service
+    // chập chờn) TRƯỚC KHI có reply message thật sẽ làm cả handleAiTrigger()
+    // throw, BullMQ retry, nhưng claim() ở trên đã chặn MỌI lần retry sau —
+    // turn bị mất tích im lặng vĩnh viễn, user không nhận được gì cả. Release
+    // claim TRƯỚC KHI rethrow — chưa có gì thật được tạo nên retry lúc này an
+    // toàn tuyệt đối, không tạo trùng gì.
+    let reply: { id: string };
+    try {
+      reply = await this.messageClient.createMessage({
+        channelId,
+        senderId: botUserId,
+        content: '🤖 Đang xử lý...',
+      });
+      // Ghi lại chủ turn NGAY khi bắt đầu chạy — endpoint Stop cần biết ai
+      // được phép huỷ (chỉ đúng userId này), và vòng lặp bên trong cần biết
+      // khoá Redis nào để tự kiểm tra (đều khoá theo reply.id, xem
+      // AgentCancellationService).
+      await this.cancellation.startTurn(reply.id, userId);
+    } catch (error) {
+      this.logger.error(
+        `handleAiTrigger() lỗi TRƯỚC KHI tạo được reply message cho ${messageId}: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+      await this.triggerClaim.release(messageId);
+      throw error;
+    }
 
     // traceable() lồng theo AsyncLocalStorage — 1 root trace/turn, tự nest mọi span con.
     const traced = traceable(
@@ -132,14 +150,23 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       },
     );
 
+    const startTimeMs = Date.now();
     try {
       const result = await traced(data, reply.id);
       await this.messageClient.updateMessage({
         id: reply.id,
         userId: botUserId,
+        channelId,
         ...result,
+        executionTimeMs: Date.now() - startTimeMs,
       });
     } catch (error) {
+      // Checkpoint/claim đã chốt (không rollback) — reply message đã tồn tại
+      // từ đây trở đi, nên MỌI update báo lỗi bên dưới dùng tryUpdateMessage()
+      // (best-effort, tự nuốt lỗi riêng): nếu NGAY CẢ update báo lỗi này cũng
+      // lỗi, tuyệt đối không để nó văng tiếp ra ngoài — throw ở đây sẽ khiến
+      // BullMQ retry vô ích (claim() đã chặn) và turn đã tốn tiền LLM/tool
+      // thật biến mất không dấu vết.
       if (error instanceof TurnCancelledError) {
         this.logger.log(
           `handleAiTrigger() messageId=${messageId} bị huỷ theo yêu cầu (Stop)`,
@@ -148,7 +175,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
         // ChatGPT/Claude: dừng thì giữ nguyên phần đã có, không xoá sạch
         // thay bằng 1 câu thông báo. Chỉ dùng câu thông báo khi CHƯA sinh ra
         // được gì (huỷ gần như ngay lập tức).
-        await this.messageClient.updateMessage({
+        await this.messageClient.tryUpdateMessage({
           id: reply.id,
           userId: botUserId,
           content: error.partialText || '⏹️ Đã dừng theo yêu cầu.',
@@ -158,7 +185,7 @@ export class AiOrchestrationProcessor extends BaseProcessor<
           `AI orchestration failed for message ${messageId}: ${error.message}`,
           error.stack,
         );
-        await this.messageClient.updateMessage({
+        await this.messageClient.tryUpdateMessage({
           id: reply.id,
           userId: botUserId,
           content: describeExternalServiceError(error),
@@ -166,10 +193,16 @@ export class AiOrchestrationProcessor extends BaseProcessor<
       }
     } finally {
       // Luôn báo "done" — FE dựa vào đây để tắt icon "đang chạy tool...".
-      await this.agentStream.emitStep(
-        { userId, channelId, messageId: reply.id, channelType },
-        { type: 'done' },
-      );
+      await this.agentStream
+        .emitStep(
+          { userId, channelId, messageId: reply.id, channelType },
+          { type: 'done' },
+        )
+        .catch((error) =>
+          this.logger.warn(
+            `emitStep('done') failed: ${(error as Error).message}`,
+          ),
+        );
     }
   }
 

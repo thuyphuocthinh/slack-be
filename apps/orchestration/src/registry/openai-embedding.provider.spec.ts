@@ -9,16 +9,17 @@ jest.mock('openai', () => {
 import { OpenAiEmbeddingProvider } from './openai-embedding.provider';
 
 describe('OpenAiEmbeddingProvider', () => {
-  const originalApiKey = process.env.OPENAI_API_KEY;
+  const originalApiKey = process.env.OPENAI_EMBEDDING_API_KEY;
 
   afterEach(() => {
     jest.clearAllMocks();
-    if (originalApiKey === undefined) delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY = originalApiKey;
+    if (originalApiKey === undefined)
+      delete process.env.OPENAI_EMBEDDING_API_KEY;
+    else process.env.OPENAI_EMBEDDING_API_KEY = originalApiKey;
   });
 
   it('embeds a batch of texts, returning one vector per input in order', async () => {
-    process.env.OPENAI_API_KEY = 'test-key';
+    process.env.OPENAI_EMBEDDING_API_KEY = 'test-key';
     mockCreate.mockResolvedValue({
       data: [{ embedding: [0.1, 0.2] }, { embedding: [0.3, 0.4] }],
     });
@@ -36,12 +37,12 @@ describe('OpenAiEmbeddingProvider', () => {
     });
   });
 
-  it('throws instead of calling the API when OPENAI_API_KEY is missing', async () => {
-    delete process.env.OPENAI_API_KEY;
+  it('throws instead of calling the API when OPENAI_EMBEDDING_API_KEY is missing', async () => {
+    delete process.env.OPENAI_EMBEDDING_API_KEY;
     const provider = new OpenAiEmbeddingProvider();
 
     await expect(provider.embed(['hello'])).rejects.toThrow(
-      'OPENAI_API_KEY is not configured',
+      'OPENAI_EMBEDDING_API_KEY is not configured',
     );
     expect(mockCreate).not.toHaveBeenCalled();
   });

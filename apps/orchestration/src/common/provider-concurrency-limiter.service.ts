@@ -21,8 +21,9 @@ export class ProviderConcurrencyLimiterService {
     key: string,
     maxConcurrent: number,
     action: () => Promise<T>,
+    signal?: AbortSignal,
   ): Promise<T> {
-    await this.acquire(key, maxConcurrent);
+    await this.acquire(key, maxConcurrent, signal);
     try {
       return await action();
     } finally {
@@ -30,16 +31,52 @@ export class ProviderConcurrencyLimiterService {
     }
   }
 
-  private acquire(key: string, maxConcurrent: number): Promise<void> {
+  private acquire(
+    key: string,
+    maxConcurrent: number,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (signal?.aborted) {
+      return Promise.reject(new Error('Aborted'));
+    }
+
     const current = this.active.get(key) ?? 0;
     if (current < maxConcurrent) {
       this.active.set(key, current + 1);
       return Promise.resolve();
     }
 
-    return new Promise<void>((resolve) => {
+    return new Promise<void>((resolve, reject) => {
       const queue = this.waiting.get(key) ?? [];
-      queue.push({ resolve });
+
+      const resolveWrapper = () => {
+        if (signal) {
+          signal.removeEventListener('abort', onAbort);
+        }
+        resolve();
+      };
+
+      const onAbort = () => {
+        const q = this.waiting.get(key);
+        if (q) {
+          const idx = q.findIndex((w) => w.resolve === resolveWrapper);
+          if (idx !== -1) {
+            q.splice(idx, 1);
+          }
+          if (q.length === 0) {
+            this.waiting.delete(key);
+          } else {
+            this.waiting.set(key, q);
+          }
+        }
+        reject(new Error('Aborted'));
+      };
+
+      if (signal) {
+        signal.addEventListener('abort', onAbort);
+      }
+
+      queue.push({ resolve: resolveWrapper });
       this.waiting.set(key, queue);
     });
   }

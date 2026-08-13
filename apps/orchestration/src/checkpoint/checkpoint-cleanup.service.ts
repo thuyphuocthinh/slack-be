@@ -30,7 +30,48 @@ export class CheckpointCleanupService {
       `expirePendingCheckpoints() found ${expired.length} expired checkpoint(s)`,
     );
 
-    await Promise.all(expired.map((checkpoint) => this.expireOne(checkpoint)));
+    await this.settleAll(
+      expired,
+      (checkpoint) => this.expireOne(checkpoint),
+      'expireOne()',
+    );
+  }
+
+  // Bug fix — checkpoint kẹt vô hình sau worker crash: status=APPROVED +
+  // execution_started_at đã set (claimExecution() chạy) nhưng worker crash
+  // trước khi tool và resume loop hoàn tất. findExpiredPending() không bao
+  // giờ thấy vì chỉ quét PENDING — cron riêng này dọn nhánh đó.
+  @Cron(CronExpression.EVERY_10_MINUTES, {
+    name: 'recover-stalled-executions',
+  })
+  async recoverStalledExecutions(): Promise<void> {
+    const stalled = await this.checkpoint.findStalledExecution();
+    if (stalled.length === 0) return;
+
+    this.logger.warn(
+      `recoverStalledExecutions() found ${stalled.length} stalled checkpoint(s) — likely caused by a worker crash during tool execution`,
+    );
+
+    await this.settleAll(
+      stalled,
+      (checkpoint) => this.recoverOne(checkpoint),
+      'recoverOne()',
+    );
+  }
+
+  private async settleAll<T extends { id: string }>(
+    items: T[],
+    run: (item: T) => Promise<void>,
+    label: string,
+  ): Promise<void> {
+    const results = await Promise.allSettled(items.map(run));
+    results.forEach((result, i) => {
+      if (result.status === 'rejected') {
+        this.logger.error(
+          `${label} failed for checkpoint ${items[i].id}: ${result.reason}`,
+        );
+      }
+    });
   }
 
   // dùng chung claim() atomic (Step 5) — nếu user vừa bấm Approve/Reject
@@ -52,6 +93,60 @@ export class CheckpointCleanupService {
       id: checkpoint.replyMessageId,
       userId: checkpoint.userId,
       content: '⏱️ Yêu cầu duyệt đã hết hạn, tự động huỷ.',
+    });
+    await this.agentStream.emitStep(
+      {
+        userId: checkpoint.userId,
+        channelId: checkpoint.channelId,
+        messageId: checkpoint.replyMessageId,
+        channelType: checkpoint.channelType,
+      },
+      { type: 'done' },
+    );
+  }
+
+  // Dùng markStalledAsRejected() thay claim() vì claim() chỉ hoạt động
+  // WHERE status=PENDING — stalled checkpoint đã ở status=APPROVED.
+  private async recoverOne(
+    checkpoint: Pick<
+      CheckpointResponseDto,
+      | 'id'
+      | 'replyMessageId'
+      | 'userId'
+      | 'channelId'
+      | 'channelType'
+      | 'toolExecutedAt'
+    >,
+  ): Promise<void> {
+    const { claimed } = await this.checkpoint.markStalledAsRejected({
+      id: checkpoint.id,
+    });
+    if (!claimed) {
+      this.logger.log(
+        `recoverOne() checkpoint ${checkpoint.id} was already resolved — skipping`,
+      );
+      return;
+    }
+
+    this.logger.warn(
+      `recoverOne() checkpoint ${checkpoint.id} marked REJECTED after stalled execution — notifying user`,
+    );
+
+    // toolExecutedAt đã set = hành động THẬT đã chạy xong, worker chỉ crash
+    // lúc tổng hợp câu trả lời sau đó — báo "thử lại" ở đây sẽ ghi trùng.
+    //
+    // toolExecutedAt CHƯA set thì KHÔNG có nghĩa là chưa chạy — approveCheckpoint()
+    // gọi tool thật RỒI MỚI markToolExecuted(), nên worker crash đúng giữa 2 bước đó
+    // vẫn để lại toolExecutedAt=null dù hành động (không idempotent) đã chạy xong.
+    // Không thể phân biệt 2 case này chỉ bằng dữ liệu đang có — báo "thử lại" một cách
+    // chắc nịch ở đây là nguy hiểm (có thể khiến hành động chạy trùng lần 2).
+    const content = checkpoint.toolExecutedAt
+      ? '⚠️ Hành động đã được duyệt và THỰC THI THÀNH CÔNG, nhưng worker gặp sự cố ngay sau đó khi tổng hợp câu trả lời. Kết quả đã được ghi — không cần thực hiện lại hành động này.'
+      : '⚠️ Hành động đã được duyệt nhưng worker gặp sự cố trong lúc thực thi — CHƯA THỂ XÁC ĐỊNH hành động đã thực sự chạy hay chưa. Vui lòng tự kiểm tra kết quả (VD trong hệ thống/ứng dụng đích) TRƯỚC KHI yêu cầu lại, để tránh thực hiện trùng.';
+    await this.messageClient.updateMessage({
+      id: checkpoint.replyMessageId,
+      userId: checkpoint.userId,
+      content,
     });
     await this.agentStream.emitStep(
       {

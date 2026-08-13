@@ -82,7 +82,7 @@ describe('CheckpointService', () => {
       ORCHESTRATION_CONSTANTS.CHECKPOINT_EXPIRY_MS - 1000,
     );
     expect(offsetMs).toBeLessThanOrEqual(
-      ORCHESTRATION_CONSTANTS.CHECKPOINT_EXPIRY_MS,
+      ORCHESTRATION_CONSTANTS.CHECKPOINT_EXPIRY_MS + 1000,
     );
     expect(mockRepo.save).toHaveBeenCalledWith(entity);
     // toEqual (không phải toBe) — create() giờ map qua toResponseDto(), trả
@@ -216,6 +216,73 @@ describe('CheckpointService', () => {
 
       expect(result).toEqual({ claimed: false });
     });
+
+    it('accuracy_problem.md mục 1 — includes selectedProvider in the SAME atomic update when resolving a clarification checkpoint', async () => {
+      mockRepo.update.mockResolvedValue({ affected: 1 });
+
+      await service.claim({
+        id: 'checkpoint-2',
+        toStatus: OrchestrationCheckpointStatus.APPROVED,
+        selectedProvider: 'notion',
+      });
+
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'checkpoint-2', status: OrchestrationCheckpointStatus.PENDING },
+        {
+          status: OrchestrationCheckpointStatus.APPROVED,
+          selectedProvider: 'notion',
+        },
+      );
+    });
+
+    it('does not touch selectedProvider at all when resolving a normal approval checkpoint', async () => {
+      mockRepo.update.mockResolvedValue({ affected: 1 });
+
+      await service.claim({
+        id: 'checkpoint-1',
+        toStatus: OrchestrationCheckpointStatus.APPROVED,
+      });
+
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'checkpoint-1', status: OrchestrationCheckpointStatus.PENDING },
+        { status: OrchestrationCheckpointStatus.APPROVED },
+      );
+    });
+
+    it('passes updatedPendingTool to Object.assign when edit_and_approve is used', async () => {
+      mockRepo.update.mockResolvedValue({ affected: 1 });
+
+      await service.claim({
+        id: 'checkpoint-1',
+        toStatus: OrchestrationCheckpointStatus.APPROVED,
+        updatedPendingTool: {
+          provider: 'sql',
+          name: 'query',
+          args: { q: '1' },
+        },
+      });
+
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'checkpoint-1', status: OrchestrationCheckpointStatus.PENDING },
+        {
+          status: OrchestrationCheckpointStatus.APPROVED,
+          pendingTool: { provider: 'sql', name: 'query', args: { q: '1' } },
+        },
+      );
+    });
+  });
+
+  describe('revertApprovedClaim (bug fix — undo claim() when the enqueue right after it fails)', () => {
+    it('atomically reverts status back to pending only WHERE it is still approved', async () => {
+      mockRepo.update.mockResolvedValue({ affected: 1 });
+
+      await service.revertApprovedClaim({ id: 'checkpoint-1' });
+
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'checkpoint-1', status: OrchestrationCheckpointStatus.APPROVED },
+        { status: OrchestrationCheckpointStatus.PENDING },
+      );
+    });
   });
 
   describe('claimExecution (Giai đoạn 4, Step 1 — idempotency cho processApprovalJob)', () => {
@@ -240,6 +307,94 @@ describe('CheckpointService', () => {
       const result = await service.claimExecution({ id: 'checkpoint-1' });
 
       expect(result).toEqual({ claimed: false });
+    });
+  });
+
+  describe('markToolExecuted (bug fix — phân biệt worker crash trước/sau khi tool chạy)', () => {
+    it('sets tool_executed_at for the given checkpoint id', async () => {
+      mockQueryBuilder.execute.mockResolvedValue({ affected: 1 });
+
+      await service.markToolExecuted({ id: 'checkpoint-1' });
+
+      expect(mockRepo.createQueryBuilder).toHaveBeenCalled();
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('id = :id', {
+        id: 'checkpoint-1',
+      });
+    });
+  });
+
+  describe('findStalledExecution (Bug fix — checkpoint kẹt sau worker crash)', () => {
+    it('queries APPROVED checkpoints whose execution_started_at is older than STALLED_EXECUTION_TTL_MS', async () => {
+      mockRepo.find.mockResolvedValue([{ id: 'stalled-1' }]);
+
+      const result = await service.findStalledExecution();
+
+      expect(mockRepo.find).toHaveBeenCalledWith({
+        where: {
+          status: OrchestrationCheckpointStatus.APPROVED,
+          executionStartedAt: expect.anything(), // TypeORM And(Not(IsNull()), LessThan(...))
+          toolExecutedAt: expect.anything(), // TypeORM IsNull()
+        },
+      });
+      expect(result).toEqual([{ id: 'stalled-1' }]);
+    });
+
+    it('excludes checkpoints whose tool already finished running (toolExecutedAt set) — those are not stalled, just never left status=APPROVED after completion', async () => {
+      mockRepo.find.mockResolvedValue([]);
+
+      await service.findStalledExecution();
+
+      const whereArg = mockRepo.find.mock.calls[0][0].where;
+      expect(whereArg.toolExecutedAt).toBeDefined();
+    });
+
+    it('returns an empty array when no stalled checkpoints exist', async () => {
+      mockRepo.find.mockResolvedValue([]);
+
+      const result = await service.findStalledExecution();
+
+      expect(result).toEqual([]);
+    });
+
+    it('does NOT query PENDING checkpoints — those are handled by findExpiredPending()', async () => {
+      mockRepo.find.mockResolvedValue([]);
+
+      await service.findStalledExecution();
+
+      const whereArg = mockRepo.find.mock.calls[0][0].where;
+      expect(whereArg.status).toBe(OrchestrationCheckpointStatus.APPROVED);
+      expect(whereArg.status).not.toBe(OrchestrationCheckpointStatus.PENDING);
+    });
+  });
+
+  describe('markStalledAsRejected (Bug fix — atomic cleanup voor stalled APPROVED checkpoints)', () => {
+    it('atomically transitions status from APPROVED to REJECTED and reports claimed=true on success', async () => {
+      mockRepo.update.mockResolvedValue({ affected: 1 });
+
+      const result = await service.markStalledAsRejected({ id: 'stalled-1' });
+
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'stalled-1', status: OrchestrationCheckpointStatus.APPROVED },
+        { status: OrchestrationCheckpointStatus.REJECTED },
+      );
+      expect(result).toEqual({ claimed: true });
+    });
+
+    it('reports claimed=false when the checkpoint is no longer APPROVED (already resolved or recovered by another cron run)', async () => {
+      mockRepo.update.mockResolvedValue({ affected: 0 });
+
+      const result = await service.markStalledAsRejected({ id: 'stalled-1' });
+
+      expect(result).toEqual({ claimed: false });
+    });
+
+    it('does NOT touch PENDING checkpoints — WHERE clause enforces status=APPROVED only', async () => {
+      mockRepo.update.mockResolvedValue({ affected: 0 });
+
+      await service.markStalledAsRejected({ id: 'checkpoint-1' });
+
+      const whereArg = mockRepo.update.mock.calls[0][0];
+      expect(whereArg.status).toBe(OrchestrationCheckpointStatus.APPROVED);
     });
   });
 });

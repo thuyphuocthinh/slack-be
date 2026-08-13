@@ -1,10 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { lastValueFrom } from 'rxjs';
-import {
-  NAME_SERVICE_TCP,
-  ORCHESTRATION_MESSAGE_PATTERNS,
-} from '@slack/constants';
+import { NAME_SERVICE_TCP, ORCHESTRATION_MESSAGE_PATTERNS, EApprovalAction } from '@slack/constants';
 import { MicroserviceErrorHandler } from '../common/microservice_error.handler';
 import { RegisterDynamicProviderDto } from './dto/register-dynamic-provider.dto';
 import { UpdateDynamicProviderDto } from './dto/update-dynamic-provider.dto';
@@ -14,7 +11,7 @@ export class AiProvidersService {
   constructor(
     @Inject(NAME_SERVICE_TCP.ORCHESTRATION_SERVICE)
     private readonly orchestrationClient: ClientProxy,
-  ) {}
+  ) { }
 
   async getProviders(userId: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
@@ -91,7 +88,9 @@ export class AiProvidersService {
   async resolveApproval(
     userId: string,
     messageId: string,
-    action: 'approve' | 'reject',
+    action: EApprovalAction,
+    selectedProvider?: string,
+    editedArgs?: Record<string, any>,
   ) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
@@ -102,6 +101,8 @@ export class AiProvidersService {
               userId,
               messageId,
               action,
+              selectedProvider,
+              editedArgs,
             },
           ),
         ),
@@ -116,10 +117,13 @@ export class AiProvidersService {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         lastValueFrom(
-          this.orchestrationClient.send(ORCHESTRATION_MESSAGE_PATTERNS.CANCEL_TURN, {
-            userId,
-            messageId,
-          }),
+          this.orchestrationClient.send(
+            ORCHESTRATION_MESSAGE_PATTERNS.CANCEL_TURN,
+            {
+              userId,
+              messageId,
+            },
+          ),
         ),
       'cancelTurn',
       'AiProvidersService',
