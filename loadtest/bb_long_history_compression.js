@@ -25,7 +25,7 @@ const USERS_FILE = path.join(__dirname, 'loadtest-users.json');
 const API_HOST = 'localhost';
 const API_PORT = 3000;
 const API_PREFIX = '/api/v1';
-const NUM_FILLER_TURNS = 36; // đủ để chắc chắn vượt CHAT_HISTORY_LIMIT=10 nhiều lần
+const NUM_FILLER_TURNS = 14; // CHAT_HISTORY_LIMIT=10 msg, 14 lượt = 28 msg filler — dư margin, chạy nhanh hơn
 const FILLER_PROMPTS = [
   'Bây giờ là mấy giờ?',
   'Kể 1 câu vui ngắn cho tôi nghe đi.',
@@ -124,7 +124,7 @@ async function waitForFinalAnswer(data, token, maxWaitMs = 60000) {
     const prompt = FILLER_PROMPTS[i % FILLER_PROMPTS.length];
     await sendAiMessage(data, u, prompt);
     process.stdout.write(`  [${i + 1}/${NUM_FILLER_TURNS}] ${u.email}: "${prompt}"\r`);
-    await sleep(3000); // rải đều, mỗi user chỉ nhận 1 tin mỗi ~30s (10 user) — dưới xa 5/60s
+    await sleep(1500); // rải đều, mỗi user chỉ nhận 1 tin mỗi ~15s (10 user) — dưới xa 5/60s
   }
   console.log('\n  Đợi hàng đợi xử lý xong hết filler...');
   const deadline = Date.now() + 120000;

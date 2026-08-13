@@ -76,6 +76,36 @@ services:
       # container này chạy lần đầu.
       - 9router_dev_data:/app/data
 
+  # load-test-scale-plan.md — CHỈ dùng cho đo tải quy mô lớn (ramp 40→100→
+  # 300→1000), KHÔNG phải hạ tầng dev thường trực (xem comment đầu file lý do
+  # bỏ PgBouncer khỏi compose này). Trỏ THẲNG vào service "postgres" ở trên
+  # (KHÔNG phải RDS — khác hẳn block pgbouncer trong docker-compose.yml/production).
+  # DB_HOST dùng tên service trong network compose, không phải 127.0.0.1.
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: slack-pgbouncer-dev
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      LISTEN_PORT: 6432
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      # load-test-scale-plan.md — 50 (mặc định) gây "timeout exceeded when
+      # trying to connect" THẬT ở mốc 300 CCU (85.67% request lỗi), dù
+      # Postgres pg_stat_activity lúc đó chỉ 58/300 — nghẽn ở POOL pgbouncer,
+      # không phải Postgres. Nâng lên 250 (< max_connections=300 của Postgres,
+      # chừa margin cho các connection khác/admin).
+      DEFAULT_POOL_SIZE: 250
+    ports:
+      - "6432:6432"
+
 volumes:
   postgres_dev_data:
   redis_cache_dev_data:

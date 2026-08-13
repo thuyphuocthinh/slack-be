@@ -33,8 +33,11 @@ import { SharedArray } from 'k6/data';
 // req/60s. `MAX_VUS`/`MIN_SLEEP_SECONDS` bên dưới tự TÍNH LẠI theo N thật đang
 // có trong file (KHÔNG hardcode cho 1 N cụ thể) — chạy đúng dù N=10 hay N=100.
 
+// USERS_FILE (env, tuỳ chọn) — trỏ sang loadtest-users-bulk.json (do
+// seed_bulk_users.js sinh ra) khi ramp quy mô lớn (load-test-scale-plan.md
+// Pha 2), mặc định vẫn dùng file 10-user cũ nếu không set.
 const testUsers = new SharedArray('test users', function () {
-  const data = JSON.parse(open('./loadtest-users.json'));
+  const data = JSON.parse(open(__ENV.USERS_FILE || './loadtest-users.json'));
   return data.users.map((u) => ({
     token: u.token,
     userId: u.userId,
@@ -52,10 +55,11 @@ if (N === 0) {
   );
 }
 
-// Không ramp vượt quá N quá nhiều (oversubscription vẫn OK ở mức vừa phải —
-// vài VU chia sẻ 1 token là bình thường, phản ánh đúng "1 user gửi nhiều tin
-// liên tục") — cap ở 120 để tránh cấu hình vô lý nếu N sau này rất lớn.
-const MAX_VUS = Math.min(N, 120);
+// load-test-scale-plan.md Pha 2 — cap ở 1000 (mốc trần cao nhất của kế
+// hoạch), không phải 120 như bản gốc (quá thấp để ramp thật tới 300/1000).
+// Oversubscription (nhiều VU chia sẻ 1 token) vẫn OK ở mức vừa phải — phản
+// ánh đúng "1 user gửi nhiều tin liên tục".
+const MAX_VUS = Math.min(N, 1000);
 const HOLD_VUS = Math.max(1, Math.floor(MAX_VUS * 0.6));
 // Đỉnh spike, mỗi token bị chia sẻ bởi tối đa ceil(MAX_VUS/N) VU cùng lúc.
 const VUS_PER_TOKEN_AT_PEAK = Math.ceil(MAX_VUS / N);
@@ -87,11 +91,26 @@ export default function () {
   const API_URL = `http://localhost:3000/api/v1/workspaces/${u.workspaceId}/channels/${u.channelId}/messages`;
 
   // Payload giả lập việc gửi 1 tin nhắn tag thẳng @AI để trigger Orchestration.
-  // "mentions" (field RIÊNG, không phải nhúng trong "content") CHỈ cần khi
-  // channel là GROUP (không phải DIRECT với bot) — xem
+  // FE thật dùng Tiptap (editor.getJSON()), KHÔNG phải Quill Delta cũ — xem
+  // bug đã phát hiện 2026-08-11 (extractContentText() chỉ traverse cây
+  // Tiptap). Không ảnh hưởng khi LOAD_TEST_MODE=true (mock không đọc
+  // originalPrompt) nhưng sửa cho đúng để script còn dùng lại được với LLM
+  // thật. "mentions" (field RIÊNG, không phải nhúng trong "content") CHỈ cần
+  // khi channel là GROUP (không phải DIRECT với bot) — xem
   // maybeTriggerAiOrchestration(): "!isDirect && !isMentioned) return".
   const body = {
-    content: `[{"insert":"@AI "},{"attributes":{"mention":{"id":"ai-bot"}},"insert":"﻿"},{"insert":" Hãy load test hệ thống bằng mock LLM!\n"}]`,
+    content: {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            ...(u.botUserId ? [{ type: 'mention', attrs: { id: u.botUserId } }] : []),
+            { type: 'text', text: ' Hãy load test hệ thống bằng mock LLM!' },
+          ],
+        },
+      ],
+    },
   };
   if (u.botUserId) {
     body.mentions = [u.botUserId];
