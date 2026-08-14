@@ -5,6 +5,7 @@ import { TaskGroupEntity } from '../entity/task_group.entity';
 import { TaskCommonService } from './task-common.service';
 import { DataSource, Repository } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
+import { CachedService } from '@slack/cached';
 import { TASK_ERROR } from '@slack/constants';
 
 describe('GroupService', () => {
@@ -27,6 +28,26 @@ describe('GroupService', () => {
     checkBoardMembership: jest.fn(),
   };
 
+  const mockCachedService = {
+    exists: jest.fn(),
+    ping: jest.fn(),
+    get: jest.fn(),
+    set: jest.fn(),
+    del: jest.fn(),
+    getVersion: jest.fn(),
+    bumpVersion: jest.fn(),
+    getOrSetDetail: jest.fn((_key, _ttl, fetcher) => fetcher()),
+    invalidateDetail: jest.fn(),
+    getOrSetList: jest.fn((opts) => opts.fetcher()),
+    invalidateList: jest.fn(),
+    invalidateListBulk: jest.fn(),
+    setSet: jest.fn(),
+    getSet: jest.fn(),
+    removeFromSet: jest.fn(),
+    isMemberOfSet: jest.fn(),
+    writeThrough: jest.fn((_key, _ttl, fetcher) => fetcher()),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -44,6 +65,10 @@ describe('GroupService', () => {
         {
           provide: DataSource,
           useValue: mockDataSource,
+        },
+        {
+          provide: CachedService,
+          useValue: mockCachedService,
         },
       ],
     }).compile();

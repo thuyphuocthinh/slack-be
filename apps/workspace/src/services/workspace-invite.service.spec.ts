@@ -10,6 +10,7 @@ import { NAME_SERVICE_TCP } from '@slack/constants';
 import { CachedService } from '@slack/cached';
 import { WorkspaceCommonService } from './workspace-common.service';
 import * as rxjs from 'rxjs';
+import { QueueService } from '@slack/queue';
 
 describe('WorkspaceInviteService', () => {
   let service: WorkspaceInviteService;
@@ -54,6 +55,10 @@ describe('WorkspaceInviteService', () => {
     mapMemberToDto: jest.fn((m) => m),
   };
 
+  const mockQueueService = {
+    addJob: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -85,6 +90,10 @@ describe('WorkspaceInviteService', () => {
         {
           provide: WorkspaceCommonService,
           useValue: mockCommonService,
+        },
+        {
+          provide: QueueService,
+          useValue: mockQueueService,
         },
       ],
     }).compile();

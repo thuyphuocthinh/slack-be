@@ -4,6 +4,7 @@ import { LabelService } from './label.service';
 import { LabelEntity } from '../entity/label.entity';
 import { TaskCommonService } from './task-common.service';
 import { DataSource, Repository } from 'typeorm';
+import { CachedService } from '@slack/cached';
 
 describe('LabelService', () => {
   let service: LabelService;
@@ -22,6 +23,26 @@ describe('LabelService', () => {
 
   const mockCommonService = {
     checkWorkspaceMembership: jest.fn(),
+  };
+
+  const mockCachedService = {
+    exists: jest.fn(),
+    ping: jest.fn(),
+    get: jest.fn(),
+    set: jest.fn(),
+    del: jest.fn(),
+    getVersion: jest.fn(),
+    bumpVersion: jest.fn(),
+    getOrSetDetail: jest.fn((_key, _ttl, fetcher) => fetcher()),
+    invalidateDetail: jest.fn(),
+    getOrSetList: jest.fn((opts) => opts.fetcher()),
+    invalidateList: jest.fn(),
+    invalidateListBulk: jest.fn(),
+    setSet: jest.fn(),
+    getSet: jest.fn(),
+    removeFromSet: jest.fn(),
+    isMemberOfSet: jest.fn(),
+    writeThrough: jest.fn((_key, _ttl, fetcher) => fetcher()),
   };
 
   beforeEach(async () => {
@@ -43,6 +64,10 @@ describe('LabelService', () => {
         {
           provide: DataSource,
           useValue: mockDataSource,
+        },
+        {
+          provide: CachedService,
+          useValue: mockCachedService,
         },
       ],
     }).compile();

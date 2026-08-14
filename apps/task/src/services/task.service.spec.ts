@@ -8,7 +8,10 @@ import { BoardMemberEntity } from '../entity/board_member.entity';
 import { TaskCommonService } from './task-common.service';
 import { DataSource } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
-import { TASK_ERROR } from '@slack/constants';
+import { TASK_ERROR, NAME_SERVICE_TCP } from '@slack/constants';
+import { TaskGroupEntity } from '../entity/task_group.entity';
+import { CachedService } from '@slack/cached';
+import { QueueService } from '@slack/queue';
 
 describe('TaskService', () => {
   let service: TaskService;
@@ -31,6 +34,35 @@ describe('TaskService', () => {
 
   const mockCommonService = {
     checkBoardMembership: jest.fn(),
+  };
+
+  const mockCachedService = {
+    exists: jest.fn(),
+    ping: jest.fn(),
+    get: jest.fn(),
+    set: jest.fn(),
+    del: jest.fn(),
+    getVersion: jest.fn(),
+    bumpVersion: jest.fn(),
+    getOrSetDetail: jest.fn((_key, _ttl, fetcher) => fetcher()),
+    invalidateDetail: jest.fn(),
+    getOrSetList: jest.fn((opts) => opts.fetcher()),
+    invalidateList: jest.fn(),
+    invalidateListBulk: jest.fn(),
+    setSet: jest.fn(),
+    getSet: jest.fn(),
+    removeFromSet: jest.fn(),
+    isMemberOfSet: jest.fn(),
+    writeThrough: jest.fn((_key, _ttl, fetcher) => fetcher()),
+  };
+
+  const mockQueueService = {
+    addJob: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const mockNotificationClient = {
+    emit: jest.fn(),
+    send: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -57,12 +89,30 @@ describe('TaskService', () => {
           useValue: {},
         },
         {
+          provide: getRepositoryToken(TaskGroupEntity),
+          useValue: {
+            findOne: jest.fn(),
+          },
+        },
+        {
           provide: TaskCommonService,
           useValue: mockCommonService,
         },
         {
           provide: DataSource,
           useValue: mockDataSource,
+        },
+        {
+          provide: CachedService,
+          useValue: mockCachedService,
+        },
+        {
+          provide: QueueService,
+          useValue: mockQueueService,
+        },
+        {
+          provide: NAME_SERVICE_TCP.NOTIFICATION_SERVICE,
+          useValue: mockNotificationClient,
         },
       ],
     }).compile();

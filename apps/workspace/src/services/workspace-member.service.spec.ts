@@ -6,6 +6,7 @@ import { DataSource, Repository } from 'typeorm';
 import { WorkspaceRoleEnum, MembershipStatus } from '../types/workspace.enum';
 import { CachedService } from '@slack/cached';
 import { WorkspaceCommonService } from './workspace-common.service';
+import { NAME_SERVICE_TCP } from '@slack/constants';
 
 describe('WorkspaceMemberService', () => {
   let service: WorkspaceMemberService;
@@ -41,6 +42,14 @@ describe('WorkspaceMemberService', () => {
     mapMemberToDto: jest.fn((m) => m),
   };
 
+  const mockUserClient = {
+    send: jest.fn(),
+  };
+
+  const mockChannelClient = {
+    send: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -48,6 +57,14 @@ describe('WorkspaceMemberService', () => {
         {
           provide: getRepositoryToken(WorkspaceMemberEntity),
           useFactory: mockMemberRepo,
+        },
+        {
+          provide: NAME_SERVICE_TCP.USER_SERVICE,
+          useValue: mockUserClient,
+        },
+        {
+          provide: NAME_SERVICE_TCP.CHANNEL_SERVICE,
+          useValue: mockChannelClient,
         },
         {
           provide: DataSource,

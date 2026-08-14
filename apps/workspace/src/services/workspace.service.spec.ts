@@ -10,6 +10,9 @@ import { WorkspaceMemberEntity } from '../entity/workspace_member.entity';
 import { DataSource, Repository } from 'typeorm';
 import { CachedService } from '@slack/cached';
 import { WorkspaceCommonService } from './workspace-common.service';
+import { WorkspaceSsoConfigEntity } from '../entity/workspace_sso_config.entity';
+import { QueueService } from '@slack/queue';
+import { NAME_SERVICE_TCP } from '@slack/constants';
 
 describe('WorkspaceService', () => {
   let service: WorkspaceService;
@@ -58,6 +61,18 @@ describe('WorkspaceService', () => {
     mapWorkspaceToDto: jest.fn((w) => w),
   };
 
+  const mockSsoConfigRepo = () => ({
+    findOne: jest.fn(),
+  });
+
+  const mockQueueService = {
+    addJob: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const mockUserClient = {
+    send: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -71,6 +86,10 @@ describe('WorkspaceService', () => {
           useFactory: mockMemberRepo,
         },
         {
+          provide: getRepositoryToken(WorkspaceSsoConfigEntity),
+          useFactory: mockSsoConfigRepo,
+        },
+        {
           provide: DataSource,
           useValue: mockDataSource,
         },
@@ -81,6 +100,14 @@ describe('WorkspaceService', () => {
         {
           provide: WorkspaceCommonService,
           useValue: mockCommonService,
+        },
+        {
+          provide: QueueService,
+          useValue: mockQueueService,
+        },
+        {
+          provide: NAME_SERVICE_TCP.USER_SERVICE,
+          useValue: mockUserClient,
         },
       ],
     }).compile();

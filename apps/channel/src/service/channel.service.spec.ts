@@ -1,20 +1,24 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { ChannelService } from './channel.service';
 import { ChannelEntity } from '../entity/channel.entity';
 import { ChannelMemberEntity } from '../entity/channel_member.entity';
-import { ClientProxy, RpcException } from '@nestjs/microservices';
+import { RpcException } from '@nestjs/microservices';
 import { CachedService } from '@slack/cached';
-import { NAME_SERVICE_TCP, ChannelTypeEnum, WorkspaceRoleEnum, CHANNEL_ERROR, WORKSPACE_MESSAGE_PATTERNS } from '@slack/constants';
+import {
+  NAME_SERVICE_TCP,
+  ChannelTypeEnum,
+  WorkspaceRoleEnum,
+  CHANNEL_ERROR,
+  WORKSPACE_MESSAGE_PATTERNS,
+} from '@slack/constants';
 import { of } from 'rxjs';
+import { QueueService } from '@slack/queue';
 import { CreateChannelDto } from '../dto/create-channel.dto';
 
 describe('ChannelService', () => {
   let service: ChannelService;
-  let channelRepository: Repository<ChannelEntity>;
-  let channelMemberRepository: Repository<ChannelMemberEntity>;
-  let workspaceClient: ClientProxy;
   let cachedService: CachedService;
 
   const mockChannelRepository = {
@@ -46,6 +50,10 @@ describe('ChannelService', () => {
     getOrSetList: jest.fn(),
   };
 
+  const mockQueueService = {
+    addJob: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
@@ -75,13 +83,14 @@ describe('ChannelService', () => {
           provide: CachedService,
           useValue: mockCachedService,
         },
+        {
+          provide: QueueService,
+          useValue: mockQueueService,
+        },
       ],
     }).compile();
 
     service = module.get<ChannelService>(ChannelService);
-    channelRepository = module.get<Repository<ChannelEntity>>(getRepositoryToken(ChannelEntity));
-    channelMemberRepository = module.get<Repository<ChannelMemberEntity>>(getRepositoryToken(ChannelMemberEntity));
-    workspaceClient = module.get<ClientProxy>(NAME_SERVICE_TCP.WORKSPACE_SERVICE);
     cachedService = module.get<CachedService>(CachedService);
   });
 
@@ -99,7 +108,9 @@ describe('ChannelService', () => {
     };
 
     it('should create a group channel successfully', async () => {
-      mockClientProxy.send.mockReturnValue(of({ role: WorkspaceRoleEnum.OWNER }));
+      mockClientProxy.send.mockReturnValue(
+        of({ role: WorkspaceRoleEnum.OWNER }),
+      );
       mockEntityManager.findOne.mockResolvedValue(null);
       const savedChannel = { id: 'channel-id', ...createDto };
       mockEntityManager.create.mockImplementation((entity, data) => data);
@@ -114,10 +125,14 @@ describe('ChannelService', () => {
     });
 
     it('should throw error if group channel already exists', async () => {
-      mockClientProxy.send.mockReturnValue(of({ role: WorkspaceRoleEnum.OWNER }));
+      mockClientProxy.send.mockReturnValue(
+        of({ role: WorkspaceRoleEnum.OWNER }),
+      );
       mockEntityManager.findOne.mockResolvedValue({ id: 'existing-id' });
 
-      await expect(service.createChannel(createDto)).rejects.toThrow(RpcException);
+      await expect(service.createChannel(createDto)).rejects.toThrow(
+        RpcException,
+      );
     });
 
     it('should create a direct channel (1-on-1) successfully', async () => {
@@ -127,13 +142,19 @@ describe('ChannelService', () => {
         targetMemberIds: ['target-id'],
       };
 
-      mockClientProxy.send.mockReturnValue(of([
-        { id: 'member-id', firstName: 'Sender', lastName: 'User' },
-        { id: 'target-id', firstName: 'Receiver', lastName: 'User' }
-      ]));
+      mockClientProxy.send.mockReturnValue(
+        of([
+          { id: 'member-id', firstName: 'Sender', lastName: 'User' },
+          { id: 'target-id', firstName: 'Receiver', lastName: 'User' },
+        ]),
+      );
       mockEntityManager.findOne.mockResolvedValue(null);
       mockEntityManager.create.mockImplementation((entity, data) => data);
-      mockEntityManager.save.mockResolvedValue({ id: 'channel-id', title: 'Receiver User', type: ChannelTypeEnum.DIRECT });
+      mockEntityManager.save.mockResolvedValue({
+        id: 'channel-id',
+        title: 'Receiver User',
+        type: ChannelTypeEnum.DIRECT,
+      });
 
       const result = await service.createChannel(directDto);
 
@@ -148,12 +169,16 @@ describe('ChannelService', () => {
         targetMemberIds: [],
       };
 
-      mockClientProxy.send.mockReturnValue(of([
-        { id: 'member-id', firstName: 'Me', lastName: 'Self' }
-      ]));
+      mockClientProxy.send.mockReturnValue(
+        of([{ id: 'member-id', firstName: 'Me', lastName: 'Self' }]),
+      );
       mockEntityManager.findOne.mockResolvedValue(null);
       mockEntityManager.create.mockImplementation((entity, data) => data);
-      mockEntityManager.save.mockResolvedValue({ id: 'channel-id', title: 'Me Self (you)', type: ChannelTypeEnum.DIRECT });
+      mockEntityManager.save.mockResolvedValue({
+        id: 'channel-id',
+        title: 'Me Self (you)',
+        type: ChannelTypeEnum.DIRECT,
+      });
 
       const result = await service.createChannel(selfDmDto);
 
@@ -163,12 +188,25 @@ describe('ChannelService', () => {
 
   describe('updateChannel', () => {
     it('should update channel successfully', async () => {
-      const updateDto = { channelId: 'channel-id', memberId: 'member-id', title: 'Updated Title' };
-      const channel = { id: 'channel-id', workspaceId: 'ws-id', title: 'Old Title' };
+      const updateDto = {
+        channelId: 'channel-id',
+        memberId: 'member-id',
+        title: 'Updated Title',
+      };
+      const channel = {
+        id: 'channel-id',
+        workspaceId: 'ws-id',
+        title: 'Old Title',
+      };
 
       mockEntityManager.findOne.mockResolvedValue(channel);
-      mockClientProxy.send.mockReturnValue(of({ role: WorkspaceRoleEnum.OWNER }));
-      mockEntityManager.save.mockResolvedValue({ ...channel, title: 'Updated Title' });
+      mockClientProxy.send.mockReturnValue(
+        of({ role: WorkspaceRoleEnum.OWNER }),
+      );
+      mockEntityManager.save.mockResolvedValue({
+        ...channel,
+        title: 'Updated Title',
+      });
 
       const result = await service.updateChannel(updateDto);
 
@@ -177,7 +215,9 @@ describe('ChannelService', () => {
 
     it('should throw error if channel not found', async () => {
       mockEntityManager.findOne.mockResolvedValue(null);
-      await expect(service.updateChannel({ channelId: 'id', memberId: 'id', title: 't' })).rejects.toThrow(RpcException);
+      await expect(
+        service.updateChannel({ channelId: 'id', memberId: 'id', title: 't' }),
+      ).rejects.toThrow(RpcException);
     });
   });
 
@@ -185,7 +225,9 @@ describe('ChannelService', () => {
     it('should delete channel successfully', async () => {
       const channel = { id: 'channel-id', workspaceId: 'ws-id' };
       mockChannelRepository.findOne.mockResolvedValue(channel);
-      mockClientProxy.send.mockReturnValue(of({ role: WorkspaceRoleEnum.OWNER }));
+      mockClientProxy.send.mockReturnValue(
+        of({ role: WorkspaceRoleEnum.OWNER }),
+      );
 
       const result = await service.deleteChannel('channel-id', 'member-id');
 
@@ -203,7 +245,9 @@ describe('ChannelService', () => {
         return of({});
       });
 
-      await expect(service.deleteChannel('channel-id', 'member-id')).rejects.toThrow(RpcException);
+      await expect(
+        service.deleteChannel('channel-id', 'member-id'),
+      ).rejects.toThrow(RpcException);
     });
   });
 
@@ -213,7 +257,9 @@ describe('ChannelService', () => {
       mockClientProxy.send.mockReturnValue(of({}));
 
       const channels = [{ id: '1', title: 'c1' }];
-      mockCachedService.getOrSetList.mockImplementation(async ({ fetcher }) => await fetcher());
+      mockCachedService.getOrSetList.mockImplementation(
+        async ({ fetcher }) => await fetcher(),
+      );
 
       const queryBuilder: any = {
         innerJoin: jest.fn().mockReturnThis(),
@@ -235,7 +281,10 @@ describe('ChannelService', () => {
 
   describe('getChannel', () => {
     it('should return channel details', async () => {
-      mockChannelRepository.findOne.mockResolvedValue({ id: 'c-id', title: 'title' });
+      mockChannelRepository.findOne.mockResolvedValue({
+        id: 'c-id',
+        title: 'title',
+      });
       mockChannelMemberRepository.findOne.mockResolvedValue({ id: 'm-id' });
 
       const result = await service.getChannel('c-id', 'm-id');
@@ -250,14 +299,19 @@ describe('ChannelService', () => {
       mockEntityManager.findOne.mockResolvedValue(channel);
       mockEntityManager.save.mockImplementation((data) => data);
 
-      const result = await service.toggleStar({ channelId: 'c-id', memberId: 'm-id' });
+      const result = await service.toggleStar({
+        channelId: 'c-id',
+        memberId: 'm-id',
+      });
 
       expect(result.isStar).toBe(true);
     });
 
     it('should throw error if channel not found for toggle star', async () => {
       mockEntityManager.findOne.mockResolvedValue(null);
-      await expect(service.toggleStar({ channelId: 'id', memberId: 'm' })).rejects.toThrow(RpcException);
+      await expect(
+        service.toggleStar({ channelId: 'id', memberId: 'm' }),
+      ).rejects.toThrow(RpcException);
     });
   });
 });

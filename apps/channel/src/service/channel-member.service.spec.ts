@@ -1,18 +1,21 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { ChannelMemberService } from './channel-member.service';
 import { ChannelMemberEntity } from '../entity/channel_member.entity';
 import { ChannelEntity } from '../entity/channel.entity';
 import { RpcException } from '@nestjs/microservices';
 import { CachedService } from '@slack/cached';
-import { NAME_SERVICE_TCP, ChannelTypeEnum, WorkspaceRoleEnum } from '@slack/constants';
+import {
+  NAME_SERVICE_TCP,
+  ChannelTypeEnum,
+  WorkspaceRoleEnum,
+} from '@slack/constants';
 import { of } from 'rxjs';
+import { QueueService } from '@slack/queue';
 
 describe('ChannelMemberService', () => {
   let service: ChannelMemberService;
-  let channelMemberRepository: Repository<ChannelMemberEntity>;
-  let mockEntityManager: any;
 
   const mockChannelMemberRepository = {
     find: jest.fn(),
@@ -26,7 +29,7 @@ describe('ChannelMemberService', () => {
     findOne: jest.fn(),
   };
 
-  mockEntityManager = {
+  const mockEntityManager = {
     findOne: jest.fn(),
     find: jest.fn(),
     create: jest.fn(),
@@ -44,6 +47,10 @@ describe('ChannelMemberService', () => {
 
   const mockCachedService = {
     invalidateList: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const mockQueueService = {
+    addJob: jest.fn().mockResolvedValue(undefined),
   };
 
   beforeEach(async () => {
@@ -75,11 +82,14 @@ describe('ChannelMemberService', () => {
           provide: CachedService,
           useValue: mockCachedService,
         },
+        {
+          provide: QueueService,
+          useValue: mockQueueService,
+        },
       ],
     }).compile();
 
     service = module.get<ChannelMemberService>(ChannelMemberService);
-    channelMemberRepository = module.get<Repository<ChannelMemberEntity>>(getRepositoryToken(ChannelMemberEntity));
   });
 
   it('should be defined', () => {
@@ -188,12 +198,24 @@ describe('ChannelMemberService', () => {
   });
 
   describe('removeMember', () => {
-    const dto = { channelId: 'c-id', targetMemberId: 't-id', performerId: 'p-id' };
+    const dto = {
+      channelId: 'c-id',
+      targetMemberId: 't-id',
+      performerId: 'p-id',
+    };
 
     it('should remove member successfully', async () => {
-      mockEntityManager.findOne.mockResolvedValueOnce({ id: 'c-id', workspaceId: 'ws-id', type: ChannelTypeEnum.GROUP });
-      mockClientProxy.send.mockReturnValueOnce(of({ role: WorkspaceRoleEnum.OWNER }));
-      mockClientProxy.send.mockReturnValueOnce(of({ role: WorkspaceRoleEnum.MEMBER }));
+      mockEntityManager.findOne.mockResolvedValueOnce({
+        id: 'c-id',
+        workspaceId: 'ws-id',
+        type: ChannelTypeEnum.GROUP,
+      });
+      mockClientProxy.send.mockReturnValueOnce(
+        of({ role: WorkspaceRoleEnum.OWNER }),
+      );
+      mockClientProxy.send.mockReturnValueOnce(
+        of({ role: WorkspaceRoleEnum.MEMBER }),
+      );
       mockEntityManager.findOne.mockResolvedValueOnce({ id: 'member-id' });
 
       const result = await service.removeMember(dto);
@@ -203,9 +225,17 @@ describe('ChannelMemberService', () => {
     });
 
     it('should throw error if admin tries to remove admin', async () => {
-      mockEntityManager.findOne.mockResolvedValueOnce({ id: 'c-id', workspaceId: 'ws-id', type: ChannelTypeEnum.GROUP });
-      mockClientProxy.send.mockReturnValueOnce(of({ role: WorkspaceRoleEnum.ADMIN }));
-      mockClientProxy.send.mockReturnValueOnce(of({ role: WorkspaceRoleEnum.ADMIN }));
+      mockEntityManager.findOne.mockResolvedValueOnce({
+        id: 'c-id',
+        workspaceId: 'ws-id',
+        type: ChannelTypeEnum.GROUP,
+      });
+      mockClientProxy.send.mockReturnValueOnce(
+        of({ role: WorkspaceRoleEnum.ADMIN }),
+      );
+      mockClientProxy.send.mockReturnValueOnce(
+        of({ role: WorkspaceRoleEnum.ADMIN }),
+      );
 
       await expect(service.removeMember(dto)).rejects.toThrow(RpcException);
     });
@@ -241,7 +271,10 @@ describe('ChannelMemberService', () => {
 
   describe('leaveChannel', () => {
     it('should leave channel successfully', async () => {
-      mockEntityManager.findOne.mockResolvedValueOnce({ id: 'c-id', workspaceId: 'ws-id' });
+      mockEntityManager.findOne.mockResolvedValueOnce({
+        id: 'c-id',
+        workspaceId: 'ws-id',
+      });
       mockEntityManager.findOne.mockResolvedValueOnce({ id: 'm-id' });
 
       const result = await service.leaveChannel('c-id', 'm-id');
