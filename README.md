@@ -121,11 +121,3 @@ libs/
 loadtest/        k6 scripts + Node bulk-seeding scripts for scale testing
 docs/            architecture notes
 ```
-
-## A note on how this was built
-
-Built solo with heavy, deliberate use of AI pair-programming (Claude Code) — but every fix in the test logs
-followed the same loop: **reproduce with a real request → read the actual code to find the real root cause →
-propose a fix → implement → re-verify against a live running system, not just "looks right."** The value add
-wasn't typing the code; it was deciding what to test, catching when an AI-proposed root cause was wrong (it
-happened, and it's documented when it did), and knowing when a fix was actually done versus just looked done.
