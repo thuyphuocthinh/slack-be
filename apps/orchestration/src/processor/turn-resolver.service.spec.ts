@@ -133,7 +133,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
     expect(mockSupervisor.plan).toHaveBeenCalledTimes(1);
     expect(mockReactLoop.run).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt: 'liệt kê bảng',
+        prompt: expect.stringContaining('liệt kê bảng'),
         provider: 'sql_server',
         userId: data.userId,
         messageId: replyMessageId,
@@ -1269,7 +1269,7 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
       expect(sentPrompt).toContain('[{"name":"A"},{"name":"B"}]');
     });
 
-    it('does NOT inject any round context into the prompt when this is the very first step (no rounds yet) — unchanged from before', async () => {
+    it('does NOT inject prior-round context on the very first step (no rounds yet), but still includes the original prompt so literal data in it survives plan() summarization', async () => {
       mockSupervisor.plan.mockResolvedValue({
         action: 'plan',
         steps: [{ agent: 'sql_server', task: 'liệt kê bảng' }],
@@ -1289,11 +1289,10 @@ describe('TurnResolverService (Plan-and-Execute, xem accuracy.md)', () => {
         [],
       );
 
-      expect(mockReactLoop.run).toHaveBeenCalledWith(
-        expect.objectContaining({ prompt: 'liệt kê bảng' }),
-        expect.anything(),
-        expect.anything(),
-      );
+      const sentPrompt = mockReactLoop.run.mock.calls[0][0].prompt;
+      expect(sentPrompt).toContain('liệt kê bảng');
+      expect(sentPrompt).toContain('có bao nhiêu bảng?');
+      expect(sentPrompt).not.toContain('Dữ liệu THẬT đã thu thập');
     });
 
     it("stores the SHORT original task (not the context-enriched prompt) in the round pushed forward — otherwise each later step would duplicate all prior rounds' data again", async () => {

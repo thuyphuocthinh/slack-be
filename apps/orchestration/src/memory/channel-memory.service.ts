@@ -15,6 +15,9 @@ import { isLikelyCreateToolCall } from './create-tool-heuristic.util';
 import { looksLikeInjection } from './memory-injection-heuristic.util';
 import { CHARS_PER_TOKEN_ESTIMATE } from '../executor/tool-result-size-cap.util';
 import { attachEmbeddingCostMetadata } from '../llm/llm-cost.util';
+import { cosineSimilarity } from './skill-cosine-similarity.util';
+
+const FACT_SUPERSEDE_SIMILARITY_THRESHOLD = 0.85;
 
 // SemanticToolIndex chỉ cần {name, description} — dùng row.id làm khoá join
 // ngược lại entity gốc sau khi search() trả về, row.content làm text để embed.
@@ -103,7 +106,12 @@ export class ChannelMemoryService {
       return;
     }
 
+    const supersededId = await this.findSupersededFactId(channelId, content);
+
     try {
+      if (supersededId) {
+        await this.repo.delete({ id: supersededId });
+      }
       await this.repo
         .createQueryBuilder()
         .insert()
@@ -117,6 +125,54 @@ export class ChannelMemoryService {
       this.logger.warn(
         `recordUserDeclaredFact() failed for channel ${channelId}: ${(error as Error).message}`,
       );
+    }
+  }
+
+  private async findSupersededFactId(
+    channelId: string,
+    content: string,
+  ): Promise<string | null> {
+    try {
+      const existing = await this.repo.find({
+        where: { channelId, tool: 'user_declared_fact' },
+      });
+      if (existing.length === 0) return null;
+
+      const estimatedChars =
+        content.length +
+        existing.reduce((sum, row) => sum + row.content.length, 0);
+      const estimatedTokens = Math.ceil(
+        estimatedChars / CHARS_PER_TOKEN_ESTIMATE,
+      );
+
+      const embed = traceable(
+        async () => {
+          const vectors = await this.embeddingProvider.embed([
+            content,
+            ...existing.map((row) => row.content),
+          ]);
+          attachEmbeddingCostMetadata(OPENAI_EMBEDDING_MODEL, estimatedTokens);
+          return vectors;
+        },
+        { name: 'channel-memory.findSupersededFactId', run_type: 'llm' },
+      );
+      const [queryVector, ...candidateVectors] = await embed();
+
+      let bestId: string | null = null;
+      let bestScore = FACT_SUPERSEDE_SIMILARITY_THRESHOLD;
+      for (let i = 0; i < existing.length; i++) {
+        const score = cosineSimilarity(queryVector, candidateVectors[i]);
+        if (score >= bestScore) {
+          bestId = existing[i].id;
+          bestScore = score;
+        }
+      }
+      return bestId;
+    } catch (error) {
+      this.logger.warn(
+        `findSupersededFactId() failed for channel ${channelId}: ${(error as Error).message}`,
+      );
+      return null;
     }
   }
 

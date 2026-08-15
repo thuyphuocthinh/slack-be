@@ -609,18 +609,26 @@ export class TurnResolverRun {
       process.env.DEFAULT_REACT_MODEL ??
       ORCHESTRATION_CONSTANTS.DEFAULT_REACT_MODEL;
     const realRoundsSoFar = this.rounds.filter((r) => !isNonProgressRound(r));
-    const promptWithContext =
-      realRoundsSoFar.length > 0
-        ? `${task}\n\nDữ liệu THẬT đã thu thập được từ (các) bước trước trong CÙNG yêu cầu này (PHẢI dùng ĐÚNG NGUYÊN VĂN, không tự bịa/diễn giải lại số liệu):\n${capRoundResultsWeighted(
-            realRoundsSoFar,
-            this.memoryManager.buildBudget(reactModelId).toolResultCharBudget,
+    const contextBlocks: string[] = [task];
+    if (task !== this.prompt) {
+      contextBlocks.push(
+        `Yêu cầu gốc đầy đủ của user cho turn này (dùng để lấy đúng dữ liệu/số liệu cụ thể nếu task ở trên chỉ tóm tắt lại, TUYỆT ĐỐI không tự bịa dữ liệu khi task tóm tắt bị thiếu):\n${this.prompt}`,
+      );
+    }
+    if (realRoundsSoFar.length > 0) {
+      contextBlocks.push(
+        `Dữ liệu THẬT đã thu thập được từ (các) bước trước trong CÙNG yêu cầu này (PHẢI dùng ĐÚNG NGUYÊN VĂN, không tự bịa/diễn giải lại số liệu):\n${capRoundResultsWeighted(
+          realRoundsSoFar,
+          this.memoryManager.buildBudget(reactModelId).toolResultCharBudget,
+        )
+          .map(
+            (r, i) =>
+              `${i + 1}. Agent "${r.agent}" (yêu cầu: "${r.task}") → kết quả: ${r.result}`,
           )
-            .map(
-              (r, i) =>
-                `${i + 1}. Agent "${r.agent}" (yêu cầu: "${r.task}") → kết quả: ${r.result}`,
-            )
-            .join('\n')}`
-        : task;
+          .join('\n')}`,
+      );
+    }
+    const promptWithContext = contextBlocks.join('\n\n');
     const streamKey = `r${round}-${targetAgent.provider}`;
     await this.agentStream
       .emitStep(
