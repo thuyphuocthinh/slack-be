@@ -19,7 +19,10 @@ import { lastValueFrom } from 'rxjs';
 import { NotificationService } from '../services/impl/notification.service';
 import { FcmService } from '../services/impl/fcm.service';
 
-@Processor(EQueueName.NOTIFICATION_QUEUE, { concurrency: 10 })
+// notification.md — giảm từ 10: N job cùng lúc đều tự chunk fan-out riêng,
+// cộng dồn tải CPU lên chính Postgres (đo được 108-122% container CPU ở
+// concurrency=10). 5 vẫn đủ song song để không xử lý tuần tự trần trụi.
+@Processor(EQueueName.NOTIFICATION_QUEUE, { concurrency: 5 })
 export class NotificationProcessor extends BaseProcessor<
   any,
   void,
@@ -88,48 +91,60 @@ export class NotificationProcessor extends BaseProcessor<
         return true;
       });
 
-      // 3. Xử lý lưu DB và bắn Socket cho từng người
-      const promises = recipients.map(async (member) => {
-        // Xác định loại thông báo
-        let notificationType = NotificationType.MESSAGE_RECEIVED;
+      // 3. Xử lý lưu DB theo LÔ (notification.md mục 4.1) — giảm từ 50 vì
+      // đo được vẫn cạn CPU Postgres (108-122%) ở N=30 concurrent dù đã
+      // chunk 50. Batch nhỏ hơn + 1 câu INSERT multi-row/lô (thay vì N INSERT
+      // riêng lẻ, xem pushNotificationsBatch()) giảm cả đỉnh concurrency lẫn
+      // CPU work thật Postgres phải làm.
+      const NOTIFICATION_BATCH_SIZE = 20;
+      for (let i = 0; i < recipients.length; i += NOTIFICATION_BATCH_SIZE) {
+        const batch = recipients.slice(i, i + NOTIFICATION_BATCH_SIZE);
 
-        if (reaction) {
-          notificationType = NotificationType.MESSAGE_REACTION_ADDED;
-        } else if (mentions?.some((men: any) => men.userId === member.memberId || men.userId === 'all')) {
-          notificationType = NotificationType.MENTIONED_IN_MESSAGE;
-        } else if (parentId) {
-          notificationType = NotificationType.REPLY_IN_THREAD;
-        }
+        const dtos = batch
+          .map((member) => {
+            // Xác định loại thông báo
+            let notificationType = NotificationType.MESSAGE_RECEIVED;
 
-        // Bỏ qua tin nhắn thông thường, không lưu vào DB Notification và không bắn socket realtime về Activity
-        if (notificationType === NotificationType.MESSAGE_RECEIVED) {
-          return;
-        }
+            if (reaction) {
+              notificationType = NotificationType.MESSAGE_REACTION_ADDED;
+            } else if (mentions?.some((men: any) => men.userId === member.memberId || men.userId === 'all')) {
+              notificationType = NotificationType.MENTIONED_IN_MESSAGE;
+            } else if (parentId) {
+              notificationType = NotificationType.REPLY_IN_THREAD;
+            }
 
-        // A. Lưu vào Database Notification và Bắn Socket Realtime (đã tích hợp trong Service)
-        await this.notificationService.pushNotification({
-          recipientId: member.memberId,
-          type: notificationType,
-          templateKey: notificationType,
-          objectId: messageId,
-          objectType: 'MESSAGE',
-          workspaceId,
-          content,
-          metadata: {
-            actorId: senderId,
-            actorName: senderName,
-            messageId: messageId,
-            channelName: channelName || 'Direct Message',
-            channelId,
-            parentId,
-            threadId: parentId,
-            snippet: content,
-            reaction,
-          },
-        });
-      });
+            // Bỏ qua tin nhắn thông thường, không lưu vào DB Notification và không bắn socket realtime về Activity
+            if (notificationType === NotificationType.MESSAGE_RECEIVED) {
+              return null;
+            }
 
-      await Promise.all(promises);
+            return {
+              recipientId: member.memberId,
+              type: notificationType,
+              templateKey: notificationType,
+              objectId: messageId,
+              objectType: 'MESSAGE',
+              workspaceId,
+              content,
+              metadata: {
+                actorId: senderId,
+                actorName: senderName,
+                messageId: messageId,
+                channelName: channelName || 'Direct Message',
+                channelId,
+                parentId,
+                threadId: parentId,
+                snippet: content,
+                reaction,
+              },
+            };
+          })
+          .filter((dto): dto is NonNullable<typeof dto> => dto !== null);
+
+        // A. Lưu vào Database Notification (1 câu INSERT multi-row cho cả lô)
+        // và bắn Socket Realtime (đã tích hợp trong Service)
+        await this.notificationService.pushNotificationsBatch(dtos);
+      }
 
       this.logger.log(
         `Processed notifications for ${recipients.length} recipients in channel ${channelId}`,

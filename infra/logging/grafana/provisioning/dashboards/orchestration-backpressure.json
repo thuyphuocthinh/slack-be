@@ -15,10 +15,10 @@
       "description": "Số job đang chờ (waiting) và đang chạy (active) trong hàng đợi AI_ORCHESTRATION_QUEUE. Ngưỡng admission control hiện tại: ORCHESTRATION_CONSTANTS.MAX_ORCHESTRATION_QUEUE_DEPTH.",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "expr": "orchestration_queue_depth",
           "legendFormat": "{{state}}",
           "refId": "A"
@@ -38,10 +38,10 @@
       "description": "Trạng thái circuit breaker của từng mcp:<provider>/llm:<strategy>. Cập nhật ngay trong listener open/halfOpen/close của CircuitBreakerService — xem MetricsRegistryService.",
       "type": "state-timeline",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
           "expr": "orchestration_circuit_breaker_state",
           "legendFormat": "{{key}}",
           "refId": "A"

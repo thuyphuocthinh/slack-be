@@ -76,6 +76,22 @@ services:
       # container này chạy lần đầu.
       - 9router_dev_data:/app/data
 
+  # notification.md — expose pg_stat_activity (connections theo state:
+  # active/idle/...) + pg_settings_max_connections ra Prometheus, KHÔNG cần
+  # sửa code app nào. Trỏ thẳng service "postgres" ở trên qua tên service
+  # trong network compose (không phải 127.0.0.1 — đó là port map ra HOST).
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:latest
+    container_name: slack-postgres-exporter-dev
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@postgres:5432/slack_db?sslmode=disable"
+    ports:
+      - "9187:9187"
+
   # load-test-scale-plan.md — CHỈ dùng cho đo tải quy mô lớn (ramp 40→100→
   # 300→1000), KHÔNG phải hạ tầng dev thường trực (xem comment đầu file lý do
   # bỏ PgBouncer khỏi compose này). Trỏ THẲNG vào service "postgres" ở trên

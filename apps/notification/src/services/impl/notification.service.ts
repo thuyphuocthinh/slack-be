@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Notification } from '../../entity/notification.entity';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
 import {
@@ -81,18 +81,73 @@ export class NotificationService {
     } as unknown as IOffsetResponse<NotificationResponse[]>;
   }
 
-  async pushNotification(dto: PushNotificationDto) {
+  async pushNotification(dto: PushNotificationDto): Promise<Notification | null> {
     // 1. Kiểm tra cấu hình preferences của User
     await this.checkUserPreference(dto.recipientId);
 
     // 2. Validate Metadata
     const validatedMetadata = this.validateMetadata(dto.templateKey || dto.type, dto.metadata);
 
-    // 3. Lưu thông báo vào database
+    // 3. Lưu thông báo vào database — ON CONFLICT DO NOTHING (unique
+    // recipientId+objectId, notification.md mục 4.2) chặn BullMQ retry
+    // (attempts:3, queue.module.ts) tạo trùng khi job fail giữa chừng rồi
+    // chạy lại từ đầu.
     const saved = await this.saveNotificationEntity(dto, validatedMetadata);
+    if (!saved) {
+      this.logger.debug(
+        `pushNotification() bỏ qua — đã tồn tại (retry) recipientId=${dto.recipientId} objectId=${dto.objectId}`,
+      );
+      return null;
+    }
 
     // 4. Kích hoạt các Side-effects (Socket & FCM Push) chạy nền song song
     this.triggerNotificationSideEffects(saved);
+
+    return saved;
+  }
+
+  // notification.md — "gộp INSERT thành 1 câu multi-row" thay vì N lần
+  // pushNotification() riêng lẻ trong 1 lô của notification.processor.ts.
+  // Giảm hẳn số round-trip + CPU work thật Postgres phải làm (1 câu INSERT
+  // nhiều VALUES thay vì N câu), không chỉ giảm concurrency phía ứng dụng.
+  async pushNotificationsBatch(dtos: PushNotificationDto[]): Promise<Notification[]> {
+    if (dtos.length === 0) return [];
+
+    // Giữ nguyên hành vi checkUserPreference() như pushNotification() đơn lẻ.
+    await Promise.all(dtos.map((dto) => this.checkUserPreference(dto.recipientId)));
+
+    const rows = dtos.map((dto) => ({
+      recipientId: dto.recipientId,
+      type: dto.type,
+      templateKey: dto.templateKey || dto.type,
+      content: dto.content,
+      objectId: dto.objectId,
+      objectType: dto.objectType,
+      metadata: this.validateMetadata(dto.templateKey || dto.type, dto.metadata),
+      workspaceId: dto.workspaceId,
+      status: NotificationStatus.UNREAD,
+    }));
+
+    // ON CONFLICT DO NOTHING (UQ_notifications_recipient_object) — bảo vệ
+    // idempotent y hệt pushNotification() đơn lẻ, RETURNING chỉ trả về đúng
+    // những row THẬT SỰ mới insert (row bị bỏ qua không xuất hiện ở đây).
+    const insertResult = await this.notificationRepo
+      .createQueryBuilder()
+      .insert()
+      .into(Notification)
+      .values(rows)
+      .orIgnore()
+      .returning(['id'])
+      .execute();
+
+    if (insertResult.raw.length === 0) return [];
+
+    const insertedIds = insertResult.raw.map((r: { id: string }) => r.id);
+    const saved = await this.notificationRepo.findBy({ id: In(insertedIds) });
+
+    // Side-effects CHỈ cho recipient thật sự mới — recipient bị DO NOTHING
+    // bỏ qua (đã tồn tại/retry) không nằm trong `saved`, không bắn socket/FCM trùng.
+    await Promise.all(saved.map((n) => this.triggerNotificationSideEffects(n)));
 
     return saved;
   }
@@ -125,20 +180,31 @@ export class NotificationService {
     }
   }
 
-  private async saveNotificationEntity(dto: PushNotificationDto, metadata: any): Promise<Notification> {
-    const notification = this.notificationRepo.create({
-      recipientId: dto.recipientId,
-      type: dto.type,
-      templateKey: dto.templateKey || dto.type,
-      content: dto.content,
-      objectId: dto.objectId,
-      objectType: dto.objectType,
-      metadata,
-      workspaceId: dto.workspaceId,
-      status: NotificationStatus.UNREAD,
-    });
+  private async saveNotificationEntity(dto: PushNotificationDto, metadata: any): Promise<Notification | null> {
+    const insertResult = await this.notificationRepo
+      .createQueryBuilder()
+      .insert()
+      .into(Notification)
+      .values({
+        recipientId: dto.recipientId,
+        type: dto.type,
+        templateKey: dto.templateKey || dto.type,
+        content: dto.content,
+        objectId: dto.objectId,
+        objectType: dto.objectType,
+        metadata,
+        workspaceId: dto.workspaceId,
+        status: NotificationStatus.UNREAD,
+      })
+      .orIgnore()
+      .returning(['id'])
+      .execute();
 
-    return this.notificationRepo.save(notification);
+    if (insertResult.raw.length === 0) {
+      return null; // UQ_notifications_recipient_object đã có sẵn — bị DO NOTHING bỏ qua
+    }
+
+    return this.notificationRepo.findOneBy({ id: insertResult.raw[0].id });
   }
 
   private async triggerNotificationSideEffects(saved: Notification): Promise<void> {

@@ -5,9 +5,14 @@ import {
   Index,
   CreateDateColumn,
   UpdateDateColumn,
+  Unique,
 } from 'typeorm';
 import { NotificationType, NotificationStatus } from '@slack/constants';
 
+// notification.md mục 4.2 — chặn BullMQ retry (attempts:3) tạo trùng
+// notification cho cùng 1 recipient + object khi job fail giữa chừng rồi
+// chạy lại từ đầu (xem saveNotificationEntity() dùng ON CONFLICT DO NOTHING).
+@Unique('UQ_notifications_recipient_object', ['recipientId', 'objectId'])
 @Entity('notifications')
 export class Notification {
   @PrimaryGeneratedColumn('uuid')
