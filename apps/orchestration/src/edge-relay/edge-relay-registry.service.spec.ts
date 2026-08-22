@@ -7,11 +7,15 @@ import {
 import { RelayOfflineError } from './relay-offline.error';
 import { RelayTimeoutError } from './relay-timeout.error';
 
-function createFakeSocket(emitWithAck: jest.Mock = jest.fn()) {
+function createFakeSocket(
+  emitWithAck: jest.Mock = jest.fn(),
+  emit: jest.Mock = jest.fn(),
+) {
   const timeout = jest.fn().mockReturnValue({ emitWithAck });
-  return { timeout, emitWithAck } as unknown as Socket & {
+  return { timeout, emitWithAck, emit } as unknown as Socket & {
     timeout: jest.Mock;
     emitWithAck: jest.Mock;
+    emit: jest.Mock;
   };
 }
 
@@ -110,6 +114,32 @@ describe('EdgeRelayRegistryService', () => {
       expect(resultB).toEqual({ jsonrpc: '2.0', id: 1, result: { from: 'B' } });
       expect(emitWithAckA).toHaveBeenCalledTimes(1);
       expect(emitWithAckB).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('notify', () => {
+    it('throws RelayOfflineError when no relay is bound for the workspace', () => {
+      expect(() =>
+        service.notify('ws-1', {
+          jsonrpc: '2.0',
+          method: 'notifications/initialized',
+        }),
+      ).toThrow(RelayOfflineError);
+    });
+
+    it('emits the message fire-and-forget, WITHOUT timeout()/emitWithAck() — không chờ reply không bao giờ tới', () => {
+      const emit = jest.fn();
+      const socket = createFakeSocket(jest.fn(), emit);
+      service.bind('ws-1', socket);
+
+      const notification = {
+        jsonrpc: '2.0',
+        method: 'notifications/initialized',
+      };
+      service.notify('ws-1', notification);
+
+      expect(emit).toHaveBeenCalledWith(EDGE_RELAY_MESSAGE_EVENT, notification);
+      expect(socket.timeout).not.toHaveBeenCalled();
     });
   });
 });

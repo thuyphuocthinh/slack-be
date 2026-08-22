@@ -251,7 +251,14 @@ export class McpClientService {
     toolName: string,
     workspaceId?: string,
   ): McpToolDto | undefined {
-    const cached = this.toolsCache.get(routeKey(provider, workspaceId));
+    const key = routeKey(provider, workspaceId);
+    const cached = this.toolsCache.get(key);
+    this.logger.debug(
+      `getFreshCachedTool key="${key}" tool="${toolName}" ` +
+        `cacheHit=${!!cached} ` +
+        `age=${cached ? Date.now() - cached.fetchedAt : 'N/A'}ms ` +
+        `toolFound=${cached?.data?.some((t) => t.name === toolName) ?? false}`,
+    );
     if (
       !cached ||
       Date.now() - cached.fetchedAt >=
@@ -382,31 +389,58 @@ export class McpClientService {
       );
     }
 
-    const cachedTool = this.getFreshCachedTool(
+    let cachedTool = this.getFreshCachedTool(
       dto.provider,
       dto.name,
       dto.workspaceId,
     );
-    const isDestructive = cachedTool
-      ? Boolean(cachedTool.annotations?.destructiveHint)
-      : true;
-    const maxRetries = isDestructive ? 1 : 3;
+    const isPerWorkspace = !!AGENT_REGISTRY[dto.provider]?.perWorkspaceInstance;
 
     // Lớp chặn thứ 2, độc lập với quyền `db_datareader` phía SQL Server: relay
     // (perWorkspaceInstance) tự khai tool qua listTools() của chính nó — nếu
     // relay có bug/bị giả mạo khai nhầm 1 tool ghi thành an toàn, backend vẫn
     // không tin, chặn hẳn tại đây. Fail-closed: thiếu annotation (cache miss)
     // cũng bị coi là KHÔNG an toàn, không mặc định cho qua.
-    if (
-      AGENT_REGISTRY[dto.provider]?.perWorkspaceInstance &&
-      !cachedTool?.annotations?.readOnlyHint
-    ) {
-      return this.toEdgeRelayErrorResponse(
-        'RELAY_WRITE_BLOCKED',
-        false,
-        `Tool "${dto.name}" bị chặn — hệ thống on-prem qua Edge MCP Server chỉ được phép gọi tool ĐỌC (readOnlyHint), không xác nhận được tool này an toàn.`,
-      );
+    //
+    // Tuy nhiên cache miss CÓ THỂ do cache bị stale/cleared (race condition,
+    // reconnect...) — chặn ngay khi miss gây false positive cho tool AN TOÀN
+    // (readOnlyHint) giữa 1 vòng ReactLoop. Nên thử refresh 1 lần trước khi
+    // quyết định chặn — nếu SAU refresh vẫn không thấy readOnlyHint → vẫn chặn.
+    if (isPerWorkspace && !cachedTool?.annotations?.readOnlyHint) {
+      if (!cachedTool) {
+        // Cache miss — thử refresh trước khi chặn
+        this.logger.warn(
+          `Write gate cache miss for "${dto.name}" (${routeKey(dto.provider, dto.workspaceId)}) — refreshing tools before blocking`,
+        );
+        await this.getTools(dto.provider, undefined, signal, dto.workspaceId);
+        const refreshed = this.getFreshCachedTool(
+          dto.provider,
+          dto.name,
+          dto.workspaceId,
+        );
+        if (refreshed?.annotations?.readOnlyHint) {
+          cachedTool = refreshed;
+        } else {
+          return this.toEdgeRelayErrorResponse(
+            'RELAY_WRITE_BLOCKED',
+            false,
+            `Tool "${dto.name}" bị chặn — hệ thống on-prem qua Edge MCP Server chỉ được phép gọi tool ĐỌC (readOnlyHint), không xác nhận được tool này an toàn.`,
+          );
+        }
+      } else {
+        // Tool tồn tại trong cache nhưng KHÔNG có readOnlyHint → chặn ngay
+        return this.toEdgeRelayErrorResponse(
+          'RELAY_WRITE_BLOCKED',
+          false,
+          `Tool "${dto.name}" bị chặn — hệ thống on-prem qua Edge MCP Server chỉ được phép gọi tool ĐỌC (readOnlyHint), không xác nhận được tool này an toàn.`,
+        );
+      }
     }
+
+    const isDestructive = cachedTool
+      ? Boolean(cachedTool.annotations?.destructiveHint)
+      : true;
+    const maxRetries = isDestructive ? 1 : 3;
 
     try {
       return await this.withReconnect(

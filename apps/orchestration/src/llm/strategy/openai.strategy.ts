@@ -122,12 +122,13 @@ export class OpenAiStrategy implements LlmStrategy {
 
         if (typeof completion === 'string' || completion instanceof String) {
           try {
-            const extractor = new JsonExtractor();
-            // Dọn rác 9Router trước — "[DONE]" tự chứa dấu ngoặc nên nếu để lọt
-            // vào extractor, nó đánh lừa bộ dò ngoặc và làm JSON.parse fail.
-            const cleanRaw = extractor.extract(
-              stripNineRouterArtifacts(completion.toString()),
-            );
+            let cleanRaw = stripNineRouterArtifacts(completion.toString());
+            // Trích xuất JSON ngoài cùng an toàn (không dùng JsonExtractor để tránh bị lừa bởi ```python bên trong content)
+            const firstBrace = cleanRaw.indexOf('{');
+            const lastBrace = cleanRaw.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1) {
+              cleanRaw = cleanRaw.substring(firstBrace, lastBrace + 1);
+            }
             completion = JSON.parse(cleanRaw);
           } catch (e) {
             // ignore, let it fail below

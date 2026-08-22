@@ -44,4 +44,15 @@ export class EdgeRelayRegistryService {
       throw new RelayTimeoutError(workspaceId, error as Error);
     }
   }
+
+  // JSON-RPC notification (không có `id`, VD "notifications/initialized") —
+  // theo spec KHÔNG BAO GIỜ có reply, nên không được chờ ack như dispatch()
+  // (sẽ luôn timeout 12s vì phía relay không có gì để trả lời).
+  notify(workspaceId: string, message: JSONRPCMessage): void {
+    const socket = this.sockets.get(workspaceId);
+    if (!socket) {
+      throw new RelayOfflineError(workspaceId);
+    }
+    socket.emit(EDGE_RELAY_MESSAGE_EVENT, message);
+  }
 }

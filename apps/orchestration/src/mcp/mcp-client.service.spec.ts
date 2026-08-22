@@ -1529,7 +1529,8 @@ describe('McpClientService', () => {
       expect(mockCallTool).not.toHaveBeenCalled();
     });
 
-    it('fails closed (blocks) when the tool is not in cache at all — cache miss is NOT treated as safe', async () => {
+    it('fails closed (blocks) when the tool is not in cache — refreshes first, but still blocks if tool not found after refresh', async () => {
+      // mockListTools mặc định trả { tools: [] } — refresh không tìm ra tool
       const result = await service.callTool({
         provider: 'edge_relay_test',
         name: 'unknown_tool',
@@ -1540,7 +1541,8 @@ describe('McpClientService', () => {
 
       const parsed = JSON.parse(result.content![0].text as string);
       expect(parsed).toMatchObject({ code: 'RELAY_WRITE_BLOCKED' });
-      expect(mockConnect).not.toHaveBeenCalled();
+      // callTool thật KHÔNG được gọi — vẫn fail-closed
+      expect(mockCallTool).not.toHaveBeenCalled();
     });
 
     it('allows a tool WITH readOnlyHint through to the real call', async () => {
@@ -1598,6 +1600,66 @@ describe('McpClientService', () => {
 
       expect(result.isError).toBeFalsy();
       expect(mockCallTool).toHaveBeenCalledTimes(1);
+    });
+
+    it('recovers from a cache miss by refreshing tools — allows a readOnlyHint tool that was missing from cache', async () => {
+      // Cache trống — không set toolsCache
+      // Nhưng listTools trả về tool có readOnlyHint → refresh phải tìm ra
+      mockListTools.mockResolvedValue({
+        tools: [
+          {
+            name: 'read_only_tool',
+            description: '',
+            inputSchema: {},
+            annotations: { readOnlyHint: true },
+          },
+        ],
+      });
+      mockConnect.mockResolvedValue(undefined);
+      mockCallTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'query result' }],
+      });
+
+      const result = await service.callTool({
+        provider: 'edge_relay_test',
+        name: 'read_only_tool',
+        args: {},
+        ownerId: 'user-1',
+        workspaceId: 'workspace-A',
+      });
+
+      // Phải cho qua sau refresh, không bị RELAY_WRITE_BLOCKED
+      expect(result.isError).toBeFalsy();
+      expect(mockCallTool).toHaveBeenCalledTimes(1);
+    });
+
+    it('still blocks after refresh when tool genuinely lacks readOnlyHint', async () => {
+      // Cache trống — không set toolsCache
+      // listTools trả về tool KHÔNG có readOnlyHint → sau refresh vẫn chặn
+      mockListTools.mockResolvedValue({
+        tools: [
+          {
+            name: 'write_tool',
+            description: '',
+            inputSchema: {},
+            annotations: { readOnlyHint: false, destructiveHint: true },
+          },
+        ],
+      });
+      mockConnect.mockResolvedValue(undefined);
+
+      const result = await service.callTool({
+        provider: 'edge_relay_test',
+        name: 'write_tool',
+        args: {},
+        ownerId: 'user-1',
+        workspaceId: 'workspace-A',
+      });
+
+      const parsed = JSON.parse(result.content![0].text as string);
+      expect(parsed).toMatchObject({ code: 'RELAY_WRITE_BLOCKED' });
+      // Không gọi callTool thật — vẫn fail-closed
+      expect(mockCallTool).not.toHaveBeenCalled();
     });
   });
 

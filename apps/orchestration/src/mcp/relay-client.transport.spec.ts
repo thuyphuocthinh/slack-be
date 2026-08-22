@@ -3,11 +3,11 @@ import { EdgeRelayRegistryService } from '../edge-relay/edge-relay-registry.serv
 import { RelayOfflineError } from '../edge-relay/relay-offline.error';
 
 describe('RelayClientTransport', () => {
-  let registry: { dispatch: jest.Mock };
+  let registry: { dispatch: jest.Mock; notify: jest.Mock };
   let transport: RelayClientTransport;
 
   beforeEach(() => {
-    registry = { dispatch: jest.fn() };
+    registry = { dispatch: jest.fn(), notify: jest.fn() };
     transport = new RelayClientTransport(
       'ws-1',
       registry as unknown as EdgeRelayRegistryService,
@@ -58,5 +58,29 @@ describe('RelayClientTransport', () => {
       'ws-1',
       expect.objectContaining({ method: 'b' }),
     );
+  });
+
+  it('routes a notification (no "id") through registry.notify(), NOT dispatch() — không có reply thật để chờ', async () => {
+    const notification = {
+      jsonrpc: '2.0' as const,
+      method: 'notifications/initialized',
+    };
+
+    await transport.send(notification);
+
+    expect(registry.notify).toHaveBeenCalledWith('ws-1', notification);
+    expect(registry.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('does not call onmessage for a notification — nothing to forward', async () => {
+    const onmessage = jest.fn();
+    transport.onmessage = onmessage;
+
+    await transport.send({
+      jsonrpc: '2.0',
+      method: 'notifications/initialized',
+    });
+
+    expect(onmessage).not.toHaveBeenCalled();
   });
 });

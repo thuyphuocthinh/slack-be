@@ -462,6 +462,7 @@ export const PROVIDER_LABELS: Record<string, string> = {
   google_drive: 'Google Drive',
   slack: 'Slack',
   sql_server: 'SQL Server',
+  sql_server_edge: 'SQL Server (on-prem, qua Edge MCP Server)',
   notion: 'Notion',
   github: 'GitHub',
   compute: 'Python Compute',
@@ -476,6 +477,8 @@ export const PROVIDER_DESCRIPTIONS: Record<string, string> = {
   google_drive: 'Truy cập file và thư mục trên Google Drive.',
   slack: 'Tương tác với workspace Slack khác của bạn.',
   sql_server: 'Truy vấn schema và dữ liệu trên SQL Server của bạn.',
+  sql_server_edge:
+    'Truy vấn schema/dữ liệu CHỈ ĐỌC trên SQL Server on-premise của khách hàng (VD phần mềm kế toán FAST) qua Edge MCP Server — dùng cho hệ thống nội bộ đặt tại chỗ, KHÁC với `sql_server` (cloud). Không dùng để ghi/sửa/xoá dữ liệu.',
   notion: 'Đọc và chỉnh sửa trang/database trên Notion.',
   github: 'Truy cập repository, issue, pull request trên GitHub.',
   compute:

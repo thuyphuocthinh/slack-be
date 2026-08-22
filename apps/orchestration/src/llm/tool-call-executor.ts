@@ -30,6 +30,14 @@ function formatResultPreview(text: string): string {
 
 /** Xem code-notes/react-loop.service.md */
 function formatArgsPreview(args: Record<string, unknown>): string {
+  // Trích xuất ưu tiên để phục vụ syntax highlighting ở Frontend
+  if (typeof args.code === 'string') {
+    return args.code;
+  }
+  if (typeof args.query === 'string') {
+    return args.query;
+  }
+
   const values = Object.values(args);
   if (values.length === 1 && typeof values[0] === 'string') {
     return values[0];
