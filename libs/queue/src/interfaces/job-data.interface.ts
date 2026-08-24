@@ -1,5 +1,7 @@
 import { EJobName } from '../constants/queue.constant';
 
+import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
+
 export interface IInviteJobData {
   to: string;
   subject: string;
@@ -196,6 +198,11 @@ export interface IUpdateDynamicProviderTokenJobData {
   previousRefreshToken?: string;
 }
 
+export interface IEdgeDispatchMessageJobData {
+  workspaceId: string;
+  message: JSONRPCMessage;
+}
+
 export type TJobData = {
   [EJobName.SEND_VERIFICATION_EMAIL]: IEmailJobData;
   [EJobName.SEND_INVITE_EMAIL]: IInviteJobData;
@@ -222,4 +229,5 @@ export type TJobData = {
   [EJobName.PROCESS_AI_TRIGGER]: IProcessAiTriggerJobData;
   [EJobName.PROCESS_APPROVAL]: IProcessApprovalJobData;
   [EJobName.UPDATE_DYNAMIC_PROVIDER_TOKEN]: IUpdateDynamicProviderTokenJobData;
+  [EJobName.EDGE_DISPATCH_MESSAGE]: IEdgeDispatchMessageJobData;
 };

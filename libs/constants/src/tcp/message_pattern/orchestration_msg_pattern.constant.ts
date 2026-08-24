@@ -11,4 +11,5 @@ export const ORCHESTRATION_MESSAGE_PATTERNS = {
   DELETE_DYNAMIC_PROVIDER: 'orchestration.delete_dynamic_provider',
   HEALTH_CHECK: 'orchestration.health_check',
   GET_METRICS: 'orchestration.get_metrics',
+  EDGE_RELAY_LOGIN: 'orchestration.edge_relay_login',
 } as const;

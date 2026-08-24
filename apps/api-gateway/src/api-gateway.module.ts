@@ -26,6 +26,7 @@ import { AiProvidersModule } from './ai-providers/ai-providers.module';
 import { CanvasModule } from './canvas/canvas.module';
 import { CalendarModule } from './calendar/calendar.module';
 import { IntegrationsModule } from './integrations/integrations.module';
+import { OrchestrationGatewayModule } from './orchestration/orchestration.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { IntegrationsModule } from './integrations/integrations.module';
     CanvasModule,
     IntegrationsModule,
     CalendarModule,
+    OrchestrationGatewayModule,
 
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'fallback_secret',

@@ -5,6 +5,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { DatabaseModule } from '@slack/database';
 import { QueueModule, EQueueName } from '@slack/queue';
 import { CachedModule } from '@slack/cached';
+import { EdgeAuthModule } from './edge-auth/edge-auth.module';
 import { NAME_SERVICE_TCP, PORT_TCP } from '@slack/constants';
 import { getMicroserviceClientConfig } from '@slack/common';
 import { OrchestrationController } from './orchestration.controller';
@@ -55,9 +56,11 @@ import { MetricsRegistryService } from './common/metrics-registry.service';
 import { HealthCheckService } from './common/health-check.service';
 import { EdgeRelayRegistryService } from './edge-relay/edge-relay-registry.service';
 import { EdgeRelayGateway } from './edge-relay/edge-relay.gateway';
+import { EdgeRelayProcessor } from './edge-relay/edge-relay.processor';
 
 @Module({
   imports: [
+    EdgeAuthModule,
     DatabaseModule,
     TypeOrmModule.forFeature([
       OrchestrationCheckpointEntity,
@@ -73,6 +76,7 @@ import { EdgeRelayGateway } from './edge-relay/edge-relay.gateway';
       EQueueName.AI_ORCHESTRATION_QUEUE,
       EQueueName.SOCKET_QUEUE,
       EQueueName.DYNAMIC_PROVIDER_QUEUE,
+      EQueueName.EDGE_RELAY_QUEUE,
     ]),
     ClientsModule.registerAsync([
       getMicroserviceClientConfig(
@@ -117,6 +121,7 @@ import { EdgeRelayGateway } from './edge-relay/edge-relay.gateway';
     AgentCancellationService,
     TurnResolverService,
     CheckpointPauseService,
+    EdgeRelayProcessor,
     ApprovalRequestService,
     ApprovalExecutionService,
     ApprovalContinuationPlannerService,
@@ -127,4 +132,4 @@ import { EdgeRelayGateway } from './edge-relay/edge-relay.gateway';
     EdgeRelayGateway,
   ],
 })
-export class OrchestrationModule {}
+export class OrchestrationModule { }

@@ -15,6 +15,7 @@ export enum EQueueName {
   INTEGRATION_SYNC_QUEUE = 'integration_sync',
   AI_ORCHESTRATION_QUEUE = 'ai_orchestration',
   DYNAMIC_PROVIDER_QUEUE = 'dynamic_provider',
+  EDGE_RELAY_QUEUE = 'edge_relay',
 }
 
 export enum EJobName {
@@ -50,6 +51,7 @@ export enum EJobName {
   DISPATCH_OUTBOUND_WEBHOOK = 'dispatch_outbound_webhook',
   PROCESS_INCOMING_WEBHOOK = 'process_incoming_webhook',
   GENERATE_LINK_PREVIEW = 'generate_link_preview',
+  EDGE_DISPATCH_MESSAGE = 'edge_dispatch_message',
 
   // Calendar
   CALENDAR_REQUEST_CREATED = 'calendar_request_created',

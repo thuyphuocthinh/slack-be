@@ -43,7 +43,7 @@ export class OrchestrationController {
     private readonly dynamicProviderDb: DynamicProviderDbService,
     private readonly providerSummary: ProviderSummaryService,
     private readonly healthCheckService: HealthCheckService,
-  ) {}
+  ) { }
 
   @MessagePattern(ORCHESTRATION_MESSAGE_PATTERNS.GET_PROVIDERS)
   async getProviders(
