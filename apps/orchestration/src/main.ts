@@ -28,15 +28,21 @@ async function bootstrap() {
     }),
   );
 
-  app.connectMicroservice<MicroserviceOptions>({
-    transport: Transport.TCP,
-    options: {
-      host: process.env.ORCHESTRATION_SERVICE_HOST || '0.0.0.0',
-      port: process.env.ORCHESTRATION_SERVICE_PORT
-        ? parseInt(process.env.ORCHESTRATION_SERVICE_PORT)
-        : PORT_TCP.ORCHESTRATION_TCP_PORT,
+  // inheritAppConfig: true — bắt buộc để useGlobalFilters/useGlobalPipes ở trên
+  // áp dụng luôn cho microservice TCP này; mặc định connectMicroservice() chạy
+  // context riêng, phớt lờ mọi global enhancer đã đăng ký trên app chính.
+  app.connectMicroservice<MicroserviceOptions>(
+    {
+      transport: Transport.TCP,
+      options: {
+        host: process.env.ORCHESTRATION_SERVICE_HOST || '0.0.0.0',
+        port: process.env.ORCHESTRATION_SERVICE_PORT
+          ? parseInt(process.env.ORCHESTRATION_SERVICE_PORT)
+          : PORT_TCP.ORCHESTRATION_TCP_PORT,
+      },
     },
-  });
+    { inheritAppConfig: true },
+  );
 
   await app.startAllMicroservices();
   await app.listen(Number(process.env.EDGE_RELAY_PORT) || 3015);

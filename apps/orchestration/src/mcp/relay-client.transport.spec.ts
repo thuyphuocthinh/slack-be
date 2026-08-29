@@ -1,16 +1,20 @@
 import { RelayClientTransport } from './relay-client.transport';
 import { EdgeRelayRegistryService } from '../edge-relay/edge-relay-registry.service';
 import { RelayOfflineError } from '../edge-relay/relay-offline.error';
+import { EQueueName, EJobName, QueueService } from '@slack/queue';
 
 describe('RelayClientTransport', () => {
   let registry: { dispatch: jest.Mock; notify: jest.Mock };
+  let queueService: { addJob: jest.Mock };
   let transport: RelayClientTransport;
 
   beforeEach(() => {
     registry = { dispatch: jest.fn(), notify: jest.fn() };
+    queueService = { addJob: jest.fn().mockResolvedValue(undefined) };
     transport = new RelayClientTransport(
       'ws-1',
       registry as unknown as EdgeRelayRegistryService,
+      queueService as unknown as QueueService,
     );
   });
 
@@ -60,7 +64,7 @@ describe('RelayClientTransport', () => {
     );
   });
 
-  it('routes a notification (no "id") through registry.notify(), NOT dispatch() — không có reply thật để chờ', async () => {
+  it('routes a notification (no "id") through the queue as EDGE_NOTIFY_MESSAGE, NOT dispatch() — không có reply thật để chờ', async () => {
     const notification = {
       jsonrpc: '2.0' as const,
       method: 'notifications/initialized',
@@ -68,7 +72,12 @@ describe('RelayClientTransport', () => {
 
     await transport.send(notification);
 
-    expect(registry.notify).toHaveBeenCalledWith('ws-1', notification);
+    expect(queueService.addJob).toHaveBeenCalledWith(
+      EQueueName.EDGE_RELAY_QUEUE,
+      EJobName.EDGE_NOTIFY_MESSAGE,
+      { workspaceId: 'ws-1', message: notification },
+    );
+    expect(registry.notify).not.toHaveBeenCalled();
     expect(registry.dispatch).not.toHaveBeenCalled();
   });
 

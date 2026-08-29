@@ -1,15 +1,15 @@
 import { Socket } from 'socket.io';
+import { JwtService } from '@nestjs/jwt';
+import { RateLimitService } from '@slack/cached';
 import { EdgeRelayGateway } from './edge-relay.gateway';
 import { EdgeRelayRegistryService } from './edge-relay-registry.service';
-import { isValidRelaySecret } from './edge-relay-secret.util';
 
-jest.mock('./edge-relay-secret.util', () => ({
-  isValidRelaySecret: jest.fn(),
-}));
-
-function createFakeClient(auth: { workspaceId?: string; token?: string }) {
+function createFakeClient(
+  auth: { workspaceId?: string; token?: string },
+  address = '1.2.3.4',
+) {
   return {
-    handshake: { auth },
+    handshake: { auth, address },
     disconnect: jest.fn(),
   } as unknown as Socket & { disconnect: jest.Mock };
 }
@@ -17,43 +17,80 @@ function createFakeClient(auth: { workspaceId?: string; token?: string }) {
 describe('EdgeRelayGateway', () => {
   let gateway: EdgeRelayGateway;
   let registry: { bind: jest.Mock; unbind: jest.Mock };
+  let jwtService: { verify: jest.Mock };
+  let rateLimitService: { isAllowed: jest.Mock };
 
   beforeEach(() => {
-    jest.clearAllMocks();
     registry = { bind: jest.fn(), unbind: jest.fn() };
+    jwtService = { verify: jest.fn() };
+    rateLimitService = { isAllowed: jest.fn().mockResolvedValue(true) };
     gateway = new EdgeRelayGateway(
       registry as unknown as EdgeRelayRegistryService,
+      jwtService as unknown as JwtService,
+      rateLimitService as unknown as RateLimitService,
     );
   });
 
   describe('handleConnection', () => {
-    it('binds the client to the registry when the secret is valid', () => {
-      (isValidRelaySecret as jest.Mock).mockReturnValue(true);
+    it('binds the client to the registry when the JWT is valid and its sub matches workspaceId', async () => {
+      jwtService.verify.mockReturnValue({ sub: 'ws-1' });
       const client = createFakeClient({ workspaceId: 'ws-1', token: 'good' });
 
-      gateway.handleConnection(client);
+      await gateway.handleConnection(client);
 
+      expect(jwtService.verify).toHaveBeenCalledWith('good');
       expect(registry.bind).toHaveBeenCalledWith('ws-1', client);
       expect(client.disconnect).not.toHaveBeenCalled();
     });
 
-    it('disconnects and never binds when the secret is invalid', () => {
-      (isValidRelaySecret as jest.Mock).mockReturnValue(false);
+    it('disconnects and never binds when the JWT is invalid/expired', async () => {
+      jwtService.verify.mockImplementation(() => {
+        throw new Error('jwt expired');
+      });
       const client = createFakeClient({ workspaceId: 'ws-1', token: 'bad' });
 
-      gateway.handleConnection(client);
+      await gateway.handleConnection(client);
 
       expect(client.disconnect).toHaveBeenCalledWith(true);
       expect(registry.bind).not.toHaveBeenCalled();
     });
 
-    it('disconnects when workspaceId or token is missing from the handshake', () => {
-      (isValidRelaySecret as jest.Mock).mockReturnValue(false);
-      const client = createFakeClient({});
+    it('disconnects when the JWT sub does not match the claimed workspaceId', async () => {
+      jwtService.verify.mockReturnValue({ sub: 'ws-other' });
+      const client = createFakeClient({ workspaceId: 'ws-1', token: 'good' });
 
-      gateway.handleConnection(client);
+      await gateway.handleConnection(client);
 
       expect(client.disconnect).toHaveBeenCalledWith(true);
+      expect(registry.bind).not.toHaveBeenCalled();
+    });
+
+    it('disconnects when workspaceId or token is missing from the handshake', async () => {
+      const client = createFakeClient({});
+
+      await gateway.handleConnection(client);
+
+      expect(client.disconnect).toHaveBeenCalledWith(true);
+      expect(jwtService.verify).not.toHaveBeenCalled();
+      expect(registry.bind).not.toHaveBeenCalled();
+    });
+
+    it('disconnects without ever checking the JWT once the IP rate limit is exceeded', async () => {
+      rateLimitService.isAllowed.mockResolvedValue(false);
+      const client = createFakeClient(
+        { workspaceId: 'ws-1', token: 'good' },
+        '9.9.9.9',
+      );
+
+      await gateway.handleConnection(client);
+
+      expect(rateLimitService.isAllowed).toHaveBeenCalledWith(
+        'edge-relay:connect:ip:9.9.9.9',
+        10,
+        60,
+      );
+      expect(client.disconnect).toHaveBeenCalledWith(true);
+      expect(jwtService.verify).not.toHaveBeenCalled();
       expect(registry.bind).not.toHaveBeenCalled();
     });
   });

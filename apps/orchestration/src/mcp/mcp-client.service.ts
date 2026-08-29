@@ -21,6 +21,7 @@ import { DynamicToolRegistryService } from '../registry/dynamic-tool-registry.se
 import { DynamicToolExecutorService } from '../executor/dynamic-tool-executor.service';
 import { PiiScrubberUtil } from '../executor/pii-scrubber.util';
 import { routeKey, clientCacheKey } from './route-key.util';
+import { QueueService } from '@slack/queue';
 import { RelayClientTransport } from './relay-client.transport';
 import { EdgeRelayRegistryService } from '../edge-relay/edge-relay-registry.service';
 import { RelayOfflineError } from '../edge-relay/relay-offline.error';
@@ -55,6 +56,7 @@ export class McpClientService {
     private readonly dynamicRegistry: DynamicToolRegistryService,
     private readonly dynamicExecutor: DynamicToolExecutorService,
     private readonly edgeRelayRegistry: EdgeRelayRegistryService,
+    private readonly queueService: QueueService,
   ) {}
 
   private async getClient(
@@ -96,6 +98,7 @@ export class McpClientService {
       const transport = new RelayClientTransport(
         workspaceId,
         this.edgeRelayRegistry,
+        this.queueService,
       );
       await withTimeout(
         client.connect(transport),
@@ -641,6 +644,15 @@ export class McpClientService {
         );
 
         if (this.isTimeoutError(error, timeoutMsg)) {
+          throw error;
+        }
+
+        // Không retry ở đây — relay offline/timeout không tự khỏi vì thử lại,
+        // chỉ tốn thêm 12s/lần. callTool() catch riêng, trả RELAY_OFFLINE/RELAY_TIMEOUT.
+        if (
+          error instanceof RelayOfflineError ||
+          error instanceof RelayTimeoutError
+        ) {
           throw error;
         }
 

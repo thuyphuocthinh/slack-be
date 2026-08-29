@@ -203,6 +203,11 @@ export interface IEdgeDispatchMessageJobData {
   message: JSONRPCMessage;
 }
 
+export interface IEdgeNotifyMessageJobData {
+  workspaceId: string;
+  message: JSONRPCMessage;
+}
+
 export type TJobData = {
   [EJobName.SEND_VERIFICATION_EMAIL]: IEmailJobData;
   [EJobName.SEND_INVITE_EMAIL]: IInviteJobData;
@@ -230,4 +235,5 @@ export type TJobData = {
   [EJobName.PROCESS_APPROVAL]: IProcessApprovalJobData;
   [EJobName.UPDATE_DYNAMIC_PROVIDER_TOKEN]: IUpdateDynamicProviderTokenJobData;
   [EJobName.EDGE_DISPATCH_MESSAGE]: IEdgeDispatchMessageJobData;
+  [EJobName.EDGE_NOTIFY_MESSAGE]: IEdgeNotifyMessageJobData;
 };

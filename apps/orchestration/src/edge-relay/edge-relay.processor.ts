@@ -13,9 +13,15 @@ export class EdgeRelayProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<TJobData[EJobName.EDGE_DISPATCH_MESSAGE]>): Promise<JSONRPCMessage | undefined> {
+  async process(
+    job: Job<
+      | TJobData[EJobName.EDGE_DISPATCH_MESSAGE]
+      | TJobData[EJobName.EDGE_NOTIFY_MESSAGE]
+    >,
+  ): Promise<JSONRPCMessage | undefined> {
+    const { workspaceId, message } = job.data;
+
     if (job.name === EJobName.EDGE_DISPATCH_MESSAGE) {
-      const { workspaceId, message } = job.data;
       try {
         return await this.registry.dispatch(workspaceId, message);
       } catch (error) {
@@ -25,6 +31,18 @@ export class EdgeRelayProcessor extends WorkerHost {
         throw error;
       }
     }
+
+    if (job.name === EJobName.EDGE_NOTIFY_MESSAGE) {
+      try {
+        this.registry.notify(workspaceId, message);
+      } catch (error) {
+        this.logger.error(
+          `Failed to notify workspace ${workspaceId}: ${(error as Error).message}`,
+        );
+        throw error;
+      }
+    }
+
     return undefined;
   }
 }

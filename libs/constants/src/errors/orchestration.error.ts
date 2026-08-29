@@ -87,5 +87,6 @@ export const ORCHESTRATION_ERROR = {
   EDGE_RELAY_UNAUTHORIZED: {
     code: 'ERR.ORCHESTRATION.0120',
     message: 'INVALID EDGE RELAY WORKSPACE ID OR SECRET',
+    statusCode: 401,
   },
 };

@@ -13,6 +13,10 @@ export class EdgeRelayRegistryService {
   private readonly sockets = new Map<string, Socket>();
 
   bind(workspaceId: string, socket: Socket): void {
+    const previous = this.sockets.get(workspaceId);
+    if (previous && previous !== socket) {
+      previous.disconnect(true);
+    }
     this.sockets.set(workspaceId, socket);
     this.logger.log(`Edge relay bound for workspace ${workspaceId}`);
   }

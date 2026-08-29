@@ -12,10 +12,12 @@ function createFakeSocket(
   emit: jest.Mock = jest.fn(),
 ) {
   const timeout = jest.fn().mockReturnValue({ emitWithAck });
-  return { timeout, emitWithAck, emit } as unknown as Socket & {
+  const disconnect = jest.fn();
+  return { timeout, emitWithAck, emit, disconnect } as unknown as Socket & {
     timeout: jest.Mock;
     emitWithAck: jest.Mock;
     emit: jest.Mock;
+    disconnect: jest.Mock;
   };
 }
 
@@ -46,6 +48,26 @@ describe('EdgeRelayRegistryService', () => {
       service.unbind('ws-1', stale);
 
       expect(service.isOnline('ws-1')).toBe(true);
+    });
+
+    it('disconnects the previous socket when a new one binds to the same workspace (stale connection, no orphan left behind)', () => {
+      const stale = createFakeSocket();
+      const fresh = createFakeSocket();
+
+      service.bind('ws-1', stale);
+      service.bind('ws-1', fresh);
+
+      expect(stale.disconnect).toHaveBeenCalledWith(true);
+      expect(fresh.disconnect).not.toHaveBeenCalled();
+    });
+
+    it('does not call disconnect when the same socket instance is bound again', () => {
+      const socket = createFakeSocket();
+
+      service.bind('ws-1', socket);
+      service.bind('ws-1', socket);
+
+      expect(socket.disconnect).not.toHaveBeenCalled();
     });
 
     it('reports offline for a workspace that was never bound', () => {

@@ -52,6 +52,7 @@ export enum EJobName {
   PROCESS_INCOMING_WEBHOOK = 'process_incoming_webhook',
   GENERATE_LINK_PREVIEW = 'generate_link_preview',
   EDGE_DISPATCH_MESSAGE = 'edge_dispatch_message',
+  EDGE_NOTIFY_MESSAGE = 'edge_notify_message',
 
   // Calendar
   CALENDAR_REQUEST_CREATED = 'calendar_request_created',

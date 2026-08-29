@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { ORCHESTRATION_CONSTANTS } from '@slack/constants';
+import { QueueService } from '@slack/queue';
 import { McpClientService } from './mcp-client.service';
 import { CircuitBreakerService } from '../common/circuit-breaker.service';
 import { ProviderConcurrencyLimiterService } from '../common/provider-concurrency-limiter.service';
@@ -68,6 +69,9 @@ describe('McpClientService', () => {
     isOnline: jest.fn(),
     dispatch: jest.fn(),
   };
+  const mockQueueService = {
+    addJob: jest.fn().mockResolvedValue(undefined),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -92,6 +96,7 @@ describe('McpClientService', () => {
         },
         { provide: DynamicToolExecutorService, useValue: {} },
         { provide: EdgeRelayRegistryService, useValue: mockEdgeRelayRegistry },
+        { provide: QueueService, useValue: mockQueueService },
       ],
     }).compile();
 
@@ -211,6 +216,7 @@ describe('McpClientService', () => {
             provide: EdgeRelayRegistryService,
             useValue: mockEdgeRelayRegistry,
           },
+          { provide: QueueService, useValue: mockQueueService },
         ],
       }).compile();
       const dynamicService = module.get<McpClientService>(McpClientService);
@@ -253,6 +259,7 @@ describe('McpClientService', () => {
             provide: EdgeRelayRegistryService,
             useValue: mockEdgeRelayRegistry,
           },
+          { provide: QueueService, useValue: mockQueueService },
         ],
       }).compile();
       const dynamicService = module.get<McpClientService>(McpClientService);
@@ -1118,6 +1125,7 @@ describe('McpClientService', () => {
             provide: EdgeRelayRegistryService,
             useValue: mockEdgeRelayRegistry,
           },
+          { provide: QueueService, useValue: mockQueueService },
         ],
       }).compile();
       const dynamicService = module2.get<McpClientService>(McpClientService);
@@ -1465,6 +1473,8 @@ describe('McpClientService', () => {
         code: 'RELAY_OFFLINE',
         message: expect.stringContaining('workspace-A'),
       });
+      // RelayOfflineError không tự khỏi khi thử lại — phải fail ngay lần đầu, không retry.
+      expect(mockConnect).toHaveBeenCalledTimes(1);
     });
 
     it('converts a RelayTimeoutError into a retryable:true envelope for a read-only tool (safe to retry)', async () => {
@@ -1494,6 +1504,8 @@ describe('McpClientService', () => {
 
       const parsed = JSON.parse(result.content![0].text as string);
       expect(parsed).toMatchObject({ code: 'RELAY_TIMEOUT', retryable: true });
+      // RelayTimeoutError không tự khỏi khi thử lại (tốn thêm 12s ack/lần) — phải fail ngay lần đầu.
+      expect(mockConnect).toHaveBeenCalledTimes(1);
     });
   });
 
