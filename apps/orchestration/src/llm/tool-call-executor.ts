@@ -22,6 +22,16 @@ import { MemoryManagerService } from '../memory/memory-manager.service';
 import { ToolRepeatGuard } from './tool-repeat-guard';
 import { InsertAccumulator } from './insert-accumulator';
 import { ToolRiskGate } from './tool-risk-gate';
+import { parseInsertValues } from '../executor/parse-insert-values.util';
+
+interface PreparedToolCall {
+  call: LlmToolCall;
+  sourceIndexes: number[];
+  insertBatch?: {
+    insertPrefix: string;
+    tuples: Set<string>;
+  };
+}
 
 /** Gộp về 1 dòng, không cắt bớt — xem code-notes/react-loop.service.md */
 function formatResultPreview(text: string): string {
@@ -121,21 +131,12 @@ export class ToolCallExecutor {
     return this.toolCalls.some((tc) => tc.status === 'success');
   }
 
-  // Tool call trong CÙNG 1 lượt chạy song song (tốc độ), nhưng 2 rủi ro cần
-  // xếp hàng riêng thay vì chạy đồng thời: (1) 2 call TRÙNG hệt nhau (tên+
-  // tham số) — vẫn gọi qua tracedHandleToolCall() bình thường để đúng cơ chế
-  // repeat-guard/cache có sẵn (attempts/successfulCallCache) tự nhận ra và
-  // trả kết quả cache cho lần lặp, chỉ là lần lặp phải ĐỢI lần đầu xong hẳn
-  // mới bắt đầu, không cho cả 2 cùng lọt qua bookkeeping một lúc; (2) 2
-  // INSERT nhắm CÙNG bảng — checkBulkInsertShortfall() gộp tuple qua 1 Map
-  // dùng chung (insertAccumulator), chạy đồng thời có thể làm 1 call thấy số
-  // liệu đã lỗi thời của call kia. Khác chữ ký/khác bảng vẫn chạy song song
-  // thật.
-  run(toolCalls: LlmToolCall[]): Promise<LlmToolResult[]> {
+  async run(toolCalls: LlmToolCall[]): Promise<LlmToolResult[]> {
+    const preparedCalls = this.prepareToolCalls(toolCalls);
     const lastRunBySignature = new Map<string, Promise<unknown>>();
     const lastRunByTable = new Map<string, Promise<unknown>>();
 
-    const runs = toolCalls.map((call) => {
+    const runs = preparedCalls.map(({ call }) => {
       const signature = `${call.name}:${JSON.stringify(call.args)}`;
       const tableKey = this.resolveInsertTableKey(call);
       const waitFor = [
@@ -145,8 +146,8 @@ export class ToolCallExecutor {
 
       const run = waitFor.length
         ? Promise.allSettled(waitFor).then(() =>
-            this.tracedHandleToolCall(call.name, call.args),
-          )
+          this.tracedHandleToolCall(call.name, call.args),
+        )
         : this.tracedHandleToolCall(call.name, call.args);
 
       lastRunBySignature.set(signature, run);
@@ -154,13 +155,83 @@ export class ToolCallExecutor {
       return run;
     });
 
-    return Promise.all(
-      runs.map(async (run, i) => ({
-        id: toolCalls[i].id,
-        name: toolCalls[i].name,
-        content: (await run) as string,
-      })),
+    const preparedResults = await Promise.all(runs);
+    const resultsBySourceIndex = new Map<number, LlmToolResult>();
+
+    preparedCalls.forEach((prepared, preparedIndex) => {
+      const primarySourceIndex = prepared.sourceIndexes[0];
+      const primaryCall = toolCalls[primarySourceIndex];
+      const content = preparedResults[preparedIndex] as string;
+
+      prepared.sourceIndexes.forEach((sourceIndex, indexInBatch) => {
+        const sourceCall = toolCalls[sourceIndex];
+        resultsBySourceIndex.set(sourceIndex, {
+          id: sourceCall.id,
+          name: sourceCall.name,
+          content:
+            indexInBatch === 0
+              ? content
+              : `Merged into the SQL batch represented by tool call ${primaryCall.id ?? primarySourceIndex + 1}; no separate database execution and no additional rows were affected.`,
+        });
+      });
+    });
+
+    return toolCalls.map(
+      (call, index) =>
+        resultsBySourceIndex.get(index) ?? {
+          id: call.id,
+          name: call.name,
+          content: 'Tool call result was not produced.',
+        },
     );
+  }
+
+  private prepareToolCalls(toolCalls: LlmToolCall[]): PreparedToolCall[] {
+    if (this.dto.provider !== 'sql_server') {
+      return toolCalls.map((call, index) => ({ call, sourceIndexes: [index] }));
+    }
+
+    const prepared: PreparedToolCall[] = [];
+    const batchIndexByTable = new Map<string, number>();
+
+    toolCalls.forEach((call, sourceIndex) => {
+      const query =
+        call.name === 'execute_write_query' &&
+          typeof call.args.query === 'string'
+          ? call.args.query
+          : undefined;
+      const parsed = query ? parseInsertValues(query) : null;
+
+      if (!parsed) {
+        prepared.push({ call, sourceIndexes: [sourceIndex] });
+        return;
+      }
+
+      const existingIndex = batchIndexByTable.get(parsed.tableSignature);
+      if (existingIndex === undefined) {
+        batchIndexByTable.set(parsed.tableSignature, prepared.length);
+        prepared.push({
+          call: { ...call, args: { ...call.args } },
+          sourceIndexes: [sourceIndex],
+          insertBatch: {
+            insertPrefix: parsed.insertPrefix,
+            tuples: new Set(parsed.tuples),
+          },
+        });
+        return;
+      }
+
+      const existing = prepared[existingIndex];
+      existing.sourceIndexes.push(sourceIndex);
+      parsed.tuples.forEach((tuple) => existing.insertBatch!.tuples.add(tuple));
+    });
+
+    prepared.forEach((entry) => {
+      if (!entry.insertBatch || entry.sourceIndexes.length === 1) return;
+      entry.call.args.query = `${entry.insertBatch.insertPrefix} ${Array.from(entry.insertBatch.tuples).join(', ')}`;
+    });
+
+    return prepared;
   }
 
   private resolveInsertTableKey(call: LlmToolCall): string | null {
@@ -244,8 +315,6 @@ export class ToolCallExecutor {
       return shortfallMessage;
     }
 
-    // checkBulkInsertShortfall() có thể vừa GHI ĐÈ args.query (gộp tuple tích
-    // luỹ) — phải phân loại rủi ro SAU bước đó, dựa trên câu lệnh CUỐI CÙNG.
     if (this.riskGate.isAutoApprovableInsert(name, args)) {
       this.logger.log(
         `tool_call ${displayName} tự chạy — INSERT rủi ro thấp (không đụng dữ liệu cũ), bỏ qua bước duyệt`,
@@ -256,10 +325,6 @@ export class ToolCallExecutor {
         displayName,
         argsPreview,
       );
-      // Đã thực thi đúng 1 lần câu lệnh gộp — dọn ngay, dù thành công hay
-      // thất bại. Không dọn thì 1 lần fail (VD trùng unique constraint) sẽ
-      // kéo theo đúng các tuple đã fail đó vào MỌI lần gộp sau trong cùng
-      // lượt, lặp lại y hệt lỗi cũ vô thời hạn dù model viết dòng mới thật.
       this.riskGate.clearAccumulatorFor(args.query as string);
       return result;
     }
@@ -351,10 +416,6 @@ export class ToolCallExecutor {
         if (this.signal?.aborted) {
           throw error;
         }
-
-        // SDK/API provider đôi khi echo lại 1 phần request (VD header/token)
-        // trong message lỗi — scrub trước khi log/hiện cho user, cùng cơ chế
-        // đang dùng cho tool result thành công (McpClientService.scrubToolResult).
         const errorMessage = PiiScrubberUtil.scrub(
           (error as Error).message,
         ) as string;
@@ -383,7 +444,7 @@ export class ToolCallExecutor {
       const shouldRetryTransiently =
         status === EStepExecutionStatus.ERROR &&
         transientAttempt <
-          ORCHESTRATION_CONSTANTS.MAX_TRANSIENT_TOOL_RETRY_ATTEMPTS &&
+        ORCHESTRATION_CONSTANTS.MAX_TRANSIENT_TOOL_RETRY_ATTEMPTS &&
         classifyToolError(resultPreview) === 'retryable';
       if (!shouldRetryTransiently) break;
 

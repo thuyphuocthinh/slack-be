@@ -1,22 +1,21 @@
 import { JsonRepair } from 'agentic-io-parser';
 
-// mục 15 — trước đây chỉ 1 shape {table, whereClause} (UPDATE/DELETE). Giờ
-// discriminated union vì INSERT (đếm tuple, không cần WHERE) và
-// TRUNCATE/DROP (huỷ CẢ bảng, không có khái niệm "đếm dòng ảnh hưởng") cần
-// preview HẲN KHÁC — checkpoint-pause.service.ts switch theo `kind`.
 export type WriteQueryPreviewTarget =
   | { kind: 'existing-rows'; table: string; whereClause: string | null }
-  | { kind: 'insert-rows'; table: string; rowCount: number }
   | {
-      kind: 'whole-table-destructive';
-      table: string;
-      operation: 'TRUNCATE' | 'DROP';
-    };
+    kind: 'insert-rows';
+    table: string;
+    rowCount: number;
+    // INSERT ... VALUES cho con số chính xác; INSERT ... SELECT TOP N chỉ
+    // đảm bảo giới hạn trên vì nguồn SELECT có thể trả về ít hơn N dòng.
+    countKind?: 'maximum';
+  }
+  | {
+    kind: 'whole-table-destructive';
+    table: string;
+    operation: 'TRUNCATE' | 'DROP';
+  };
 
-// TRUNCATE/DROP cho phép "CASCADE"/"RESTRICT" ở cuối và nhiều bảng cách nhau bởi dấu
-// phẩy — trước đây regex đòi khớp NGUYÊN dòng với đúng 1 tên bảng nên cả 2 dạng này
-// rớt xuống fallback preview chung chung, MẤT cảnh báo "huỷ cả bảng" ở đúng case
-// nguy hiểm nhất (CASCADE kéo theo bảng phụ thuộc).
 function parseTableList(tableListText: string): string {
   return tableListText
     .replace(/\s+(?:CASCADE|RESTRICT)\s*$/i, '')
@@ -32,9 +31,6 @@ function isWhereKeywordAt(text: string, index: number): boolean {
   return !isWordChar(text[index - 1]) && !isWordChar(text[index + 5]);
 }
 
-// Chỉ nhận WHERE ở độ sâu ngoặc 0 — UPDATE Orders SET total = (SELECT ... WHERE ...)
-// WHERE status = 'pending' có 2 chữ WHERE, cái đầu nằm TRONG subquery của SET. Bản cũ
-// dùng match không global nên luôn ăn phải cái đầu tiên (sai bảng WHERE thật).
 function splitAtWhere(text: string): string | null {
   let depth = 0;
   for (let i = 0; i < text.length; i++) {
@@ -47,10 +43,6 @@ function splitAtWhere(text: string): string | null {
   return null;
 }
 
-// Đếm số tuple TOP-LEVEL trong mệnh đề VALUES (...), (...), ... — tôn trọng
-// ĐỘ SÂU ngoặc, KHÔNG phải split ngây thơ theo "),(" — 1 giá trị có thể chứa
-// hàm lồng ngoặc bên trong (VD VALUES (1, NOW(), 'x')), split ngây thơ sẽ đếm
-// sai số dòng.
 function countTopLevelTuples(valuesText: string): number | null {
   let depth = 0;
   let count = 0;
@@ -71,27 +63,10 @@ function countTopLevelTuples(valuesText: string): number | null {
   return depth === 0 && count > 0 ? count : null;
 }
 
-// Heuristic regex, KHÔNG phải SQL parser đầy đủ — đủ dùng vì query đầu vào do
-// chính model sinh ra qua tool `execute_write_query` (Bước 6, HITL preview),
-// không phải input tự do của người dùng. Parse thất bại thì gọi nơi tự fallback
-// về cảnh báo chung, không throw.
-//
-// mục 15 — CỐ Ý KHÔNG cố xử lý: UPDATE nhiều bảng kèm JOIN (cú pháp khác nhau
-// nhiều giữa MSSQL/MySQL/Postgres, dễ đoán sai bảng đích), INSERT ... SELECT
-// (không có VALUES để đếm trực tiếp, muốn ước lượng phải bọc SELECT con vào
-// COUNT(*) — rủi ro sai với SELECT phức tạp). Cả 2 case này trả về null, rơi
-// về fallback chung (buildGenericArgsPreview) — AN TOÀN (vẫn bắt buộc duyệt
-// tay), chỉ là preview kém chi tiết hơn, không phải lỗ hổng bảo mật.
 export function extractWriteQueryPreviewTarget(
   query: string,
 ): WriteQueryPreviewTarget | null {
   const trimmed = query.trim().replace(/;\s*$/, '');
-
-  // Nhiều câu lệnh gộp (VD "UPDATE a SET x=1; DELETE FROM b;") — regex bên
-  // dưới dùng [\s\S]+ tham lam, có thể LẪN RANH GIỚI giữa các statement (VD
-  // WHERE của câu SAU bị hiểu nhầm là của câu ĐẦU, ước lượng ra 1 con số
-  // TRÔNG CÓ VẺ ĐÚNG nhưng thực chất SAI). Từ chối thẳng — thà "không ước
-  // lượng được" còn hơn ước lượng sai mà tưởng đúng.
   if (trimmed.includes(';')) return null;
 
   const truncateMatch = trimmed.match(/^TRUNCATE\s+TABLE\s+([\s\S]+)$/i);
@@ -114,9 +89,6 @@ export function extractWriteQueryPreviewTarget(
     };
   }
 
-  // Cho phép table alias (VD "UPDATE Orders o SET ..."), cú pháp SQL rất bình
-  // thường mà bản gốc bỏ sót (đòi "SET" phải đứng NGAY sau tên bảng) — lookahead
-  // phủ định đảm bảo từ xen giữa không phải chính chữ "SET".
   const updateMatch = trimmed.match(
     /^UPDATE\s+(\S+)(?:\s+(?:AS\s+)?(?!SET\b)\S+)?\s+SET\s+([\s\S]+)$/i,
   );
@@ -137,8 +109,6 @@ export function extractWriteQueryPreviewTarget(
     };
   }
 
-  // INSERT ... VALUES (...), (...), ... — đếm TRỰC TIẾP số tuple trong câu
-  // lệnh, không cần đếm thử qua DB (không có "trạng thái cũ" để so sánh).
   const insertMatch = trimmed.match(
     /^INSERT\s+INTO\s+(\S+)\s*(?:\([^)]*\))?\s*VALUES\s*([\s\S]+)$/i,
   );
@@ -149,11 +119,32 @@ export function extractWriteQueryPreviewTarget(
     }
   }
 
+  const insertSelectTopMatch = trimmed.match(
+    /^INSERT\s+INTO\s+(\S+)\s*(?:\([^)]*\))?\s*SELECT\s+(?:ALL\s+|DISTINCT\s+)?TOP\s*(?:\(\s*(\d+)\s*\)|(\d+))\s+([\s\S]+)$/i,
+  );
+  if (insertSelectTopMatch) {
+    const selectRemainder = insertSelectTopMatch[4].trimStart();
+    if (
+      !/^PERCENT\b/i.test(selectRemainder) &&
+      !/^WITH\s+TIES\b/i.test(selectRemainder)
+    ) {
+      const rowCount = Number(
+        insertSelectTopMatch[2] ?? insertSelectTopMatch[3],
+      );
+      if (Number.isSafeInteger(rowCount) && rowCount > 0) {
+        return {
+          kind: 'insert-rows',
+          table: insertSelectTopMatch[1],
+          rowCount,
+          countKind: 'maximum',
+        };
+      }
+    }
+  }
+
   return null;
 }
 
-// `execute_read_only_query` trả JSON.stringify(rows) qua content text (xem
-// executeMcpQuery trong mcp_server) — SELECT COUNT(*) luôn trả đúng 1 dòng 1 cột.
 export function parseSingleCountResult(mcpResultText: string): number | null {
   try {
     const repair = new JsonRepair();

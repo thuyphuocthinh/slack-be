@@ -296,7 +296,10 @@ export class CheckpointPauseService {
         // Risk Gate (react-loop-run.ts), không tạo checkpoint. Giữ nhánh này
         // phòng trường hợp pendingTool bị sửa tay qua edit_and_approve.
         return {
-          preview: `Sẽ thêm ~${target.rowCount} dòng mới vào bảng "${target.table}".`,
+          preview:
+            target.countKind === 'maximum'
+              ? `Sẽ thêm tối đa ~${target.rowCount} dòng mới vào bảng "${target.table}".`
+              : `Sẽ thêm ~${target.rowCount} dòng mới vào bảng "${target.table}".`,
           riskLevel: ECheckpointRiskLevel.MEDIUM,
         };
       }

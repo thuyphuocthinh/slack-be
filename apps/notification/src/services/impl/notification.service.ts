@@ -106,10 +106,6 @@ export class NotificationService {
     return saved;
   }
 
-  // notification.md — "gộp INSERT thành 1 câu multi-row" thay vì N lần
-  // pushNotification() riêng lẻ trong 1 lô của notification.processor.ts.
-  // Giảm hẳn số round-trip + CPU work thật Postgres phải làm (1 câu INSERT
-  // nhiều VALUES thay vì N câu), không chỉ giảm concurrency phía ứng dụng.
   async pushNotificationsBatch(dtos: PushNotificationDto[]): Promise<Notification[]> {
     if (dtos.length === 0) return [];
 
@@ -145,8 +141,6 @@ export class NotificationService {
     const insertedIds = insertResult.raw.map((r: { id: string }) => r.id);
     const saved = await this.notificationRepo.findBy({ id: In(insertedIds) });
 
-    // Side-effects CHỈ cho recipient thật sự mới — recipient bị DO NOTHING
-    // bỏ qua (đã tồn tại/retry) không nằm trong `saved`, không bắn socket/FCM trùng.
     await Promise.all(saved.map((n) => this.triggerNotificationSideEffects(n)));
 
     return saved;
@@ -221,7 +215,10 @@ export class NotificationService {
   private async emitSocketUpdate(saved: Notification): Promise<void> {
     try {
       const unreadNotiCount = await this.getUnreadCount(saved.recipientId);
-      const unreadSummary = await this.getUnreadSummary(saved.recipientId);
+      const unreadSummary = await this.getUnreadSummary(
+        saved.recipientId,
+        saved.workspaceId,
+      );
       await this.queueService.addJob(
         EQueueName.SOCKET_QUEUE,
         EJobName.EMIT_EVENT,
@@ -432,4 +429,3 @@ export class NotificationService {
     return notification as NotificationResponse;
   }
 }
-

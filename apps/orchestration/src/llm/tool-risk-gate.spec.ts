@@ -93,6 +93,17 @@ describe('ToolRiskGate', () => {
       ).toBe(true);
     });
 
+    it('trả true cho INSERT ... SELECT TOP N có giới hạn tĩnh', () => {
+      const { gate } = createGate();
+
+      expect(
+        gate.isAutoApprovableInsert('execute_write_query', {
+          query:
+            "INSERT INTO Products (Name) SELECT TOP 50 CONCAT('Product ', NEWID()) FROM master..spt_values",
+        }),
+      ).toBe(true);
+    });
+
     it('trả false khi provider không phải sql_server', () => {
       const { gate } = createGate({ dto: { ...baseDto, provider: 'github' } });
 

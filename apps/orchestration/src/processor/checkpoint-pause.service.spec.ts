@@ -411,6 +411,30 @@ describe('CheckpointPauseService', () => {
       expect(getRiskLevel()).toBe(ECheckpointRiskLevel.MEDIUM);
     });
 
+    it('previews INSERT ... SELECT TOP N using its static upper bound', async () => {
+      const approvalNeeded = buildApprovalNeeded({
+        args: {
+          query:
+            "INSERT INTO Products (Name) SELECT TOP 50 CONCAT('Product ', NEWID()) FROM master..spt_values",
+        },
+      });
+
+      await service.pauseForApproval(
+        data,
+        originalPrompt,
+        [],
+        [],
+        [],
+        approvalNeeded,
+      );
+
+      expect(mockMcpClient.callTool).not.toHaveBeenCalled();
+      expect(getPreview()).toBe(
+        'Sẽ thêm tối đa ~50 dòng mới vào bảng "Products".',
+      );
+      expect(getRiskLevel()).toBe(ECheckpointRiskLevel.MEDIUM);
+    });
+
     it('accuracy_problem.md mục 15 — UPDATE với table alias (cú pháp SQL bình thường mà regex gốc bỏ sót) vẫn ước lượng được', async () => {
       mockMcpClient.callTool.mockResolvedValue({
         content: [{ type: 'text', text: '[{"affectedRows":5}]' }],

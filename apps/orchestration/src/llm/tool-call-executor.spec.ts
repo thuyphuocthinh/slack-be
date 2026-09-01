@@ -111,7 +111,7 @@ describe('ToolCallExecutor', () => {
     expect(maxConcurrent).toBe(2);
   });
 
-  it('xếp hàng 2 INSERT nhắm CÙNG bảng thay vì để race trên insertAccumulator dùng chung', async () => {
+  it('gộp nhiều INSERT cùng bảng+cột TRƯỚC KHI emit/call MCP, nhưng vẫn trả đủ tool_call_id', async () => {
     const insertAccumulator = new InsertAccumulator();
     const { executor } = createExecutor({
       insertAccumulator,
@@ -120,15 +120,39 @@ describe('ToolCallExecutor', () => {
         isAutoApprovableInsert: jest.fn().mockReturnValue(true),
       },
     });
-    let activeCalls = 0;
-    let maxConcurrent = 0;
-    mockMcpClient.callTool.mockImplementation(async () => {
-      activeCalls++;
-      maxConcurrent = Math.max(maxConcurrent, activeCalls);
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      activeCalls--;
-      return { content: [{ type: 'text', text: 'data' }], isError: false };
-    });
+    const results = await executor.run([
+      {
+        id: 'call-a',
+        name: 'execute_write_query',
+        args: { query: "INSERT INTO Products (Name) VALUES ('A')" },
+      },
+      {
+        id: 'call-b',
+        name: 'execute_write_query',
+        args: { query: "INSERT INTO Products (Name) VALUES ('B')" },
+      },
+    ]);
+
+    expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
+    expect(mockMcpClient.callTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'execute_write_query',
+        args: {
+          query: "INSERT INTO Products (Name) VALUES ('A'), ('B')",
+        },
+      }),
+      expect.anything(),
+    );
+    expect(mockAgentStream.emitStep).toHaveBeenCalledTimes(2);
+    expect(executor.getToolCalls()).toHaveLength(1);
+    expect(results).toHaveLength(2);
+    expect(results[0]).toMatchObject({ id: 'call-a', content: 'result data' });
+    expect(results[1]).toMatchObject({ id: 'call-b' });
+    expect(results[1].content).toContain('no separate database execution');
+  });
+
+  it('không gộp INSERT khác bảng hoặc khác danh sách cột', async () => {
+    const { executor } = createExecutor();
 
     await executor.run([
       {
@@ -137,12 +161,41 @@ describe('ToolCallExecutor', () => {
       },
       {
         name: 'execute_write_query',
-        args: { query: "INSERT INTO Products (Name) VALUES ('B')" },
+        args: { query: "INSERT INTO Orders (Name) VALUES ('B')" },
+      },
+      {
+        name: 'execute_write_query',
+        args: { query: "INSERT INTO Products (Name, Price) VALUES ('C', 10)" },
       },
     ]);
 
-    expect(maxConcurrent).toBe(1);
-    expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
+    expect(mockMcpClient.callTool).toHaveBeenCalledTimes(3);
+    expect(executor.getToolCalls()).toHaveLength(3);
+  });
+
+  it('gộp cả tuple từ một multi-row INSERT với các INSERT cùng batch', async () => {
+    const { executor } = createExecutor();
+
+    await executor.run([
+      {
+        name: 'execute_write_query',
+        args: { query: "INSERT INTO Products (Name) VALUES ('A'), ('B')" },
+      },
+      {
+        name: 'execute_write_query',
+        args: { query: "INSERT INTO Products (Name) VALUES ('C')" },
+      },
+    ]);
+
+    expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
+    expect(mockMcpClient.callTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: {
+          query: "INSERT INTO Products (Name) VALUES ('A'), ('B'), ('C')",
+        },
+      }),
+      expect.anything(),
+    );
   });
 
   it('phục vụ lần gọi lặp lại ĐÚNG tham số từ cache thay vì gọi tool thật lần 2', async () => {

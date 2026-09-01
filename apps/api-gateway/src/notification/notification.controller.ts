@@ -18,8 +18,14 @@ export class NotificationController {
   @ApiOperation({ summary: 'Get unread notifications summary' })
   @ApiResponse({ status: 200, description: 'Unread summary retrieved' })
   @Get('unread')
-  async getUnreadSummary(@CurrentUser() user: JwtUser) {
-    return await this.notificationService.getUnreadSummary(user.sub);
+  async getUnreadSummary(
+    @CurrentUser() user: JwtUser,
+    @Query('workspaceId') workspaceId?: string,
+  ) {
+    return await this.notificationService.getUnreadSummary(
+      user.sub,
+      workspaceId,
+    );
   }
 
   @ApiOperation({ summary: 'Fetch notifications' })

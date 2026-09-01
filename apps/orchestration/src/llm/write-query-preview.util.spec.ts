@@ -126,12 +126,47 @@ describe('extractWriteQueryPreviewTarget', () => {
     });
   });
 
-  it('returns null for INSERT ... SELECT (no VALUES to count directly) — intentionally unsupported', () => {
+  it('recognizes SQL Server INSERT ... SELECT TOP N as an upper-bounded insert', () => {
+    const result = extractWriteQueryPreviewTarget(
+      `INSERT INTO Products (Name, Price)
+       SELECT TOP 50 CONCAT('Product ', NEWID()), 100
+       FROM master..spt_values`,
+    );
+
+    expect(result).toEqual({
+      kind: 'insert-rows',
+      table: 'Products',
+      rowCount: 50,
+      countKind: 'maximum',
+    });
+  });
+
+  it('recognizes SQL Server INSERT ... SELECT TOP (N)', () => {
+    const result = extractWriteQueryPreviewTarget(
+      'INSERT INTO Products (Name) SELECT TOP (25) Name FROM OldProducts',
+    );
+
+    expect(result).toEqual({
+      kind: 'insert-rows',
+      table: 'Products',
+      rowCount: 25,
+      countKind: 'maximum',
+    });
+  });
+
+  it('returns null for INSERT ... SELECT without a static TOP limit', () => {
     const result = extractWriteQueryPreviewTarget(
       'INSERT INTO Orders (Status) SELECT Status FROM OldOrders',
     );
 
     expect(result).toBeNull();
+  });
+
+  it.each([
+    'INSERT INTO Products (Name) SELECT TOP 10 PERCENT Name FROM OldProducts',
+    'INSERT INTO Products (Name) SELECT TOP 10 WITH TIES Name FROM OldProducts ORDER BY Name',
+  ])('does not claim a fixed row limit for %s', (query) => {
+    expect(extractWriteQueryPreviewTarget(query)).toBeNull();
   });
 
   // accuracy_problem.md mục 15 — TRUNCATE/DROP huỷ CẢ bảng, "đếm dòng" không

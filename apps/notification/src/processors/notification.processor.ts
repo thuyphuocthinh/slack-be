@@ -91,11 +91,7 @@ export class NotificationProcessor extends BaseProcessor<
         return true;
       });
 
-      // 3. Xử lý lưu DB theo LÔ (notification.md mục 4.1) — giảm từ 50 vì
-      // đo được vẫn cạn CPU Postgres (108-122%) ở N=30 concurrent dù đã
-      // chunk 50. Batch nhỏ hơn + 1 câu INSERT multi-row/lô (thay vì N INSERT
-      // riêng lẻ, xem pushNotificationsBatch()) giảm cả đỉnh concurrency lẫn
-      // CPU work thật Postgres phải làm.
+      // 3. Xử lý lưu DB theo LÔ
       const NOTIFICATION_BATCH_SIZE = 20;
       for (let i = 0; i < recipients.length; i += NOTIFICATION_BATCH_SIZE) {
         const batch = recipients.slice(i, i + NOTIFICATION_BATCH_SIZE);

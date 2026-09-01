@@ -395,7 +395,7 @@ describe('ReactLoopService', () => {
     expect(callOrder).toEqual(['get_table1', 'get_table2']); // vẫn khởi chạy đúng thứ tự model yêu cầu
   });
 
-  it('serializes 2 INSERT calls targeting the SAME table+columns in one turn instead of letting them race the shared tuple accumulator', async () => {
+  it('merges INSERT calls targeting the SAME table+columns in one turn before calling MCP', async () => {
     mockMcpClient.getTools.mockResolvedValue([
       {
         name: 'execute_write_query',
@@ -425,21 +425,13 @@ describe('ReactLoopService', () => {
       .mockResolvedValueOnce({ text: 'đã thêm xong 2 sản phẩm', toolCalls: [] })
       .mockResolvedValueOnce({ text: 'xác nhận đã xong', toolCalls: [] });
 
-    let activeCalls = 0;
-    let maxConcurrent = 0;
-    mockMcpClient.callTool.mockImplementation(async () => {
-      activeCalls++;
-      maxConcurrent = Math.max(maxConcurrent, activeCalls);
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      activeCalls--;
-      return { content: [{ type: 'text', text: 'data' }], isError: false };
-    });
-
     const result = await service.run(baseDto);
 
     expect(result.answer).toBe('đã thêm xong 2 sản phẩm');
-    expect(mockMcpClient.callTool).toHaveBeenCalledTimes(2);
-    expect(maxConcurrent).toBe(1); // cùng bảng Products — phải xếp hàng, không cho 2 cái cùng đụng insertAccumulator
+    expect(mockMcpClient.callTool).toHaveBeenCalledTimes(1);
+    expect(mockMcpClient.callTool.mock.calls[0][0].args.query).toBe(
+      "INSERT INTO Products (Name) VALUES ('A'), ('B')",
+    );
   });
 
   it('stops after MAX_REACT_STEPS iterations and returns the fallback message if the model never converges', async () => {

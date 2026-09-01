@@ -11,13 +11,6 @@ import {
 import { ESocketEvent } from '@slack/constants';
 import { SocketGateway } from '../gateway/socket.gateway';
 
-// AgentStreamService (orchestration) đánh số `seq` TĂNG DẦN cho mỗi event của
-// CÙNG 1 stream (khoá `messageId:streamKey`) — nhưng concurrency=20 bên dưới
-// nghĩa là nhiều job của CÙNG 1 stream có thể được fetch/xử lý gần như đồng
-// thời, không đảm bảo emit ra socket ĐÚNG thứ tự job được enqueue (VD job sinh
-// SAU nhưng xử lý xong TRƯỚC). Giữ lại 1 bộ đệm nhỏ theo từng stream, chỉ emit
-// khi đã tới ĐÚNG số thứ tự kế tiếp, xả tiếp các số liền sau nếu đã có sẵn
-// trong bộ đệm — FE không cần biết/đổi gì, luôn nhận đúng thứ tự đã emitStep().
 interface StreamOrderEntry {
   event: string;
   room: string;
@@ -43,8 +36,7 @@ export class SocketProcessor
     string,
     EJobName
   >
-  implements OnModuleDestroy
-{
+  implements OnModuleDestroy {
   private readonly streamOrder = new Map<string, StreamOrderState>();
   private readonly sweepTimer: NodeJS.Timeout;
 
@@ -162,10 +154,6 @@ export class SocketProcessor
     this.socketGateway.server.to(room).emit(event, data);
   }
 
-  // Job bị mất vĩnh viễn (hết retry) sẽ khiến buffer kẹt mãi chờ đúng 1 seq
-  // không bao giờ tới — quá STREAM_ORDER_STALE_MS thì xả nốt phần đã có theo
-  // đúng thứ tự seq tăng dần (best-effort, có thể thiếu 1 đoạn text) thay vì
-  // giữ stream đứng hình vĩnh viễn, rồi dọn state.
   private sweepStaleStreams(): void {
     const now = Date.now();
     for (const [key, state] of this.streamOrder) {

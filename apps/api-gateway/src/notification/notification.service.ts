@@ -15,13 +15,13 @@ export class NotificationService {
     private readonly notificationClient: ClientProxy,
   ) {}
 
-  async getUnreadSummary(userId: string) {
+  async getUnreadSummary(userId: string, workspaceId?: string) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
           this.notificationClient.send(
             NOTIFICATION_MESSAGE_PATTERNS.GET_UNREAD_SUMMARY,
-            { userId },
+            { userId, workspaceId },
           ),
         ),
       'getUnreadSummary',
