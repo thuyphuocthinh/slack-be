@@ -331,7 +331,7 @@ export class TaskService {
     memberId: string,
     requesterId: string,
   ): Promise<string> {
-    const { groupId, taskTitle, workspaceId, boardId } =
+    const { groupId, taskTitle, workspaceId, boardId, taskMemberId } =
       await this.dataSource.transaction(async (manager) => {
         const task = await manager.findOne(TaskEntity, {
           where: { id: taskId },
@@ -369,6 +369,7 @@ export class TaskService {
             taskTitle: task.title,
             workspaceId: task.group.board.workspaceId,
             boardId: task.group.boardId,
+            taskMemberId: taskMember.id,
           };
         } catch (error) {
           if (error instanceof OptimisticLockVersionMismatchError) {
@@ -410,6 +411,7 @@ export class TaskService {
             content: `Bạn đã được phân công vào nhiệm vụ "${taskTitle}"`,
             objectId: taskId,
             objectType: 'task',
+            dedupeKey: `task-assigned:${taskMemberId}`,
             workspaceId,
             metadata: {
               actorId: requesterId,

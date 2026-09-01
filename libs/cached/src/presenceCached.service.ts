@@ -14,21 +14,74 @@ export class PresenceCacheService {
   /**
    * Cập nhật thời gian hoạt động cuối cùng của User
    */
-  async updateLastSeen(userId: string) {
+  async registerConnection(userId: string, connectionId: string) {
+    await this.updateConnection(userId, connectionId);
+  }
+
+  async refreshConnection(userId: string, connectionId: string) {
+    await this.updateConnection(userId, connectionId);
+  }
+
+  private async updateConnection(userId: string, connectionId: string) {
     try {
-      const key = CACHE.PRESENCE.KEYS.USER_STATUS(userId);
+      const statusKey = CACHE.PRESENCE.KEYS.USER_STATUS(userId);
+      const connectionsKey = CACHE.PRESENCE.KEYS.USER_CONNECTIONS(userId);
       const now = Math.floor(Date.now() / 1000);
-      // Lưu timestamp hiện tại và đặt TTL để tự động xóa nếu quá lâu không có signal
-      await this.redis.set(
-        key,
-        now.toString(),
-        'EX',
-        CACHE.PRESENCE.SETTINGS.REDIS_TTL,
+      const expiresAt = now + CACHE.PRESENCE.SETTINGS.ONLINE_THRESHOLD;
+      const ttl = CACHE.PRESENCE.SETTINGS.REDIS_TTL;
+
+      await this.redis.eval(
+        `
+          redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', ARGV[1])
+          redis.call('ZADD', KEYS[2], ARGV[2], ARGV[3])
+          redis.call('EXPIRE', KEYS[2], ARGV[4])
+          redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[4])
+          return 1
+        `,
+        2,
+        statusKey,
+        connectionsKey,
+        now,
+        expiresAt,
+        connectionId,
+        ttl,
       );
     } catch (error) {
       this.logger.error(
-        `updateLastSeen() failed for user ${userId}: ${error.message}`,
+        `updateConnection() failed for user ${userId}: ${error.message}`,
       );
+    }
+  }
+
+  async removeConnection(userId: string, connectionId: string) {
+    try {
+      const statusKey = CACHE.PRESENCE.KEYS.USER_STATUS(userId);
+      const connectionsKey = CACHE.PRESENCE.KEYS.USER_CONNECTIONS(userId);
+      const now = Math.floor(Date.now() / 1000);
+
+      return Number(
+        await this.redis.eval(
+          `
+            redis.call('ZREM', KEYS[2], ARGV[2])
+            redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', ARGV[1])
+            local remaining = redis.call('ZCARD', KEYS[2])
+            if remaining == 0 then
+              redis.call('DEL', KEYS[1], KEYS[2])
+            end
+            return remaining
+          `,
+          2,
+          statusKey,
+          connectionsKey,
+          now,
+          connectionId,
+        ),
+      );
+    } catch (error) {
+      this.logger.error(
+        `removeConnection() failed for user ${userId}: ${error.message}`,
+      );
+      return 0;
     }
   }
 
@@ -37,8 +90,10 @@ export class PresenceCacheService {
    */
   async removeStatus(userId: string) {
     try {
-      const key = CACHE.PRESENCE.KEYS.USER_STATUS(userId);
-      await this.redis.del(key);
+      await this.redis.del(
+        CACHE.PRESENCE.KEYS.USER_STATUS(userId),
+        CACHE.PRESENCE.KEYS.USER_CONNECTIONS(userId),
+      );
     } catch (error) {
       this.logger.error(
         `removeStatus() failed for user ${userId}: ${error.message}`,

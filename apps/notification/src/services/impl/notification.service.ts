@@ -35,12 +35,20 @@ export class NotificationService {
     @Inject(NAME_SERVICE_TCP.USER_SERVICE)
     private readonly userClient: ClientProxy,
     private readonly queueService: QueueService,
-  ) { }
+  ) {}
 
   async fetchNotifications(
     dto: FetchNotificationsDto,
   ): Promise<IOffsetResponse<NotificationResponse[]>> {
-    const { userId, page = 1, limit = 20, status, type, types, workspaceId } = dto;
+    const {
+      userId,
+      page = 1,
+      limit = 20,
+      status,
+      type,
+      types,
+      workspaceId,
+    } = dto;
     const skip = (page - 1) * limit;
 
     const query = this.notificationRepo
@@ -52,7 +60,9 @@ export class NotificationService {
     }
 
     if (workspaceId) {
-      query.andWhere('notification.workspaceId = :workspaceId', { workspaceId });
+      query.andWhere('notification.workspaceId = :workspaceId', {
+        workspaceId,
+      });
     }
 
     if (type) {
@@ -81,12 +91,17 @@ export class NotificationService {
     } as unknown as IOffsetResponse<NotificationResponse[]>;
   }
 
-  async pushNotification(dto: PushNotificationDto): Promise<Notification | null> {
+  async pushNotification(
+    dto: PushNotificationDto,
+  ): Promise<Notification | null> {
     // 1. Kiểm tra cấu hình preferences của User
     await this.checkUserPreference(dto.recipientId);
 
     // 2. Validate Metadata
-    const validatedMetadata = this.validateMetadata(dto.templateKey || dto.type, dto.metadata);
+    const validatedMetadata = this.validateMetadata(
+      dto.templateKey || dto.type,
+      dto.metadata,
+    );
 
     // 3. Lưu thông báo vào database — ON CONFLICT DO NOTHING (unique
     // recipientId+objectId, notification.md mục 4.2) chặn BullMQ retry
@@ -95,7 +110,7 @@ export class NotificationService {
     const saved = await this.saveNotificationEntity(dto, validatedMetadata);
     if (!saved) {
       this.logger.debug(
-        `pushNotification() bỏ qua — đã tồn tại (retry) recipientId=${dto.recipientId} objectId=${dto.objectId}`,
+        `pushNotification() bỏ qua — đã tồn tại (retry) recipientId=${dto.recipientId} dedupeKey=${dto.dedupeKey}`,
       );
       return null;
     }
@@ -106,11 +121,15 @@ export class NotificationService {
     return saved;
   }
 
-  async pushNotificationsBatch(dtos: PushNotificationDto[]): Promise<Notification[]> {
+  async pushNotificationsBatch(
+    dtos: PushNotificationDto[],
+  ): Promise<Notification[]> {
     if (dtos.length === 0) return [];
 
     // Giữ nguyên hành vi checkUserPreference() như pushNotification() đơn lẻ.
-    await Promise.all(dtos.map((dto) => this.checkUserPreference(dto.recipientId)));
+    await Promise.all(
+      dtos.map((dto) => this.checkUserPreference(dto.recipientId)),
+    );
 
     const rows = dtos.map((dto) => ({
       recipientId: dto.recipientId,
@@ -119,7 +138,11 @@ export class NotificationService {
       content: dto.content,
       objectId: dto.objectId,
       objectType: dto.objectType,
-      metadata: this.validateMetadata(dto.templateKey || dto.type, dto.metadata),
+      dedupeKey: dto.dedupeKey,
+      metadata: this.validateMetadata(
+        dto.templateKey || dto.type,
+        dto.metadata,
+      ),
       workspaceId: dto.workspaceId,
       status: NotificationStatus.UNREAD,
     }));
@@ -169,12 +192,17 @@ export class NotificationService {
     try {
       return schema.parse(metadata || {});
     } catch (error) {
-      this.logger.warn(`Invalid metadata for template ${templateKey}: ${error.message}`);
+      this.logger.warn(
+        `Invalid metadata for template ${templateKey}: ${error.message}`,
+      );
       throw new RpcException(`Invalid metadata for template ${templateKey}`);
     }
   }
 
-  private async saveNotificationEntity(dto: PushNotificationDto, metadata: any): Promise<Notification | null> {
+  private async saveNotificationEntity(
+    dto: PushNotificationDto,
+    metadata: any,
+  ): Promise<Notification | null> {
     const insertResult = await this.notificationRepo
       .createQueryBuilder()
       .insert()
@@ -186,6 +214,7 @@ export class NotificationService {
         content: dto.content,
         objectId: dto.objectId,
         objectType: dto.objectType,
+        dedupeKey: dto.dedupeKey,
         metadata,
         workspaceId: dto.workspaceId,
         status: NotificationStatus.UNREAD,
@@ -201,7 +230,9 @@ export class NotificationService {
     return this.notificationRepo.findOneBy({ id: insertResult.raw[0].id });
   }
 
-  private async triggerNotificationSideEffects(saved: Notification): Promise<void> {
+  private async triggerNotificationSideEffects(
+    saved: Notification,
+  ): Promise<void> {
     try {
       await Promise.all([
         this.emitSocketUpdate(saved),
@@ -260,7 +291,9 @@ export class NotificationService {
       const channelName = saved.metadata?.['channelName']
         ? `#${String(saved.metadata['channelName'])}`
         : '';
-      const title = channelName ? `${actorName} (trong ${channelName})` : actorName;
+      const title = channelName
+        ? `${actorName} (trong ${channelName})`
+        : actorName;
       const body = this.extractPlainHistoryText(saved.content || '');
 
       const notificationData: Record<string, string> = {
@@ -280,7 +313,9 @@ export class NotificationService {
         },
       );
     } catch (error) {
-      this.logger.error(`Không thể xếp hàng gửi push notification qua FCM: ${error.message}`);
+      this.logger.error(
+        `Không thể xếp hàng gửi push notification qua FCM: ${error.message}`,
+      );
     }
   }
 
@@ -376,7 +411,9 @@ export class NotificationService {
       });
 
     if (workspaceId) {
-      query.andWhere('notification.workspace_id = :workspaceId', { workspaceId });
+      query.andWhere('notification.workspace_id = :workspaceId', {
+        workspaceId,
+      });
     }
 
     const rawCounts = await query.groupBy('notification.type').getRawMany();
@@ -417,7 +454,10 @@ export class NotificationService {
     return summary;
   }
 
-  async getNotificationById(id: string, userId: string): Promise<NotificationResponse> {
+  async getNotificationById(
+    id: string,
+    userId: string,
+  ): Promise<NotificationResponse> {
     const notification = await this.notificationRepo.findOne({
       where: { id, recipientId: userId },
     });

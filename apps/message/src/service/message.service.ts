@@ -1003,6 +1003,7 @@ export class MessageService {
       });
 
       let isAdded = false;
+      let notificationEventId: string | undefined;
       if (existing) {
         await reactionRepo.remove(existing);
         isAdded = false;
@@ -1013,6 +1014,7 @@ export class MessageService {
           emoji,
         });
         await reactionRepo.save(reaction);
+        notificationEventId = reaction.id;
         isAdded = true;
       }
 
@@ -1069,6 +1071,7 @@ export class MessageService {
             workspaceId: channel.workspaceId,
             content: JSON.stringify(updatedMessage.content),
             reaction: emoji,
+            notificationEventId,
             recipientId: updatedMessage.sender.id,
           },
         );

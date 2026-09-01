@@ -8,7 +8,12 @@ import {
 import { Server, Socket } from 'socket.io';
 import { Logger, UseFilters, UsePipes, ValidationPipe } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { AuthCacheService, PresenceCacheService, CachedService, CACHE } from '@slack/cached';
+import {
+  AuthCacheService,
+  PresenceCacheService,
+  CachedService,
+  CACHE,
+} from '@slack/cached';
 import { WebsocketExceptionsFilter } from '../common/filters/ws-exception.filter';
 import { OnModuleInit } from '@nestjs/common';
 import { createBreaker } from '../common/utils/circuit-breaker.util';
@@ -33,7 +38,8 @@ import { firstValueFrom } from 'rxjs';
 @UseFilters(new WebsocketExceptionsFilter())
 @UsePipes(new ValidationPipe({ transform: true }))
 export class SocketGateway
-  implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit {
+  implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit
+{
   @WebSocketServer()
   server: Server;
 
@@ -50,7 +56,7 @@ export class SocketGateway
     private readonly channelClient: ClientProxy,
     @Inject(NAME_SERVICE_TCP.MESSAGE_SERVICE)
     private readonly messageClient: ClientProxy,
-  ) { }
+  ) {}
 
   onModuleInit() {
     // Khởi tạo Circuit Breaker cho Channel Service
@@ -136,7 +142,7 @@ export class SocketGateway
       this.logger.log(`User ${userId} connected and joined private room`);
 
       // Cập nhật trạng thái online ban đầu
-      await this.presenceCache.updateLastSeen(userId);
+      await this.presenceCache.registerConnection(userId, client.id);
 
       // Gửi thông báo sẵn sàng
       client.emit(ESocketEvent.SERVER_READY, {
@@ -165,7 +171,7 @@ export class SocketGateway
     const userId = client.data?.user?.sub;
     if (userId) {
       // Tùy chọn: Xóa ngay lập tức trạng thái để hiện offline nhanh
-      await this.presenceCache.removeStatus(userId);
+      await this.presenceCache.removeConnection(userId, client.id);
       this.logger.log(`User ${userId} disconnected`);
     }
     this.logger.log(`Client disconnected: ${client.id}`);
@@ -182,14 +188,11 @@ export class SocketGateway
       // Dùng cachedService để lưu cache quyền truy cập kênh trong 5 phút (300 giây)
       // tránh spam request TCP sang channel-service dưới tải cao
       const cacheKey = CACHE.CHANNEL.KEYS.ACCESS(channelId, userId);
-      await this.cachedService.getOrSetDetail(
-        cacheKey,
-        300,
-        () =>
-          this.channelBreaker.fire({
-            channelId,
-            memberId: userId,
-          }),
+      await this.cachedService.getOrSetDetail(cacheKey, 300, () =>
+        this.channelBreaker.fire({
+          channelId,
+          memberId: userId,
+        }),
       );
 
       // leave all channels before joining new channel
@@ -340,19 +343,23 @@ export class SocketGateway
       await this.jwtService.verifyAsync(token);
 
       if (await this.authCache.isBlacklisted(token)) {
-        this.logger.warn(`Heartbeat rejected: Token blacklisted for user ${user.sub}`);
+        this.logger.warn(
+          `Heartbeat rejected: Token blacklisted for user ${user.sub}`,
+        );
         client.disconnect();
         return { status: 'error', message: 'Token blacklisted' };
       }
 
       const currentVersion = await this.authCache.getUserTokenVersion(user.sub);
       if (user.tokenVersion !== currentVersion) {
-        this.logger.warn(`Heartbeat rejected: Token version mismatch for user ${user.sub}`);
+        this.logger.warn(
+          `Heartbeat rejected: Token version mismatch for user ${user.sub}`,
+        );
         client.disconnect();
         return { status: 'error', message: 'Token version mismatch' };
       }
 
-      await this.presenceCache.updateLastSeen(user.sub);
+      await this.presenceCache.refreshConnection(user.sub, client.id);
       return { status: 'success' };
     } catch (error) {
       this.logger.error(`Error in handleUserHeartbeat: ${error.message}`);
@@ -365,14 +372,23 @@ export class SocketGateway
   async handleGetUserPresence(client: Socket, payload: { userIds: string[] }) {
     try {
       const { userIds } = payload;
-      if (!userIds || !Array.isArray(userIds)) return { status: 'error', message: 'Invalid payload' };
+      if (!userIds || !Array.isArray(userIds))
+        return { status: 'error', message: 'Invalid payload' };
 
-      const presences = await this.presenceCache.getPresences(userIds.slice(0, 100));
-      client.emit(ESocketEvent.USER_PRESENCE_GET, { status: 'success', presences });
+      const presences = await this.presenceCache.getPresences(
+        userIds.slice(0, 100),
+      );
+      client.emit(ESocketEvent.USER_PRESENCE_GET, {
+        status: 'success',
+        presences,
+      });
       return { status: 'success', presences };
     } catch (error) {
       this.logger.error(`Error in handleGetUserPresence: ${error.message}`);
-      client.emit(ESocketEvent.USER_PRESENCE_GET, { status: 'error', message: 'Failed to fetch presence' });
+      client.emit(ESocketEvent.USER_PRESENCE_GET, {
+        status: 'error',
+        message: 'Failed to fetch presence',
+      });
       return { status: 'error', message: 'Failed to fetch presence' };
     }
   }

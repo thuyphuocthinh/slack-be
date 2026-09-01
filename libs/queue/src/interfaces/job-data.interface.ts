@@ -36,6 +36,7 @@ export interface IPushNotificationData {
   content?: string;
   objectId?: string;
   objectType?: string;
+  dedupeKey: string;
   metadata?: any;
   workspaceId: string;
 }
@@ -51,6 +52,7 @@ export interface ICreateNotificationJobData {
   workspaceId: string;
   content: string;
   reaction?: string;
+  notificationEventId?: string;
   recipientId?: string;
 }
 

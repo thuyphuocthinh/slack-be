@@ -201,6 +201,8 @@ export const CACHE = {
     KEYS: {
       USER_STATUS: (userId: string): string =>
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:presence:v1:status:${userId}`,
+      USER_CONNECTIONS: (userId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:presence:v1:connections:${userId}`,
     },
   },
   MESSAGE: {

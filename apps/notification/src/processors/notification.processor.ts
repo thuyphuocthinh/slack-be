@@ -23,11 +23,7 @@ import { FcmService } from '../services/impl/fcm.service';
 // cộng dồn tải CPU lên chính Postgres (đo được 108-122% container CPU ở
 // concurrency=10). 5 vẫn đủ song song để không xử lý tuần tự trần trụi.
 @Processor(EQueueName.NOTIFICATION_QUEUE, { concurrency: 5 })
-export class NotificationProcessor extends BaseProcessor<
-  any,
-  void,
-  EJobName
-> {
+export class NotificationProcessor extends BaseProcessor<any, void, EJobName> {
   constructor(
     private readonly notificationService: NotificationService,
     private readonly fcmService: FcmService,
@@ -39,9 +35,7 @@ export class NotificationProcessor extends BaseProcessor<
     super();
   }
 
-  async process(
-    job: Job<any, void, EJobName>,
-  ): Promise<void> {
+  async process(job: Job<any, void, EJobName>): Promise<void> {
     switch (job.name) {
       case EJobName.CREATE_NOTIFICATION:
         await this.handleCreateNotification(job);
@@ -69,6 +63,7 @@ export class NotificationProcessor extends BaseProcessor<
       content,
       reaction,
       recipientId,
+      notificationEventId,
     } = job.data;
 
     try {
@@ -103,7 +98,12 @@ export class NotificationProcessor extends BaseProcessor<
 
             if (reaction) {
               notificationType = NotificationType.MESSAGE_REACTION_ADDED;
-            } else if (mentions?.some((men: any) => men.userId === member.memberId || men.userId === 'all')) {
+            } else if (
+              mentions?.some(
+                (men: any) =>
+                  men.userId === member.memberId || men.userId === 'all',
+              )
+            ) {
               notificationType = NotificationType.MENTIONED_IN_MESSAGE;
             } else if (parentId) {
               notificationType = NotificationType.REPLY_IN_THREAD;
@@ -120,6 +120,9 @@ export class NotificationProcessor extends BaseProcessor<
               templateKey: notificationType,
               objectId: messageId,
               objectType: 'MESSAGE',
+              dedupeKey: reaction
+                ? `reaction-added:${notificationEventId ?? `${messageId}:${senderId}:${reaction}`}`
+                : `message:${notificationType}:${messageId}`,
               workspaceId,
               content,
               metadata: {
@@ -163,10 +166,17 @@ export class NotificationProcessor extends BaseProcessor<
       );
 
       if (fcmTokens && fcmTokens.length > 0) {
-        await this.fcmService.sendPushNotification(fcmTokens, title, body, data);
+        await this.fcmService.sendPushNotification(
+          fcmTokens,
+          title,
+          body,
+          data,
+        );
       }
     } catch (error) {
-      this.logger.error(`Failed to process background push notification: ${error.message}`);
+      this.logger.error(
+        `Failed to process background push notification: ${error.message}`,
+      );
       throw error;
     }
   }

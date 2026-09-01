@@ -85,6 +85,7 @@ export class TaskProcessor extends BaseProcessor<
                 content: `Nhiệm vụ "${task.title}" sắp đến hạn!`,
                 objectId: task.id,
                 objectType: 'task',
+                dedupeKey: `task-due-soon:${task.id}:${task.dueDate.toISOString()}`,
                 workspaceId: task.group.board.workspaceId,
                 metadata: {
                   groupId: task.groupId || groupId,

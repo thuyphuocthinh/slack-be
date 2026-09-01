@@ -9,6 +9,7 @@ export interface NotificationResponse {
   status: NotificationStatus;
   objectId: string;
   objectType: string;
+  dedupeKey: string;
   metadata: Record<string, any> | null;
   createdAt: Date;
   updatedAt: Date;

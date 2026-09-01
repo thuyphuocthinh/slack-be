@@ -69,6 +69,10 @@ export class PushNotificationDto {
   @IsNotEmpty()
   objectType: string;
 
+  @IsString()
+  @IsNotEmpty()
+  dedupeKey: string;
+
   @IsObject()
   @IsOptional()
   metadata?: Record<string, any>;

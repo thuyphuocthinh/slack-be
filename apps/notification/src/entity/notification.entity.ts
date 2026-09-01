@@ -12,7 +12,7 @@ import { NotificationType, NotificationStatus } from '@slack/constants';
 // notification.md mục 4.2 — chặn BullMQ retry (attempts:3) tạo trùng
 // notification cho cùng 1 recipient + object khi job fail giữa chừng rồi
 // chạy lại từ đầu (xem saveNotificationEntity() dùng ON CONFLICT DO NOTHING).
-@Unique('UQ_notifications_recipient_object', ['recipientId', 'objectId'])
+@Unique('UQ_notifications_recipient_dedupe_key', ['recipientId', 'dedupeKey'])
 @Entity('notifications')
 export class Notification {
   @PrimaryGeneratedColumn('uuid')
@@ -48,6 +48,9 @@ export class Notification {
 
   @Column({ name: 'object_type' })
   objectType: string;
+
+  @Column({ name: 'dedupe_key' })
+  dedupeKey: string;
 
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, any>;
