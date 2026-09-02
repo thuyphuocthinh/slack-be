@@ -1,5 +1,11 @@
 import { Exclude, Expose, Type } from 'class-transformer';
-import { ShiftLocation, ShiftStatus, CalendarRequestType, CalendarRequestStatus, InOutStatus } from '../types/calendar.enum';
+import {
+  ShiftLocation,
+  ShiftStatus,
+  CalendarRequestType,
+  CalendarRequestStatus,
+  InOutStatus,
+} from '../types/calendar.enum';
 
 @Exclude()
 export class WorkShiftResponseDto {
@@ -39,6 +45,9 @@ export class WorkShiftResponseDto {
   @Expose()
   @Type(() => AttendanceLogResponseDto)
   attendanceLogs?: AttendanceLogResponseDto[];
+
+  @Expose()
+  hasAttendanceLogs?: boolean;
 
   @Expose()
   inOutStatus?: InOutStatus;

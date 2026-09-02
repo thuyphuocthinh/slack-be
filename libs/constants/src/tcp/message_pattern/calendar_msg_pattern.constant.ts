@@ -2,6 +2,7 @@ export const CALENDAR_MESSAGE_PATTERNS = {
   BULK_REGISTER_SHIFTS: 'calendar.bulk_register_shifts',
   GET_MY_SHIFTS: 'calendar.get_my_shifts',
   GET_ALL_SHIFTS: 'calendar.get_all_shifts',
+  GET_WORK_SHIFT_DETAIL: 'calendar.get_work_shift_detail',
   UPDATE_WORK_SHIFT: 'calendar.update_work_shift',
   DELETE_WORK_SHIFT: 'calendar.delete_work_shift',
   SYNC_CALENDAR: 'calendar.sync_calendar',

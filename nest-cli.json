@@ -52,7 +52,8 @@
       "entryFile": "main",
       "sourceRoot": "apps/calendar/src",
       "compilerOptions": {
-        "tsConfigPath": "apps/calendar/tsconfig.app.json"
+        "tsConfigPath": "apps/calendar/tsconfig.app.json",
+        "webpackConfigPath": "apps/calendar/webpack.config.js"
       }
     },
     "canvas": {

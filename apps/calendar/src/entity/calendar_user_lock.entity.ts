@@ -8,7 +8,9 @@ import {
 } from 'typeorm';
 
 @Entity('calendar_user_locks')
-@Index('IDX_USER_LOCK', ['userId', 'workspaceId', 'targetMonth'], { unique: true })
+@Index('IDX_USER_LOCK', ['workspaceId', 'targetMonth', 'userId'], {
+  unique: true,
+})
 // Partial-style index phục vụ cleanupExpiredLocks cron (LessThan query trên unlockExpiresAt)
 @Index('IDX_LOCK_EXPIRES_AT', ['unlockExpiresAt'])
 export class CalendarUserLockEntity {

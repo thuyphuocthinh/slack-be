@@ -4,15 +4,46 @@ import { CalendarService } from './calendar.service';
 import { WorkShiftService } from './services/work-shift.service';
 import { CALENDAR_MESSAGE_PATTERNS } from '@slack/constants';
 import {
-  BulkRegisterWorkShiftDto, GetWorkShiftsDto, UpdateWorkShiftDto, DeleteWorkShiftDto,
-  GetCalendarPolicyDto, CreateCalendarPolicyDto, UpdateCalendarPolicyDto, DeleteCalendarPolicyDto,
-  CheckInDto, CheckOutDto, GetTodayAttendanceDto, SaveFaceBaselineDto,
+  BulkRegisterWorkShiftDto,
+  GetWorkShiftsDto,
+  GetWorkShiftDetailDto,
+  UpdateWorkShiftDto,
+  DeleteWorkShiftDto,
+  GetCalendarPolicyDto,
+  CreateCalendarPolicyDto,
+  UpdateCalendarPolicyDto,
+  DeleteCalendarPolicyDto,
+  CheckInDto,
+  CheckOutDto,
+  GetTodayAttendanceDto,
+  SaveFaceBaselineDto,
 } from './dto/calendar-request.dto';
 import { WorkspaceCalendarPolicyService } from './services/workspace-calendar-policy.service';
 import { CalendarRequestService } from './services/calendar-request.service';
 import { AttendanceService } from './services/attendance.service';
 import { LeaveBalanceService } from './services/leave-balance.service';
-import { CreateCalendarRequestDto, UpdateCalendarRequestDto, DeleteCalendarRequestDto, GetCalendarRequestsDto, ReviewCalendarRequestDto, ManualUnlockCalendarDto, GetMyLockStatusDto, GetMonthLockStatusDto, GetMyLeaveBalanceDto, GetWorkspaceLeaveBalancesDto, GetPersonalStatisticSummaryDto, GetPersonalChartDataDto, GetWorkspaceStatisticMembersDto, ExportWorkspaceStatisticExcelDto, SyncCalendarDto, GetHolidaysDto, CreateHolidayDto, UpdateHolidayDto, DeleteHolidayDto, AutoFillHolidaysDto } from './dto/calendar-request.dto';
+import {
+  CreateCalendarRequestDto,
+  UpdateCalendarRequestDto,
+  DeleteCalendarRequestDto,
+  GetCalendarRequestsDto,
+  ReviewCalendarRequestDto,
+  ManualUnlockCalendarDto,
+  GetMyLockStatusDto,
+  GetMonthLockStatusDto,
+  GetMyLeaveBalanceDto,
+  GetWorkspaceLeaveBalancesDto,
+  GetPersonalStatisticSummaryDto,
+  GetPersonalChartDataDto,
+  GetWorkspaceStatisticMembersDto,
+  ExportWorkspaceStatisticExcelDto,
+  SyncCalendarDto,
+  GetHolidaysDto,
+  CreateHolidayDto,
+  UpdateHolidayDto,
+  DeleteHolidayDto,
+  AutoFillHolidaysDto,
+} from './dto/calendar-request.dto';
 import { AttendanceStatisticService } from './services/attendance-statistic.service';
 import { WorkspaceHolidayService } from './services/workspace-holiday.service';
 
@@ -37,6 +68,11 @@ export class CalendarController {
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_ALL_SHIFTS)
   async getWorkShifts(@Payload() dto: GetWorkShiftsDto) {
     return this.workShiftService.getWorkShifts(dto);
+  }
+
+  @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_WORK_SHIFT_DETAIL)
+  async getWorkShiftDetail(@Payload() dto: GetWorkShiftDetailDto) {
+    return this.workShiftService.getWorkShiftDetail(dto);
   }
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.UPDATE_WORK_SHIFT)
@@ -106,12 +142,20 @@ export class CalendarController {
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_MY_LOCK_STATUS)
   async getMyLockStatus(@Payload() dto: GetMyLockStatusDto) {
-    return this.requestService.getMyLockStatus(dto.workspaceId, dto.userId, dto.targetMonth);
+    return this.requestService.getMyLockStatus(
+      dto.workspaceId,
+      dto.userId,
+      dto.targetMonth,
+    );
   }
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_MONTH_LOCK_STATUS)
   async getMonthLockStatus(@Payload() dto: GetMonthLockStatusDto) {
-    return this.requestService.getMonthLockStatus(dto.workspaceId, dto.requestorId, dto.targetMonth);
+    return this.requestService.getMonthLockStatus(
+      dto.workspaceId,
+      dto.requestorId,
+      dto.targetMonth,
+    );
   }
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.SAVE_FACE_BASELINE)
@@ -136,42 +180,89 @@ export class CalendarController {
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_MY_LEAVE_BALANCE)
   async getMyLeaveBalance(@Payload() dto: GetMyLeaveBalanceDto) {
-    return this.leaveBalanceService.getMyLeaveBalance(dto.workspaceId, dto.userId, dto.year);
+    return this.leaveBalanceService.getMyLeaveBalance(
+      dto.workspaceId,
+      dto.userId,
+      dto.year,
+    );
   }
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_WORKSPACE_LEAVE_BALANCES)
-  async getWorkspaceLeaveBalances(@Payload() dto: GetWorkspaceLeaveBalancesDto) {
-    return this.leaveBalanceService.getWorkspaceLeaveBalances(dto.workspaceId, dto.requestorId, dto.year);
+  async getWorkspaceLeaveBalances(
+    @Payload() dto: GetWorkspaceLeaveBalancesDto,
+  ) {
+    return this.leaveBalanceService.getWorkspaceLeaveBalances(
+      dto.workspaceId,
+      dto.requestorId,
+      dto.year,
+    );
   }
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_PERSONAL_STATISTIC_SUMMARY)
-  async getPersonalStatisticSummary(@Payload() dto: GetPersonalStatisticSummaryDto) {
-    return this.statisticService.getPersonalSummary(dto.workspaceId, dto.requestorId, dto.userId, dto.startDate, dto.endDate);
+  async getPersonalStatisticSummary(
+    @Payload() dto: GetPersonalStatisticSummaryDto,
+  ) {
+    return this.statisticService.getPersonalSummary(
+      dto.workspaceId,
+      dto.requestorId,
+      dto.userId,
+      dto.startDate,
+      dto.endDate,
+    );
   }
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_PERSONAL_CHART_DATA)
   async getPersonalChartData(@Payload() dto: GetPersonalChartDataDto) {
-    return this.statisticService.getPersonalChartData(dto.workspaceId, dto.requestorId, dto.userId, dto.startDate, dto.endDate);
+    return this.statisticService.getPersonalChartData(
+      dto.workspaceId,
+      dto.requestorId,
+      dto.userId,
+      dto.startDate,
+      dto.endDate,
+    );
   }
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_WORKSPACE_STATISTIC_MEMBERS)
-  async getWorkspaceStatisticMembers(@Payload() dto: GetWorkspaceStatisticMembersDto) {
-    return this.statisticService.getWorkspaceMembers(dto.workspaceId, dto.requestorId, dto.month);
+  async getWorkspaceStatisticMembers(
+    @Payload() dto: GetWorkspaceStatisticMembersDto,
+  ) {
+    return this.statisticService.getWorkspaceMembers(
+      dto.workspaceId,
+      dto.requestorId,
+      dto.month,
+      dto,
+    );
   }
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.EXPORT_WORKSPACE_STATISTIC_EXCEL)
-  async exportWorkspaceStatisticExcel(@Payload() dto: ExportWorkspaceStatisticExcelDto) {
-    const buffer = await this.statisticService.exportWorkspaceExcel(dto.workspaceId, dto.requestorId, dto.month);
+  async exportWorkspaceStatisticExcel(
+    @Payload() dto: ExportWorkspaceStatisticExcelDto,
+  ) {
+    const buffer = await this.statisticService.exportWorkspaceExcel(
+      dto.workspaceId,
+      dto.requestorId,
+      dto.month,
+    );
     return buffer.toString('base64');
   }
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.ENQUEUE_EXPORT_EXCEL)
   async enqueueExportExcel(@Payload() dto: ExportWorkspaceStatisticExcelDto) {
-    return this.statisticService.enqueueExport(dto.workspaceId, dto.requestorId, dto.month);
+    return this.statisticService.enqueueExport(
+      dto.workspaceId,
+      dto.requestorId,
+      dto.month,
+    );
   }
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_EXPORT_STATUS)
-  async getExportStatus(@Payload() dto: { workspaceId: string; requestorId: string; jobId: string }) {
-    return this.statisticService.getExportStatus(dto.workspaceId, dto.requestorId, dto.jobId);
+  async getExportStatus(
+    @Payload() dto: { workspaceId: string; requestorId: string; jobId: string },
+  ) {
+    return this.statisticService.getExportStatus(
+      dto.workspaceId,
+      dto.requestorId,
+      dto.jobId,
+    );
   }
 
   @MessagePattern(CALENDAR_MESSAGE_PATTERNS.GET_HOLIDAYS)
@@ -199,4 +290,3 @@ export class CalendarController {
     return this.holidayService.autoFillHolidays(dto);
   }
 }
-

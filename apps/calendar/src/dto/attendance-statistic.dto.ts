@@ -18,7 +18,37 @@ export class StatisticSummaryResponseDto {
 @Exclude()
 export class WorkspaceMemberStatisticResponseDto extends StatisticSummaryResponseDto {
   @Expose()
+  id: string;
+
+  @Expose()
   userId: string;
+
+  @Expose()
+  workspaceId: string;
+
+  @Expose()
+  role: string;
+
+  @Expose()
+  employmentType: string;
+
+  @Expose()
+  firstName?: string | null;
+
+  @Expose()
+  lastName?: string | null;
+
+  @Expose()
+  email?: string | null;
+
+  @Expose()
+  avatarUrl?: string | null;
+
+  @Expose()
+  joinedAt: string;
+
+  @Expose()
+  isBot?: boolean | null;
 }
 
 @Exclude()

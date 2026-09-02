@@ -1,6 +1,21 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsEnum, IsISO8601, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, ValidateNested, IsNumber, IsObject } from 'class-validator';
+import {
+  IsArray,
+  IsEnum,
+  IsISO8601,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  ValidateNested,
+  IsNumber,
+  IsObject,
+  IsInt,
+  Min,
+  Max,
+} from 'class-validator';
 
 export enum ShiftLocationApi {
   OFFICE = 'OFFICE',
@@ -10,19 +25,25 @@ export enum ShiftLocationApi {
 export class ShiftItemApiDto {
   @ApiProperty({ example: '2026-06-20', description: 'YYYY-MM-DD' })
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'workDate must be in YYYY-MM-DD format' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'workDate must be in YYYY-MM-DD format',
+  })
   workDate: string;
 
   @ApiProperty({ example: '2026-06-20T02:00:00.000Z' })
   @IsString()
   @IsISO8601({ strict: true })
-  @Matches(/Z$/, { message: 'startTime must be a strictly UTC ISO string ending with Z' })
+  @Matches(/Z$/, {
+    message: 'startTime must be a strictly UTC ISO string ending with Z',
+  })
   startTime: string;
 
   @ApiProperty({ example: '2026-06-20T11:00:00.000Z' })
   @IsString()
   @IsISO8601({ strict: true })
-  @Matches(/Z$/, { message: 'endTime must be a strictly UTC ISO string ending with Z' })
+  @Matches(/Z$/, {
+    message: 'endTime must be a strictly UTC ISO string ending with Z',
+  })
   endTime: string;
 }
 
@@ -39,7 +60,9 @@ export class BulkRegisterWorkShiftApiDto {
   @IsNotEmpty()
   location: ShiftLocationApi;
 
-  @ApiPropertyOptional({ description: 'Defaults to current user if not provided' })
+  @ApiPropertyOptional({
+    description: 'Defaults to current user if not provided',
+  })
   @IsUUID()
   @IsOptional()
   userId?: string;
@@ -48,38 +71,134 @@ export class BulkRegisterWorkShiftApiDto {
 export class GetWorkShiftsApiDto {
   @ApiProperty({ example: '2026-06-01', description: 'YYYY-MM-DD' })
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'startDate must be in YYYY-MM-DD format' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'startDate must be in YYYY-MM-DD format',
+  })
   startDate: string;
 
   @ApiProperty({ example: '2026-06-30', description: 'YYYY-MM-DD' })
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'endDate must be in YYYY-MM-DD format' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'endDate must be in YYYY-MM-DD format',
+  })
   endDate: string;
 
   @ApiPropertyOptional()
   @IsUUID()
   @IsOptional()
   userId?: string;
+
+  @ApiPropertyOptional({ example: 1, default: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  page = 1;
+
+  @ApiPropertyOptional({ example: 50, default: 50, maximum: 2000 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(2000)
+  @IsOptional()
+  limit = 50;
+}
+
+export enum WorkspaceStatisticFilterApi {
+  ALL = 'ALL',
+  LATE = 'LATE',
+  ABSENT = 'ABSENT',
+  LEAVE = 'LEAVE',
+  NO_ISSUES = 'NO_ISSUES',
+}
+
+export enum WorkspaceStatisticSortByApi {
+  NAME = 'name',
+  TOTAL_WORK_HOURS = 'totalWorkHours',
+  LATE_DAYS = 'lateDays',
+  ABSENT_DAYS = 'absentDays',
+  LEAVE_DAYS = 'leaveDays',
+}
+
+export enum SortOrderApi {
+  ASC = 'ASC',
+  DESC = 'DESC',
+}
+
+export class GetWorkspaceStatisticMembersApiDto {
+  @ApiProperty({ example: '2026-09', description: 'YYYY-MM' })
+  @IsString()
+  @Matches(/^\d{4}-\d{2}$/, { message: 'month must be in YYYY-MM format' })
+  month: string;
+
+  @ApiPropertyOptional({ example: 1, default: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  page = 1;
+
+  @ApiPropertyOptional({ example: 50, default: 50, maximum: 100 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  @IsOptional()
+  limit = 50;
+
+  @ApiPropertyOptional({
+    description: 'Search by member name, email or user ID',
+  })
+  @IsString()
+  @IsOptional()
+  search?: string;
+
+  @ApiPropertyOptional({
+    enum: WorkspaceStatisticFilterApi,
+    default: WorkspaceStatisticFilterApi.ALL,
+  })
+  @IsEnum(WorkspaceStatisticFilterApi)
+  @IsOptional()
+  filter = WorkspaceStatisticFilterApi.ALL;
+
+  @ApiPropertyOptional({
+    enum: WorkspaceStatisticSortByApi,
+    default: WorkspaceStatisticSortByApi.NAME,
+  })
+  @IsEnum(WorkspaceStatisticSortByApi)
+  @IsOptional()
+  sortBy = WorkspaceStatisticSortByApi.NAME;
+
+  @ApiPropertyOptional({ enum: SortOrderApi, default: SortOrderApi.ASC })
+  @IsEnum(SortOrderApi)
+  @IsOptional()
+  sortOrder = SortOrderApi.ASC;
 }
 
 export class UpdateWorkShiftApiDto {
   @ApiPropertyOptional({ example: '2026-06-20', description: 'YYYY-MM-DD' })
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'workDate must be in YYYY-MM-DD format' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'workDate must be in YYYY-MM-DD format',
+  })
   @IsOptional()
   workDate?: string;
 
   @ApiPropertyOptional({ example: '2026-06-20T02:00:00.000Z' })
   @IsString()
   @IsISO8601({ strict: true })
-  @Matches(/Z$/, { message: 'startTime must be a strictly UTC ISO string ending with Z' })
+  @Matches(/Z$/, {
+    message: 'startTime must be a strictly UTC ISO string ending with Z',
+  })
   @IsOptional()
   startTime?: string;
 
   @ApiPropertyOptional({ example: '2026-06-20T11:00:00.000Z' })
   @IsString()
   @IsISO8601({ strict: true })
-  @Matches(/Z$/, { message: 'endTime must be a strictly UTC ISO string ending with Z' })
+  @Matches(/Z$/, {
+    message: 'endTime must be a strictly UTC ISO string ending with Z',
+  })
   @IsOptional()
   endTime?: string;
 
@@ -95,27 +214,45 @@ export class UpdateWorkShiftApiDto {
 }
 
 export class PolicyDataApiDto {
-  @ApiPropertyOptional({ example: 4, description: 'Max WFH days allowed per week' })
+  @ApiPropertyOptional({
+    example: 4,
+    description: 'Max WFH days allowed per week',
+  })
   @IsOptional()
   maxWfhDaysPerWeek?: number;
 
-  @ApiPropertyOptional({ example: 208, description: 'Max working hours per month for FULLTIME' })
+  @ApiPropertyOptional({
+    example: 208,
+    description: 'Max working hours per month for FULLTIME',
+  })
   @IsOptional()
   maxFullTimeHours?: number;
 
-  @ApiPropertyOptional({ example: 120, description: 'Max working hours per month for PARTTIME' })
+  @ApiPropertyOptional({
+    example: 120,
+    description: 'Max working hours per month for PARTTIME',
+  })
   @IsOptional()
   maxPartTimeHours?: number;
 
-  @ApiPropertyOptional({ example: 25, description: 'Day of the month when calendar is locked' })
+  @ApiPropertyOptional({
+    example: 25,
+    description: 'Day of the month when calendar is locked',
+  })
   @IsOptional()
   lockDeadlineDay?: number;
 
-  @ApiPropertyOptional({ example: 12, description: 'Max paid leave days per year' })
+  @ApiPropertyOptional({
+    example: 12,
+    description: 'Max paid leave days per year',
+  })
   @IsOptional()
   maxPaidLeaveDaysPerYear?: number;
 
-  @ApiPropertyOptional({ type: [String], description: 'Danh sách IP cho phép chấm công tại OFFICE' })
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Danh sách IP cho phép chấm công tại OFFICE',
+  })
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
@@ -148,14 +285,18 @@ export class CreateCalendarRequestApiDto {
   @ApiProperty({ example: '2026-06-20T02:00:00.000Z' })
   @IsString()
   @IsISO8601({ strict: true })
-  @Matches(/Z$/, { message: 'startTime must be a strictly UTC ISO string ending with Z' })
+  @Matches(/Z$/, {
+    message: 'startTime must be a strictly UTC ISO string ending with Z',
+  })
   @IsNotEmpty()
   startTime: string;
 
   @ApiProperty({ example: '2026-06-20T11:00:00.000Z' })
   @IsString()
   @IsISO8601({ strict: true })
-  @Matches(/Z$/, { message: 'endTime must be a strictly UTC ISO string ending with Z' })
+  @Matches(/Z$/, {
+    message: 'endTime must be a strictly UTC ISO string ending with Z',
+  })
   @IsNotEmpty()
   endTime: string;
 
@@ -184,14 +325,18 @@ export class UpdateCalendarRequestApiDto {
   @ApiPropertyOptional({ example: '2026-06-20T02:00:00.000Z' })
   @IsString()
   @IsISO8601({ strict: true })
-  @Matches(/Z$/, { message: 'startTime must be a strictly UTC ISO string ending with Z' })
+  @Matches(/Z$/, {
+    message: 'startTime must be a strictly UTC ISO string ending with Z',
+  })
   @IsOptional()
   startTime?: string;
 
   @ApiPropertyOptional({ example: '2026-06-20T11:00:00.000Z' })
   @IsString()
   @IsISO8601({ strict: true })
-  @Matches(/Z$/, { message: 'endTime must be a strictly UTC ISO string ending with Z' })
+  @Matches(/Z$/, {
+    message: 'endTime must be a strictly UTC ISO string ending with Z',
+  })
   @IsOptional()
   endTime?: string;
 
@@ -200,7 +345,9 @@ export class UpdateCalendarRequestApiDto {
   @IsOptional()
   durationDays?: number;
 
-  @ApiPropertyOptional({ example: 'I need to take a day off for personal reasons.' })
+  @ApiPropertyOptional({
+    example: 'I need to take a day off for personal reasons.',
+  })
   @IsString()
   @IsOptional()
   reason?: string;
@@ -269,17 +416,24 @@ export class CheckInApiDto {
   @IsNotEmpty()
   location: ShiftLocationApi;
 
-  @ApiPropertyOptional({ description: 'UUID của ca làm việc (work shift) tương ứng' })
+  @ApiPropertyOptional({
+    description: 'UUID của ca làm việc (work shift) tương ứng',
+  })
   @IsUUID()
   @IsOptional()
   shiftId?: string;
 
-  @ApiPropertyOptional({ description: 'Base64 data URL ảnh khuôn mặt (bắt buộc khi WFH)' })
+  @ApiPropertyOptional({
+    description: 'Base64 data URL ảnh khuôn mặt (bắt buộc khi WFH)',
+  })
   @IsString()
   @IsOptional()
   faceImageBase64?: string;
 
-  @ApiPropertyOptional({ type: [Number], description: 'Mảng 128 số thực trích xuất từ khuôn mặt' })
+  @ApiPropertyOptional({
+    type: [Number],
+    description: 'Mảng 128 số thực trích xuất từ khuôn mặt',
+  })
   @IsArray()
   @IsNumber({}, { each: true })
   @IsOptional()
@@ -292,7 +446,10 @@ export class SaveFaceBaselineApiDto {
   @IsNotEmpty()
   faceImageBase64: string;
 
-  @ApiProperty({ type: [Number], description: 'Mảng 128 số thực trích xuất từ khuôn mặt' })
+  @ApiProperty({
+    type: [Number],
+    description: 'Mảng 128 số thực trích xuất từ khuôn mặt',
+  })
   @IsArray()
   @IsNumber({}, { each: true })
   @IsNotEmpty()
@@ -307,7 +464,9 @@ export class ManualUnlockCalendarApiDto {
 
   @ApiProperty({ example: '2026-07', description: 'YYYY-MM to unlock' })
   @IsString()
-  @Matches(/^\d{4}-\d{2}$/, { message: 'targetMonth must be in YYYY-MM format' })
+  @Matches(/^\d{4}-\d{2}$/, {
+    message: 'targetMonth must be in YYYY-MM format',
+  })
   @IsNotEmpty()
   targetMonth: string;
 
@@ -325,7 +484,9 @@ export class CreateHolidayApiDto {
 
   @ApiProperty({ example: '2026-01-01', description: 'YYYY-MM-DD' })
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be in YYYY-MM-DD format' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'date must be in YYYY-MM-DD format',
+  })
   date: string;
 
   @ApiPropertyOptional({ example: true })
@@ -342,7 +503,9 @@ export class UpdateHolidayApiDto {
   @ApiPropertyOptional({ example: '2026-01-01', description: 'YYYY-MM-DD' })
   @IsString()
   @IsOptional()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be in YYYY-MM-DD format' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'date must be in YYYY-MM-DD format',
+  })
   date?: string;
 
   @ApiPropertyOptional({ example: true })

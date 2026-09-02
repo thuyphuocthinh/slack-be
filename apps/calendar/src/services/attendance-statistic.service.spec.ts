@@ -45,6 +45,7 @@ import { DailyReconciliationStatus } from '../types/calendar.enum';
 import { CalendarCommonService } from './calendar-common.service';
 import { CachedService } from '@slack/cached';
 import { QueueService } from '@slack/queue';
+import { Worker } from 'worker_threads';
 
 describe('AttendanceStatisticService', () => {
   let service: AttendanceStatisticService;
@@ -74,6 +75,15 @@ describe('AttendanceStatisticService', () => {
   const mockCachedService = {
     get: jest.fn().mockResolvedValue(null),
     set: jest.fn().mockResolvedValue(undefined),
+    getOrSetDetail: jest.fn(
+      async (key: string, ttl: number, fetcher: () => Promise<any>) => {
+        const cached = await mockCachedService.get(key);
+        if (cached) return cached;
+        const data = await fetcher();
+        await mockCachedService.set(key, data, ttl);
+        return data;
+      },
+    ),
   };
 
   const mockQueueService = {
@@ -103,12 +113,27 @@ describe('AttendanceStatisticService', () => {
       ],
     }).compile();
 
-    service = module.get<AttendanceStatisticService>(AttendanceStatisticService);
+    service = module.get<AttendanceStatisticService>(
+      AttendanceStatisticService,
+    );
 
     jest.clearAllMocks();
     mockCalendarCommonService.fetchMember.mockResolvedValue({ role: 'ADMIN' });
+    mockCalendarCommonService.assertPrivileged.mockReset();
+    mockCalendarCommonService.assertPrivileged.mockImplementation(
+      () => undefined,
+    );
     mockCachedService.get.mockResolvedValue(null);
     mockCachedService.set.mockResolvedValue(undefined);
+    mockCachedService.getOrSetDetail.mockImplementation(
+      async (key: string, ttl: number, fetcher: () => Promise<any>) => {
+        const cached = await mockCachedService.get(key);
+        if (cached) return cached;
+        const data = await fetcher();
+        await mockCachedService.set(key, data, ttl);
+        return data;
+      },
+    );
     mockQueueService.addJob.mockResolvedValue(undefined);
   });
 
@@ -125,11 +150,23 @@ describe('AttendanceStatisticService', () => {
         leaveDays: '1',
       });
 
-      const result = await service.getPersonalSummary('ws1', 'user1', 'user1', '2026-06-01', '2026-06-07');
+      const result = await service.getPersonalSummary(
+        'ws1',
+        'user1',
+        'user1',
+        '2026-06-01',
+        '2026-06-07',
+      );
 
       expect(mockReconcRepo.createQueryBuilder).toHaveBeenCalledWith('recon');
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('recon.workspaceId = :workspaceId', { workspaceId: 'ws1' });
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('recon.userId = :userId', { userId: 'user1' });
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
+        'recon.workspaceId = :workspaceId',
+        { workspaceId: 'ws1' },
+      );
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'recon.userId = :userId',
+        { userId: 'user1' },
+      );
 
       expect(result).toEqual({
         totalWorkHours: 42.5,
@@ -147,7 +184,13 @@ describe('AttendanceStatisticService', () => {
         leaveDays: null,
       });
 
-      const result = await service.getPersonalSummary('ws1', 'user1', 'user1', '2026-06-01', '2026-06-07');
+      const result = await service.getPersonalSummary(
+        'ws1',
+        'user1',
+        'user1',
+        '2026-06-01',
+        '2026-06-07',
+      );
 
       expect(result).toEqual({
         totalWorkHours: 0,
@@ -160,12 +203,27 @@ describe('AttendanceStatisticService', () => {
 
   describe('getWorkspaceMembers', () => {
     it('should return cache hit without hitting DB', async () => {
-      const cached = [{ userId: 'user1', totalWorkHours: 160, lateDays: 0, absentDays: 0, leaveDays: 0 }];
+      const cached = [
+        {
+          userId: 'user1',
+          totalWorkHours: 160,
+          lateDays: 0,
+          absentDays: 0,
+          leaveDays: 0,
+        },
+      ];
       mockCachedService.get.mockResolvedValue(cached);
 
-      const result = await service.getWorkspaceMembers('ws1', 'admin1', '2026-06');
+      const result = await service.getWorkspaceMembers(
+        'ws1',
+        'admin1',
+        '2026-06',
+      );
 
-      expect(result).toEqual(cached);
+      expect(result).toEqual({
+        data: cached,
+        paging: { page: 1, limit: 50, total: 1, totalPages: 1 },
+      });
       expect(mockReconcRepo.createQueryBuilder).not.toHaveBeenCalled();
       expect(mockCachedService.set).not.toHaveBeenCalled();
     });
@@ -173,20 +231,47 @@ describe('AttendanceStatisticService', () => {
     it('should aggregate members for a 30-day month (June) and cache result', async () => {
       mockCachedService.get.mockResolvedValue(null);
       mockQueryBuilder.getRawMany.mockResolvedValue([
-        { userId: 'user1', totalWorkHours: '160', lateDays: '1', absentDays: '0', leaveDays: '0' },
+        {
+          userId: 'user1',
+          totalWorkHours: '160',
+          lateDays: '1',
+          absentDays: '0',
+          leaveDays: '0',
+        },
       ]);
-      mockCalendarCommonService.getWorkspaceMembers.mockResolvedValue([{ userId: 'user1' }]);
+      mockCalendarCommonService.getWorkspaceMembers.mockResolvedValue([
+        { userId: 'user1' },
+      ]);
 
-      const result = await service.getWorkspaceMembers('ws1', 'admin1', '2026-06');
+      const result = await service.getWorkspaceMembers(
+        'ws1',
+        'admin1',
+        '2026-06',
+      );
 
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('recon.workDate >= :startDate', { startDate: '2026-06-01' });
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('recon.workDate <= :endDate', { endDate: '2026-06-30' });
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'recon.workDate >= :startDate',
+        { startDate: '2026-06-01' },
+      );
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'recon.workDate <= :endDate',
+        { endDate: '2026-06-30' },
+      );
       expect(mockQueryBuilder.groupBy).toHaveBeenCalledWith('recon.userId');
       expect(mockCachedService.set).toHaveBeenCalled();
 
-      expect(result).toEqual([
-        { userId: 'user1', totalWorkHours: 160, lateDays: 1, absentDays: 0, leaveDays: 0 },
-      ]);
+      expect(result).toEqual({
+        data: [
+          {
+            userId: 'user1',
+            totalWorkHours: 160,
+            lateDays: 1,
+            absentDays: 0,
+            leaveDays: 0,
+          },
+        ],
+        paging: { page: 1, limit: 50, total: 1, totalPages: 1 },
+      });
     });
 
     it('should compute correct end date for February (non-leap year)', async () => {
@@ -196,8 +281,14 @@ describe('AttendanceStatisticService', () => {
 
       await service.getWorkspaceMembers('ws1', 'admin1', '2026-02');
 
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('recon.workDate >= :startDate', { startDate: '2026-02-01' });
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('recon.workDate <= :endDate', { endDate: '2026-02-28' });
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'recon.workDate >= :startDate',
+        { startDate: '2026-02-01' },
+      );
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'recon.workDate <= :endDate',
+        { endDate: '2026-02-28' },
+      );
     });
 
     it('should compute correct end date for January (31 days)', async () => {
@@ -207,34 +298,136 @@ describe('AttendanceStatisticService', () => {
 
       await service.getWorkspaceMembers('ws1', 'admin1', '2026-01');
 
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('recon.workDate >= :startDate', { startDate: '2026-01-01' });
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('recon.workDate <= :endDate', { endDate: '2026-01-31' });
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'recon.workDate >= :startDate',
+        { startDate: '2026-01-01' },
+      );
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'recon.workDate <= :endDate',
+        { endDate: '2026-01-31' },
+      );
     });
 
     it('should fill zeros for members with no reconciliation records', async () => {
       mockCachedService.get.mockResolvedValue(null);
       mockQueryBuilder.getRawMany.mockResolvedValue([]);
-      mockCalendarCommonService.getWorkspaceMembers.mockResolvedValue([{ userId: 'user99' }]);
+      mockCalendarCommonService.getWorkspaceMembers.mockResolvedValue([
+        { userId: 'user99' },
+      ]);
 
-      const result = await service.getWorkspaceMembers('ws1', 'admin1', '2026-06');
+      const result = await service.getWorkspaceMembers(
+        'ws1',
+        'admin1',
+        '2026-06',
+      );
 
-      expect(result).toEqual([{ userId: 'user99', totalWorkHours: 0, lateDays: 0, absentDays: 0, leaveDays: 0 }]);
+      expect(result).toEqual({
+        data: [
+          {
+            userId: 'user99',
+            totalWorkHours: 0,
+            lateDays: 0,
+            absentDays: 0,
+            leaveDays: 0,
+          },
+        ],
+        paging: { page: 1, limit: 50, total: 1, totalPages: 1 },
+      });
+    });
+
+    it('should filter, sort and return only the requested page', async () => {
+      mockCachedService.get.mockResolvedValue([
+        {
+          userId: 'u1',
+          firstName: 'An',
+          lastName: 'Nguyen',
+          email: 'an@example.com',
+          totalWorkHours: 160,
+          lateDays: 2,
+          absentDays: 0,
+          leaveDays: 0,
+        },
+        {
+          userId: 'u2',
+          firstName: 'Binh',
+          lastName: 'Tran',
+          email: 'binh@example.com',
+          totalWorkHours: 150,
+          lateDays: 4,
+          absentDays: 0,
+          leaveDays: 0,
+        },
+        {
+          userId: 'u3',
+          firstName: 'Chi',
+          lastName: 'Le',
+          email: 'chi@example.com',
+          totalWorkHours: 170,
+          lateDays: 0,
+          absentDays: 0,
+          leaveDays: 0,
+        },
+      ]);
+
+      const result = await service.getWorkspaceMembers(
+        'ws1',
+        'admin1',
+        '2026-06',
+        {
+          page: 1,
+          limit: 1,
+          search: 'example.com',
+          filter: 'LATE' as any,
+          sortBy: 'lateDays' as any,
+          sortOrder: 'DESC' as any,
+        },
+      );
+
+      expect(result).toEqual({
+        data: [expect.objectContaining({ userId: 'u2', lateDays: 4 })],
+        paging: { page: 1, limit: 1, total: 2, totalPages: 2 },
+      });
     });
   });
 
   describe('getPersonalChartData', () => {
     it('should return mapped chart data ordered by date', async () => {
       mockQueryBuilder.getRawMany.mockResolvedValue([
-        { date: '2026-06-01', workHours: '8', status: DailyReconciliationStatus.NORMAL },
-        { date: '2026-06-02', workHours: '7.5', status: DailyReconciliationStatus.LATE_EARLY },
+        {
+          date: '2026-06-01',
+          workHours: '8',
+          status: DailyReconciliationStatus.NORMAL,
+        },
+        {
+          date: '2026-06-02',
+          workHours: '7.5',
+          status: DailyReconciliationStatus.LATE_EARLY,
+        },
       ]);
 
-      const result = await service.getPersonalChartData('ws1', 'user1', 'user1', '2026-06-01', '2026-06-07');
+      const result = await service.getPersonalChartData(
+        'ws1',
+        'user1',
+        'user1',
+        '2026-06-01',
+        '2026-06-07',
+      );
 
-      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('recon.workDate', 'ASC');
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith(
+        'recon.workDate',
+        'ASC',
+      );
       expect(result).toEqual([
-        { date: '2026-06-01', workHours: 8, status: DailyReconciliationStatus.NORMAL },
-        { date: '2026-06-02', workHours: 7.5, status: DailyReconciliationStatus.LATE_EARLY },
+        {
+          date: '2026-06-01',
+          workHours: 8,
+          status: DailyReconciliationStatus.NORMAL,
+        },
+        {
+          date: '2026-06-02',
+          workHours: 7.5,
+          status: DailyReconciliationStatus.LATE_EARLY,
+        },
       ]);
     });
   });
@@ -243,16 +436,31 @@ describe('AttendanceStatisticService', () => {
     it('should fetch data on main thread then delegate generation to worker thread', async () => {
       // getWorkspaceMembers (cache miss path)
       mockQueryBuilder.getRawMany.mockResolvedValueOnce([
-        { userId: 'user1', totalWorkHours: '160', lateDays: '1', absentDays: '0', leaveDays: '0' },
+        {
+          userId: 'user1',
+          totalWorkHours: '160',
+          lateDays: '1',
+          absentDays: '0',
+          leaveDays: '0',
+        },
       ]);
-      mockCalendarCommonService.getWorkspaceMembers.mockResolvedValue([{ userId: 'user1' }]);
+      mockCalendarCommonService.getWorkspaceMembers.mockResolvedValue([
+        { userId: 'user1' },
+      ]);
       // raw logs for detail sheet
       mockQueryBuilder.getRawMany.mockResolvedValueOnce([
-        { userId: 'user1', workDate: '2026-06-05', status: DailyReconciliationStatus.LATE_EARLY },
+        {
+          userId: 'user1',
+          workDate: '2026-06-05',
+          status: DailyReconciliationStatus.LATE_EARLY,
+        },
       ]);
 
-      const { Worker } = require('worker_threads');
-      const buffer = await service.exportWorkspaceExcel('ws1', 'admin1', '2026-06');
+      const buffer = await service.exportWorkspaceExcel(
+        'ws1',
+        'admin1',
+        '2026-06',
+      );
 
       expect(buffer).toBeInstanceOf(Buffer);
       expect(buffer.length).toBeGreaterThan(0);
@@ -285,7 +493,12 @@ describe('AttendanceStatisticService', () => {
       expect(mockQueueService.addJob).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(String),
-        expect.objectContaining({ jobId: result.jobId, workspaceId: 'ws1', requestorId: 'admin1', month: '2026-06' }),
+        expect.objectContaining({
+          jobId: result.jobId,
+          workspaceId: 'ws1',
+          requestorId: 'admin1',
+          month: '2026-06',
+        }),
         expect.objectContaining({ attempts: 2 }),
       );
     });
@@ -295,7 +508,9 @@ describe('AttendanceStatisticService', () => {
         throw new Error('Forbidden');
       });
 
-      await expect(service.enqueueExport('ws1', 'member1', '2026-06')).rejects.toThrow('Forbidden');
+      await expect(
+        service.enqueueExport('ws1', 'member1', '2026-06'),
+      ).rejects.toThrow('Forbidden');
       expect(mockQueueService.addJob).not.toHaveBeenCalled();
     });
   });
@@ -304,23 +519,41 @@ describe('AttendanceStatisticService', () => {
     it('should return PENDING status when job is in cache', async () => {
       mockCachedService.get.mockResolvedValue({ status: 'PENDING' });
 
-      const result = await service.getExportStatus('some-job-id');
+      const result = await service.getExportStatus(
+        'ws1',
+        'admin1',
+        'some-job-id',
+      );
 
       expect(result).toEqual({ status: 'PENDING' });
     });
 
     it('should return DONE status with base64 data when job completed', async () => {
-      mockCachedService.get.mockResolvedValue({ status: 'DONE', data: 'base64encodeddata==' });
+      mockCachedService.get.mockResolvedValue({
+        status: 'DONE',
+        data: 'base64encodeddata==',
+      });
 
-      const result = await service.getExportStatus('some-job-id');
+      const result = await service.getExportStatus(
+        'ws1',
+        'admin1',
+        'some-job-id',
+      );
 
       expect(result).toEqual({ status: 'DONE', data: 'base64encodeddata==' });
     });
 
     it('should return FAILED with error message when job failed', async () => {
-      mockCachedService.get.mockResolvedValue({ status: 'FAILED', error: 'DB timeout' });
+      mockCachedService.get.mockResolvedValue({
+        status: 'FAILED',
+        error: 'DB timeout',
+      });
 
-      const result = await service.getExportStatus('some-job-id');
+      const result = await service.getExportStatus(
+        'ws1',
+        'admin1',
+        'some-job-id',
+      );
 
       expect(result).toEqual({ status: 'FAILED', error: 'DB timeout' });
     });
@@ -328,9 +561,16 @@ describe('AttendanceStatisticService', () => {
     it('should return FAILED with "Job not found or expired" when cache key missing', async () => {
       mockCachedService.get.mockResolvedValue(null);
 
-      const result = await service.getExportStatus('expired-job-id');
+      const result = await service.getExportStatus(
+        'ws1',
+        'admin1',
+        'expired-job-id',
+      );
 
-      expect(result).toEqual({ status: 'FAILED', error: 'Job not found or expired' });
+      expect(result).toEqual({
+        status: 'FAILED',
+        error: 'Job not found or expired',
+      });
     });
   });
 });

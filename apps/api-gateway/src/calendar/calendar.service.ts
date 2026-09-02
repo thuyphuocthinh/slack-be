@@ -1,10 +1,27 @@
 ﻿import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { NAME_SERVICE_TCP, CALENDAR_MESSAGE_PATTERNS } from '@slack/constants';
-import { firstValueFrom } from 'rxjs';
+import {
+  firstValueFrom as rxFirstValueFrom,
+  timeout,
+  type Observable,
+} from 'rxjs';
 import { v2 as cloudinary } from 'cloudinary';
 import { MicroserviceErrorHandler } from '../common/microservice_error.handler';
-import { BulkRegisterWorkShiftApiDto, CheckInApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto, SaveFaceBaselineApiDto } from './dto/calendar-api.dto';
+import {
+  BulkRegisterWorkShiftApiDto,
+  CheckInApiDto,
+  GetWorkShiftsApiDto,
+  UpdateWorkShiftApiDto,
+  UpsertCalendarPolicyApiDto,
+  SaveFaceBaselineApiDto,
+  GetWorkspaceStatisticMembersApiDto,
+} from './dto/calendar-api.dto';
+
+const CALENDAR_RPC_TIMEOUT_MS = 10_000;
+
+const firstValueFrom = <T>(source: Observable<T>): Promise<T> =>
+  rxFirstValueFrom(source.pipe(timeout({ first: CALENDAR_RPC_TIMEOUT_MS })));
 
 @Injectable()
 export class CalendarService {
@@ -43,13 +60,19 @@ export class CalendarService {
     );
   }
 
-  async getWorkShifts(workspaceId: string, requestorId: string, query: GetWorkShiftsApiDto) {
+  async getWorkShifts(
+    workspaceId: string,
+    requestorId: string,
+    query: GetWorkShiftsApiDto,
+  ) {
     const payload = {
       workspaceId,
       requestorId,
       startDate: query.startDate,
       endDate: query.endDate,
       userId: query.userId,
+      page: query.page,
+      limit: query.limit,
     };
 
     return MicroserviceErrorHandler.handleAsyncCall(
@@ -61,6 +84,24 @@ export class CalendarService {
           ),
         ),
       'getWorkShifts',
+      'CalendarService',
+    );
+  }
+
+  async getWorkShiftDetail(
+    id: string,
+    workspaceId: string,
+    requestorId: string,
+  ) {
+    return MicroserviceErrorHandler.handleAsyncCall(
+      () =>
+        firstValueFrom(
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.GET_WORK_SHIFT_DETAIL,
+            { id, workspaceId, requestorId },
+          ),
+        ),
+      'getWorkShiftDetail',
       'CalendarService',
     );
   }
@@ -146,7 +187,11 @@ export class CalendarService {
     );
   }
 
-  async createPolicy(workspaceId: string, userId: string, dto: UpsertCalendarPolicyApiDto) {
+  async createPolicy(
+    workspaceId: string,
+    userId: string,
+    dto: UpsertCalendarPolicyApiDto,
+  ) {
     const payload = {
       workspaceId,
       userId,
@@ -166,7 +211,11 @@ export class CalendarService {
     );
   }
 
-  async updatePolicy(workspaceId: string, userId: string, dto: UpsertCalendarPolicyApiDto) {
+  async updatePolicy(
+    workspaceId: string,
+    userId: string,
+    dto: UpsertCalendarPolicyApiDto,
+  ) {
     const payload = {
       workspaceId,
       userId,
@@ -225,7 +274,12 @@ export class CalendarService {
     );
   }
 
-  async updateRequest(id: string, workspaceId: string, userId: string, dto: any) {
+  async updateRequest(
+    id: string,
+    workspaceId: string,
+    userId: string,
+    dto: any,
+  ) {
     const payload = {
       id,
       workspaceId,
@@ -286,7 +340,12 @@ export class CalendarService {
     );
   }
 
-  async reviewRequest(id: string, workspaceId: string, reviewerId: string, dto: any) {
+  async reviewRequest(
+    id: string,
+    workspaceId: string,
+    reviewerId: string,
+    dto: any,
+  ) {
     const payload = {
       id,
       workspaceId,
@@ -329,7 +388,11 @@ export class CalendarService {
     );
   }
 
-  async getMyLockStatus(workspaceId: string, userId: string, targetMonth: string) {
+  async getMyLockStatus(
+    workspaceId: string,
+    userId: string,
+    targetMonth: string,
+  ) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -343,7 +406,11 @@ export class CalendarService {
     );
   }
 
-  async getMonthLockStatus(workspaceId: string, requestorId: string, targetMonth: string) {
+  async getMonthLockStatus(
+    workspaceId: string,
+    requestorId: string,
+    targetMonth: string,
+  ) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -365,12 +432,20 @@ export class CalendarService {
       });
       return result.secure_url;
     } catch (err) {
-      this.logger.warn('Face image upload failed, continuing without image:', err?.message);
+      this.logger.warn(
+        'Face image upload failed, continuing without image:',
+        err?.message,
+      );
       return undefined;
     }
   }
 
-  async checkIn(workspaceId: string, userId: string, clientIp: string, dto: CheckInApiDto) {
+  async checkIn(
+    workspaceId: string,
+    userId: string,
+    clientIp: string,
+    dto: CheckInApiDto,
+  ) {
     let faceImageKey: string | undefined;
     if (dto.location === 'WFH' && dto.faceImageBase64) {
       faceImageKey = await this.uploadFaceImage(dto.faceImageBase64);
@@ -394,7 +469,12 @@ export class CalendarService {
     );
   }
 
-  async checkOut(workspaceId: string, userId: string, clientIp: string, dto: CheckInApiDto) {
+  async checkOut(
+    workspaceId: string,
+    userId: string,
+    clientIp: string,
+    dto: CheckInApiDto,
+  ) {
     let faceImageKey: string | undefined;
     if (dto.location === 'WFH' && dto.faceImageBase64) {
       faceImageKey = await this.uploadFaceImage(dto.faceImageBase64);
@@ -418,33 +498,47 @@ export class CalendarService {
     );
   }
 
-  async saveFaceBaseline(workspaceId: string, userId: string, dto: SaveFaceBaselineApiDto) {
+  async saveFaceBaseline(
+    workspaceId: string,
+    userId: string,
+    dto: SaveFaceBaselineApiDto,
+  ) {
     const faceImageKey = await this.uploadFaceImage(dto.faceImageBase64);
 
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.SAVE_FACE_BASELINE, {
-            workspaceId,
-            userId,
-            faceImageKey,
-            faceDescriptor: dto.faceDescriptor,
-          }),
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.SAVE_FACE_BASELINE,
+            {
+              workspaceId,
+              userId,
+              faceImageKey,
+              faceDescriptor: dto.faceDescriptor,
+            },
+          ),
         ),
       'saveFaceBaseline',
       'CalendarService',
     );
   }
 
-  async getTodayAttendance(workspaceId: string, userId: string, clientDate: string) {
+  async getTodayAttendance(
+    workspaceId: string,
+    userId: string,
+    clientDate: string,
+  ) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_TODAY_ATTENDANCE, {
-            workspaceId,
-            userId,
-            clientDate,
-          }),
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.GET_TODAY_ATTENDANCE,
+            {
+              workspaceId,
+              userId,
+              clientDate,
+            },
+          ),
         ),
       'getTodayAttendance',
       'CalendarService',
@@ -455,116 +549,172 @@ export class CalendarService {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_MY_LEAVE_BALANCE, {
-            workspaceId,
-            userId,
-            year,
-          }),
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.GET_MY_LEAVE_BALANCE,
+            {
+              workspaceId,
+              userId,
+              year,
+            },
+          ),
         ),
       'getMyLeaveBalance',
       'CalendarService',
     );
   }
 
-  async getWorkspaceLeaveBalances(workspaceId: string, requestorId: string, year: number) {
+  async getWorkspaceLeaveBalances(
+    workspaceId: string,
+    requestorId: string,
+    year: number,
+  ) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_WORKSPACE_LEAVE_BALANCES, {
-            workspaceId,
-            requestorId,
-            year,
-          }),
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.GET_WORKSPACE_LEAVE_BALANCES,
+            {
+              workspaceId,
+              requestorId,
+              year,
+            },
+          ),
         ),
       'getWorkspaceLeaveBalances',
       'CalendarService',
     );
   }
 
-  async getPersonalStatisticSummary(workspaceId: string, requestorId: string, userId: string, startDate: string, endDate: string) {
+  async getPersonalStatisticSummary(
+    workspaceId: string,
+    requestorId: string,
+    userId: string,
+    startDate: string,
+    endDate: string,
+  ) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_PERSONAL_STATISTIC_SUMMARY, {
-            workspaceId,
-            requestorId,
-            userId,
-            startDate,
-            endDate,
-          }),
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.GET_PERSONAL_STATISTIC_SUMMARY,
+            {
+              workspaceId,
+              requestorId,
+              userId,
+              startDate,
+              endDate,
+            },
+          ),
         ),
       'getPersonalStatisticSummary',
       'CalendarService',
     );
   }
 
-  async getPersonalChartData(workspaceId: string, requestorId: string, userId: string, startDate: string, endDate: string) {
+  async getPersonalChartData(
+    workspaceId: string,
+    requestorId: string,
+    userId: string,
+    startDate: string,
+    endDate: string,
+  ) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_PERSONAL_CHART_DATA, {
-            workspaceId,
-            requestorId,
-            userId,
-            startDate,
-            endDate,
-          }),
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.GET_PERSONAL_CHART_DATA,
+            {
+              workspaceId,
+              requestorId,
+              userId,
+              startDate,
+              endDate,
+            },
+          ),
         ),
       'getPersonalChartData',
       'CalendarService',
     );
   }
 
-  async getWorkspaceStatisticMembers(workspaceId: string, requestorId: string, month: string) {
+  async getWorkspaceStatisticMembers(
+    workspaceId: string,
+    requestorId: string,
+    query: GetWorkspaceStatisticMembersApiDto,
+  ) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_WORKSPACE_STATISTIC_MEMBERS, {
-            workspaceId,
-            requestorId,
-            month,
-          }),
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.GET_WORKSPACE_STATISTIC_MEMBERS,
+            {
+              workspaceId,
+              requestorId,
+              ...query,
+            },
+          ),
         ),
       'getWorkspaceStatisticMembers',
       'CalendarService',
     );
   }
 
-  async exportWorkspaceStatisticExcel(workspaceId: string, requestorId: string, month: string) {
+  async exportWorkspaceStatisticExcel(
+    workspaceId: string,
+    requestorId: string,
+    month: string,
+  ) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.EXPORT_WORKSPACE_STATISTIC_EXCEL, {
-            workspaceId,
-            requestorId,
-            month,
-          }),
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.EXPORT_WORKSPACE_STATISTIC_EXCEL,
+            {
+              workspaceId,
+              requestorId,
+              month,
+            },
+          ),
         ),
       'exportWorkspaceStatisticExcel',
       'CalendarService',
     );
   }
 
-  async enqueueExportExcel(workspaceId: string, requestorId: string, month: string) {
+  async enqueueExportExcel(
+    workspaceId: string,
+    requestorId: string,
+    month: string,
+  ) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.ENQUEUE_EXPORT_EXCEL, {
-            workspaceId,
-            requestorId,
-            month,
-          }),
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.ENQUEUE_EXPORT_EXCEL,
+            {
+              workspaceId,
+              requestorId,
+              month,
+            },
+          ),
         ),
       'enqueueExportExcel',
       'CalendarService',
     );
   }
 
-  async getExportStatus(workspaceId: string, requestorId: string, jobId: string) {
+  async getExportStatus(
+    workspaceId: string,
+    requestorId: string,
+    jobId: string,
+  ) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.GET_EXPORT_STATUS, { workspaceId, requestorId, jobId }),
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.GET_EXPORT_STATUS,
+            { workspaceId, requestorId, jobId },
+          ),
         ),
       'getExportStatus',
       'CalendarService',
@@ -600,7 +750,12 @@ export class CalendarService {
     );
   }
 
-  async updateHoliday(workspaceId: string, requestorId: string, id: string, dto: any) {
+  async updateHoliday(
+    workspaceId: string,
+    requestorId: string,
+    id: string,
+    dto: any,
+  ) {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
@@ -635,15 +790,17 @@ export class CalendarService {
     return MicroserviceErrorHandler.handleAsyncCall(
       () =>
         firstValueFrom(
-          this.calendarClient.send(CALENDAR_MESSAGE_PATTERNS.AUTO_FILL_HOLIDAYS, {
-            workspaceId,
-            requestorId,
-            ...dto,
-          }),
+          this.calendarClient.send(
+            CALENDAR_MESSAGE_PATTERNS.AUTO_FILL_HOLIDAYS,
+            {
+              workspaceId,
+              requestorId,
+              ...dto,
+            },
+          ),
         ),
       'autoFillHolidays',
       'CalendarService',
     );
   }
 }
-

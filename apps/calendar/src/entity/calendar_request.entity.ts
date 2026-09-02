@@ -6,13 +6,36 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import { CalendarRequestType, CalendarRequestStatus } from '../types/calendar.enum';
+import {
+  CalendarRequestType,
+  CalendarRequestStatus,
+} from '../types/calendar.enum';
 
 @Entity('calendar_requests')
 // Composite index phục vụ getRequests với filter status + sort createdAt
-@Index('IDX_CALENDAR_REQ_WS_USER_STATUS', ['workspaceId', 'userId', 'status', 'createdAt'])
+@Index('IDX_CALENDAR_REQ_WS_USER_STATUS', [
+  'workspaceId',
+  'userId',
+  'status',
+  'createdAt',
+])
+@Index('IDX_CALENDAR_REQ_WS_STATUS_CREATED', [
+  'workspaceId',
+  'status',
+  'createdAt',
+])
+@Index('IDX_CALENDAR_REQ_WS_USER_CREATED', [
+  'workspaceId',
+  'userId',
+  'createdAt',
+])
 // Composite index phục vụ checkOverlappingRequest (range query trên startTime/endTime)
-@Index('IDX_CALENDAR_REQ_WS_USER_TIME', ['workspaceId', 'userId', 'startTime', 'endTime'])
+@Index('IDX_CALENDAR_REQ_WS_USER_TIME', [
+  'workspaceId',
+  'userId',
+  'startTime',
+  'endTime',
+])
 export class CalendarRequestEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

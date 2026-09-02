@@ -50,6 +50,10 @@ export class MicroserviceErrorHandler {
    * Extract HTTP status code from RpcException or error object
    */
   private static extractStatusCode(error: IMicroserviceError): number {
+    if (error.name === 'TimeoutError') {
+      return HttpStatus.GATEWAY_TIMEOUT;
+    }
+
     // Priority 1: Direct statusCode from RpcException
     if (error.statusCode && typeof error.statusCode === 'number') {
       return error.statusCode;

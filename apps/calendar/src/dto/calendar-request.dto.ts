@@ -16,7 +16,12 @@ import {
   Min,
   Max,
 } from 'class-validator';
-import { ShiftLocation, CalendarRequestType, CalendarRequestStatus, CalendarRequestAction } from '../types/calendar.enum';
+import {
+  ShiftLocation,
+  CalendarRequestType,
+  CalendarRequestStatus,
+  CalendarRequestAction,
+} from '../types/calendar.enum';
 
 export class ShiftItemDto {
   @IsString()
@@ -27,12 +32,16 @@ export class ShiftItemDto {
 
   @IsString()
   @IsISO8601({ strict: true })
-  @Matches(/Z$/, { message: 'startTime must be a strictly UTC ISO string ending with Z' })
+  @Matches(/Z$/, {
+    message: 'startTime must be a strictly UTC ISO string ending with Z',
+  })
   startTime: string;
 
   @IsString()
   @IsISO8601({ strict: true })
-  @Matches(/Z$/, { message: 'endTime must be a strictly UTC ISO string ending with Z' })
+  @Matches(/Z$/, {
+    message: 'endTime must be a strictly UTC ISO string ending with Z',
+  })
   endTime: string;
 }
 
@@ -70,16 +79,47 @@ export class GetWorkShiftsDto {
   requestorId: string;
 
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'startDate must be in YYYY-MM-DD format' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'startDate must be in YYYY-MM-DD format',
+  })
   startDate: string;
 
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'endDate must be in YYYY-MM-DD format' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'endDate must be in YYYY-MM-DD format',
+  })
   endDate: string;
 
   @IsUUID()
   @IsOptional()
   userId?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  page = 1;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(2000)
+  @IsOptional()
+  limit = 50;
+}
+
+export class GetWorkShiftDetailDto {
+  @IsUUID()
+  @IsNotEmpty()
+  id: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  workspaceId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  requestorId: string;
 }
 
 export class UpdateWorkShiftDto {
@@ -108,13 +148,17 @@ export class UpdateWorkShiftDto {
 
   @IsString()
   @IsISO8601({ strict: true })
-  @Matches(/Z$/, { message: 'startTime must be a strictly UTC ISO string ending with Z' })
+  @Matches(/Z$/, {
+    message: 'startTime must be a strictly UTC ISO string ending with Z',
+  })
   @IsOptional()
   startTime?: string;
 
   @IsString()
   @IsISO8601({ strict: true })
-  @Matches(/Z$/, { message: 'endTime must be a strictly UTC ISO string ending with Z' })
+  @Matches(/Z$/, {
+    message: 'endTime must be a strictly UTC ISO string ending with Z',
+  })
   @IsOptional()
   endTime?: string;
 
@@ -240,13 +284,17 @@ export class CreateCalendarRequestDto {
 
   @IsString()
   @IsISO8601({ strict: true })
-  @Matches(/Z$/, { message: 'startTime must be a strictly UTC ISO string ending with Z' })
+  @Matches(/Z$/, {
+    message: 'startTime must be a strictly UTC ISO string ending with Z',
+  })
   @IsNotEmpty()
   startTime: string;
 
   @IsString()
   @IsISO8601({ strict: true })
-  @Matches(/Z$/, { message: 'endTime must be a strictly UTC ISO string ending with Z' })
+  @Matches(/Z$/, {
+    message: 'endTime must be a strictly UTC ISO string ending with Z',
+  })
   @IsNotEmpty()
   endTime: string;
 
@@ -283,13 +331,17 @@ export class UpdateCalendarRequestDto {
 
   @IsString()
   @IsISO8601({ strict: true })
-  @Matches(/Z$/, { message: 'startTime must be a strictly UTC ISO string ending with Z' })
+  @Matches(/Z$/, {
+    message: 'startTime must be a strictly UTC ISO string ending with Z',
+  })
   @IsOptional()
   startTime?: string;
 
   @IsString()
   @IsISO8601({ strict: true })
-  @Matches(/Z$/, { message: 'endTime must be a strictly UTC ISO string ending with Z' })
+  @Matches(/Z$/, {
+    message: 'endTime must be a strictly UTC ISO string ending with Z',
+  })
   @IsOptional()
   endTime?: string;
 
@@ -409,7 +461,7 @@ export class CheckInDto {
   faceDescriptor?: number[];
 }
 
-export class CheckOutDto extends CheckInDto { }
+export class CheckOutDto extends CheckInDto {}
 
 export class GetTodayAttendanceDto {
   @IsUUID()
@@ -439,7 +491,9 @@ export class ManualUnlockCalendarDto {
   targetUserId: string;
 
   @IsString()
-  @Matches(/^\d{4}-\d{2}$/, { message: 'targetMonth must be in YYYY-MM format' })
+  @Matches(/^\d{4}-\d{2}$/, {
+    message: 'targetMonth must be in YYYY-MM format',
+  })
   @IsNotEmpty()
   targetMonth: string;
 
@@ -458,7 +512,9 @@ export class GetMyLockStatusDto {
   userId: string;
 
   @IsString()
-  @Matches(/^\d{4}-\d{2}$/, { message: 'targetMonth must be in YYYY-MM format' })
+  @Matches(/^\d{4}-\d{2}$/, {
+    message: 'targetMonth must be in YYYY-MM format',
+  })
   @IsNotEmpty()
   targetMonth: string;
 }
@@ -473,7 +529,9 @@ export class GetMonthLockStatusDto {
   requestorId: string;
 
   @IsString()
-  @Matches(/^\d{4}-\d{2}$/, { message: 'targetMonth must be in YYYY-MM format' })
+  @Matches(/^\d{4}-\d{2}$/, {
+    message: 'targetMonth must be in YYYY-MM format',
+  })
   @IsNotEmpty()
   targetMonth: string;
 }
@@ -520,17 +578,21 @@ export class GetPersonalStatisticSummaryDto {
   userId: string;
 
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'startDate must be in YYYY-MM-DD format' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'startDate must be in YYYY-MM-DD format',
+  })
   startDate: string;
 
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'endDate must be in YYYY-MM-DD format' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'endDate must be in YYYY-MM-DD format',
+  })
   endDate: string;
 }
 
-export class GetPersonalChartDataDto extends GetPersonalStatisticSummaryDto { }
+export class GetPersonalChartDataDto extends GetPersonalStatisticSummaryDto {}
 
-export class GetWorkspaceStatisticMembersDto {
+export class WorkspaceStatisticMonthDto {
   @IsUUID()
   @IsNotEmpty()
   workspaceId: string;
@@ -544,7 +606,59 @@ export class GetWorkspaceStatisticMembersDto {
   month: string;
 }
 
-export class ExportWorkspaceStatisticExcelDto extends GetWorkspaceStatisticMembersDto { }
+export enum WorkspaceStatisticFilter {
+  ALL = 'ALL',
+  LATE = 'LATE',
+  ABSENT = 'ABSENT',
+  LEAVE = 'LEAVE',
+  NO_ISSUES = 'NO_ISSUES',
+}
+
+export enum WorkspaceStatisticSortBy {
+  NAME = 'name',
+  TOTAL_WORK_HOURS = 'totalWorkHours',
+  LATE_DAYS = 'lateDays',
+  ABSENT_DAYS = 'absentDays',
+  LEAVE_DAYS = 'leaveDays',
+}
+
+export enum SortOrder {
+  ASC = 'ASC',
+  DESC = 'DESC',
+}
+
+export class GetWorkspaceStatisticMembersDto extends WorkspaceStatisticMonthDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  page = 1;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  @IsOptional()
+  limit = 50;
+
+  @IsString()
+  @IsOptional()
+  search?: string;
+
+  @IsEnum(WorkspaceStatisticFilter)
+  @IsOptional()
+  filter = WorkspaceStatisticFilter.ALL;
+
+  @IsEnum(WorkspaceStatisticSortBy)
+  @IsOptional()
+  sortBy = WorkspaceStatisticSortBy.NAME;
+
+  @IsEnum(SortOrder)
+  @IsOptional()
+  sortOrder = SortOrder.ASC;
+}
+
+export class ExportWorkspaceStatisticExcelDto extends WorkspaceStatisticMonthDto {}
 
 export class SyncCalendarDto {
   @IsUUID()
@@ -580,7 +694,9 @@ export class CreateHolidayDto {
   name: string;
 
   @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be in YYYY-MM-DD format' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'date must be in YYYY-MM-DD format',
+  })
   date: string;
 
   @IsBoolean()
@@ -607,7 +723,9 @@ export class UpdateHolidayDto {
 
   @IsString()
   @IsOptional()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be in YYYY-MM-DD format' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'date must be in YYYY-MM-DD format',
+  })
   date?: string;
 
   @IsBoolean()
@@ -665,4 +783,3 @@ export class SaveFaceBaselineDto {
   @IsNotEmpty()
   faceDescriptor: number[];
 }
-

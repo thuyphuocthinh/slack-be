@@ -11,9 +11,20 @@ import { AttendanceLogType } from '../types/calendar.enum';
 import { WorkShiftEntity } from './work_shift.entity';
 
 @Entity('attendance_logs')
-@Index('idx_attendance_logs_recent', ['workspaceId', 'userId', 'logType', 'recordedAt'])
+@Index('idx_attendance_logs_recent', [
+  'workspaceId',
+  'userId',
+  'logType',
+  'recordedAt',
+])
 // Composite index phục vụ getLatestLog (check-in/out): filter by workspaceId+userId+workShiftId, sort by recordedAt DESC
-@Index('IDX_ATTENDANCE_LOG_SHIFT_RECENT', ['workspaceId', 'userId', 'workShiftId', 'recordedAt'])
+@Index('IDX_ATTENDANCE_LOG_SHIFT_RECENT', [
+  'workspaceId',
+  'userId',
+  'workShiftId',
+  'recordedAt',
+])
+@Index('IDX_ATTENDANCE_LOG_SHIFT_RECORDED', ['workShiftId', 'recordedAt'])
 export class AttendanceLogEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -30,7 +41,9 @@ export class AttendanceLogEntity {
   @Index()
   workShiftId: string; // FK tới work_shifts — biết log này thuộc ca nào
 
-  @ManyToOne(() => WorkShiftEntity, shift => shift.attendanceLogs, { onDelete: 'CASCADE' })
+  @ManyToOne(() => WorkShiftEntity, (shift) => shift.attendanceLogs, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'work_shift_id' })
   workShift: WorkShiftEntity;
 

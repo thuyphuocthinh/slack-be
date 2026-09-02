@@ -1,8 +1,35 @@
-﻿import { Body, Controller, Get, Param, Post, Put, Delete, Query, Ip, Res } from '@nestjs/common';
+﻿import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Put,
+  Delete,
+  Query,
+  Ip,
+  Res,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CalendarService } from './calendar.service';
-import { BulkRegisterWorkShiftApiDto, CheckInApiDto, GetWorkShiftsApiDto, UpdateWorkShiftApiDto, UpsertCalendarPolicyApiDto, CreateCalendarRequestApiDto, UpdateCalendarRequestApiDto, GetCalendarRequestsApiDto, ReviewCalendarRequestApiDto, ManualUnlockCalendarApiDto, CreateHolidayApiDto, UpdateHolidayApiDto, AutoFillHolidaysApiDto, SaveFaceBaselineApiDto } from './dto/calendar-api.dto';
+import {
+  BulkRegisterWorkShiftApiDto,
+  CheckInApiDto,
+  GetWorkShiftsApiDto,
+  UpdateWorkShiftApiDto,
+  UpsertCalendarPolicyApiDto,
+  CreateCalendarRequestApiDto,
+  UpdateCalendarRequestApiDto,
+  GetCalendarRequestsApiDto,
+  ReviewCalendarRequestApiDto,
+  ManualUnlockCalendarApiDto,
+  CreateHolidayApiDto,
+  UpdateHolidayApiDto,
+  AutoFillHolidaysApiDto,
+  SaveFaceBaselineApiDto,
+  GetWorkspaceStatisticMembersApiDto,
+} from './dto/calendar-api.dto';
 import { CurrentUser, type JwtUser } from '@slack/common';
 import { RateLimit } from '../common/guards/rate-limit.decorator';
 
@@ -10,7 +37,7 @@ import { RateLimit } from '../common/guards/rate-limit.decorator';
 @Controller('workspaces/:workspaceId/calendar')
 @ApiBearerAuth()
 export class CalendarController {
-  constructor(private readonly calendarService: CalendarService) { }
+  constructor(private readonly calendarService: CalendarService) {}
 
   @Post('bulk-register')
   @ApiOperation({ summary: 'Bulk register work shifts for a user' })
@@ -32,6 +59,16 @@ export class CalendarController {
     return this.calendarService.getWorkShifts(workspaceId, user.sub!, query);
   }
 
+  @Get('work-shifts/:id')
+  @ApiOperation({ summary: 'Get a work shift with attendance details' })
+  async getWorkShiftDetail(
+    @Param('workspaceId') workspaceId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.calendarService.getWorkShiftDetail(id, workspaceId, user.sub!);
+  }
+
   @Put('work-shifts/:id')
   @ApiOperation({ summary: 'Update a work shift' })
   async updateWorkShift(
@@ -40,7 +77,12 @@ export class CalendarController {
     @CurrentUser() user: JwtUser,
     @Body() dto: UpdateWorkShiftApiDto,
   ) {
-    return this.calendarService.updateWorkShift(id, workspaceId, user.sub!, dto);
+    return this.calendarService.updateWorkShift(
+      id,
+      workspaceId,
+      user.sub!,
+      dto,
+    );
   }
 
   @Delete('work-shifts/:id')
@@ -54,7 +96,10 @@ export class CalendarController {
   }
 
   @Post('work-shifts/sync')
-  @ApiOperation({ summary: 'Bulk sync all work shifts to connected integrations (e.g., Google Calendar)' })
+  @ApiOperation({
+    summary:
+      'Bulk sync all work shifts to connected integrations (e.g., Google Calendar)',
+  })
   async syncCalendar(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: JwtUser,
@@ -69,7 +114,9 @@ export class CalendarController {
   }
 
   @Post('policy')
-  @ApiOperation({ summary: 'Create workspace calendar policy (Admin/Manager only)' })
+  @ApiOperation({
+    summary: 'Create workspace calendar policy (Admin/Manager only)',
+  })
   async createPolicy(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: JwtUser,
@@ -79,7 +126,9 @@ export class CalendarController {
   }
 
   @Put('policy')
-  @ApiOperation({ summary: 'Update workspace calendar policy (Admin/Manager only)' })
+  @ApiOperation({
+    summary: 'Update workspace calendar policy (Admin/Manager only)',
+  })
   async updatePolicy(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: JwtUser,
@@ -89,7 +138,9 @@ export class CalendarController {
   }
 
   @Delete('policy')
-  @ApiOperation({ summary: 'Delete workspace calendar policy (Admin/Manager only)' })
+  @ApiOperation({
+    summary: 'Delete workspace calendar policy (Admin/Manager only)',
+  })
   async deletePolicy(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: JwtUser,
@@ -129,7 +180,10 @@ export class CalendarController {
   }
 
   @Get('requests')
-  @ApiOperation({ summary: 'Get calendar requests with pagination and optional user filtering' })
+  @ApiOperation({
+    summary:
+      'Get calendar requests with pagination and optional user filtering',
+  })
   async getRequests(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: JwtUser,
@@ -139,7 +193,9 @@ export class CalendarController {
   }
 
   @Put('requests/:id/review')
-  @ApiOperation({ summary: 'Approve or Reject a calendar request (Manager/Admin only)' })
+  @ApiOperation({
+    summary: 'Approve or Reject a calendar request (Manager/Admin only)',
+  })
   async reviewRequest(
     @Param('workspaceId') workspaceId: string,
     @Param('id') id: string,
@@ -150,27 +206,44 @@ export class CalendarController {
   }
 
   @Get('my-lock-status')
-  @ApiOperation({ summary: 'Lấy trạng thái mở khóa cá nhân của tháng hiện tại (dành cho mọi user)' })
+  @ApiOperation({
+    summary:
+      'Lấy trạng thái mở khóa cá nhân của tháng hiện tại (dành cho mọi user)',
+  })
   async getMyLockStatus(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: JwtUser,
     @Query('targetMonth') targetMonth: string,
   ) {
-    return this.calendarService.getMyLockStatus(workspaceId, user.sub!, targetMonth);
+    return this.calendarService.getMyLockStatus(
+      workspaceId,
+      user.sub!,
+      targetMonth,
+    );
   }
 
   @Get('lock-status')
-  @ApiOperation({ summary: 'Get active unlock status for all members in a given month (Manager/Admin only)' })
+  @ApiOperation({
+    summary:
+      'Get active unlock status for all members in a given month (Manager/Admin only)',
+  })
   async getMonthLockStatus(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: JwtUser,
     @Query('targetMonth') targetMonth: string,
   ) {
-    return this.calendarService.getMonthLockStatus(workspaceId, user.sub!, targetMonth);
+    return this.calendarService.getMonthLockStatus(
+      workspaceId,
+      user.sub!,
+      targetMonth,
+    );
   }
 
   @Post('manual-unlock')
-  @ApiOperation({ summary: 'Manually unlock calendar for a specific user (Manager/Admin only)' })
+  @ApiOperation({
+    summary:
+      'Manually unlock calendar for a specific user (Manager/Admin only)',
+  })
   async manualUnlock(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: JwtUser,
@@ -180,7 +253,10 @@ export class CalendarController {
   }
 
   @Post('face-baseline')
-  @ApiOperation({ summary: 'Save or update face baseline for the current user (required for WFH check-in)' })
+  @ApiOperation({
+    summary:
+      'Save or update face baseline for the current user (required for WFH check-in)',
+  })
   async saveFaceBaseline(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: JwtUser,
@@ -191,7 +267,10 @@ export class CalendarController {
 
   @Post('check-in')
   @RateLimit({ limit: 5, window: 60 })
-  @ApiOperation({ summary: 'Record check-in (OFFICE validates IP, WFH requires face similarity)' })
+  @ApiOperation({
+    summary:
+      'Record check-in (OFFICE validates IP, WFH requires face similarity)',
+  })
   async checkIn(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: JwtUser,
@@ -214,24 +293,36 @@ export class CalendarController {
   }
 
   @Get('today-attendance')
-  @ApiOperation({ summary: 'Get today check-in / check-out status for current user' })
+  @ApiOperation({
+    summary: 'Get today check-in / check-out status for current user',
+  })
   async getTodayAttendance(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: JwtUser,
     @Query('clientDate') clientDate: string,
   ) {
-    return this.calendarService.getTodayAttendance(workspaceId, user.sub!, clientDate);
+    return this.calendarService.getTodayAttendance(
+      workspaceId,
+      user.sub!,
+      clientDate,
+    );
   }
 
   @Get('leave-balances/my-balance')
-  @ApiOperation({ summary: 'Get current user leave balance for the specified year' })
+  @ApiOperation({
+    summary: 'Get current user leave balance for the specified year',
+  })
   async getMyLeaveBalance(
     @Param('workspaceId') workspaceId: string,
     @Query('year') year: string,
     @CurrentUser() user: JwtUser,
   ) {
     const targetYear = year ? parseInt(year, 10) : new Date().getFullYear();
-    return this.calendarService.getMyLeaveBalance(workspaceId, user.sub!, targetYear);
+    return this.calendarService.getMyLeaveBalance(
+      workspaceId,
+      user.sub!,
+      targetYear,
+    );
   }
 
   @Get('statistics/me/summary')
@@ -243,7 +334,13 @@ export class CalendarController {
     @Query('endDate') endDate: string,
     @Query('userId') targetUserId?: string,
   ) {
-    return this.calendarService.getPersonalStatisticSummary(workspaceId, user.sub!, targetUserId || user.sub!, startDate, endDate);
+    return this.calendarService.getPersonalStatisticSummary(
+      workspaceId,
+      user.sub!,
+      targetUserId || user.sub!,
+      startDate,
+      endDate,
+    );
   }
 
   @Get('statistics/me/chart')
@@ -255,7 +352,13 @@ export class CalendarController {
     @Query('endDate') endDate: string,
     @Query('userId') targetUserId?: string,
   ) {
-    return this.calendarService.getPersonalChartData(workspaceId, user.sub!, targetUserId || user.sub!, startDate, endDate);
+    return this.calendarService.getPersonalChartData(
+      workspaceId,
+      user.sub!,
+      targetUserId || user.sub!,
+      startDate,
+      endDate,
+    );
   }
 
   @Get('statistics/workspace/members')
@@ -263,24 +366,35 @@ export class CalendarController {
   async getWorkspaceStatisticMembers(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: JwtUser,
-    @Query('month') month: string, // format YYYY-MM
+    @Query() query: GetWorkspaceStatisticMembersApiDto,
   ) {
-    return this.calendarService.getWorkspaceStatisticMembers(workspaceId, user.sub!, month);
+    return this.calendarService.getWorkspaceStatisticMembers(
+      workspaceId,
+      user.sub!,
+      query,
+    );
   }
 
   @Get('statistics/workspace/export')
-  @ApiOperation({ summary: 'Export workspace statistics to Excel (Role Admin)' })
+  @ApiOperation({
+    summary: 'Export workspace statistics to Excel (Role Admin)',
+  })
   async exportWorkspaceStatisticExcel(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: JwtUser,
     @Query('month') month: string, // format YYYY-MM
     @Res() res: Response,
   ) {
-    const base64Data = await this.calendarService.exportWorkspaceStatisticExcel(workspaceId, user.sub!, month);
+    const base64Data = await this.calendarService.exportWorkspaceStatisticExcel(
+      workspaceId,
+      user.sub!,
+      month,
+    );
     const buffer = Buffer.from(base64Data, 'base64');
 
     res.set({
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': `attachment; filename=Bang_Cham_Cong_Thang_${month}.xlsx`,
       'Content-Length': buffer.length,
     });
@@ -289,17 +403,27 @@ export class CalendarController {
   }
 
   @Post('statistics/workspace/export-async')
-  @ApiOperation({ summary: 'Enqueue async Excel export — returns jobId immediately (Role Admin)' })
+  @ApiOperation({
+    summary:
+      'Enqueue async Excel export — returns jobId immediately (Role Admin)',
+  })
   async enqueueExportExcel(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: JwtUser,
     @Query('month') month: string,
   ) {
-    return this.calendarService.enqueueExportExcel(workspaceId, user.sub!, month);
+    return this.calendarService.enqueueExportExcel(
+      workspaceId,
+      user.sub!,
+      month,
+    );
   }
 
   @Get('statistics/workspace/export-async/:jobId')
-  @ApiOperation({ summary: 'Poll async export status — always returns JSON { status, data?, error? } (Role Admin)' })
+  @ApiOperation({
+    summary:
+      'Poll async export status — always returns JSON { status, data?, error? } (Role Admin)',
+  })
   async getExportStatus(
     @Param('workspaceId') workspaceId: string,
     @Param('jobId') jobId: string,
@@ -352,7 +476,9 @@ export class CalendarController {
   }
 
   @Post('holidays/auto-fill')
-  @ApiOperation({ summary: 'Auto fill holidays for a specific country (Admin/Manager)' })
+  @ApiOperation({
+    summary: 'Auto fill holidays for a specific country (Admin/Manager)',
+  })
   async autoFillHolidays(
     @Param('workspaceId') workspaceId: string,
     @CurrentUser() user: JwtUser,
@@ -361,4 +487,3 @@ export class CalendarController {
     return this.calendarService.autoFillHolidays(workspaceId, user.sub!, dto);
   }
 }
-
