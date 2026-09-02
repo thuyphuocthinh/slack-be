@@ -26,12 +26,16 @@ export class WorkspaceHolidayService {
     private readonly holidayRepository: Repository<WorkspaceHolidayEntity>,
     private readonly calendarCommonService: CalendarCommonService,
     private readonly cachedService: CachedService,
-  ) { }
+  ) {}
 
-  async getHolidays(workspaceId: string, year: number): Promise<WorkspaceHolidayResponseDto[]> {
+  async getHolidays(
+    workspaceId: string,
+    year: number,
+  ): Promise<WorkspaceHolidayResponseDto[]> {
     return this.cachedService.getOrSetList({
       trackerKey: CACHE.CALENDAR.TRACKERS.HOLIDAYS_VERSION(workspaceId),
-      keyBuilder: (version) => CACHE.CALENDAR.KEYS.HOLIDAYS(workspaceId, year, version),
+      keyBuilder: (version) =>
+        CACHE.CALENDAR.KEYS.HOLIDAYS(workspaceId, year, version),
       ttl: TTL.WEEK,
       fetcher: async () => {
         const startDate = `${year}-01-01`;
@@ -40,18 +44,39 @@ export class WorkspaceHolidayService {
         const holidays = await this.holidayRepository.find({
           where: [
             { workspaceId, isRecurringYearly: true },
-            { workspaceId, date: Between(startDate, endDate), isRecurringYearly: false }
+            {
+              workspaceId,
+              date: Between(startDate, endDate),
+              isRecurringYearly: false,
+            },
           ],
-          order: { date: 'ASC' }
+          order: { date: 'ASC' },
         });
 
-        return plainToInstance(WorkspaceHolidayResponseDto, holidays);
-      }
+        const normalizedHolidays = holidays.flatMap((holiday) => {
+          if (!holiday.isRecurringYearly) return [holiday];
+
+          const normalizedDate = `${year}-${holiday.date.substring(5)}`;
+          const parsedDate = new Date(`${normalizedDate}T00:00:00.000Z`);
+          if (parsedDate.toISOString().substring(0, 10) !== normalizedDate) {
+            return [];
+          }
+
+          return [{ ...holiday, date: normalizedDate }];
+        });
+
+        return plainToInstance(WorkspaceHolidayResponseDto, normalizedHolidays);
+      },
     });
   }
 
-  async createHoliday(dto: CreateHolidayDto): Promise<WorkspaceHolidayResponseDto> {
-    const member = await this.calendarCommonService.fetchMember(dto.workspaceId, dto.requestorId);
+  async createHoliday(
+    dto: CreateHolidayDto,
+  ): Promise<WorkspaceHolidayResponseDto> {
+    const member = await this.calendarCommonService.fetchMember(
+      dto.workspaceId,
+      dto.requestorId,
+    );
     this.calendarCommonService.assertPrivileged(member.role);
 
     try {
@@ -63,12 +88,15 @@ export class WorkspaceHolidayService {
       });
 
       const savedHoliday = await this.holidayRepository.save(newHoliday);
-      await this.cachedService.invalidateList(CACHE.CALENDAR.TRACKERS.HOLIDAYS_VERSION(dto.workspaceId));
+      await this.cachedService.invalidateList(
+        CACHE.CALENDAR.TRACKERS.HOLIDAYS_VERSION(dto.workspaceId),
+      );
 
       return plainToInstance(WorkspaceHolidayResponseDto, savedHoliday);
     } catch (error) {
       if (error instanceof RpcException) throw error;
-      if (error.code === '23505') { // Postgres unique violation
+      if (error.code === '23505') {
+        // Postgres unique violation
         throw new RpcException({
           statusCode: HttpStatus.BAD_REQUEST,
           message: CALENDAR_ERROR.HOLIDAY_ALREADY_EXISTS.message,
@@ -84,11 +112,18 @@ export class WorkspaceHolidayService {
     }
   }
 
-  async updateHoliday(dto: UpdateHolidayDto): Promise<WorkspaceHolidayResponseDto> {
-    const member = await this.calendarCommonService.fetchMember(dto.workspaceId, dto.requestorId);
+  async updateHoliday(
+    dto: UpdateHolidayDto,
+  ): Promise<WorkspaceHolidayResponseDto> {
+    const member = await this.calendarCommonService.fetchMember(
+      dto.workspaceId,
+      dto.requestorId,
+    );
     this.calendarCommonService.assertPrivileged(member.role);
 
-    const holiday = await this.holidayRepository.findOne({ where: { id: dto.id, workspaceId: dto.workspaceId } });
+    const holiday = await this.holidayRepository.findOne({
+      where: { id: dto.id, workspaceId: dto.workspaceId },
+    });
     if (!holiday) {
       throw new RpcException({
         statusCode: HttpStatus.NOT_FOUND,
@@ -100,10 +135,13 @@ export class WorkspaceHolidayService {
     try {
       if (dto.name !== undefined) holiday.name = dto.name;
       if (dto.date !== undefined) holiday.date = dto.date;
-      if (dto.isRecurringYearly !== undefined) holiday.isRecurringYearly = dto.isRecurringYearly;
+      if (dto.isRecurringYearly !== undefined)
+        holiday.isRecurringYearly = dto.isRecurringYearly;
 
       const updatedHoliday = await this.holidayRepository.save(holiday);
-      await this.cachedService.invalidateList(CACHE.CALENDAR.TRACKERS.HOLIDAYS_VERSION(dto.workspaceId));
+      await this.cachedService.invalidateList(
+        CACHE.CALENDAR.TRACKERS.HOLIDAYS_VERSION(dto.workspaceId),
+      );
 
       return plainToInstance(WorkspaceHolidayResponseDto, updatedHoliday);
     } catch (error) {
@@ -125,11 +163,17 @@ export class WorkspaceHolidayService {
   }
 
   async deleteHoliday(dto: DeleteHolidayDto) {
-    const member = await this.calendarCommonService.fetchMember(dto.workspaceId, dto.requestorId);
+    const member = await this.calendarCommonService.fetchMember(
+      dto.workspaceId,
+      dto.requestorId,
+    );
     this.calendarCommonService.assertPrivileged(member.role);
 
     try {
-      const result = await this.holidayRepository.delete({ id: dto.id, workspaceId: dto.workspaceId });
+      const result = await this.holidayRepository.delete({
+        id: dto.id,
+        workspaceId: dto.workspaceId,
+      });
       if (result.affected === 0) {
         throw new RpcException({
           statusCode: HttpStatus.NOT_FOUND,
@@ -137,7 +181,9 @@ export class WorkspaceHolidayService {
           code: CALENDAR_ERROR.HOLIDAY_NOT_FOUND.code,
         });
       }
-      await this.cachedService.invalidateList(CACHE.CALENDAR.TRACKERS.HOLIDAYS_VERSION(dto.workspaceId));
+      await this.cachedService.invalidateList(
+        CACHE.CALENDAR.TRACKERS.HOLIDAYS_VERSION(dto.workspaceId),
+      );
       return { success: true };
     } catch (error) {
       if (error instanceof RpcException) throw error;
@@ -150,8 +196,13 @@ export class WorkspaceHolidayService {
     }
   }
 
-  async autoFillHolidays(dto: AutoFillHolidaysDto): Promise<WorkspaceHolidayResponseDto[]> {
-    const member = await this.calendarCommonService.fetchMember(dto.workspaceId, dto.requestorId);
+  async autoFillHolidays(
+    dto: AutoFillHolidaysDto,
+  ): Promise<WorkspaceHolidayResponseDto[]> {
+    const member = await this.calendarCommonService.fetchMember(
+      dto.workspaceId,
+      dto.requestorId,
+    );
     this.calendarCommonService.assertPrivileged(member.role);
 
     try {
@@ -168,8 +219,8 @@ export class WorkspaceHolidayService {
 
       // Lọc ra các ngày lễ thuộc type "public" hoặc "bank" để tránh rác
       const defaultHolidays = generatedHolidays
-        .filter(h => h.type === 'public' || h.type === 'bank')
-        .map(h => {
+        .filter((h) => h.type === 'public' || h.type === 'bank')
+        .map((h) => {
           // Lấy đúng format YYYY-MM-DD (trích xuất 10 ký tự đầu của chuỗi ISO)
           const dateStr = new Date(h.date).toISOString().split('T')[0];
           return {
@@ -180,19 +231,26 @@ export class WorkspaceHolidayService {
         });
 
       const existingHolidays = await this.holidayRepository.find({
-        where: { workspaceId: dto.workspaceId, date: In(defaultHolidays.map(h => h.date)) },
+        where: {
+          workspaceId: dto.workspaceId,
+          date: In(defaultHolidays.map((h) => h.date)),
+        },
       });
-      const existingDatesSet = new Set(existingHolidays.map(h => h.date));
+      const existingDatesSet = new Set(existingHolidays.map((h) => h.date));
 
       const toInsert = defaultHolidays
-        .filter(h => !existingDatesSet.has(h.date))
-        .map(h => this.holidayRepository.create({ workspaceId: dto.workspaceId, ...h }));
+        .filter((h) => !existingDatesSet.has(h.date))
+        .map((h) =>
+          this.holidayRepository.create({ workspaceId: dto.workspaceId, ...h }),
+        );
 
       if (toInsert.length > 0) {
         await this.holidayRepository.save(toInsert);
       }
 
-      await this.cachedService.invalidateList(CACHE.CALENDAR.TRACKERS.HOLIDAYS_VERSION(dto.workspaceId));
+      await this.cachedService.invalidateList(
+        CACHE.CALENDAR.TRACKERS.HOLIDAYS_VERSION(dto.workspaceId),
+      );
       return this.getHolidays(dto.workspaceId, dto.year);
     } catch (error) {
       if (error instanceof RpcException) throw error;
@@ -206,10 +264,15 @@ export class WorkspaceHolidayService {
     }
   }
 
-  async checkIfDatesAreHolidays(workspaceId: string, dates: string[]): Promise<Record<string, boolean>> {
-    const years = [...new Set(dates.map(d => parseInt(d.split('-')[0], 10)))].filter(y => !isNaN(y));
+  async checkIfDatesAreHolidays(
+    workspaceId: string,
+    dates: string[],
+  ): Promise<Record<string, boolean>> {
+    const years = [
+      ...new Set(dates.map((d) => parseInt(d.split('-')[0], 10))),
+    ].filter((y) => !isNaN(y));
     const allHolidays: WorkspaceHolidayResponseDto[] = [];
-    
+
     for (const y of years) {
       const h = await this.getHolidays(workspaceId, y);
       allHolidays.push(...h);
@@ -217,15 +280,15 @@ export class WorkspaceHolidayService {
 
     const result: Record<string, boolean> = {};
     for (const checkDateStr of dates) {
-      const [_, m, d] = checkDateStr.split('-');
-      result[checkDateStr] = allHolidays.some(h => {
+      const [, m, d] = checkDateStr.split('-');
+      result[checkDateStr] = allHolidays.some((h) => {
         if (h.isRecurringYearly) {
           return h.date.substring(5) === `${m}-${d}`;
         }
         return h.date === checkDateStr;
       });
     }
-    
+
     return result;
   }
 }

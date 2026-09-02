@@ -5,9 +5,7 @@ import { WorkspaceHolidayEntity } from '../entity/workspace_holiday.entity';
 import { CalendarCommonService } from './calendar-common.service';
 import { CachedService } from '@slack/cached/cached.service';
 import { CACHE } from '@slack/cached/cached.constant';
-import { RpcException } from '@nestjs/microservices';
 import { CALENDAR_ERROR } from '@slack/constants';
-import * as Holidays from 'date-holidays';
 
 jest.mock('nanoid', () => ({
   customAlphabet: jest.fn(() => jest.fn(() => 'mock-id')),
@@ -65,15 +63,43 @@ describe('WorkspaceHolidayService', () => {
 
   describe('getHolidays', () => {
     it('should return holidays from repository if cache misses', async () => {
-      const mockHolidays = [{ id: '1', date: '2026-01-01', isRecurringYearly: true }];
+      const mockHolidays = [
+        { id: '1', date: '2026-01-01', isRecurringYearly: true },
+      ];
       repository.find.mockResolvedValue(mockHolidays);
 
       const result = await service.getHolidays('workspace-1', 2026);
       expect(result).toEqual(mockHolidays);
       expect(repository.find).toHaveBeenCalled();
-      expect(cachedService.getOrSetList).toHaveBeenCalledWith(expect.objectContaining({
-        trackerKey: CACHE.CALENDAR.TRACKERS.HOLIDAYS_VERSION('workspace-1'),
-      }));
+      expect(cachedService.getOrSetList).toHaveBeenCalledWith(
+        expect.objectContaining({
+          trackerKey: CACHE.CALENDAR.TRACKERS.HOLIDAYS_VERSION('workspace-1'),
+        }),
+      );
+    });
+
+    it('should project recurring holidays into the requested year', async () => {
+      repository.find.mockResolvedValue([
+        { id: '1', date: '2024-09-02', isRecurringYearly: true },
+        { id: '2', date: '2024-09-03', isRecurringYearly: false },
+      ]);
+
+      const result = await service.getHolidays('workspace-1', 2027);
+
+      expect(result).toEqual([
+        { id: '1', date: '2027-09-02', isRecurringYearly: true },
+        { id: '2', date: '2024-09-03', isRecurringYearly: false },
+      ]);
+    });
+
+    it('should omit a recurring leap day in a non-leap year', async () => {
+      repository.find.mockResolvedValue([
+        { id: '1', date: '2024-02-29', isRecurringYearly: true },
+      ]);
+
+      await expect(service.getHolidays('workspace-1', 2027)).resolves.toEqual(
+        [],
+      );
     });
   });
 
@@ -95,7 +121,9 @@ describe('WorkspaceHolidayService', () => {
 
       expect(result.id).toEqual('1');
       expect(repository.save).toHaveBeenCalled();
-      expect(cachedService.invalidateList).toHaveBeenCalledWith(CACHE.CALENDAR.TRACKERS.HOLIDAYS_VERSION(dto.workspaceId));
+      expect(cachedService.invalidateList).toHaveBeenCalledWith(
+        CACHE.CALENDAR.TRACKERS.HOLIDAYS_VERSION(dto.workspaceId),
+      );
     });
 
     it('should throw HOLIDAY_ALREADY_EXISTS on duplicate date', async () => {
@@ -104,7 +132,7 @@ describe('WorkspaceHolidayService', () => {
       repository.save.mockRejectedValue({ code: '23505' });
 
       await expect(service.createHoliday(dto)).rejects.toMatchObject({
-        error: { code: CALENDAR_ERROR.HOLIDAY_ALREADY_EXISTS.code }
+        error: { code: CALENDAR_ERROR.HOLIDAY_ALREADY_EXISTS.code },
       });
     });
   });
@@ -119,7 +147,12 @@ describe('WorkspaceHolidayService', () => {
 
     it('should update holiday successfully', async () => {
       commonService.fetchMember.mockResolvedValue({ role: 'ADMIN' });
-      const existing = { id: '1', workspaceId: 'workspace-1', name: 'Old', date: '2026-01-01' };
+      const existing = {
+        id: '1',
+        workspaceId: 'workspace-1',
+        name: 'Old',
+        date: '2026-01-01',
+      };
       repository.findOne.mockResolvedValue(existing);
       repository.save.mockResolvedValue({ ...existing, name: 'Updated Name' });
 
@@ -133,7 +166,7 @@ describe('WorkspaceHolidayService', () => {
       repository.findOne.mockResolvedValue(null);
 
       await expect(service.updateHoliday(dto)).rejects.toMatchObject({
-        error: { code: CALENDAR_ERROR.HOLIDAY_NOT_FOUND.code }
+        error: { code: CALENDAR_ERROR.HOLIDAY_NOT_FOUND.code },
       });
     });
   });
@@ -159,7 +192,7 @@ describe('WorkspaceHolidayService', () => {
       repository.delete.mockResolvedValue({ affected: 0 });
 
       await expect(service.deleteHoliday(dto)).rejects.toMatchObject({
-        error: { code: CALENDAR_ERROR.HOLIDAY_NOT_FOUND.code }
+        error: { code: CALENDAR_ERROR.HOLIDAY_NOT_FOUND.code },
       });
     });
   });
@@ -192,7 +225,9 @@ describe('WorkspaceHolidayService', () => {
       const invalidDto = { ...dto, countryCode: 'XX_INVALID' };
 
       await expect(service.autoFillHolidays(invalidDto)).rejects.toMatchObject({
-        error: { code: CALENDAR_ERROR.UNSUPPORTED_COUNTRY_HOLIDAY_AUTO_FILL.code }
+        error: {
+          code: CALENDAR_ERROR.UNSUPPORTED_COUNTRY_HOLIDAY_AUTO_FILL.code,
+        },
       });
     });
   });
@@ -207,7 +242,10 @@ describe('WorkspaceHolidayService', () => {
       repository.find.mockResolvedValue(mockHolidays);
 
       const dates = ['2026-05-01', '2026-01-01', '2026-10-10'];
-      const result = await service.checkIfDatesAreHolidays('workspace-1', dates);
+      const result = await service.checkIfDatesAreHolidays(
+        'workspace-1',
+        dates,
+      );
 
       expect(result['2026-05-01']).toBe(true); // Exact match
       expect(result['2026-01-01']).toBe(true); // Recurring match
