@@ -352,7 +352,7 @@ export class SupervisorService {
       .join('\n');
     const mustFinishRemaining = hasPendingActionStep(remainingSteps);
     const doneNotAllowedNote = mustFinishRemaining
-      ? '\n\nLƯU Ý: còn ít nhất 1 bước BẮT BUỘC (đánh dấu ở trên) chưa chạy — "done" không phải lựa chọn hợp lệ ở lượt này, chỉ được chọn "continue" hoặc "re-plan".'
+      ? '\n\nLƯU Ý: còn ít nhất 1 bước BẮT BUỘC (đánh dấu ở trên) chưa chạy — "done" không phải lựa chọn hợp lệ ở lượt này, chỉ được chọn "continue" hoặc "replan".'
       : '';
     const prompt = `Câu hỏi gốc: ${originalPrompt}\n\nBước vừa thực hiện xong — Agent "${completedStep.agent}" (yêu cầu: "${completedStep.task}") → kết quả: ${cappedResult}\n\nCác bước CÒN LẠI trong kế hoạch (chưa chạy):\n${remainingText}\n\nBước vừa xong có đạt kỳ vọng không, các bước còn lại có còn hợp lý để tiếp tục không?${doneNotAllowedNote}`;
 

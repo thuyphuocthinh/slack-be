@@ -1474,7 +1474,7 @@ describe('SupervisorService', () => {
     });
 
     it('does NOT skip the LLM call when the result says the agent was unavailable', async () => {
-      mockStrategy.generateStructured.mockResolvedValue({ verdict: 're-plan' });
+      mockStrategy.generateStructured.mockResolvedValue({ verdict: 'replan' });
       const unavailableStep = {
         agent: 'sql_server',
         task: 'lấy danh sách diễn viên',
@@ -1565,7 +1565,7 @@ describe('SupervisorService', () => {
           mockStrategy.generateStructured.mock.calls[0][0].schema;
         expect(sentSchema.properties.verdict.enum).toEqual([
           'continue',
-          're-plan',
+          'replan',
         ]);
         const sentPrompt =
           mockStrategy.generateStructured.mock.calls[0][0].prompt;
@@ -1589,7 +1589,7 @@ describe('SupervisorService', () => {
           mockStrategy.generateStructured.mock.calls[0][0].schema;
         expect(sentSchema.properties.verdict.enum).toEqual([
           'continue',
-          're-plan',
+          'replan',
           'done',
         ]);
       });
@@ -1607,7 +1607,7 @@ describe('SupervisorService', () => {
           mockStrategy.generateStructured.mock.calls[0][0].schema;
         expect(sentSchema.properties.verdict.enum).toEqual([
           'continue',
-          're-plan',
+          'replan',
         ]);
       });
     });

@@ -289,10 +289,10 @@ Danh sách agent khả dụng cho user này (dưới dạng "provider_id (label)
 // có đạt kỳ vọng không, các bước còn lại có còn hợp lý không". Mặc định nếu
 // lỗi/không chắc là "continue" (bám theo kế hoạch cũ) — an toàn hơn vì
 // MAX_SUPERVISOR_ROUNDS vẫn là lưới chặn cuối nếu kế hoạch thật sự sai.
-export const SUPERVISOR_EVALUATE_PROMPT = `Bạn là bộ điều phối (Supervisor) đứng sau 1 AI Assistant trong Slack, đang ở giữa việc thực hiện 1 kế hoạch nhiều bước. Nhiệm vụ DUY NHẤT bây giờ: xem xét bước VỪA THỰC HIỆN XONG có đạt được mục đích đề ra không, và các bước CÒN LẠI trong kế hoạch (nếu còn) có còn hợp lý để tiếp tục không — trả về ĐÚNG 1 lựa chọn HỢP LỆ (xem "enum" của field "verdict" trong schema — có thể CHỈ có 2 lựa chọn "continue"/"re-plan" ở 1 số lượt, khi hệ thống đã xác định chắc chắn còn bước bắt buộc chưa chạy nên "done" không được liệt kê):
+export const SUPERVISOR_EVALUATE_PROMPT = `Bạn là bộ điều phối (Supervisor) đứng sau 1 AI Assistant trong Slack, đang ở giữa việc thực hiện 1 kế hoạch nhiều bước. Nhiệm vụ DUY NHẤT bây giờ: xem xét bước VỪA THỰC HIỆN XONG có đạt được mục đích đề ra không, và các bước CÒN LẠI trong kế hoạch (nếu còn) có còn hợp lý để tiếp tục không — trả về ĐÚNG 1 lựa chọn HỢP LỆ (xem "enum" của field "verdict" trong schema — có thể CHỈ có 2 lựa chọn "continue"/"replan" ở 1 số lượt, khi hệ thống đã xác định chắc chắn còn bước bắt buộc chưa chạy nên "done" không được liệt kê):
 
 - "continue": bước vừa xong đạt đúng kỳ vọng, các bước còn lại trong kế hoạch vẫn hợp lý — cứ tiếp tục làm bước kế tiếp theo ĐÚNG kế hoạch cũ, không cần đổi gì.
-- "re-plan": kết quả bước vừa xong KHÁC kỳ vọng (agent trả về lỗi, dữ liệu không như mong đợi, hoặc các bước còn lại không còn phù hợp với thực tế vừa phát hiện) — cần lập lại kế hoạch từ đầu dựa trên TOÀN BỘ thông tin đã có (kể cả bước vừa xong).
+- "replan": kết quả bước vừa xong KHÁC kỳ vọng (agent trả về lỗi, dữ liệu không như mong đợi, hoặc các bước còn lại không còn phù hợp với thực tế vừa phát hiện) — cần lập lại kế hoạch từ đầu dựa trên TOÀN BỘ thông tin đã có (kể cả bước vừa xong).
 - "done": dữ liệu đã thu thập được (kể cả khi các bước còn lại trong kế hoạch CHƯA chạy) đã ĐỦ để trả lời trọn vẹn câu hỏi gốc của user — dừng lại, không cần chạy tiếp các bước còn lại.
 
 QUAN TRỌNG — "done" CHỈ áp dụng khi các bước còn lại là bước KHÁM PHÁ/THU THẬP THÊM dữ liệu (VD tra thêm 1 nguồn nữa để chắc chắn) mà bước vừa xong đã khiến trở nên KHÔNG CẦN THIẾT nữa. TUYỆT ĐỐI KHÔNG chọn "done" nếu bất kỳ bước CÒN LẠI nào là 1 HÀNH ĐỘNG user đã yêu cầu rõ ràng trong câu hỏi gốc (GHI/TẠO/THÊM/SỬA/XOÁ dữ liệu vào 1 hệ thống cụ thể — VD "...rồi chèn/lưu/cập nhật X vào Y") — hành động đó PHẢI được THỰC THI THẬT qua đúng bước đó, "đã có dữ liệu để trình bày/liệt kê lại cho user xem" KHÔNG PHẢI là đã hoàn thành yêu cầu, dù trông có vẻ đủ để trả lời. Gặp trường hợp này, LUÔN trả "continue" để bước hành động đó được chạy, không tự ý dừng lại hỏi user có muốn tiếp tục không.
@@ -304,9 +304,9 @@ export const SUPERVISOR_EVALUATE_SCHEMA = {
   properties: {
     verdict: {
       type: 'string',
-      enum: ['continue', 're-plan', 'done'],
+      enum: ['continue', 'replan', 'done'],
       description:
-        '"continue" nếu bước vừa xong ổn và kế hoạch còn lại vẫn hợp lý. "re-plan" nếu kết quả khác kỳ vọng hoặc kế hoạch còn lại không còn hợp lý. "done" nếu đã đủ dữ liệu trả lời, không cần chạy tiếp các bước còn lại.',
+        '"continue" nếu bước vừa xong ổn và kế hoạch còn lại vẫn hợp lý. "replan" nếu kết quả khác kỳ vọng hoặc kế hoạch còn lại không còn hợp lý. "done" nếu đã đủ dữ liệu trả lời, không cần chạy tiếp các bước còn lại.',
     },
     reason: {
       type: 'string',
@@ -329,9 +329,9 @@ export const SUPERVISOR_EVALUATE_SCHEMA_NO_DONE = {
   properties: {
     verdict: {
       type: 'string',
-      enum: ['continue', 're-plan'],
+      enum: ['continue', 'replan'],
       description:
-        '"continue" nếu bước vừa xong ổn và kế hoạch còn lại vẫn hợp lý. "re-plan" nếu kết quả khác kỳ vọng hoặc kế hoạch còn lại không còn hợp lý. KHÔNG có lựa chọn "done" ở lượt này — còn ít nhất 1 bước BẮT BUỘC (đánh dấu rõ bên dưới) trong kế hoạch chưa chạy, chưa thể dừng.',
+        '"continue" nếu bước vừa xong ổn và kế hoạch còn lại vẫn hợp lý. "replan" nếu kết quả khác kỳ vọng hoặc kế hoạch còn lại không còn hợp lý. KHÔNG có lựa chọn "done" ở lượt này — còn ít nhất 1 bước BẮT BUỘC (đánh dấu rõ bên dưới) trong kế hoạch chưa chạy, chưa thể dừng.',
     },
     reason: {
       type: 'string',
