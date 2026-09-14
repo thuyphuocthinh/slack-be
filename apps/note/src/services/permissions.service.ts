@@ -1,0 +1,209 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { PermissionsEntity } from '../entity/permissions.entity';
+import { DataSource, Repository } from 'typeorm';
+import { PermissionType } from '../types/permission.types';
+import { CACHE, CachedService, TTL } from '@slack/cached';
+import { PagesEntity } from '../entity/pages.entity';
+import { RpcException } from '@nestjs/microservices';
+import { NOTE_ERROR } from '@slack/constants/errors';
+
+@Injectable()
+export class PermissionsService {
+  private readonly logger = new Logger(PermissionsService.name);
+
+  constructor(
+    @InjectRepository(PermissionsEntity)
+    private readonly permissionsRepo: Repository<PermissionsEntity>,
+    @InjectRepository(PagesEntity)
+    private readonly pagesRepo: Repository<PagesEntity>,
+    private readonly cachedService: CachedService,
+    private readonly dataSource: DataSource,
+  ) {}
+
+  // share/unshare/đổi type — chỉ owner được gọi. Bọc transaction + pessimistic
+  // double-click share/unshare liên tiếp có thể race giữa 2 request cùng lúc.
+  async toggleUserPermissionByPage(
+    callerId: string,
+    pageId: string,
+    userId: string,
+    type: PermissionType,
+  ): Promise<void> {
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        const ownerPage = await manager.findOne(PagesEntity, {
+          where: { id: pageId, userId: callerId },
+        });
+
+        if (!ownerPage) {
+          throw new RpcException(NOTE_ERROR.ACCESS_DENIED);
+        }
+
+        const existingPermission = await manager.findOne(PermissionsEntity, {
+          where: { pageId, userId },
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        if (existingPermission) {
+          if (existingPermission.type === type) {
+            // bấm lại đúng type đang có -> unshare
+            await manager.delete(PermissionsEntity, { pageId, userId });
+            this.logger.debug(
+              `Deleted permission for user ${userId} on page ${pageId}`,
+            );
+          } else {
+            // đổi type (VD nâng View -> Edit), không xóa mất quyền cũ
+            await manager.update(
+              PermissionsEntity,
+              { pageId, userId },
+              { type },
+            );
+            this.logger.debug(
+              `Updated permission for user ${userId} on page ${pageId} to ${type}`,
+            );
+          }
+        } else {
+          await manager.save(PermissionsEntity, { pageId, userId, type });
+          this.logger.debug(
+            `Saved permission for user ${userId} on page ${pageId}`,
+          );
+        }
+      });
+
+      // Chỉ invalidate cache SAU KHI transaction commit thành công
+      await this.cachedService.invalidateDetail(
+        CACHE.NOTE.KEYS.USER_PERMISSIONS(pageId, userId),
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error toggling permission for user ${userId} on page ${pageId}:`,
+        error,
+      );
+      throw error;
+    }
+  }
+
+  // get quyền thật (owner, hoặc share tường minh tại chính page/page tổ tiên)
+  async getUserPermissionByPage(
+    pageId: string,
+    userId: string,
+  ): Promise<PermissionType | null> {
+    try {
+      const result =
+        await this.cachedService.getOrSetDetail<PermissionType | null>(
+          CACHE.NOTE.KEYS.USER_PERMISSIONS(pageId, userId),
+          TTL.SHORT,
+          async () => this.resolvePermissionOptimized(pageId, userId),
+        );
+
+      this.logger.debug(
+        `User ${userId} on page ${pageId} has permission: ${result}`,
+      );
+      return result;
+    } catch (error) {
+      this.logger.error(
+        `Error checking permission for user ${userId} on page ${pageId}:`,
+        error,
+      );
+      throw error;
+    }
+  }
+
+  // Dùng ở mọi service khác thay vì tự viết if/throw lặp lại (khớp pattern
+  // WorkspaceCommonService.checkPermission — tự throw bên trong, nơi gọi 1 dòng).
+  // required = View: có bất kỳ quyền nào (View hoặc Edit) cũng pass, vì Edit ⊇ View.
+  // required = Edit: bắt buộc đúng Edit.
+  async assertPermission(
+    pageId: string,
+    userId: string,
+    required: PermissionType,
+  ): Promise<void> {
+    const permission = await this.getUserPermissionByPage(pageId, userId);
+    const hasAccess =
+      required === PermissionType.Edit
+        ? permission === PermissionType.Edit
+        : permission !== null;
+
+    if (!hasAccess) {
+      throw new RpcException(NOTE_ERROR.ACCESS_DENIED);
+    }
+  }
+
+  // BẢN NAIVE — walk-up cây, tối đa `depth` query. Giữ lại (không xóa) để load-test
+  // so sánh trước/sau với bản optimized bên dưới, đúng bài đo tải docs.md mục 3.3.
+  private async resolvePermissionNaive(
+    pageId: string,
+    userId: string,
+  ): Promise<PermissionType | null> {
+    let currentPageId: string | null = pageId;
+
+    while (currentPageId) {
+      const page = await this.pagesRepo.findOne({
+        where: { id: currentPageId },
+      });
+      if (!page) return null;
+
+      if (page.userId === userId) {
+        return PermissionType.Edit; // owner luôn có quyền Edit
+      }
+
+      const permission = await this.permissionsRepo.findOne({
+        where: { pageId: currentPageId, userId },
+      });
+      if (permission) {
+        return permission.type;
+      }
+
+      currentPageId = page.parentId;
+    }
+
+    return null;
+  }
+
+  // BẢN OPTIMIZED — dùng materialized path (Pages.path) để lấy hết tổ tiên trong
+  // đúng 2 query (không phụ thuộc độ sâu cây) thay vì tối đa `depth` query tuần tự.
+  private async resolvePermissionOptimized(
+    pageId: string,
+    userId: string,
+  ): Promise<PermissionType | null> {
+    const page = await this.pagesRepo.findOne({
+      where: { id: pageId },
+      select: ['path'],
+    });
+    if (!page) return null;
+
+    // path dạng "/rootId/.../pageId" — tách ra list id, đảo ngược để ưu tiên tổ
+    // tiên GẦN NHẤT trước (khớp semantics bản naive: "gần nhất thắng").
+    const ancestorIds = page.path.split('/').filter(Boolean).reverse();
+    if (ancestorIds.length === 0) return null;
+
+    const rows = await this.pagesRepo
+      .createQueryBuilder('page')
+      .leftJoin(
+        PermissionsEntity,
+        'perm',
+        'perm.pageId = page.id AND perm.userId = :userId',
+        { userId },
+      )
+      .select('page.id', 'id')
+      .addSelect('page.userId', 'ownerId')
+      .addSelect('perm.type', 'permType')
+      .where('page.id IN (:...ancestorIds)', { ancestorIds })
+      .getRawMany<{
+        id: string;
+        ownerId: string;
+        permType: PermissionType | null;
+      }>();
+
+    const byId = new Map(rows.map((r) => [r.id, r]));
+
+    for (const id of ancestorIds) {
+      const row = byId.get(id);
+      if (!row) continue;
+      if (row.ownerId === userId) return PermissionType.Edit;
+      if (row.permType) return row.permType;
+    }
+
+    return null;
+  }
+}

@@ -119,6 +119,15 @@
         "tsConfigPath": "apps/message/tsconfig.app.json"
       }
     },
+    "note": {
+      "type": "application",
+      "root": "apps/note",
+      "entryFile": "main",
+      "sourceRoot": "apps/note/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/note/tsconfig.app.json"
+      }
+    },
     "notification": {
       "type": "application",
       "root": "apps/notification",

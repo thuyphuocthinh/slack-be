@@ -304,6 +304,14 @@ export const CACHE = {
         `${GLOBAL_PREFIX}:${GLOBAL_VER}:orchestration:v1:workspace_trigger_count:${workspaceId}`,
     },
   },
+
+  NOTE: {
+    _VER: 'v1',
+    KEYS: {
+      USER_PERMISSIONS: (pageId: string, userId: string): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:note:permissions:v1:page_${pageId}:user_${userId}`,
+    },
+  },
 };
 
 /*

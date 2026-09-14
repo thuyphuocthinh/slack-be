@@ -18,3 +18,4 @@ export * from './user.error';
 export * from './validation.error';
 export * from './webhook.error';
 export * from './workspace.error';
+export * from './note.error';

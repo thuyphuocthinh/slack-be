@@ -19,6 +19,7 @@ export * from './errors/canvas.error';
 export * from './errors/oauth.error';
 export * from './errors/integration.error';
 export * from './errors/orchestration.error';
+export * from './errors/note.error';
 
 export * from './tcp/tcp.constant';
 export * from './tcp/message_pattern/notification_msg_pattern.constant';
@@ -52,3 +53,4 @@ export * from './errors/calendar.error';
 export * from './tcp/message_pattern/calendar_msg_pattern.constant';
 export * from './tcp/message_pattern/orchestration_msg_pattern.constant';
 export * from './types/orchestration.enum';
+export * from './tcp/message_pattern/note_msg_pattern.constant';
