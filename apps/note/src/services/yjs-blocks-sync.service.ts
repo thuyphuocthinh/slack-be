@@ -6,6 +6,7 @@ import { plainToInstance } from 'class-transformer';
 import { BlocksEntity } from '../entity/blocks.entity';
 import { BlockType } from '../types/blocks.types';
 import { BlockResponseDto } from '../dto/block-response.dto';
+import { extractPlainText } from '../utils/prosemirror.util';
 import type { Doc as YDoc } from 'yjs';
 
 const TIPTAP_TO_BLOCK_TYPE: Record<string, BlockType> = {
@@ -90,6 +91,7 @@ export class YjsBlocksSyncService {
         pageId,
         type: blockType,
         content,
+        contentText: extractPlainText(content),
         order: blocks.length,
         parentId: parentId ?? undefined,
       });

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, SelectQueryBuilder } from 'typeorm';
+import { Brackets, Repository, SelectQueryBuilder } from 'typeorm';
 import { PagesEntity } from '../entity/pages.entity';
 import { RpcException } from '@nestjs/microservices';
 import { NOTE_ERROR } from '@slack/constants/errors';
@@ -14,6 +14,7 @@ import { PermissionType } from '../types/permission.types';
 import { DeletePageDto } from '../dto/delete-page.dto';
 import { QueryPagesDto } from '../dto/query-pages.dto';
 import { IOffsetResponse } from '@slack/common';
+import { CACHE, CachedService } from '@slack/cached';
 
 @Injectable()
 export class PagesService {
@@ -23,6 +24,7 @@ export class PagesService {
     @InjectRepository(PagesEntity)
     private readonly pagesRepo: Repository<PagesEntity>,
     private readonly permissionsService: PermissionsService,
+    private readonly cachedService: CachedService,
   ) {}
 
   private mapToResponse(page: PagesEntity): PageResponseDto {
@@ -158,8 +160,10 @@ export class PagesService {
         // Full-text search theo từ (GIN index trên to_tsvector, xem migration
         // AddPagesTitleFtsIndex) thay vì ILIKE '%...%' — ILIKE có wildcard đầu
         // nên không dùng được index thường, phải seq-scan toàn bảng.
-        // TODO: mới search title, chưa search Blocks.content — cần join Blocks
-        // khi BlocksEntity/BlocksService được wire vào note module.
+        // Match title HOẶC bất kỳ block nào của page — Blocks.contentText là text
+        // phẳng maintain sẵn (xem utils/prosemirror.util.ts + migration
+        // AddBlocksContentTextFtsIndex), vì content gốc là JSONB lồng sâu không
+        // to_tsvector trực tiếp được.
         const formattedKeyword = keyword
           .trim()
           .replace(/[&|!():*]/g, '')
@@ -170,8 +174,22 @@ export class PagesService {
 
         if (formattedKeyword) {
           qb.andWhere(
-            `to_tsvector('simple', page.title) @@ to_tsquery('simple', :formattedKeyword)`,
-            { formattedKeyword },
+            new Brackets((qb2) => {
+              qb2
+                .where(
+                  `to_tsvector('simple', page.title) @@ to_tsquery('simple', :formattedKeyword)`,
+                  { formattedKeyword },
+                )
+                .orWhere(
+                  `EXISTS (
+                    SELECT 1 FROM blocks b
+                    WHERE b.page_id = page.id
+                      AND b.deleted_at IS NULL
+                      AND to_tsvector('simple', b.content_text) @@ to_tsquery('simple', :formattedKeyword)
+                  )`,
+                  { formattedKeyword },
+                );
+            }),
           );
         }
       }
@@ -264,6 +282,16 @@ export class PagesService {
       Object.assign(page, updateData);
 
       await this.pagesRepo.save(page);
+
+      // isPublic ảnh hưởng permission hiệu lực của MỌI user (không riêng ai) —
+      // không biết đã cache cho những user nào nên bump version thay vì xoá
+      // từng key theo (pageId, userId) như PermissionsService.toggleUserPermissionByPage.
+      if ('isPublic' in updateData) {
+        await this.cachedService.invalidateList(
+          CACHE.NOTE.TRACKERS.PAGE_PERMISSION_VERSION(id),
+        );
+      }
+
       this.logger.debug(`Page updated successfully: ${page.id}`);
       return this.mapToResponse(page);
     } catch (error) {

@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { Brackets } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
 import { NOTE_ERROR } from '@slack/constants/errors';
 import { PagesService } from './pages.service';
@@ -7,11 +8,13 @@ import { PagesEntity } from '../entity/pages.entity';
 import { PermissionsService } from './permissions.service';
 import { PermissionType } from '../types/permission.types';
 import { PageType } from '../types/pages.types';
+import { CachedService } from '@slack/cached';
 
 describe('PagesService', () => {
   let service: PagesService;
   let pagesRepo: any;
   let permissionsService: any;
+  let cachedService: any;
 
   const OWNER_ID = 'owner-1';
   const EDITOR_ID = 'editor-1';
@@ -60,11 +63,16 @@ describe('PagesService', () => {
       },
     );
 
+    cachedService = {
+      invalidateList: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PagesService,
         { provide: getRepositoryToken(PagesEntity), useValue: pagesRepo },
         { provide: PermissionsService, useValue: permissionsService },
+        { provide: CachedService, useValue: cachedService },
       ],
     }).compile();
 
@@ -236,6 +244,50 @@ describe('PagesService', () => {
       expect(result.title).toBe('new title');
       expect(result.favicon).toBe('old-favicon');
     });
+
+    it('should bump the permission version tracker when isPublic changes', async () => {
+      pagesRepo.findOne.mockResolvedValueOnce({
+        id: ROOT_ID,
+        userId: OWNER_ID,
+        title: 'old',
+        isPublic: false,
+      });
+      permissionsService.getUserPermissionByPage.mockResolvedValueOnce(
+        PermissionType.Edit,
+      );
+
+      await service.updatePage({
+        id: ROOT_ID,
+        userId: OWNER_ID,
+        isPublic: true,
+      } as any);
+
+      // isPublic đổi hiệu lực cho MỌI user, không riêng ai -> bump version thay
+      // vì xoá key theo (pageId, userId) cụ thể.
+      expect(cachedService.invalidateList).toHaveBeenCalledWith(
+        expect.stringContaining(ROOT_ID),
+      );
+    });
+
+    it('should not touch the permission cache when isPublic is not part of the update', async () => {
+      pagesRepo.findOne.mockResolvedValueOnce({
+        id: ROOT_ID,
+        userId: OWNER_ID,
+        title: 'old',
+        isPublic: false,
+      });
+      permissionsService.getUserPermissionByPage.mockResolvedValueOnce(
+        PermissionType.Edit,
+      );
+
+      await service.updatePage({
+        id: ROOT_ID,
+        userId: OWNER_ID,
+        title: 'new title',
+      } as any);
+
+      expect(cachedService.invalidateList).not.toHaveBeenCalled();
+    });
   });
 
   describe('getDetailPage', () => {
@@ -349,16 +401,34 @@ describe('PagesService', () => {
       );
     });
 
-    it('should apply a full-text search filter when keyword is provided', async () => {
+    it('should apply a full-text search filter across page title and block content when keyword is provided', async () => {
       await service.queryPages({
         workspaceId: 'ws-1',
         userId: OWNER_ID,
         keyword: 'Q3 plan',
       } as any);
 
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+      const bracketsCall = mockQueryBuilder.andWhere.mock.calls.find(
+        (c: any[]) => c[0] instanceof Brackets,
+      );
+      expect(bracketsCall).toBeDefined();
+
+      // Brackets chỉ build được lời gọi where/orWhere thật khi chạy trên
+      // SelectQueryBuilder thật — ở đây tự invoke whereFactory với 1 fake
+      // builder để assert đúng 2 nhánh OR (title vs block content).
+      const fakeQb = {
+        where: jest.fn().mockReturnThis(),
+        orWhere: jest.fn().mockReturnThis(),
+      };
+      bracketsCall[0].whereFactory(fakeQb);
+
+      expect(fakeQb.where).toHaveBeenCalledWith(
         `to_tsvector('simple', page.title) @@ to_tsquery('simple', :formattedKeyword)`,
         { formattedKeyword: 'Q3:* & plan:*' }, // code không lowercase, giữ nguyên case gốc
+      );
+      expect(fakeQb.orWhere).toHaveBeenCalledWith(
+        expect.stringContaining("to_tsvector('simple', b.content_text)"),
+        { formattedKeyword: 'Q3:* & plan:*' },
       );
     });
 

@@ -24,6 +24,12 @@ export class BlocksEntity {
   @Column({ name: 'content', type: 'jsonb' })
   content: Record<string, unknown>;
 
+  // Text phẳng trích từ `content` (xem utils/prosemirror.util.ts), maintain ở
+  // tầng app mỗi lần content đổi — dùng để full-text search (content JSONB lồng
+  // sâu, không to_tsvector trực tiếp được).
+  @Column({ name: 'content_text', type: 'text', nullable: true })
+  contentText: string | null;
+
   @Column({ name: 'order' })
   order: number;
 

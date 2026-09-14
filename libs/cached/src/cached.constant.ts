@@ -308,8 +308,22 @@ export const CACHE = {
   NOTE: {
     _VER: 'v1',
     KEYS: {
-      USER_PERMISSIONS: (pageId: string, userId: string): string =>
-        `${GLOBAL_PREFIX}:${GLOBAL_VER}:note:permissions:v1:page_${pageId}:user_${userId}`,
+      // version nằm trong key (không phải Redis TTL) — bump PAGE_PERMISSION_VERSION
+      // là cách "xoá" toàn bộ permission cache của 1 page cho MỌI user đã từng
+      // cache, mà không cần biết đã cache cho ai (xem TRACKERS bên dưới).
+      USER_PERMISSIONS: (
+        pageId: string,
+        userId: string,
+        version: number,
+      ): string =>
+        `${GLOBAL_PREFIX}:${GLOBAL_VER}:note:permissions:v1:page_${pageId}:v_${version}:user_${userId}`,
+    },
+    TRACKERS: {
+      // Bump khi: (1) share/unshare/đổi type permission tại page này hoặc bất kỳ
+      // tổ tiên nào của nó (permission có tính kế thừa qua path), (2) đổi isPublic
+      // của chính page này.
+      PAGE_PERMISSION_VERSION: (pageId: string): string =>
+        `${GLOBAL_PREFIX}:trackers:note:permissions:page_${pageId}:version`,
     },
   },
 };

@@ -30,6 +30,8 @@ export class PermissionsService {
     type: PermissionType,
   ): Promise<void> {
     try {
+      let ownerPagePath = '';
+
       await this.dataSource.transaction(async (manager) => {
         const ownerPage = await manager.findOne(PagesEntity, {
           where: { id: pageId, userId: callerId },
@@ -38,6 +40,8 @@ export class PermissionsService {
         if (!ownerPage) {
           throw new RpcException(NOTE_ERROR.ACCESS_DENIED);
         }
+
+        ownerPagePath = ownerPage.path;
 
         const existingPermission = await manager.findOne(PermissionsEntity, {
           where: { pageId, userId },
@@ -70,9 +74,12 @@ export class PermissionsService {
         }
       });
 
-      // Chỉ invalidate cache SAU KHI transaction commit thành công
-      await this.cachedService.invalidateDetail(
-        CACHE.NOTE.KEYS.USER_PERMISSIONS(pageId, userId),
+      // Chỉ invalidate cache SAU KHI transaction commit thành công.
+      const descendantIds = await this.getDescendantPageIds(ownerPagePath);
+      await this.cachedService.invalidateListBulk(
+        [pageId, ...descendantIds].map((id) =>
+          CACHE.NOTE.TRACKERS.PAGE_PERMISSION_VERSION(id),
+        ),
       );
     } catch (error) {
       this.logger.error(
@@ -89,9 +96,12 @@ export class PermissionsService {
     userId: string,
   ): Promise<PermissionType | null> {
     try {
+      const version = await this.cachedService.getVersion(
+        CACHE.NOTE.TRACKERS.PAGE_PERMISSION_VERSION(pageId),
+      );
       const result =
-        await this.cachedService.getOrSetDetail<PermissionType | null>(
-          CACHE.NOTE.KEYS.USER_PERMISSIONS(pageId, userId),
+        await this.cachedService.getOrSetDetailNullable<PermissionType>(
+          CACHE.NOTE.KEYS.USER_PERMISSIONS(pageId, userId, version),
           TTL.SHORT,
           async () => this.resolvePermissionOptimized(pageId, userId),
         );
@@ -168,14 +178,16 @@ export class PermissionsService {
   ): Promise<PermissionType | null> {
     const page = await this.pagesRepo.findOne({
       where: { id: pageId },
-      select: ['path'],
+      select: ['path', 'isPublic'],
     });
     if (!page) return null;
 
     // path dạng "/rootId/.../pageId" — tách ra list id, đảo ngược để ưu tiên tổ
     // tiên GẦN NHẤT trước (khớp semantics bản naive: "gần nhất thắng").
     const ancestorIds = page.path.split('/').filter(Boolean).reverse();
-    if (ancestorIds.length === 0) return null;
+    if (ancestorIds.length === 0) {
+      return page.isPublic ? PermissionType.View : null;
+    }
 
     const rows = await this.pagesRepo
       .createQueryBuilder('page')
@@ -204,6 +216,22 @@ export class PermissionsService {
       if (row.permType) return row.permType;
     }
 
-    return null;
+    // Không tìm thấy quyền tường minh nào trong cây tổ tiên — vẫn xem được nếu
+    // CHÍNH page này (không kế thừa isPublic từ tổ tiên) được set public, khớp
+    // semantics của Hocuspocus gateway (note/hocuspocus.gateway.ts) vốn cũng chỉ
+    // check page.isPublic của đúng page đang mở, không kế thừa.
+    return page.isPublic ? PermissionType.View : null;
+  }
+
+  // Dùng khi share/unshare permission tại 1 page — vì quyền kế thừa xuống page
+  // con, phải invalidate cache của TOÀN BỘ subtree chứ không chỉ đúng page đó.
+  private async getDescendantPageIds(path: string): Promise<string[]> {
+    const rows = await this.pagesRepo
+      .createQueryBuilder('page')
+      .select('page.id', 'id')
+      .where('page.path LIKE :prefix', { prefix: `${path}/%` })
+      .getRawMany<{ id: string }>();
+
+    return rows.map((r) => r.id);
   }
 }

@@ -13,6 +13,7 @@ import { RpcException } from '@nestjs/microservices';
 import { NOTE_ERROR } from '@slack/constants/errors';
 import { PermissionsService } from './permissions.service';
 import { PermissionType } from '../types/permission.types';
+import { extractPlainText } from '../utils/prosemirror.util';
 
 @Injectable()
 export class BlocksService {
@@ -46,6 +47,7 @@ export class BlocksService {
         pageId,
         type,
         content,
+        contentText: extractPlainText(content),
         order,
         parentId,
       });
@@ -77,6 +79,12 @@ export class BlocksService {
       // field không gửi sẽ không tồn tại như key trên DTO -> Object.assign tự bỏ qua,
       // không đè mất giá trị cũ (khớp pattern pages.service.ts:updatePage)
       Object.assign(block, updateData);
+
+      // content đổi -> contentText phải tính lại theo, nếu không search sẽ lệch
+      // khỏi nội dung thật.
+      if ('content' in updateData) {
+        block.contentText = extractPlainText(block.content);
+      }
 
       await this.blocksRepo.save(block);
       this.logger.debug(`Updated block ${id}`);

@@ -35,7 +35,10 @@ describe('PermissionsService', () => {
       addSelect: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
-      getRawMany: jest.fn(),
+      // Mặc định không có descendant nào — getDescendantPageIds() (chạy sau mỗi
+      // toggle) cũng đi qua createQueryBuilder() này; test nào cần subtree thật
+      // sẽ tự override bằng mockResolvedValueOnce.
+      getRawMany: jest.fn().mockResolvedValue([]),
     };
 
     permissionsRepo = {
@@ -48,8 +51,9 @@ describe('PermissionsService', () => {
     };
 
     cachedService = {
-      getOrSetDetail: jest.fn((_key, _ttl, fetcher) => fetcher()),
-      invalidateDetail: jest.fn(),
+      getVersion: jest.fn().mockResolvedValue(0),
+      getOrSetDetailNullable: jest.fn((_key, _ttl, fetcher) => fetcher()),
+      invalidateListBulk: jest.fn(),
     };
 
     const dataSource = {
@@ -92,7 +96,11 @@ describe('PermissionsService', () => {
 
     it('should create a new permission when none exists', async () => {
       manager.findOne
-        .mockResolvedValueOnce({ id: CHILD_ID, userId: OWNER_ID }) // ownerPage found
+        .mockResolvedValueOnce({
+          id: CHILD_ID,
+          userId: OWNER_ID,
+          path: `/${CHILD_ID}`,
+        }) // ownerPage found
         .mockResolvedValueOnce(null); // no existing permission
 
       await service.toggleUserPermissionByPage(
@@ -107,12 +115,16 @@ describe('PermissionsService', () => {
         userId: OTHER_USER_ID,
         type: PermissionType.View,
       });
-      expect(cachedService.invalidateDetail).toHaveBeenCalled();
+      expect(cachedService.invalidateListBulk).toHaveBeenCalled();
     });
 
     it('should delete the permission when toggled with the same existing type (unshare)', async () => {
       manager.findOne
-        .mockResolvedValueOnce({ id: CHILD_ID, userId: OWNER_ID })
+        .mockResolvedValueOnce({
+          id: CHILD_ID,
+          userId: OWNER_ID,
+          path: `/${CHILD_ID}`,
+        })
         .mockResolvedValueOnce({
           pageId: CHILD_ID,
           userId: OTHER_USER_ID,
@@ -135,7 +147,11 @@ describe('PermissionsService', () => {
 
     it('should update the type when toggled with a different existing type (upgrade/downgrade)', async () => {
       manager.findOne
-        .mockResolvedValueOnce({ id: CHILD_ID, userId: OWNER_ID })
+        .mockResolvedValueOnce({
+          id: CHILD_ID,
+          userId: OWNER_ID,
+          path: `/${CHILD_ID}`,
+        })
         .mockResolvedValueOnce({
           pageId: CHILD_ID,
           userId: OTHER_USER_ID,
@@ -155,6 +171,40 @@ describe('PermissionsService', () => {
         { type: PermissionType.Edit },
       );
       expect(manager.delete).not.toHaveBeenCalled();
+    });
+
+    it('should bump the permission version tracker for the page and every descendant', async () => {
+      manager.findOne
+        .mockResolvedValueOnce({
+          id: ROOT_ID,
+          userId: OWNER_ID,
+          path: `/${ROOT_ID}`,
+        })
+        .mockResolvedValueOnce(null);
+
+      const qb = pagesRepo.createQueryBuilder();
+      qb.getRawMany.mockResolvedValueOnce([
+        { id: CHILD_ID },
+        { id: 'grandchild-1' },
+      ]);
+
+      await service.toggleUserPermissionByPage(
+        OWNER_ID,
+        ROOT_ID,
+        OTHER_USER_ID,
+        PermissionType.View,
+      );
+
+      expect(qb.where).toHaveBeenCalledWith('page.path LIKE :prefix', {
+        prefix: `/${ROOT_ID}/%`,
+      });
+      const trackerKeys = cachedService.invalidateListBulk.mock.calls[0][0];
+      expect(trackerKeys).toHaveLength(3);
+      expect(trackerKeys.some((k: string) => k.includes(ROOT_ID))).toBe(true);
+      expect(trackerKeys.some((k: string) => k.includes(CHILD_ID))).toBe(true);
+      expect(trackerKeys.some((k: string) => k.includes('grandchild-1'))).toBe(
+        true,
+      );
     });
   });
 
@@ -244,6 +294,48 @@ describe('PermissionsService', () => {
     it('should return null when there is no permission anywhere in the chain', async () => {
       pagesRepo.findOne.mockResolvedValueOnce({
         path: `/${ROOT_ID}/${CHILD_ID}`,
+      });
+      const qb = pagesRepo.createQueryBuilder();
+      qb.getRawMany.mockResolvedValueOnce([
+        { id: CHILD_ID, ownerId: 'someone-else', permType: null },
+        { id: ROOT_ID, ownerId: 'someone-else', permType: null },
+      ]);
+
+      const result = await service.getUserPermissionByPage(
+        CHILD_ID,
+        OTHER_USER_ID,
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('should return View when the page itself is public and caller has no explicit permission', async () => {
+      pagesRepo.findOne.mockResolvedValueOnce({
+        path: `/${ROOT_ID}/${CHILD_ID}`,
+        isPublic: true,
+      });
+      const qb = pagesRepo.createQueryBuilder();
+      qb.getRawMany.mockResolvedValueOnce([
+        { id: CHILD_ID, ownerId: 'someone-else', permType: null },
+        { id: ROOT_ID, ownerId: 'someone-else', permType: null },
+      ]);
+
+      const result = await service.getUserPermissionByPage(
+        CHILD_ID,
+        OTHER_USER_ID,
+      );
+
+      expect(result).toBe(PermissionType.View);
+    });
+
+    it('should NOT inherit isPublic from an ancestor page', async () => {
+      // isPublic=true nằm ở page CHÍNH nó (CHILD_ID trong path), không phải ở
+      // page.isPublic được findOne trả về (chỉ select đúng page đang xét) — nên
+      // set false ở đây mô phỏng đúng page đang xét không public, dù ancestor
+      // row trong raw query có thể có is_public khác (không được select tới).
+      pagesRepo.findOne.mockResolvedValueOnce({
+        path: `/${ROOT_ID}/${CHILD_ID}`,
+        isPublic: false,
       });
       const qb = pagesRepo.createQueryBuilder();
       qb.getRawMany.mockResolvedValueOnce([
