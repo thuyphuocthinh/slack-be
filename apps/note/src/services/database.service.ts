@@ -137,8 +137,8 @@ export class DatabaseService {
       // Transaction vì đây là "Đa tác vụ" (2 bảng) — không có thì nếu bước 2 lỗi
       // giữa chừng sẽ mất giá trị cột nhưng cột vẫn còn tồn tại (sai cả 2 chiều).
       await this.dataSource.transaction(async (manager) => {
-        await manager.delete(PropertyValuesEntity, { propertyId: id });
-        await manager.delete(PropertiesEntity, id);
+        await manager.softDelete(PropertyValuesEntity, { propertyId: id });
+        await manager.softDelete(PropertiesEntity, id);
       });
       this.logger.debug(`Deleted property ${id} (cascade PropertyValues)`);
     } catch (error) {
@@ -238,7 +238,7 @@ export class DatabaseService {
         PermissionType.Edit,
       );
 
-      await this.viewsRepo.delete(id);
+      await this.viewsRepo.softDelete(id);
       this.logger.debug(`Deleted view ${id}`);
     } catch (error) {
       this.logger.error(`Error deleting view:`, error);

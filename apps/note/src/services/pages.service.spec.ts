@@ -37,7 +37,7 @@ describe('PagesService', () => {
       findOne: jest.fn(),
       create: jest.fn((data) => data),
       save: jest.fn((data) => Promise.resolve(data)),
-      delete: jest.fn(),
+      softDelete: jest.fn(),
       createQueryBuilder: jest.fn(() => mockQueryBuilder),
     };
 
@@ -356,7 +356,7 @@ describe('PagesService', () => {
 
       await service.deletePage({ id: ROOT_ID, userId: OWNER_ID });
 
-      expect(pagesRepo.delete).toHaveBeenCalledWith(ROOT_ID);
+      expect(pagesRepo.softDelete).toHaveBeenCalledWith(ROOT_ID);
     });
   });
 

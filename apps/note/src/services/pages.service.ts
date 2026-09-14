@@ -252,7 +252,9 @@ export class PagesService {
         throw new RpcException(NOTE_ERROR.ACTION_DENIED);
       }
 
-      await this.pagesRepo.delete(id);
+      // softDelete, không delete — entity có DeleteDateColumn nên mọi
+      // findOne/queryBuilder khác đã tự loại trừ deletedAt != null.
+      await this.pagesRepo.softDelete(id);
       this.logger.debug(`Page deleted successfully: ${id}`);
     } catch (error) {
       this.logger.error(`Error deleting page:`, error);

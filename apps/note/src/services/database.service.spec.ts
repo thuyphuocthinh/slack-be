@@ -44,7 +44,7 @@ describe('DatabaseService', () => {
       save: jest.fn((data) => Promise.resolve(data)),
       find: jest.fn(),
       findOne: jest.fn(),
-      delete: jest.fn(),
+      softDelete: jest.fn(),
     };
 
     propertyValuesRepo = {
@@ -59,7 +59,7 @@ describe('DatabaseService', () => {
     };
 
     manager = {
-      delete: jest.fn(),
+      softDelete: jest.fn(),
     };
     const dataSource = {
       transaction: jest.fn((cb) => cb(manager)),
@@ -201,15 +201,16 @@ describe('DatabaseService', () => {
 
       await service.deleteProperty({ id: PROPERTY_ID, userId: EDITOR_ID });
 
-      expect(manager.delete).toHaveBeenCalledWith(PropertyValuesEntity, {
+      expect(manager.softDelete).toHaveBeenCalledWith(PropertyValuesEntity, {
         propertyId: PROPERTY_ID,
       });
-      expect(manager.delete).toHaveBeenCalledWith(
+      expect(manager.softDelete).toHaveBeenCalledWith(
         PropertiesEntity,
         PROPERTY_ID,
       );
 
-      const [firstCall, secondCall] = (manager.delete as jest.Mock).mock.calls;
+      const [firstCall, secondCall] = (manager.softDelete as jest.Mock).mock
+        .calls;
       expect(firstCall[0]).toBe(PropertyValuesEntity); // xóa values TRƯỚC
       expect(secondCall[0]).toBe(PropertiesEntity); // xóa property SAU
     });
@@ -332,7 +333,7 @@ describe('DatabaseService', () => {
 
       await service.deleteView({ id: VIEW_ID, userId: EDITOR_ID });
 
-      expect(viewsRepo.delete).toHaveBeenCalledWith(VIEW_ID);
+      expect(viewsRepo.softDelete).toHaveBeenCalledWith(VIEW_ID);
     });
   });
 

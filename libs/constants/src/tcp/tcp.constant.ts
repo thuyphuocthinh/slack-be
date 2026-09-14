@@ -12,7 +12,10 @@ export const PORT_TCP = {
   CANVAS_TCP_PORT: 3012,
   CALENDAR_TCP_PORT: 3013,
   ORCHESTRATION_TCP_PORT: 3014,
-  NOTE_TCP_PORT: 3015,
+  // 3015 bị EDGE_RELAY_PORT (orchestration, apps/orchestration/src/main.ts)
+  // chiếm — 2 process PM2 riêng nhưng chung 1 container/network namespace nên
+  // đụng cổng thật (EADDRINUSE), không phải lý thuyết.
+  NOTE_TCP_PORT: 3016,
 };
 
 export const NAME_SERVICE_TCP = {

@@ -25,7 +25,7 @@ describe('BlocksService', () => {
       save: jest.fn((data) => Promise.resolve(data)),
       find: jest.fn(),
       findOne: jest.fn(),
-      delete: jest.fn(),
+      softDelete: jest.fn(),
     };
 
     permissionsService = {
@@ -285,7 +285,7 @@ describe('BlocksService', () => {
 
       await service.deleteBlock({ id: BLOCK_ID, userId: EDITOR_ID });
 
-      expect(blocksRepo.delete).toHaveBeenCalledWith(BLOCK_ID);
+      expect(blocksRepo.softDelete).toHaveBeenCalledWith(BLOCK_ID);
     });
   });
 });

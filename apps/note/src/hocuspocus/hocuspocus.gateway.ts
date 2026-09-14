@@ -89,7 +89,15 @@ export class HocuspocusGateway implements OnModuleInit, OnModuleDestroy {
     // khác (4.7) với bản root (4.1) — type không khớp nhưng runtime tương thích.
     return new Redis({
       host: process.env.NOTE_HOCUSPOCUS_REDIS_HOST || 'localhost',
-      port: parseInt(process.env.NOTE_HOCUSPOCUS_REDIS_PORT || '6380', 10),
+      // Dùng chung instance redis-cache (6379) — pub/sub của Hocuspocus không
+      // liên quan tới BullMQ (6380), không cần Redis riêng cho quy mô dự án này.
+      port: parseInt(process.env.NOTE_HOCUSPOCUS_REDIS_PORT || '6379', 10),
+      // Thiếu field này thì không connect được vào redis-cache (dev, có
+      // requirepass) hay bất kỳ Redis nào có requirepass — ioredis nhận
+      // password qua `options`.
+      options: process.env.NOTE_HOCUSPOCUS_REDIS_PASSWORD
+        ? { password: process.env.NOTE_HOCUSPOCUS_REDIS_PASSWORD }
+        : undefined,
     });
   }
 

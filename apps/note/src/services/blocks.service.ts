@@ -158,7 +158,7 @@ export class BlocksService {
         PermissionType.Edit,
       );
 
-      await this.blocksRepo.delete(id);
+      await this.blocksRepo.softDelete(id);
       this.logger.debug(`Deleted block ${id}`);
     } catch (error) {
       this.logger.error(`Error deleting block:`, error);
