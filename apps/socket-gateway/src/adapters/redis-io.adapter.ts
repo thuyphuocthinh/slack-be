@@ -16,9 +16,12 @@ export class RedisIoAdapter extends IoAdapter {
   }
 
   async connectToRedis(): Promise<void> {
-    const host = this.configService.get<string>('BULLMQ_HOST', '127.0.0.1');
-    const port = this.configService.get<number>('BULLMQ_PORT', 6380);
-    const password = this.configService.get<string>('BULLMQ_PASSWORD', '');
+    // Đây là pub/sub fan-out Socket.IO giữa các instance, không liên quan gì
+    // BullMQ — dùng chung REDIS_* (redis-cache) như CachedService, không mượn
+    // biến BULLMQ_* nữa (dễ nhầm là chỉ ảnh hưởng job nền).
+    const host = this.configService.get<string>('REDIS_HOST', '127.0.0.1');
+    const port = this.configService.get<number>('REDIS_PORT', 6379);
+    const password = this.configService.get<string>('REDIS_PASSWORD', '');
 
     // Cấu hình bằng ioredis
     const pubClient = new Redis({
