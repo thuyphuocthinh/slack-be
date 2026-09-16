@@ -52,6 +52,19 @@ export class UpdatePageApiDto {
   isPublic?: boolean;
 }
 
+// newParentId omit/null = chuyển thành trang gốc; newIndex omit = chèn cuối.
+export class MovePageApiDto {
+  @IsOptional()
+  @IsUUID()
+  newParentId?: string | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  newIndex?: number;
+}
+
 export class QueryPagesApiDto {
   @IsOptional()
   @IsUUID()

@@ -12,6 +12,7 @@ import { DeletePageDto } from './dto/delete-page.dto';
 import { GetTrashedPagesDto } from './dto/get-trashed-pages.dto';
 import { RestorePageDto } from './dto/restore-page.dto';
 import { DuplicatePageDto } from './dto/duplicate-page.dto';
+import { MovePageDto } from './dto/move-page.dto';
 import { CreateBlockDto } from './dto/create-block.dto';
 import { UpdateBlockDto } from './dto/update-block.dto';
 import { DeleteBlockDto } from './dto/delete-block.dto';
@@ -68,6 +69,11 @@ export class NoteController {
   @MessagePattern(NOTE_MESSAGE_PATTERN.DUPLICATE_PAGE)
   async duplicatePage(@Payload() dto: DuplicatePageDto) {
     return this.pagesService.duplicatePage(dto);
+  }
+
+  @MessagePattern(NOTE_MESSAGE_PATTERN.MOVE_PAGE)
+  async movePage(@Payload() dto: MovePageDto) {
+    return this.pagesService.movePage(dto);
   }
 
   @MessagePattern(NOTE_MESSAGE_PATTERN.GET_TRASHED_PAGES)

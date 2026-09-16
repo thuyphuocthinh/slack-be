@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Brackets } from 'typeorm';
+import { Brackets, DataSource } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
 import { NOTE_ERROR } from '@slack/constants/errors';
 import { PagesService } from './pages.service';
@@ -17,6 +17,8 @@ describe('PagesService', () => {
   let permissionsService: any;
   let cachedService: any;
   let blocksService: any;
+  let manager: any;
+  let managerQueryBuilder: any;
 
   const OWNER_ID = 'owner-1';
   const EDITOR_ID = 'editor-1';
@@ -27,12 +29,15 @@ describe('PagesService', () => {
 
   beforeEach(async () => {
     mockQueryBuilder = {
+      select: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
       getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+      getRawMany: jest.fn().mockResolvedValue([]),
     };
 
     pagesRepo = {
@@ -40,11 +45,13 @@ describe('PagesService', () => {
       create: jest.fn((data) => data),
       save: jest.fn((data) => Promise.resolve(data)),
       softDelete: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
       createQueryBuilder: jest.fn(() => mockQueryBuilder),
     };
 
     permissionsService = {
       getUserPermissionByPage: jest.fn(),
+      getDescendantPageIds: jest.fn().mockResolvedValue([]),
     };
     // assertPermission ủy quyền qua getUserPermissionByPage đã mock ở trên,
     // để các test case hiện có (mockResolvedValueOnce trên getUserPermissionByPage)
@@ -67,10 +74,30 @@ describe('PagesService', () => {
 
     cachedService = {
       invalidateList: jest.fn(),
+      invalidateListBulk: jest.fn(),
     };
 
     blocksService = {
       duplicateForPage: jest.fn(),
+    };
+
+    // reindexSiblings() chạy qua manager.createQueryBuilder — mặc định không
+    // có anh em nào (list rỗng), test nào cần siblings thật sẽ tự override.
+    managerQueryBuilder = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    };
+
+    manager = {
+      update: jest.fn(),
+      query: jest.fn(),
+      createQueryBuilder: jest.fn(() => managerQueryBuilder),
+    };
+
+    const dataSource = {
+      transaction: jest.fn((cb) => cb(manager)),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -80,6 +107,7 @@ describe('PagesService', () => {
         { provide: PermissionsService, useValue: permissionsService },
         { provide: CachedService, useValue: cachedService },
         { provide: BlocksService, useValue: blocksService },
+        { provide: DataSource, useValue: dataSource },
       ],
     }).compile();
 
@@ -498,6 +526,309 @@ describe('PagesService', () => {
         limit: 10,
         total: 42,
         totalPages: 5,
+      });
+    });
+  });
+
+  describe('movePage', () => {
+    it('should throw PAGE_NOT_FOUND when the page does not exist', async () => {
+      pagesRepo.findOne.mockResolvedValueOnce(null);
+
+      await expect(
+        service.movePage({ id: 'missing', userId: OWNER_ID } as any),
+      ).rejects.toThrow(new RpcException(NOTE_ERROR.PAGE_NOT_FOUND));
+    });
+
+    it('should throw ACCESS_DENIED when caller lacks Edit on the page itself', async () => {
+      pagesRepo.findOne.mockResolvedValueOnce({
+        id: 'p1',
+        workspaceId: 'ws-1',
+        parentId: null,
+        path: '/p1',
+        depth: 0,
+      });
+      permissionsService.getUserPermissionByPage.mockResolvedValueOnce(
+        PermissionType.View,
+      );
+
+      await expect(
+        service.movePage({ id: 'p1', userId: STRANGER_ID } as any),
+      ).rejects.toThrow(new RpcException(NOTE_ERROR.ACCESS_DENIED));
+    });
+
+    it('should throw PAGE_NOT_FOUND when newParentId does not exist', async () => {
+      pagesRepo.findOne
+        .mockResolvedValueOnce({
+          id: 'p1',
+          workspaceId: 'ws-1',
+          parentId: null,
+          path: '/p1',
+          depth: 0,
+        })
+        .mockResolvedValueOnce(null);
+      permissionsService.getUserPermissionByPage.mockResolvedValueOnce(
+        PermissionType.Edit,
+      );
+
+      await expect(
+        service.movePage({
+          id: 'p1',
+          userId: OWNER_ID,
+          newParentId: 'missing-parent',
+        } as any),
+      ).rejects.toThrow(new RpcException(NOTE_ERROR.PAGE_NOT_FOUND));
+    });
+
+    it('should throw ACTION_DENIED when the target parent belongs to a different workspace', async () => {
+      pagesRepo.findOne
+        .mockResolvedValueOnce({
+          id: 'p1',
+          workspaceId: 'ws-1',
+          parentId: null,
+          path: '/p1',
+          depth: 0,
+        })
+        .mockResolvedValueOnce({
+          id: 'other-ws-parent',
+          workspaceId: 'ws-2',
+          path: '/other-ws-parent',
+          depth: 0,
+        });
+      permissionsService.getUserPermissionByPage.mockResolvedValueOnce(
+        PermissionType.Edit,
+      );
+
+      await expect(
+        service.movePage({
+          id: 'p1',
+          userId: OWNER_ID,
+          newParentId: 'other-ws-parent',
+        } as any),
+      ).rejects.toThrow(new RpcException(NOTE_ERROR.ACTION_DENIED));
+    });
+
+    it('should throw ACTION_DENIED when moving a page into itself', async () => {
+      const page = {
+        id: 'p1',
+        workspaceId: 'ws-1',
+        parentId: null,
+        path: '/p1',
+        depth: 0,
+      };
+      pagesRepo.findOne.mockResolvedValueOnce(page).mockResolvedValueOnce(page);
+      permissionsService.getUserPermissionByPage.mockResolvedValueOnce(
+        PermissionType.Edit,
+      );
+
+      await expect(
+        service.movePage({
+          id: 'p1',
+          userId: OWNER_ID,
+          newParentId: 'p1',
+        } as any),
+      ).rejects.toThrow(new RpcException(NOTE_ERROR.ACTION_DENIED));
+    });
+
+    it('should throw ACTION_DENIED when moving a page into one of its own descendants', async () => {
+      pagesRepo.findOne
+        .mockResolvedValueOnce({
+          id: 'p1',
+          workspaceId: 'ws-1',
+          parentId: null,
+          path: '/p1',
+          depth: 0,
+        })
+        .mockResolvedValueOnce({
+          id: 'child-of-p1',
+          workspaceId: 'ws-1',
+          path: '/p1/child-of-p1',
+          depth: 1,
+        });
+      permissionsService.getUserPermissionByPage.mockResolvedValueOnce(
+        PermissionType.Edit,
+      );
+
+      await expect(
+        service.movePage({
+          id: 'p1',
+          userId: OWNER_ID,
+          newParentId: 'child-of-p1',
+        } as any),
+      ).rejects.toThrow(new RpcException(NOTE_ERROR.ACTION_DENIED));
+    });
+
+    it('should throw ACCESS_DENIED when caller lacks Edit on the target parent', async () => {
+      pagesRepo.findOne
+        .mockResolvedValueOnce({
+          id: 'p1',
+          workspaceId: 'ws-1',
+          parentId: null,
+          path: '/p1',
+          depth: 0,
+        })
+        .mockResolvedValueOnce({
+          id: 'new-parent',
+          workspaceId: 'ws-1',
+          path: '/new-parent',
+          depth: 0,
+        });
+      permissionsService.getUserPermissionByPage
+        .mockResolvedValueOnce(PermissionType.Edit) // trên chính page
+        .mockResolvedValueOnce(PermissionType.View); // trên parent đích
+
+      await expect(
+        service.movePage({
+          id: 'p1',
+          userId: EDITOR_ID,
+          newParentId: 'new-parent',
+        } as any),
+      ).rejects.toThrow(new RpcException(NOTE_ERROR.ACCESS_DENIED));
+    });
+
+    it('should re-parent a page: update its own path/depth, bulk-update descendants, and bump the permission cache for the subtree', async () => {
+      const page = {
+        id: 'p1',
+        workspaceId: 'ws-1',
+        parentId: 'old-parent',
+        path: '/old-parent/p1',
+        depth: 1,
+      };
+      const newParent = {
+        id: 'new-parent',
+        workspaceId: 'ws-1',
+        path: '/new-parent',
+        depth: 0,
+      };
+      const movedFinal = {
+        ...page,
+        parentId: 'new-parent',
+        path: '/new-parent/p1',
+        depth: 1,
+      };
+
+      pagesRepo.findOne
+        .mockResolvedValueOnce(page)
+        .mockResolvedValueOnce(newParent)
+        .mockResolvedValueOnce(movedFinal);
+      permissionsService.getUserPermissionByPage
+        .mockResolvedValueOnce(PermissionType.Edit)
+        .mockResolvedValueOnce(PermissionType.Edit);
+      permissionsService.getDescendantPageIds.mockResolvedValueOnce([
+        'descendant-1',
+      ]);
+
+      const result = await service.movePage({
+        id: 'p1',
+        userId: OWNER_ID,
+        newParentId: 'new-parent',
+        newIndex: 0,
+      } as any);
+
+      expect(manager.update).toHaveBeenCalledWith(PagesEntity, 'p1', {
+        parentId: 'new-parent',
+        path: '/new-parent/p1',
+        depth: 1,
+      });
+      expect(manager.query).toHaveBeenCalledWith(expect.any(String), [
+        '/new-parent/p1',
+        '/old-parent/p1'.length + 1,
+        0, // depthDelta: newDepth(1) - oldDepth(1)
+        '/old-parent/p1/%',
+      ]);
+      expect(cachedService.invalidateListBulk).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.stringContaining('p1'),
+          expect.stringContaining('descendant-1'),
+        ]),
+      );
+      expect(result.path).toBe('/new-parent/p1');
+    });
+
+    it('should only reorder within the same parent, without touching path/depth or the permission cache', async () => {
+      const page = {
+        id: 'p1',
+        workspaceId: 'ws-1',
+        parentId: 'parent-a',
+        path: '/parent-a/p1',
+        depth: 1,
+      };
+      const sameParent = {
+        id: 'parent-a',
+        workspaceId: 'ws-1',
+        path: '/parent-a',
+        depth: 0,
+      };
+
+      pagesRepo.findOne
+        .mockResolvedValueOnce(page)
+        .mockResolvedValueOnce(sameParent)
+        .mockResolvedValueOnce(page);
+      permissionsService.getUserPermissionByPage
+        .mockResolvedValueOnce(PermissionType.Edit)
+        .mockResolvedValueOnce(PermissionType.Edit);
+
+      await service.movePage({
+        id: 'p1',
+        userId: OWNER_ID,
+        newParentId: 'parent-a',
+        newIndex: 0,
+      } as any);
+
+      expect(manager.query).not.toHaveBeenCalled();
+      expect(cachedService.invalidateListBulk).not.toHaveBeenCalled();
+    });
+
+    it('should append the page at the end of the destination siblings when newIndex is omitted, ignoring its stale order value', async () => {
+      const page = {
+        id: 'p1',
+        workspaceId: 'ws-1',
+        parentId: null,
+        path: '/p1',
+        depth: 0,
+      };
+      const newParent = {
+        id: 'new-parent',
+        workspaceId: 'ws-1',
+        path: '/new-parent',
+        depth: 0,
+      };
+
+      pagesRepo.findOne
+        .mockResolvedValueOnce(page)
+        .mockResolvedValueOnce(newParent)
+        .mockResolvedValueOnce({ ...page, parentId: 'new-parent' });
+      permissionsService.getUserPermissionByPage
+        .mockResolvedValueOnce(PermissionType.Edit)
+        .mockResolvedValueOnce(PermissionType.Edit);
+
+      // p1 vừa được manager.update reparent vào group này, order cũ (0) của
+      // nó THẤP hơn 2 con hiện có (5, 6) -> DB trả về theo order ASC, p1 lên
+      // đầu danh sách dù ý muốn thực sự là "thêm vào CUỐI".
+      managerQueryBuilder.getMany.mockResolvedValueOnce([
+        { id: 'p1', order: 0 },
+        { id: 'existing-child-1', order: 5 },
+        { id: 'existing-child-2', order: 6 },
+      ]);
+
+      await service.movePage({
+        id: 'p1',
+        userId: OWNER_ID,
+        newParentId: 'new-parent',
+        // newIndex omitted -> phải rớt xuống CUỐI, không phải kẹt ở đầu do order cũ.
+      } as any);
+
+      expect(manager.update).toHaveBeenCalledWith(
+        PagesEntity,
+        'existing-child-1',
+        { order: 0 },
+      );
+      expect(manager.update).toHaveBeenCalledWith(
+        PagesEntity,
+        'existing-child-2',
+        { order: 1 },
+      );
+      expect(manager.update).toHaveBeenCalledWith(PagesEntity, 'p1', {
+        order: 2,
       });
     });
   });

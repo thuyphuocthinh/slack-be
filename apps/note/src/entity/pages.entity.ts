@@ -22,9 +22,12 @@ export class PagesEntity {
   @Index()
   workspaceId: string;
 
-  @Column({ name: 'parent_id', nullable: true })
+  // type: 'varchar' tường minh — TS union (string | null) không tự suy ra được
+  // column type qua reflect-metadata (resolve thành Object -> lỗi
+  // DataTypeNotSupportedError), khác với string đơn thuần suy ra được.
+  @Column({ name: 'parent_id', type: 'varchar', nullable: true })
   @Index()
-  parentId: string;
+  parentId: string | null;
 
   @Column({ nullable: true, length: 255 })
   title: string;
@@ -48,6 +51,12 @@ export class PagesEntity {
 
   @Column({ name: 'depth', default: 0 })
   depth: number;
+
+  // Vị trí thủ công trong danh sách anh em cùng (workspaceId, parentId) — 0-based,
+  // luôn được reindex liên tục (0..n-1) mỗi khi move/reorder (xem
+  // PagesService.reindexSiblings), không dùng scheme phân số/gap.
+  @Column({ name: 'order', default: 0 })
+  order: number;
 
   @Column({ name: 'is_public', default: false })
   isPublic: boolean;

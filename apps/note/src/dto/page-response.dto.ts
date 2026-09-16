@@ -33,6 +33,9 @@ export class PageResponseDto {
   depth: number;
 
   @Expose()
+  order: number;
+
+  @Expose()
   isPublic: boolean;
 
   @Expose()

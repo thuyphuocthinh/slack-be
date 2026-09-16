@@ -16,6 +16,7 @@ import {
   CreatePageApiDto,
   QueryPagesApiDto,
   UpdatePageApiDto,
+  MovePageApiDto,
 } from './dto/page-api.dto';
 import { CreateBlockApiDto, UpdateBlockApiDto } from './dto/block-api.dto';
 import { TogglePermissionApiDto } from './dto/permission-api.dto';
@@ -77,6 +78,15 @@ export class NoteController {
   @Post('notes/pages/:pageId/duplicate')
   duplicatePage(@Param('pageId') pageId: string, @CurrentUser() user: JwtUser) {
     return this.noteService.duplicatePage(user.sub, pageId);
+  }
+
+  @Patch('notes/pages/:pageId/move')
+  movePage(
+    @Param('pageId') pageId: string,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: MovePageApiDto,
+  ) {
+    return this.noteService.movePage(user.sub, pageId, dto);
   }
 
   @Get('workspaces/:workspaceId/notes/trash')

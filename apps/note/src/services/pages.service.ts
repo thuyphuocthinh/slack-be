@@ -1,6 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, Repository, SelectQueryBuilder } from 'typeorm';
+import {
+  Brackets,
+  DataSource,
+  EntityManager,
+  IsNull,
+  Repository,
+  SelectQueryBuilder,
+} from 'typeorm';
 import { PagesEntity } from '../entity/pages.entity';
 import { RpcException } from '@nestjs/microservices';
 import { NOTE_ERROR } from '@slack/constants/errors';
@@ -16,6 +23,7 @@ import { QueryPagesDto } from '../dto/query-pages.dto';
 import { GetTrashedPagesDto } from '../dto/get-trashed-pages.dto';
 import { RestorePageDto } from '../dto/restore-page.dto';
 import { DuplicatePageDto } from '../dto/duplicate-page.dto';
+import { MovePageDto } from '../dto/move-page.dto';
 import { IOffsetResponse } from '@slack/common';
 import { CACHE, CachedService } from '@slack/cached';
 import { stripUndefined } from '../utils/object.util';
@@ -31,6 +39,7 @@ export class PagesService {
     private readonly permissionsService: PermissionsService,
     private readonly cachedService: CachedService,
     private readonly blocksService: BlocksService,
+    private readonly dataSource: DataSource,
   ) {}
 
   private mapToResponse(page: PagesEntity): PageResponseDto {
@@ -66,7 +75,10 @@ export class PagesService {
     limit: number,
   ): Promise<IOffsetResponse<PageResponseDto[]>> {
     const skip = (page - 1) * limit;
-    qb.orderBy('page.createdAt', 'DESC').skip(skip).take(limit);
+    qb.orderBy('page.order', 'ASC')
+      .addOrderBy('page.createdAt', 'DESC')
+      .skip(skip)
+      .take(limit);
 
     const [items, total] = await qb.getManyAndCount();
 
@@ -112,7 +124,13 @@ export class PagesService {
       const depth = parentPage ? parentPage.depth + 1 : 0;
       const path = parentPage ? `${parentPage.path}/${id}` : `/${id}`;
 
-      // 4. Tạo page
+      // 4. order = số anh em hiện có -> luôn thêm vào CUỐI danh sách, khớp
+      // invariant "order reindex liên tục 0..n-1" mà movePage duy trì.
+      const order = await this.pagesRepo.count({
+        where: { workspaceId, parentId: parentId ? parentId : IsNull() },
+      });
+
+      // 5. Tạo page
       const page = this.pagesRepo.create({
         id,
         title: title ?? 'Untitled Page',
@@ -123,6 +141,7 @@ export class PagesService {
         isPublic: isPublic ?? false,
         depth: depth,
         path: path,
+        order: order,
       });
 
       await this.pagesRepo.save(page);
@@ -399,5 +418,161 @@ export class PagesService {
       this.logger.error(`Error duplicating page:`, error);
       throw error;
     }
+  }
+
+  // move — đổi cha và/hoặc vị trí trong danh sách anh em.
+  async movePage(dto: MovePageDto): Promise<PageResponseDto> {
+    try {
+      const { id, userId, newIndex } = dto;
+      const newParentId = dto.newParentId ?? null;
+
+      const page = await this.pagesRepo.findOne({ where: { id } });
+      if (!page) {
+        throw new RpcException(NOTE_ERROR.PAGE_NOT_FOUND);
+      }
+      await this.permissionsService.assertPermission(
+        id,
+        userId,
+        PermissionType.Edit,
+      );
+
+      const newParentPage = await this.resolveMoveTarget(
+        page,
+        newParentId,
+        userId,
+      );
+
+      const oldParentId = page.parentId;
+      const isReparenting = oldParentId !== newParentId;
+      const newDepth = newParentPage ? newParentPage.depth + 1 : 0;
+      const newPath = newParentPage ? `${newParentPage.path}/${id}` : `/${id}`;
+
+      await this.dataSource.transaction(async (manager) => {
+        if (isReparenting) {
+          await manager.update(PagesEntity, id, {
+            parentId: newParentId,
+            path: newPath,
+            depth: newDepth,
+          });
+
+          // Hậu duệ giữ path/depth tính theo path/depth CŨ của page — dịch
+          // tiền tố path + cộng dồn depthDelta cho cả subtree trong 1 UPDATE.
+          await manager.query(
+            `UPDATE pages
+             SET path = $1 || SUBSTRING(path FROM $2), depth = depth + $3
+             WHERE path LIKE $4`,
+            [
+              newPath,
+              page.path.length + 1,
+              newDepth - page.depth,
+              `${page.path}/%`,
+            ],
+          );
+        }
+
+        await this.reindexSiblings(
+          manager,
+          page.workspaceId,
+          newParentId,
+          id,
+          newIndex,
+        );
+        if (isReparenting) {
+          await this.reindexSiblings(manager, page.workspaceId, oldParentId);
+        }
+      });
+
+      // Path đổi -> permission kế thừa của page + hậu duệ đổi theo -> bump
+      // cache cả subtree (giống PermissionsService.toggleUserPermissionByPage).
+      if (isReparenting) {
+        const descendantIds =
+          await this.permissionsService.getDescendantPageIds(newPath);
+        await this.cachedService.invalidateListBulk(
+          [id, ...descendantIds].map((pageId) =>
+            CACHE.NOTE.TRACKERS.PAGE_PERMISSION_VERSION(pageId),
+          ),
+        );
+      }
+
+      const moved = await this.pagesRepo.findOne({ where: { id } });
+      this.logger.debug(`Page moved: ${id} -> parent=${newParentId}`);
+      return this.mapToResponse(moved as PagesEntity);
+    } catch (error) {
+      this.logger.error(`Error moving page:`, error);
+      throw error;
+    }
+  }
+
+  // Validate + load parent ĐÍCH cho movePage: phải tồn tại, cùng workspace,
+  // không phải chính page hay hậu duệ của nó (vòng lặp), và caller có Edit.
+  private async resolveMoveTarget(
+    page: PagesEntity,
+    newParentId: string | null,
+    userId: string,
+  ): Promise<PagesEntity | null> {
+    if (!newParentId) return null;
+
+    const newParentPage = await this.pagesRepo.findOne({
+      where: { id: newParentId },
+    });
+    if (!newParentPage) {
+      throw new RpcException(NOTE_ERROR.PAGE_NOT_FOUND);
+    }
+    if (
+      newParentPage.workspaceId !== page.workspaceId ||
+      newParentPage.path === page.path ||
+      newParentPage.path.startsWith(`${page.path}/`)
+    ) {
+      throw new RpcException(NOTE_ERROR.ACTION_DENIED);
+    }
+    await this.permissionsService.assertPermission(
+      newParentId,
+      userId,
+      PermissionType.Edit,
+    );
+
+    return newParentPage;
+  }
+
+  // Reindex anh em trong 1 nhóm (workspaceId, parentId) thành 0..n-1 liên
+  // tục. pinnedPageId + pinnedIndex dời 1 page tới đúng vị trí đó trước khi
+  // đánh lại số (pinnedIndex bỏ trống = cuối danh sách); gọi không kèm 2
+  // tham số đó để chỉ nén khoảng trống sau khi 1 page đã rời nhóm.
+  private async reindexSiblings(
+    manager: EntityManager,
+    workspaceId: string,
+    parentId: string | null,
+    pinnedPageId?: string,
+    pinnedIndex?: number,
+  ): Promise<void> {
+    const siblings = await manager
+      .createQueryBuilder(PagesEntity, 'page')
+      .where('page.workspaceId = :workspaceId', { workspaceId })
+      .andWhere(
+        parentId === null
+          ? 'page.parentId IS NULL'
+          : 'page.parentId = :parentId',
+        { parentId },
+      )
+      .orderBy('page.order', 'ASC')
+      .getMany();
+
+    if (pinnedPageId) {
+      const currentIndex = siblings.findIndex((s) => s.id === pinnedPageId);
+      if (currentIndex !== -1) {
+        const [pinned] = siblings.splice(currentIndex, 1);
+        const clampedIndex = Math.max(
+          0,
+          Math.min(pinnedIndex ?? siblings.length, siblings.length),
+        );
+        siblings.splice(clampedIndex, 0, pinned);
+      }
+    }
+
+    await Promise.all(
+      siblings.map((sibling, index) =>
+        manager.update(PagesEntity, sibling.id, { order: index }),
+      ),
+    );
   }
 }

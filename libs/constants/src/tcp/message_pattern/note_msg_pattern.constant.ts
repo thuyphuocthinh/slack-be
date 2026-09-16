@@ -6,6 +6,7 @@ export const NOTE_MESSAGE_PATTERN = {
   UPDATE_PAGE: 'note.update_page',
   DELETE_PAGE: 'note.delete_page',
   DUPLICATE_PAGE: 'note.duplicate_page',
+  MOVE_PAGE: 'note.move_page',
   GET_TRASHED_PAGES: 'note.get_trashed_pages',
   RESTORE_PAGE: 'note.restore_page',
 

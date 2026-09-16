@@ -7,6 +7,7 @@ import {
   CreatePageApiDto,
   QueryPagesApiDto,
   UpdatePageApiDto,
+  MovePageApiDto,
 } from './dto/page-api.dto';
 import { CreateBlockApiDto, UpdateBlockApiDto } from './dto/block-api.dto';
 import { TogglePermissionApiDto } from './dto/permission-api.dto';
@@ -88,6 +89,14 @@ export class NoteService {
       NOTE_MESSAGE_PATTERN.DUPLICATE_PAGE,
       { id: pageId, userId },
       'duplicatePage',
+    );
+  }
+
+  movePage(userId: string, pageId: string, dto: MovePageApiDto) {
+    return this.call(
+      NOTE_MESSAGE_PATTERN.MOVE_PAGE,
+      { ...dto, id: pageId, userId },
+      'movePage',
     );
   }
 

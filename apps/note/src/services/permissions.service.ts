@@ -253,9 +253,10 @@ export class PermissionsService {
     };
   }
 
-  // Dùng khi share/unshare permission tại 1 page — vì quyền kế thừa xuống page
-  // con, phải invalidate cache của TOÀN BỘ subtree chứ không chỉ đúng page đó.
-  private async getDescendantPageIds(path: string): Promise<string[]> {
+  // Dùng khi 1 thay đổi ảnh hưởng cả subtree (share/unshare permission, move
+  // page) — quyền kế thừa xuống page con nên phải invalidate cache toàn bộ
+  // subtree chứ không chỉ đúng page đó. Public để PagesService.movePage dùng lại.
+  async getDescendantPageIds(path: string): Promise<string[]> {
     const rows = await this.pagesRepo
       .createQueryBuilder('page')
       .select('page.id', 'id')
