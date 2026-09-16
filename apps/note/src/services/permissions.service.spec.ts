@@ -43,6 +43,7 @@ describe('PermissionsService', () => {
 
     permissionsRepo = {
       findOne: jest.fn(),
+      find: jest.fn(),
     };
 
     pagesRepo = {
@@ -407,6 +408,50 @@ describe('PermissionsService', () => {
       await expect(
         service.assertPermission(CHILD_ID, OTHER_USER_ID, PermissionType.View),
       ).rejects.toThrow(new RpcException(NOTE_ERROR.ACCESS_DENIED));
+    });
+  });
+
+  describe('getPermissionsByPage', () => {
+    it('should throw PAGE_NOT_FOUND when the page does not exist', async () => {
+      pagesRepo.findOne.mockResolvedValueOnce(null);
+
+      await expect(
+        service.getPermissionsByPage(CHILD_ID, OWNER_ID),
+      ).rejects.toThrow(new RpcException(NOTE_ERROR.PAGE_NOT_FOUND));
+    });
+
+    it('should throw ACCESS_DENIED when caller has no permission at all', async () => {
+      pagesRepo.findOne
+        .mockResolvedValueOnce({ id: CHILD_ID, userId: OWNER_ID }) // lookup trong getPermissionsByPage
+        .mockResolvedValueOnce({ path: `/${CHILD_ID}` }); // lookup trong resolvePermissionOptimized
+      const qb = pagesRepo.createQueryBuilder();
+      qb.getRawMany.mockResolvedValueOnce([
+        { id: CHILD_ID, ownerId: OWNER_ID, permType: null },
+      ]);
+
+      await expect(
+        service.getPermissionsByPage(CHILD_ID, OTHER_USER_ID),
+      ).rejects.toThrow(new RpcException(NOTE_ERROR.ACCESS_DENIED));
+    });
+
+    it('should return the owner id and every explicit share when caller has access', async () => {
+      pagesRepo.findOne
+        .mockResolvedValueOnce({ id: CHILD_ID, userId: OWNER_ID })
+        .mockResolvedValueOnce({ path: `/${CHILD_ID}` });
+      const qb = pagesRepo.createQueryBuilder();
+      qb.getRawMany.mockResolvedValueOnce([
+        { id: CHILD_ID, ownerId: OWNER_ID, permType: null },
+      ]);
+      permissionsRepo.find.mockResolvedValueOnce([
+        { pageId: CHILD_ID, userId: OTHER_USER_ID, type: PermissionType.View },
+      ]);
+
+      const result = await service.getPermissionsByPage(CHILD_ID, OWNER_ID);
+
+      expect(result).toEqual({
+        ownerId: OWNER_ID,
+        shares: [{ userId: OTHER_USER_ID, type: PermissionType.View }],
+      });
     });
   });
 });

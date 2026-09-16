@@ -13,8 +13,13 @@ import { PermissionsService } from './permissions.service';
 import { PermissionType } from '../types/permission.types';
 import { DeletePageDto } from '../dto/delete-page.dto';
 import { QueryPagesDto } from '../dto/query-pages.dto';
+import { GetTrashedPagesDto } from '../dto/get-trashed-pages.dto';
+import { RestorePageDto } from '../dto/restore-page.dto';
+import { DuplicatePageDto } from '../dto/duplicate-page.dto';
 import { IOffsetResponse } from '@slack/common';
 import { CACHE, CachedService } from '@slack/cached';
+import { stripUndefined } from '../utils/object.util';
+import { BlocksService } from './blocks.service';
 
 @Injectable()
 export class PagesService {
@@ -25,6 +30,7 @@ export class PagesService {
     private readonly pagesRepo: Repository<PagesEntity>,
     private readonly permissionsService: PermissionsService,
     private readonly cachedService: CachedService,
+    private readonly blocksService: BlocksService,
   ) {}
 
   private mapToResponse(page: PagesEntity): PageResponseDto {
@@ -238,7 +244,7 @@ export class PagesService {
   }
 
   // delete page
-  async deletePage(deletePage: DeletePageDto): Promise<void> {
+  async deletePage(deletePage: DeletePageDto): Promise<{ success: true }> {
     try {
       const { id, userId } = deletePage;
 
@@ -256,6 +262,8 @@ export class PagesService {
       // findOne/queryBuilder khác đã tự loại trừ deletedAt != null.
       await this.pagesRepo.softDelete(id);
       this.logger.debug(`Page deleted successfully: ${id}`);
+
+      return { success: true };
     } catch (error) {
       this.logger.error(`Error deleting page:`, error);
       throw error;
@@ -279,9 +287,9 @@ export class PagesService {
         PermissionType.Edit,
       );
 
-      // field không gửi sẽ không tồn tại như key trên DTO -> Object.assign tự bỏ qua,
-      // không đè mất giá trị cũ (khớp pattern task.service.ts:updateTaskDetails)
-      Object.assign(page, updateData);
+      // stripUndefined: ValidationPipe tạo DTO có sẵn mọi field = undefined dù
+      // không gửi lên -> Object.assign thẳng sẽ đè mất giá trị cũ trong entity.
+      Object.assign(page, stripUndefined(updateData));
 
       await this.pagesRepo.save(page);
 
@@ -298,6 +306,97 @@ export class PagesService {
       return this.mapToResponse(page);
     } catch (error) {
       this.logger.error(`Error updating page:`, error);
+      throw error;
+    }
+  }
+
+  // trash — chỉ trang do chính người gọi sở hữu, vì delete cũng chỉ owner làm được.
+  async getTrashedPages(dto: GetTrashedPagesDto): Promise<PageResponseDto[]> {
+    try {
+      const { workspaceId, userId } = dto;
+      const pages = await this.pagesRepo
+        .createQueryBuilder('page')
+        .withDeleted()
+        .where('page.workspaceId = :workspaceId', { workspaceId })
+        .andWhere('page.userId = :userId', { userId })
+        .andWhere('page.deletedAt IS NOT NULL')
+        .orderBy('page.deletedAt', 'DESC')
+        .getMany();
+
+      return pages.map((p) => this.mapToResponse(p));
+    } catch (error) {
+      this.logger.error(`Error getting trashed pages:`, error);
+      throw error;
+    }
+  }
+
+  // restore — chỉ owner, khớp rule deletePage (chỉ owner mới xoá được).
+  async restorePage(dto: RestorePageDto): Promise<{ success: true }> {
+    try {
+      const { id, userId } = dto;
+      const page = await this.pagesRepo.findOne({
+        where: { id },
+        withDeleted: true,
+      });
+
+      if (!page || !page.deletedAt) {
+        throw new RpcException(NOTE_ERROR.PAGE_NOT_FOUND);
+      }
+
+      if (page.userId !== userId) {
+        throw new RpcException(NOTE_ERROR.ACTION_DENIED);
+      }
+
+      await this.pagesRepo.restore(id);
+      this.logger.debug(`Page restored: ${id}`);
+
+      return { success: true };
+    } catch (error) {
+      this.logger.error(`Error restoring page:`, error);
+      throw error;
+    }
+  }
+
+  // duplicate — chỉ cần View trên page gốc. Bản duplicate luôn là page GỐC
+  // (root) do chính người bấm duplicate làm chủ, KHÔNG nhân bản subtree con —
+  // tránh phải xử lý quyền Edit trên parent (có thể không phải của mình) và
+  // giữ scope đơn giản, nhanh.
+  async duplicatePage(dto: DuplicatePageDto): Promise<PageResponseDto> {
+    try {
+      const { id, userId } = dto;
+      const original = await this.pagesRepo.findOne({ where: { id } });
+
+      if (!original) {
+        throw new RpcException(NOTE_ERROR.PAGE_NOT_FOUND);
+      }
+
+      await this.permissionsService.assertPermission(
+        id,
+        userId,
+        PermissionType.View,
+      );
+
+      const newId = uuidv4();
+      const newPage = this.pagesRepo.create({
+        id: newId,
+        title: `${original.title || 'Untitled'} (Copy)`,
+        favicon: original.favicon,
+        coverImage: original.coverImage,
+        userId,
+        workspaceId: original.workspaceId,
+        type: original.type,
+        isPublic: false,
+        depth: 0,
+        path: `/${newId}`,
+      });
+
+      await this.pagesRepo.save(newPage);
+      await this.blocksService.duplicateForPage(id, newId);
+
+      this.logger.debug(`Page duplicated: ${id} -> ${newId}`);
+      return this.mapToResponse(newPage);
+    } catch (error) {
+      this.logger.error(`Error duplicating page:`, error);
       throw error;
     }
   }

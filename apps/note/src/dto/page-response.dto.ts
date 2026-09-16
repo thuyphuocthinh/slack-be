@@ -40,4 +40,7 @@ export class PageResponseDto {
 
   @Expose()
   updatedAt: Date;
+
+  @Expose()
+  deletedAt?: Date | null;
 }

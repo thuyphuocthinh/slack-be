@@ -9,6 +9,9 @@ import { CreatePageDto } from './dto/create-page.dto';
 import { QueryPagesDto } from './dto/query-pages.dto';
 import { UpdatePageDto } from './dto/update-page.dto';
 import { DeletePageDto } from './dto/delete-page.dto';
+import { GetTrashedPagesDto } from './dto/get-trashed-pages.dto';
+import { RestorePageDto } from './dto/restore-page.dto';
+import { DuplicatePageDto } from './dto/duplicate-page.dto';
 import { CreateBlockDto } from './dto/create-block.dto';
 import { UpdateBlockDto } from './dto/update-block.dto';
 import { DeleteBlockDto } from './dto/delete-block.dto';
@@ -60,6 +63,21 @@ export class NoteController {
   @MessagePattern(NOTE_MESSAGE_PATTERN.DELETE_PAGE)
   async deletePage(@Payload() dto: DeletePageDto) {
     return this.pagesService.deletePage(dto);
+  }
+
+  @MessagePattern(NOTE_MESSAGE_PATTERN.DUPLICATE_PAGE)
+  async duplicatePage(@Payload() dto: DuplicatePageDto) {
+    return this.pagesService.duplicatePage(dto);
+  }
+
+  @MessagePattern(NOTE_MESSAGE_PATTERN.GET_TRASHED_PAGES)
+  async getTrashedPages(@Payload() dto: GetTrashedPagesDto) {
+    return this.pagesService.getTrashedPages(dto);
+  }
+
+  @MessagePattern(NOTE_MESSAGE_PATTERN.RESTORE_PAGE)
+  async restorePage(@Payload() dto: RestorePageDto) {
+    return this.pagesService.restorePage(dto);
   }
 
   // ===== Blocks =====
@@ -116,6 +134,16 @@ export class NoteController {
     return this.permissionsService.getUserPermissionByPage(
       data.pageId,
       data.userId,
+    );
+  }
+
+  @MessagePattern(NOTE_MESSAGE_PATTERN.GET_PERMISSIONS_BY_PAGE)
+  async getPermissionsByPage(
+    @Payload() data: { pageId: string; callerId: string },
+  ) {
+    return this.permissionsService.getPermissionsByPage(
+      data.pageId,
+      data.callerId,
     );
   }
 

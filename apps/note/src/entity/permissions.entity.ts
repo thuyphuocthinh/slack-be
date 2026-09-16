@@ -23,11 +23,9 @@ export class PermissionsEntity {
   @Column({ name: 'type', enum: PermissionType, type: 'enum' })
   type: PermissionType;
 
-  @Column({ type: 'timestamptz', name: 'created_at' })
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt: Date;
 
-  @Column({ type: 'timestamptz', name: 'updated_at' })
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
   updatedAt: Date;
 }

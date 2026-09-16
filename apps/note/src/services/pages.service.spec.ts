@@ -9,12 +9,14 @@ import { PermissionsService } from './permissions.service';
 import { PermissionType } from '../types/permission.types';
 import { PageType } from '../types/pages.types';
 import { CachedService } from '@slack/cached';
+import { BlocksService } from './blocks.service';
 
 describe('PagesService', () => {
   let service: PagesService;
   let pagesRepo: any;
   let permissionsService: any;
   let cachedService: any;
+  let blocksService: any;
 
   const OWNER_ID = 'owner-1';
   const EDITOR_ID = 'editor-1';
@@ -67,12 +69,17 @@ describe('PagesService', () => {
       invalidateList: jest.fn(),
     };
 
+    blocksService = {
+      duplicateForPage: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PagesService,
         { provide: getRepositoryToken(PagesEntity), useValue: pagesRepo },
         { provide: PermissionsService, useValue: permissionsService },
         { provide: CachedService, useValue: cachedService },
+        { provide: BlocksService, useValue: blocksService },
       ],
     }).compile();
 

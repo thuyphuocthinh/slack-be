@@ -14,6 +14,8 @@ import { NOTE_ERROR } from '@slack/constants/errors';
 import { PermissionsService } from './permissions.service';
 import { PermissionType } from '../types/permission.types';
 import { extractPlainText } from '../utils/prosemirror.util';
+import { stripUndefined } from '../utils/object.util';
+import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class BlocksService {
@@ -76,13 +78,13 @@ export class BlocksService {
         PermissionType.Edit,
       );
 
-      // field không gửi sẽ không tồn tại như key trên DTO -> Object.assign tự bỏ qua,
-      // không đè mất giá trị cũ (khớp pattern pages.service.ts:updatePage)
-      Object.assign(block, updateData);
+      // stripUndefined: ValidationPipe tạo DTO có sẵn mọi field = undefined dù
+      // không gửi lên -> Object.assign thẳng sẽ đè mất giá trị cũ trong entity.
+      Object.assign(block, stripUndefined(updateData));
 
       // content đổi -> contentText phải tính lại theo, nếu không search sẽ lệch
       // khỏi nội dung thật.
-      if ('content' in updateData) {
+      if (updateData.content !== undefined) {
         block.contentText = extractPlainText(block.content);
       }
 
@@ -143,7 +145,9 @@ export class BlocksService {
   }
 
   // delete block
-  async deleteBlock(deleteBlockDto: DeleteBlockDto): Promise<void> {
+  async deleteBlock(
+    deleteBlockDto: DeleteBlockDto,
+  ): Promise<{ success: true }> {
     try {
       const { id, userId } = deleteBlockDto;
 
@@ -160,9 +164,39 @@ export class BlocksService {
 
       await this.blocksRepo.softDelete(id);
       this.logger.debug(`Deleted block ${id}`);
+
+      return { success: true };
     } catch (error) {
       this.logger.error(`Error deleting block:`, error);
       throw error;
     }
+  }
+
+  // Dùng khi PagesService.duplicatePage() nhân bản 1 page — copy toàn bộ block
+  // sang page mới, giữ order + cấu trúc lồng nhau (parentId trỏ giữa các block
+  // với nhau) bằng id map cũ->mới. Không tự check permission — caller
+  // (PagesService.duplicatePage) đã assertPermission View trên page gốc rồi.
+  async duplicateForPage(oldPageId: string, newPageId: string): Promise<void> {
+    const blocks = await this.blocksRepo.find({
+      where: { pageId: oldPageId },
+      order: { order: 'ASC' },
+    });
+    if (blocks.length === 0) return;
+
+    const idMap = new Map<string, string>();
+    blocks.forEach((b) => idMap.set(b.id, uuidv4()));
+
+    const cloned = blocks.map((b) =>
+      this.blocksRepo.create({
+        id: idMap.get(b.id),
+        pageId: newPageId,
+        type: b.type,
+        content: b.content,
+        contentText: b.contentText,
+        order: b.order,
+        parentId: b.parentId ? idMap.get(b.parentId) : undefined,
+      }),
+    );
+    await this.blocksRepo.save(cloned);
   }
 }

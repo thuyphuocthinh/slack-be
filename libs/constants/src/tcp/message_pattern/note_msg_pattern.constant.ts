@@ -5,6 +5,9 @@ export const NOTE_MESSAGE_PATTERN = {
   GET_DETAIL_PAGE: 'note.get_detail_page',
   UPDATE_PAGE: 'note.update_page',
   DELETE_PAGE: 'note.delete_page',
+  DUPLICATE_PAGE: 'note.duplicate_page',
+  GET_TRASHED_PAGES: 'note.get_trashed_pages',
+  RESTORE_PAGE: 'note.restore_page',
 
   // blocks
   CREATE_BLOCK: 'note.create_block',
@@ -16,6 +19,7 @@ export const NOTE_MESSAGE_PATTERN = {
   // permissions
   TOGGLE_USER_PERMISSION_BY_PAGE: 'note.toggle_user_permission_by_page',
   GET_USER_PERMISSION_BY_PAGE: 'note.get_user_permission_by_page',
+  GET_PERMISSIONS_BY_PAGE: 'note.get_permissions_by_page',
 
   // database - properties
   CREATE_PROPERTY: 'note.create_property',

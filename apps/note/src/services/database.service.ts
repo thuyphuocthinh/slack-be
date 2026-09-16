@@ -18,6 +18,7 @@ import { CreateViewDto } from '../dto/create-view.dto';
 import { UpdateViewDto } from '../dto/update-view.dto';
 import { DeleteViewDto } from '../dto/delete-view.dto';
 import { GetViewsByPageDto } from '../dto/get-views-by-page.dto';
+import { stripUndefined } from '../utils/object.util';
 import { ViewResponseDto } from '../dto/view-response.dto';
 import { SetPropertyValueDto } from '../dto/set-property-value.dto';
 import { GetPropertyValuesForRowsDto } from '../dto/get-property-values-for-rows.dto';
@@ -107,7 +108,7 @@ export class DatabaseService {
         PermissionType.Edit,
       );
 
-      Object.assign(property, updateData);
+      Object.assign(property, stripUndefined(updateData));
       await this.propertiesRepo.save(property);
       this.logger.debug(`Updated property ${id}`);
       return this.mapToPropertyResponse(property);
@@ -119,7 +120,7 @@ export class DatabaseService {
 
   // Xóa cột phải cascade xóa hết PropertyValues trỏ tới cột đó — không có FK
   // constraint ở tầng DB (convention microservice trong repo), nên tự xóa tay.
-  async deleteProperty(dto: DeletePropertyDto): Promise<void> {
+  async deleteProperty(dto: DeletePropertyDto): Promise<{ success: true }> {
     try {
       const { id, userId } = dto;
 
@@ -141,6 +142,8 @@ export class DatabaseService {
         await manager.softDelete(PropertiesEntity, id);
       });
       this.logger.debug(`Deleted property ${id} (cascade PropertyValues)`);
+
+      return { success: true };
     } catch (error) {
       this.logger.error(`Error deleting property:`, error);
       throw error;
@@ -213,7 +216,7 @@ export class DatabaseService {
         PermissionType.Edit,
       );
 
-      Object.assign(view, updateData);
+      Object.assign(view, stripUndefined(updateData));
       await this.viewsRepo.save(view);
       this.logger.debug(`Updated view ${id}`);
       return this.mapToViewResponse(view);
@@ -223,7 +226,7 @@ export class DatabaseService {
     }
   }
 
-  async deleteView(dto: DeleteViewDto): Promise<void> {
+  async deleteView(dto: DeleteViewDto): Promise<{ success: true }> {
     try {
       const { id, userId } = dto;
 
@@ -240,6 +243,8 @@ export class DatabaseService {
 
       await this.viewsRepo.softDelete(id);
       this.logger.debug(`Deleted view ${id}`);
+
+      return { success: true };
     } catch (error) {
       this.logger.error(`Error deleting view:`, error);
       throw error;

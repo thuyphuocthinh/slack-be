@@ -28,7 +28,7 @@ export class PermissionsService {
     pageId: string,
     userId: string,
     type: PermissionType,
-  ): Promise<void> {
+  ): Promise<{ success: true }> {
     try {
       let ownerPagePath = '';
 
@@ -81,6 +81,8 @@ export class PermissionsService {
           CACHE.NOTE.TRACKERS.PAGE_PERMISSION_VERSION(id),
         ),
       );
+
+      return { success: true };
     } catch (error) {
       this.logger.error(
         `Error toggling permission for user ${userId} on page ${pageId}:`,
@@ -221,6 +223,34 @@ export class PermissionsService {
     // semantics của Hocuspocus gateway (note/hocuspocus.gateway.ts) vốn cũng chỉ
     // check page.isPublic của đúng page đang mở, không kế thừa.
     return page.isPublic ? PermissionType.View : null;
+  }
+
+  // Liệt kê ai đang được share tường minh trên ĐÚNG page này (không kế thừa từ
+  // tổ tiên) — dùng cho UI Share hiển thị danh sách đã share. Chỉ cần View để
+  // xem (owner luôn thấy, người được share View/Edit cũng thấy).
+  async getPermissionsByPage(
+    pageId: string,
+    callerId: string,
+  ): Promise<{
+    ownerId: string;
+    shares: { userId: string; type: PermissionType }[];
+  }> {
+    const page = await this.pagesRepo.findOne({
+      where: { id: pageId },
+      select: ['id', 'userId'],
+    });
+    if (!page) {
+      throw new RpcException(NOTE_ERROR.PAGE_NOT_FOUND);
+    }
+
+    await this.assertPermission(pageId, callerId, PermissionType.View);
+
+    const rows = await this.permissionsRepo.find({ where: { pageId } });
+
+    return {
+      ownerId: page.userId,
+      shares: rows.map((r) => ({ userId: r.userId, type: r.type })),
+    };
   }
 
   // Dùng khi share/unshare permission tại 1 page — vì quyền kế thừa xuống page

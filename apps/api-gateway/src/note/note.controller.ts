@@ -74,6 +74,24 @@ export class NoteController {
     return this.noteService.deletePage(user.sub, pageId);
   }
 
+  @Post('notes/pages/:pageId/duplicate')
+  duplicatePage(@Param('pageId') pageId: string, @CurrentUser() user: JwtUser) {
+    return this.noteService.duplicatePage(user.sub, pageId);
+  }
+
+  @Get('workspaces/:workspaceId/notes/trash')
+  getTrashedPages(
+    @Param('workspaceId') workspaceId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.noteService.getTrashedPages(user.sub, workspaceId);
+  }
+
+  @Post('notes/pages/:pageId/restore')
+  restorePage(@Param('pageId') pageId: string, @CurrentUser() user: JwtUser) {
+    return this.noteService.restorePage(user.sub, pageId);
+  }
+
   // ===== Blocks =====
 
   @Post('notes/blocks')
@@ -128,6 +146,14 @@ export class NoteController {
     @CurrentUser() user: JwtUser,
   ) {
     return this.noteService.getMyPermission(user.sub, pageId);
+  }
+
+  @Get('notes/pages/:pageId/permissions')
+  getPermissionsByPage(
+    @Param('pageId') pageId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.noteService.getPermissionsByPage(user.sub, pageId);
   }
 
   // ===== Database: Properties =====

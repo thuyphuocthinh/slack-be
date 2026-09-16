@@ -83,6 +83,30 @@ export class NoteService {
     );
   }
 
+  duplicatePage(userId: string, pageId: string) {
+    return this.call(
+      NOTE_MESSAGE_PATTERN.DUPLICATE_PAGE,
+      { id: pageId, userId },
+      'duplicatePage',
+    );
+  }
+
+  getTrashedPages(userId: string, workspaceId: string) {
+    return this.call(
+      NOTE_MESSAGE_PATTERN.GET_TRASHED_PAGES,
+      { workspaceId, userId },
+      'getTrashedPages',
+    );
+  }
+
+  restorePage(userId: string, pageId: string) {
+    return this.call(
+      NOTE_MESSAGE_PATTERN.RESTORE_PAGE,
+      { id: pageId, userId },
+      'restorePage',
+    );
+  }
+
   // ===== Blocks =====
 
   createBlock(userId: string, dto: CreateBlockApiDto) {
@@ -144,6 +168,14 @@ export class NoteService {
       NOTE_MESSAGE_PATTERN.GET_USER_PERMISSION_BY_PAGE,
       { pageId, userId },
       'getMyPermission',
+    );
+  }
+
+  getPermissionsByPage(userId: string, pageId: string) {
+    return this.call(
+      NOTE_MESSAGE_PATTERN.GET_PERMISSIONS_BY_PAGE,
+      { pageId, callerId: userId },
+      'getPermissionsByPage',
     );
   }
 
