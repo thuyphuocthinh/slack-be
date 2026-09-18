@@ -6,9 +6,11 @@ import {
   IsString,
   IsUUID,
   Min,
+  IsEnum,
 } from 'class-validator';
+import { PropertyType } from '../types/properties.types';
 
-// Không cho đổi `type` (Text -> Number giữa chừng làm hỏng hết PropertyValues cũ)
+// Cho phép đổi type, FE sẽ handle render an toàn nếu value cũ không match
 export class UpdatePropertyDto {
   @IsUUID()
   @IsNotEmpty()
@@ -21,6 +23,10 @@ export class UpdatePropertyDto {
   @IsOptional()
   @IsString()
   name?: string;
+
+  @IsOptional()
+  @IsEnum(PropertyType)
+  type?: PropertyType;
 
   @IsOptional()
   @IsObject()

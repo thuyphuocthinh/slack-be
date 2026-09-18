@@ -31,6 +31,10 @@ export class UpdatePropertyApiDto {
   name?: string;
 
   @IsOptional()
+  @IsString()
+  type?: string;
+
+  @IsOptional()
   @IsObject()
   options?: Record<string, unknown>;
 
