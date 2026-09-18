@@ -286,14 +286,16 @@ export class DatabaseService {
         PermissionType.Edit,
       );
 
-      await this.propertyValuesRepo.upsert(
-        { pageId, propertyId, value: value as Record<string, any> },
-        ['pageId', 'propertyId'],
-      );
+      const insertResult = await this.propertyValuesRepo
+        .createQueryBuilder()
+        .insert()
+        .into(PropertyValuesEntity)
+        .values({ pageId, propertyId, value: value as Record<string, any> })
+        .orUpdate(['value'], ['pageId', 'propertyId'])
+        .returning('*')
+        .execute();
 
-      const result = await this.propertyValuesRepo.findOneOrFail({
-        where: { pageId, propertyId },
-      });
+      const result = this.propertyValuesRepo.create(insertResult.raw[0] as PropertyValuesEntity);
       this.logger.debug(
         `Set property value for page ${pageId}, property ${propertyId}`,
       );

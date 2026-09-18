@@ -569,10 +569,21 @@ export class PagesService {
       }
     }
 
-    await Promise.all(
-      siblings.map((sibling, index) =>
-        manager.update(PagesEntity, sibling.id, { order: index }),
-      ),
+    if (siblings.length === 0) return;
+
+    const ids = siblings.map((s) => s.id);
+    const orders = siblings.map((_, index) => index);
+
+    await manager.query(
+      `
+      UPDATE pages 
+      SET "order" = data.new_order
+      FROM (
+        SELECT unnest($1::uuid[]) AS id, unnest($2::int[]) AS new_order
+      ) AS data
+      WHERE pages.id = data.id
+      `,
+      [ids, orders],
     );
   }
 }
