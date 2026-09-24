@@ -291,11 +291,19 @@ export class DatabaseService {
         .insert()
         .into(PropertyValuesEntity)
         .values({ pageId, propertyId, value: value as Record<string, any> })
-        .orUpdate(['value'], ['pageId', 'propertyId'])
+        .orUpdate(['value'], ['page_id', 'property_id'])
         .returning('*')
         .execute();
 
-      const result = this.propertyValuesRepo.create(insertResult.raw[0] as PropertyValuesEntity);
+      const raw = insertResult.raw[0];
+      const result = this.propertyValuesRepo.create({
+        id: raw.id,
+        pageId: raw.page_id,
+        propertyId: raw.property_id,
+        value: raw.value,
+        createdAt: raw.created_at,
+        updatedAt: raw.updated_at,
+      });
       this.logger.debug(
         `Set property value for page ${pageId}, property ${propertyId}`,
       );

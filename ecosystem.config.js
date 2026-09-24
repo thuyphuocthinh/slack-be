@@ -10,12 +10,18 @@ try {
   console.error("Could not read apps directory:", error);
 }
 
+function getInstances(appName) {
+  if (appName === 'note') return 6;
+  if (appName === 'api-gateway') return 4;
+  return 1;
+}
+
 module.exports = {
   apps: appDirs.map(appDir => ({
     name: appDir,
     script: `dist/apps/${appDir}/main.js`,
-    instances: 1,
-    exec_mode: 'fork',
+    instances: getInstances(appDir),
+    exec_mode: 'cluster',
     env: {
       NODE_ENV: 'production'
     }

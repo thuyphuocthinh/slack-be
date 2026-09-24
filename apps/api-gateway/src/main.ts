@@ -7,6 +7,7 @@ import { ValidationPipe, BadRequestException } from '@nestjs/common';
 import { VALIDATION_ERROR } from '@slack/constants';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { TimeoutInterceptor } from './common/interceptors/timeout.interceptor';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cluster from 'node:cluster';
 import { availableParallelism } from 'node:os';
@@ -57,7 +58,7 @@ async function bootstrap() {
       }),
     );
     app.useGlobalFilters(new HttpExceptionFilter());
-    app.useGlobalInterceptors(new ResponseInterceptor());
+    app.useGlobalInterceptors(new ResponseInterceptor(), new TimeoutInterceptor());
     const frontendUrl = process.env.FRONTEND_URL;
     const allowedOrigins = [
       'http://localhost:5173',

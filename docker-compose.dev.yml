@@ -28,7 +28,7 @@ services:
     image: pgvector/pgvector:pg15
     container_name: slack-postgres-dev
     restart: unless-stopped
-    command: postgres -c max_connections=300
+    command: postgres -c max_connections=1000
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -112,18 +112,87 @@ services:
       LISTEN_PORT: 6432
       AUTH_TYPE: scram-sha-256
       POOL_MODE: transaction
-      MAX_CLIENT_CONN: 1000
+      MAX_CLIENT_CONN: 2000
+      ADMIN_USERS: postgres
       # load-test-scale-plan.md — 50 (mặc định) gây "timeout exceeded when
       # trying to connect" THẬT ở mốc 300 CCU (85.67% request lỗi), dù
       # Postgres pg_stat_activity lúc đó chỉ 58/300 — nghẽn ở POOL pgbouncer,
       # không phải Postgres. Nâng lên 250 (< max_connections=300 của Postgres,
       # chừa margin cho các connection khác/admin).
-      DEFAULT_POOL_SIZE: 250
+      DEFAULT_POOL_SIZE: 800
     ports:
       - "6432:6432"
+
+  pgbouncer-exporter:
+    image: prometheuscommunity/pgbouncer-exporter
+    container_name: slack-pgbouncer-exporter-dev
+    restart: unless-stopped
+    environment:
+      PGBOUNCER_EXPORTER_CONNECTION_STRING: postgresql://postgres:postgres@pgbouncer:6432/pgbouncer?sslmode=disable
+    ports:
+      - "9127:9127"
+    depends_on:
+      - pgbouncer
+
+  redis-exporter:
+    image: oliver006/redis_exporter
+    container_name: slack-redis-exporter-dev
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis-cache:6379,redis://redis-bullmq:6379
+      REDIS_PASSWORD: 123456
+    ports:
+      - "9121:9121"
+    depends_on:
+      - redis-cache
+      - redis-bullmq
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: slack-prometheus-dev
+    restart: unless-stopped
+    ports:
+      - "9091:9090"
+    volumes:
+      - prometheus_dev_data:/prometheus
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        cat << 'EOF' > /etc/prometheus/prometheus.yml
+        global:
+          scrape_interval: 15s
+        scrape_configs:
+          - job_name: 'api-gateway'
+            static_configs:
+              - targets: ['host.docker.internal:3000']
+          - job_name: 'postgres-exporter'
+            static_configs:
+              - targets: ['postgres-exporter:9187']
+          - job_name: 'pgbouncer-exporter'
+            static_configs:
+              - targets: ['pgbouncer-exporter:9127']
+          - job_name: 'redis-exporter'
+            static_configs:
+              - targets: ['redis-exporter:9121']
+        EOF
+        exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: slack-grafana-dev
+    restart: unless-stopped
+    ports:
+      - "3005:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_dev_data:/var/lib/grafana
 
 volumes:
   postgres_dev_data:
   redis_cache_dev_data:
   redis_bullmq_dev_data:
   9router_dev_data:
+  prometheus_dev_data:
+  grafana_dev_data:

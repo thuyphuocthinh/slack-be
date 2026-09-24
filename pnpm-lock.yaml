@@ -151,7 +151,7 @@ importers:
         version: 18.1.2
       langsmith:
         specifier: ^0.7.14
-        version: 0.7.14(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.20.1)(zod@4.3.6))(ws@8.20.1)
+        version: 0.7.14(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.3)(zod@4.3.6))(ws@8.21.3)
       livekit-server-sdk:
         specifier: ^2.15.3
         version: 2.15.3
@@ -172,7 +172,7 @@ importers:
         version: 8.0.5
       openai:
         specifier: ^6.45.0
-        version: 6.45.0(ws@8.20.1)(zod@4.3.6)
+        version: 6.45.0(ws@8.21.3)(zod@4.3.6)
       opossum:
         specifier: ^9.0.0
         version: 9.0.0
@@ -227,9 +227,6 @@ importers:
       winston-transport:
         specifier: ^4.9.0
         version: 4.9.0
-      yjs:
-        specifier: ^13.6.31
-        version: 13.6.31
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -240,6 +237,9 @@ importers:
       '@eslint/js':
         specifier: ^9.18.0
         version: 9.39.4
+      '@hocuspocus/provider':
+        specifier: ^4.7.0
+        version: 4.7.0(y-protocols@1.0.7(yjs@13.6.31))(yjs@13.6.31)
       '@nestjs/cli':
         specifier: ^11.0.0
         version: 11.0.19(@swc/cli@0.8.1(@swc/core@1.15.26)(chokidar@4.0.3))(@swc/core@1.15.26)(@types/node@22.19.17)
@@ -309,6 +309,9 @@ importers:
       openapi-types:
         specifier: ^12.1.3
         version: 12.1.3
+      pidusage:
+        specifier: ^4.0.1
+        version: 4.0.1
       prettier:
         specifier: ^3.4.2
         version: 3.8.2
@@ -339,6 +342,12 @@ importers:
       typescript-eslint:
         specifier: ^8.20.0
         version: 8.58.1(eslint@9.39.4)(typescript@5.9.3)
+      ws:
+        specifier: ^8.21.3
+        version: 8.21.3
+      yjs:
+        specifier: ^13.6.31
+        version: 13.6.31
 
 packages:
 
@@ -825,6 +834,12 @@ packages:
       y-protocols: ^1.0.6
       yjs: ^13.6.8
 
+  '@hocuspocus/provider@4.7.0':
+    resolution: {integrity: sha512-BOAqoj6g4EZQ9pTwIiR7bNl1QkMAnrr8EY69jMcdhSLFtTrsKaE8hsDIEncPFnGq+khWRFCAPEJSM7F9HC7fvQ==}
+    peerDependencies:
+      y-protocols: ^1.0.6
+      yjs: ^13.6.8
+
   '@hocuspocus/server@4.1.0':
     resolution: {integrity: sha512-mp0Of76kRkK/u+9pKXPLNV4NI2Cyjql/jVnudVb0z6xAd/i7mBDTK88p1I1sNoX9yvCvhY7lQlrvVx6sMcl8Xw==}
     engines: {node: '>=22'}
@@ -1136,6 +1151,9 @@ packages:
 
   '@keyv/serialize@1.1.1':
     resolution: {integrity: sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA==}
+
+  '@lifeomic/attempt@3.1.0':
+    resolution: {integrity: sha512-QZqem4QuAnAyzfz+Gj5/+SLxqwCAw2qmt7732ZXodr6VDWGeYLG6w1i/vYLa55JQM9wRuBKLmXmiZ2P0LtE5rw==}
 
   '@livekit/protocol@1.45.8':
     resolution: {integrity: sha512-Q+l57E7w/xxOBFVWzdX5rkAZO7ffyF+rlDzNUYq2SU114+5aTyCq+PK4unaEVDNd4952Af7wteKr3sOgasGuaA==}
@@ -5611,6 +5629,10 @@ packages:
     resolution: {integrity: sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A==}
     engines: {node: '>=12'}
 
+  pidusage@4.0.1:
+    resolution: {integrity: sha512-yCH2dtLHfEBnzlHUJymR/Z1nN2ePG3m392Mv8TFlTP1B0xkpMQNHAnfkY0n2tAi6ceKO6YWhxYfZ96V4vVkh/g==}
+    engines: {node: '>=18'}
+
   pino-abstract-transport@3.0.0:
     resolution: {integrity: sha512-wlfUczU+n7Hy/Ha5j9a/gZNy7We5+cXp8YL+X+PG8S0KXxw7n/JXA3c46Y0zQznIJ83URJiwy7Lh56WLokNuxg==}
 
@@ -7084,6 +7106,18 @@ packages:
       utf-8-validate:
         optional: true
 
+  ws@8.21.3:
+    resolution: {integrity: sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   xml-naming@0.1.0:
     resolution: {integrity: sha512-k8KO9hrMyNk6tUWqUfkTEZbezRRpONVOzUTnc97VnCvyj6Tf9lyUR9EDAIeiVLv56jsMcoXEwjW8Kv5yPY52lw==}
     engines: {node: '>=16.0.0'}
@@ -7757,6 +7791,14 @@ snapshots:
       - srvx
       - supports-color
 
+  '@hocuspocus/provider@4.7.0(y-protocols@1.0.7(yjs@13.6.31))(yjs@13.6.31)':
+    dependencies:
+      '@hocuspocus/common': 4.7.0
+      '@lifeomic/attempt': 3.1.0
+      lib0: 0.2.117
+      y-protocols: 1.0.7(yjs@13.6.31)
+      yjs: 13.6.31
+
   '@hocuspocus/server@4.1.0(y-protocols@1.0.7(yjs@13.6.31))(yjs@13.6.31)':
     dependencies:
       '@hocuspocus/common': 4.1.0
@@ -8175,6 +8217,8 @@ snapshots:
     optional: true
 
   '@keyv/serialize@1.1.1': {}
+
+  '@lifeomic/attempt@3.1.0': {}
 
   '@livekit/protocol@1.45.8':
     dependencies:
@@ -12268,13 +12312,13 @@ snapshots:
 
   kuler@2.0.0: {}
 
-  langsmith@0.7.14(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.20.1)(zod@4.3.6))(ws@8.20.1):
+  langsmith@0.7.14(@opentelemetry/api@1.9.1)(openai@6.45.0(ws@8.21.3)(zod@4.3.6))(ws@8.21.3):
     dependencies:
       p-queue: 6.6.2
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
-      openai: 6.45.0(ws@8.20.1)(zod@4.3.6)
-      ws: 8.20.1
+      openai: 6.45.0(ws@8.21.3)(zod@4.3.6)
+      ws: 8.21.3
 
   lazystream@1.0.1:
     dependencies:
@@ -13264,9 +13308,9 @@ snapshots:
       is-wsl: 2.2.0
     optional: true
 
-  openai@6.45.0(ws@8.20.1)(zod@4.3.6):
+  openai@6.45.0(ws@8.21.3)(zod@4.3.6):
     optionalDependencies:
-      ws: 8.20.1
+      ws: 8.21.3
       zod: 4.3.6
 
   openapi-types@12.1.3: {}
@@ -13492,6 +13536,10 @@ snapshots:
   picomatch@2.3.2: {}
 
   picomatch@4.0.4: {}
+
+  pidusage@4.0.1:
+    dependencies:
+      safe-buffer: 5.2.1
 
   pino-abstract-transport@3.0.0:
     dependencies:
@@ -15190,6 +15238,8 @@ snapshots:
   ws@8.18.3: {}
 
   ws@8.20.1: {}
+
+  ws@8.21.3: {}
 
   xml-naming@0.1.0:
     optional: true

@@ -17,6 +17,7 @@ export * from './utils/microservice-client.util';
 export * from './utils/time.util';
 export * from './utils/db.util';
 export * from './utils/mcp.util';
+export * from './utils/circuit-breaker.util';
 
 export * from './custom_decorators/public.decorator';
 export * from './custom_decorators/role.decorator';

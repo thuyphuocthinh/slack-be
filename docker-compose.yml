@@ -114,7 +114,19 @@ services:
 
           - job_name: 'api-gateway'
             static_configs:
-              - targets: ['slack-be:3000']
+              - targets: ['host.docker.internal:3000']
+
+          - job_name: 'postgres-exporter'
+            static_configs:
+              - targets: ['postgres-exporter:9187']
+
+          - job_name: 'pgbouncer-exporter'
+            static_configs:
+              - targets: ['pgbouncer-exporter:9127']
+
+          - job_name: 'redis-exporter'
+            static_configs:
+              - targets: ['redis-exporter:9121']
 
           - job_name: 'node-exporter'
             static_configs:
@@ -162,6 +174,39 @@ services:
       # container recreate wiped the real data (API keys/config) since it lived in the
       # ephemeral layer instead of this volume.
       - 9router_data:/app/data
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter
+    container_name: slack-postgres-exporter
+    restart: always
+    environment:
+      DATA_SOURCE_NAME: postgresql://${RDS_USER}:${RDS_PASSWORD}@${RDS_ENDPOINT}:5432/postgres?sslmode=disable
+    ports:
+      - "9187:9187"
+
+  pgbouncer-exporter:
+    image: prometheuscommunity/pgbouncer-exporter
+    container_name: slack-pgbouncer-exporter
+    restart: always
+    environment:
+      PGBOUNCER_EXPORTER_CONNECTION_STRING: postgresql://${RDS_USER}:${RDS_PASSWORD}@pgbouncer:6432/pgbouncer?sslmode=disable
+    ports:
+      - "9127:9127"
+    depends_on:
+      - pgbouncer
+
+  redis-exporter:
+    image: oliver006/redis_exporter
+    container_name: slack-redis-exporter
+    restart: always
+    environment:
+      REDIS_ADDR: redis://redis-cache:6379,redis://redis-bullmq:6379
+      REDIS_PASSWORD: 123456
+    ports:
+      - "9121:9121"
+    depends_on:
+      - redis-cache
+      - redis-bullmq
 
 # Docker Volume
 volumes:

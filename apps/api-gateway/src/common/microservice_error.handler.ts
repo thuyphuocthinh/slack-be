@@ -1,5 +1,6 @@
 import { HttpException, HttpStatus, Logger } from '@nestjs/common';
-import { IMicroserviceError } from '@slack/common';
+import { IMicroserviceError, createBreaker } from '@slack/common';
+import CircuitBreaker from 'opossum';
 
 /**
  * Shared error handling utility for Gateway services
@@ -7,6 +8,32 @@ import { IMicroserviceError } from '@slack/common';
  */
 export class MicroserviceErrorHandler {
   private static readonly logger = new Logger(MicroserviceErrorHandler.name);
+  private static readonly breakers = new Map<string, CircuitBreaker>();
+
+  private static getBreaker(serviceName: string): CircuitBreaker {
+    if (!this.breakers.has(serviceName)) {
+      this.logger.log(`Creating Circuit Breaker for ${serviceName}`);
+      const breaker = createBreaker(async (op: () => Promise<any>) => op(), {
+        name: serviceName,
+        timeout: 5000,
+        errorThresholdPercentage: 50,
+        resetTimeout: 10000,
+        errorFilter: (error: any) => {
+          const rpcError = MicroserviceErrorHandler.isObject(error)
+            ? ((error.response || error) as IMicroserviceError)
+            : ({ message: String(error) } as IMicroserviceError);
+          const statusCode = MicroserviceErrorHandler.extractStatusCode(rpcError);
+          
+          if (statusCode === HttpStatus.REQUEST_TIMEOUT) return false;
+          if (statusCode >= 500) return false;
+          
+          return true; // Ignore Client errors
+        }
+      });
+      this.breakers.set(serviceName, breaker);
+    }
+    return this.breakers.get(serviceName)!;
+  }
 
   private static isObject(error: unknown): error is Record<string, unknown> {
     return typeof error === 'object' && error !== null;
@@ -278,8 +305,19 @@ export class MicroserviceErrorHandler {
     serviceName: string = 'Microservice',
   ): Promise<T> {
     try {
-      return await operation();
-    } catch (error) {
+      const breaker = this.getBreaker(serviceName);
+      return (await breaker.fire(operation)) as T;
+    } catch (error: any) {
+      if (error && (error.code === 'EOPENBREAKER' || error.type === 'open')) {
+        throw new HttpException(
+          {
+            message: `Service ${serviceName} is temporarily unavailable (Circuit Open)`,
+            code: 'SERVICE_UNAVAILABLE',
+            error: 'Service Unavailable',
+          },
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
       this.handleError(error, operationName, serviceName);
     }
   }

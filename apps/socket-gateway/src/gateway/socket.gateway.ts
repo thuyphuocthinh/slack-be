@@ -16,7 +16,7 @@ import {
 } from '@slack/cached';
 import { WebsocketExceptionsFilter } from '../common/filters/ws-exception.filter';
 import { OnModuleInit } from '@nestjs/common';
-import { createBreaker } from '../common/utils/circuit-breaker.util';
+import { createBreaker } from '@slack/common';
 import CircuitBreaker from 'opossum';
 import {
   ESocketEvent,
